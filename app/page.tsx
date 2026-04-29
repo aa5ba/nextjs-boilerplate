@@ -1,9 +1,15 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useEffect, useState } from "react"
 
 function format(n:number){
 return Number(n||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})
+}
+
+function formatCheck(n:number){
+const v=Math.round(Number(n||0)*100)/100
+if(v%1===0)return v.toLocaleString("en-US",{maximumFractionDigits:0})
+return v.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})
 }
 
 function todayHijri(){
@@ -24,8 +30,7 @@ d:Number(parts.find(p=>p.type==="day")?.value)
 
 export default function Home(){
 
-const [financeType,setFinanceType]=useState("real")
-
+const [financeType,setFinanceType]=useState("both")
 const [sector,setSector]=useState("civil")
 
 const [birthY,setBirthY]=useState("")
@@ -40,11 +45,22 @@ const [rate,setRate]=useState(3)
 const [personalMonths,setPersonalMonths]=useState(60)
 const [realMonths,setRealMonths]=useState(360)
 
+const [allowedPersonalMonths,setAllowedPersonalMonths]=useState(60)
 const [allowedRealMonths,setAllowedRealMonths]=useState(360)
 
 const [realEstateType,setRealEstateType]=useState("normal")
+const [product,setProduct]=useState("ready")
+const [supportType,setSupportType]=useState("none")
+
+const [flex,setFlex]=useState(false)
+const [flexInstallment,setFlexInstallment]=useState(500)
 
 const [result,setResult]=useState<any>(null)
+
+function maxAgeMonths(){
+if(sector==="retired") return 70*12
+return 60*12
+}
 
 function calcAgeMonths(){
 
@@ -58,21 +74,28 @@ return months
 
 }
 
-useEffect(()=>{
+function updateAllowedMonths(){
 
 if(!birthY||!birthM||!birthD) return
 
 const ageMonths=calcAgeMonths()
 
-const maxAge=sector==="retired"?70*12:60*12
+const remaining=Math.max(0,maxAgeMonths()-ageMonths)
 
-const remaining=Math.max(0,maxAge-ageMonths)
+const personalAllowed=Math.min(60,remaining)
+const realAllowed=Math.min(360,remaining)
 
-const allowed=Math.min(360,remaining)
+setAllowedPersonalMonths(personalAllowed)
+setAllowedRealMonths(realAllowed)
 
-setAllowedRealMonths(allowed)
+setPersonalMonths(personalAllowed)
+setRealMonths(realAllowed)
 
-setRealMonths(allowed)
+}
+
+useEffect(()=>{
+
+updateAllowedMonths()
 
 },[birthY,birthM,birthD,sector])
 
@@ -112,95 +135,120 @@ const ageMonths=calcAgeMonths()
 
 const ageYears=Math.floor(ageMonths/12)
 
-const maxAge=sector==="retired"?70*12:60*12
+const remainingMonths=Math.max(0,maxAgeMonths()-ageMonths)
 
-const remainingMonths=Math.max(0,maxAge-ageMonths)
+if(rate>20){
+
+setResult({accepted:false,reason:"النسبة أعلى من الحد المسموح 20%"})
+
+return
+
+}
 
 if(remainingMonths<=0){
 
-alert("العمر لا يطابق سياسات التمويل")
+setResult({accepted:false,reason:"تم الرفض بسبب العمر"})
 
 return
 
 }
 
-let personalResult=null
-let realResult=null
+let personalResult:any=null
+let realResult:any=null
+
+let personalInstallment=0
 
 if(financeType==="personal"||financeType==="both"){
 
-const allowedPersonal=Math.min(60,remainingMonths)
-
-if(personalMonths>allowedPersonal){
-
-alert("عدد الأشهر المدخلة تتجاوز المسموح")
-
-return
-
-}
-
 let ratio=sector==="retired"?0.25:0.3333
 
-let installment=salary*ratio
+personalInstallment=salary*ratio
 
-if(deductions>salary*0.1167){
+if(personalInstallment<=0){
 
-installment=salary*0.45-deductions
-
-}
-
-if(installment<=0){
-
-alert("تم الرفض بسبب الاستقطاعات")
+setResult({accepted:false,reason:"رفض بسبب الاستقطاعات"})
 
 return
 
 }
 
-personalResult=calcFinance(installment,personalMonths,0.005,2500)
+personalResult=calcFinance(personalInstallment,personalMonths,0.005,2500)
+
+if(personalResult.finance<5000){
+
+setResult({accepted:false,reason:"التمويل أقل من الحد الأدنى 5000"})
+
+return
+
+}
 
 }
 
 if(financeType==="real"||financeType==="both"){
 
-if(realMonths>allowedRealMonths){
+const ratio=salary>=15000?0.65:0.55
 
-alert("عدد الأشهر المدخلة يتجاوز المسموح")
+const maxInstallment=salary*ratio
 
-return
+const available=maxInstallment-deductions-personalInstallment
 
-}
+if(available<500){
 
-let ratio=realEstateType==="supported"?0.65:0.55
-
-let personalInstallment=personalResult?personalResult.installment:0
-
-let installmentReal=salary*ratio-deductions-personalInstallment
-
-if(installmentReal<500){
-
-alert("القسط أقل من الحد الأدنى 500")
+setResult({accepted:false,reason:"القسط أقل من الحد الأدنى"})
 
 return
 
 }
 
-realResult=calcFinance(installmentReal,realMonths,0.01,5000)
+let totalInstallments=available*realMonths
 
-if(realResult.finance>2500000){
+const r=(rate/100/12)*realMonths
 
-realResult.finance=2500000
+let finance=totalInstallments/(1+r)
 
+if(finance>2500000) finance=2500000
+
+const profit=finance*r
+
+const total=finance+profit
+
+let fee=finance*0.01
+
+if(fee>5000) fee=5000
+
+const net=finance-fee
+
+const down=product==="land"?finance*0.30:(realEstateType==="supported"?finance*0.05:finance*0.10)
+
+const support=supportType==="package"?100000:0
+
+const clientDown=Math.max(0,down-support)
+
+const propertyValue=finance+down
+
+const checkAmount=finance+support+clientDown
+
+realResult={
+installment:available,
+months:realMonths,
+finance,
+profit,
+total,
+fee,
+net,
+clientDown,
+support,
+propertyValue,
+checkAmount
 }
 
 }
 
 setResult({
 
+accepted:true,
 ageYears,
-
 personal:personalResult,
-
 real:realResult
 
 })
@@ -211,7 +259,7 @@ return(
 
 <main dir="rtl" style={{minHeight:"100vh",background:"#eef5ff",padding:16,fontFamily:"system-ui"}}>
 
-<div style={{maxWidth:520,margin:"auto"}}>
+<div style={{maxWidth:560,margin:"auto"}}>
 
 <div style={{background:"linear-gradient(135deg,#0d47a1,#1976d2)",color:"white",padding:24,borderRadius:24}}>
 
@@ -253,7 +301,7 @@ return(
 
 </div>
 
-<label>صافي الراتب</label>
+<label>الراتب</label>
 
 <input style={input} type="number" value={salary} onChange={e=>setSalary(Number(e.target.value))}/>
 
@@ -265,39 +313,6 @@ return(
 
 <input style={input} type="number" value={rate} onChange={e=>setRate(Number(e.target.value))}/>
 
-{(financeType==="personal"||financeType==="both")&&(
-
-<>
-
-<label>مدة التمويل الشخصي</label>
-
-<input style={input} type="number" value={personalMonths} onChange={e=>setPersonalMonths(Number(e.target.value))}/>
-
-</>
-
-)}
-
-{(financeType==="real"||financeType==="both")&&(
-
-<>
-
-<label>مدة التمويل العقاري (الحد {allowedRealMonths})</label>
-
-<input style={input} type="number" value={realMonths} onChange={e=>setRealMonths(Number(e.target.value))}/>
-
-<label>نوع العقاري</label>
-
-<select style={input} value={realEstateType} onChange={e=>setRealEstateType(e.target.value)}>
-
-<option value="normal">اعتيادي 55%</option>
-<option value="supported">مدعوم 65%</option>
-
-</select>
-
-</>
-
-)}
-
 <button onClick={calculate} style={button}>احسب</button>
 
 </section>
@@ -307,6 +322,20 @@ return(
 <section style={card}>
 
 <h2>النتائج</h2>
+
+{!result.accepted&&(
+
+<div style={{background:"#fee2e2",color:"#991b1b",padding:12,borderRadius:12}}>
+
+{result.reason}
+
+</div>
+
+)}
+
+{result.accepted&&(
+
+<>
 
 <Row k="العمر" v={`${result.ageYears} سنة`}/>
 
@@ -319,8 +348,6 @@ return(
 <Row k="القسط" v={`${format(result.personal.installment)} ر.س`}/>
 <Row k="مبلغ التمويل" v={`${format(result.personal.finance)} ر.س`}/>
 <Row k="الربح" v={`${format(result.personal.profit)} ر.س`}/>
-<Row k="الإجمالي" v={`${format(result.personal.total)} ر.س`}/>
-<Row k="الرسوم" v={`${format(result.personal.fee)} ر.س`}/>
 <Row k="الصافي" v={`${format(result.personal.net)} ر.س`}/>
 
 </>
@@ -336,9 +363,15 @@ return(
 <Row k="القسط" v={`${format(result.real.installment)} ر.س`}/>
 <Row k="مبلغ التمويل" v={`${format(result.real.finance)} ر.س`}/>
 <Row k="الربح" v={`${format(result.real.profit)} ر.س`}/>
-<Row k="الإجمالي" v={`${format(result.real.total)} ر.س`}/>
-<Row k="الرسوم" v={`${format(result.real.fee)} ر.س`}/>
 <Row k="الصافي" v={`${format(result.real.net)} ر.س`}/>
+<Row k="الدفعة من العميل" v={`${format(result.real.clientDown)} ر.س`}/>
+<Row k="باقة الدعم" v={`${format(result.real.support)} ر.س`}/>
+<Row k="قيمة العقار" v={`${format(result.real.propertyValue)} ر.س`}/>
+<Row k="مبلغ الشيك" v={`${formatCheck(result.real.checkAmount)} ر.س`}/>
+
+</>
+
+)}
 
 </>
 
