@@ -172,14 +172,14 @@ export default function Home() {
           </Field>
 
           {(financeType === "personal" || financeType === "both") && (
-            <Field label={`عدد الأقساط الشخصية - الحد ${allowedPersonalMonths}`}>
+            <Field label={`عدد الأقساط المتاحه للتمويل الشخصي -  ${allowedPersonalMonths}`}>
               <input style={input} type="number" value={personalMonths} onChange={e => changePersonalMonths(Number(e.target.value))} />
             </Field>
           )}
 
           {(financeType === "real" || financeType === "both") && (
             <>
-              <Field label={`عدد الأقساط العقارية - الحد ${allowedRealEstateMonths}`}>
+              <Field label={`عدد الأقساط المتاحه للتمويل العقاري -  ${allowedRealEstateMonths}`}>
                 <input style={input} type="number" value={realEstateMonths} onChange={e => changeRealMonths(Number(e.target.value))} />
               </Field>
 
