@@ -1,292 +1,225 @@
-'use client'
+"use client"
 
 import { useState } from "react"
-import { calculateAge, maxFinanceMonths, calculateFinance } from "../lib/ehtisabEngine"
+import { calculateEhtisab } from "@/lib/ehtisabEngine"
 
 export default function Home() {
 
-const [financeType,setFinanceType] = useState("personal")
+  const [financeType,setFinanceType] = useState("personal")
+  const [customerType,setCustomerType] = useState("employee")
+  const [birthDate,setBirthDate] = useState("")
+  const [salary,setSalary] = useState("")
+  const [deductions,setDeductions] = useState("")
+  const [rate,setRate] = useState("")
+  const [months,setMonths] = useState("")
 
-const [birthDate,setBirthDate] = useState("")
-const [salary,setSalary] = useState(10000)
-const [deductions,setDeductions] = useState(0)
-const [rate,setRate] = useState(3)
-const [months,setMonths] = useState(60)
-const [isRetired,setIsRetired] = useState(false)
+  const [result,setResult] = useState<any>(null)
 
-const [result,setResult] = useState<any>(null)
-const [error,setError] = useState("")
+  const handleCalculate = () => {
 
-function format(v:number){
-return Number(v || 0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})
-}
+    const res = calculateEhtisab({
 
-function calculate(){
+      financeType: financeType as any,
+      customerType: customerType as any,
+      birthDate: birthDate,
+      salary: Number(salary),
+      deductions: Number(deductions),
+      annualRate: Number(rate),
+      months: Number(months)
 
-setError("")
+    })
 
-if(!birthDate){
-setError("يرجى إدخال تاريخ الميلاد")
-return
-}
+    setResult(res)
 
-const age = calculateAge(birthDate)
+  }
 
-const maxMonths = maxFinanceMonths(age,financeType as any)
+  return (
 
-if(months > maxMonths){
-setError("عدد الأشهر المدخلة تتجاوز المسموح")
-return
-}
+    <div className="min-h-screen bg-slate-100 flex justify-center items-start p-6">
 
-const finance = calculateFinance({
+      <div className="w-full max-w-md">
 
-financeType:financeType as any,
-salary,
-deductions,
-annualRate:rate,
-months,
-isRetired
+        {/* header */}
 
-})
+        <div className="bg-blue-700 text-white rounded-3xl p-6 mb-6">
 
-setResult({
+          <h1 className="text-3xl font-bold">احتساب</h1>
 
-...finance,
-age,
-maxMonths
+          <p className="opacity-80 mt-1">
+          منصة احتساب التمويل
+          </p>
 
-})
+        </div>
 
-}
 
-const inputStyle={
-width:"100%",
-padding:"14px",
-borderRadius:"14px",
-border:"1px solid #d9e3f5",
-fontSize:"16px",
-marginTop:"6px"
-}
+        {/* inputs */}
 
-return(
+        <div className="bg-white rounded-2xl p-6 shadow">
 
-<main dir="rtl" style={{
-minHeight:"100vh",
-background:"#eef5ff",
-padding:"16px",
-fontFamily:"system-ui"
-}}>
+          <h2 className="text-lg font-bold mb-4">
+          المدخلات
+          </h2>
 
-<div style={{maxWidth:"520px",margin:"0 auto"}}>
+          {/* نوع التمويل */}
 
-<div style={{
-background:"linear-gradient(135deg,#0d47a1,#1976d2)",
-color:"white",
-borderRadius:"24px",
-padding:"28px",
-marginBottom:"20px"
-}}>
+          <label className="text-sm">نوع التمويل</label>
 
-<h1 style={{margin:0,fontSize:"32px"}}>احتساب</h1>
-<p style={{marginTop:"6px"}}>منصة احتساب التمويل</p>
+          <select
+          className="w-full border rounded-lg p-2 mb-3"
+          value={financeType}
+          onChange={(e)=>setFinanceType(e.target.value)}
+          >
 
-</div>
+            <option value="personal">تمويل شخصي</option>
+            <option value="realEstate">تمويل عقاري</option>
 
-<section style={{
-background:"white",
-borderRadius:"24px",
-padding:"20px",
-boxShadow:"0 10px 30px rgba(13,71,161,.08)"
-}}>
+          </select>
 
-<h2 style={{color:"#0d47a1"}}>المدخلات</h2>
 
-<label>نوع التمويل</label>
+          {/* نوع العميل */}
 
-<select
-value={financeType}
-onChange={(e)=>setFinanceType(e.target.value)}
-style={inputStyle}
->
+          <label className="text-sm">نوع العميل</label>
 
-<option value="personal">تمويل شخصي</option>
-<option value="realEstate">تمويل عقاري</option>
+          <select
+          className="w-full border rounded-lg p-2 mb-3"
+          value={customerType}
+          onChange={(e)=>setCustomerType(e.target.value)}
+          >
 
-</select>
+            <option value="employee">موظف</option>
+            <option value="retired">متقاعد</option>
 
-<div style={{height:12}}/>
+          </select>
 
-<label>نوع العميل</label>
 
-<select
-value={isRetired ? "retired":"employee"}
-onChange={(e)=>setIsRetired(e.target.value==="retired")}
-style={inputStyle}
->
+          {/* تاريخ الميلاد */}
 
-<option value="employee">موظف</option>
-<option value="retired">متقاعد</option>
+          <label className="text-sm">تاريخ الميلاد</label>
 
-</select>
+          <input
+          type="date"
+          className="w-full border rounded-lg p-2 mb-3"
+          value={birthDate}
+          onChange={(e)=>setBirthDate(e.target.value)}
+          />
 
-<div style={{height:12}}/>
 
-<label>تاريخ الميلاد</label>
+          {/* الراتب */}
 
-<input
-type="date"
-value={birthDate}
-onChange={(e)=>{
+          <label className="text-sm">صافي الراتب</label>
 
-setBirthDate(e.target.value)
+          <input
+          className="w-full border rounded-lg p-2 mb-3"
+          value={salary}
+          onChange={(e)=>setSalary(e.target.value)}
+          />
 
-const age = calculateAge(e.target.value)
 
-setMonths(maxFinanceMonths(age,financeType as any))
+          {/* الاستقطاعات */}
 
-}}
-style={inputStyle}
-/>
+          <label className="text-sm">الاستقطاعات</label>
 
-<div style={{height:12}}/>
+          <input
+          className="w-full border rounded-lg p-2 mb-3"
+          value={deductions}
+          onChange={(e)=>setDeductions(e.target.value)}
+          />
 
-<label>صافي الراتب</label>
 
-<input
-type="number"
-value={salary}
-onChange={(e)=>setSalary(Number(e.target.value))}
-style={inputStyle}
-/>
+          {/* النسبة */}
 
-<div style={{height:12}}/>
+          <label className="text-sm">النسبة السنوية</label>
 
-<label>الاستقطاعات</label>
+          <input
+          className="w-full border rounded-lg p-2 mb-3"
+          value={rate}
+          onChange={(e)=>setRate(e.target.value)}
+          />
 
-<input
-type="number"
-value={deductions}
-onChange={(e)=>setDeductions(Number(e.target.value))}
-style={inputStyle}
-/>
 
-<div style={{height:12}}/>
+          {/* المدة */}
 
-<label>النسبة السنوية</label>
+          <label className="text-sm">مدة التمويل بالشهور</label>
 
-<input
-type="number"
-value={rate}
-onChange={(e)=>setRate(Number(e.target.value))}
-style={inputStyle}
-/>
+          <input
+          className="w-full border rounded-lg p-2 mb-4"
+          value={months}
+          onChange={(e)=>setMonths(e.target.value)}
+          />
 
-<div style={{height:12}}/>
 
-<label>مدة التمويل بالشهور</label>
+          {/* زر الحساب */}
 
-<input
-type="number"
-value={months}
-onChange={(e)=>setMonths(Number(e.target.value))}
-style={inputStyle}
-/>
+          <button
+          onClick={handleCalculate}
+          className="w-full bg-blue-700 text-white py-3 rounded-xl text-lg"
+          >
 
-{error && (
+          احسب النتيجة
 
-<div style={{
-background:"#fee2e2",
-padding:"12px",
-borderRadius:"12px",
-marginTop:"12px",
-color:"#991b1b"
-}}>
+          </button>
 
-{error}
+        </div>
 
-</div>
 
-)}
+        {/* النتائج */}
 
-<button
-onClick={calculate}
-style={{
-width:"100%",
-padding:"16px",
-marginTop:"16px",
-background:"#0d47a1",
-color:"white",
-border:"none",
-borderRadius:"14px",
-fontSize:"18px",
-fontWeight:"bold"
-}}
->
+        {result && (
 
-احسب
+          <div className="bg-white rounded-2xl p-6 shadow mt-6">
 
-</button>
+            {!result.accepted && (
 
-</section>
+              <div className="text-red-600">
 
-{result && (
+                {result.reason}
 
-<section style={{
-background:"white",
-borderRadius:"24px",
-padding:"20px",
-marginTop:"20px",
-boxShadow:"0 10px 30px rgba(13,71,161,.08)"
-}}>
+              </div>
 
-<h2 style={{color:"#0d47a1"}}>النتائج</h2>
+            )}
 
-<Result label="العمر" value={`${result.age} سنة`}/>
 
-<Result label="القسط الشهري" value={`${format(result.installment)} ر.س`}/>
+            {result.accepted && (
 
-<Result label="مبلغ التمويل" value={`${format(result.financeAmount)} ر.س`}/>
+              <div className="space-y-2">
 
-<Result label="الربح" value={`${format(result.profit)} ر.س`}/>
+                <div>
+                مبلغ التمويل :
+                <b> {result.financeAmount.toLocaleString()} ر.س</b>
+                </div>
 
-<Result label="الإجمالي للسداد" value={`${format(result.total)} ر.س`}/>
+                <div>
+                القسط :
+                <b> {result.installment.toLocaleString()} ر.س</b>
+                </div>
 
-<Result label="الرسوم الإدارية" value={`${format(result.adminFee)} ر.س`}/>
+                <div>
+                إجمالي الربح :
+                <b> {result.profit.toLocaleString()} ر.س</b>
+                </div>
 
-<Result label="صافي التمويل" value={`${format(result.netAmount)} ر.س`}/>
+                <div>
+                الإجمالي :
+                <b> {result.total.toLocaleString()} ر.س</b>
+                </div>
 
-</section>
+                <div>
+                الرسوم الإدارية :
+                <b> {result.adminFee.toLocaleString()} ر.س</b>
+                </div>
 
-)}
+              </div>
 
-</div>
+            )}
 
-</main>
+          </div>
 
-)
+        )}
 
-}
+      </div>
 
-function Result({label,value}:{label:string,value:string}){
+    </div>
 
-return(
-
-<div style={{
-display:"flex",
-justifyContent:"space-between",
-background:"#f4f8ff",
-border:"1px solid #dce8fb",
-padding:"14px",
-borderRadius:"14px",
-marginBottom:"10px"
-}}>
-
-<span>{label}</span>
-<strong style={{color:"#0d47a1"}}>{value}</strong>
-
-</div>
-
-)
+  )
 
 }
