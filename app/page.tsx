@@ -241,7 +241,7 @@ export default function Home() {
             {result.accepted && (
               <>
                 <Row title="العمر" value={`${result.ageYears} سنة`} />
-                <Row title="تاريخ أول قسط" value={result.firstInstallmentDate} />
+             
 
                 {result.personal && (
                   <>
