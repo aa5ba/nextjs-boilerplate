@@ -118,7 +118,7 @@ export default function Home() {
       <div style={container}>
         <div style={header}>
           <h1 style={{ margin: 0 }}>احتساب</h1>
-          <p style={{ margin: "8px 0 0" }}>منصة احتساب التمويل</p>
+          <p style={{ margin: "8px 0 0" }}>منصة إحتساب التمويل المطورة</p>
         </div>
 
         <section style={card}>
@@ -126,7 +126,7 @@ export default function Home() {
             <select style={input} value={financeType} onChange={e => setFinanceType(e.target.value as FinanceType)}>
               <option value="personal">تمويل شخصي</option>
               <option value="real">تمويل عقاري</option>
-              <option value="both">شخصي + عقاري</option>
+              <option value="both">شخصي + عقاري ( مع القسط المرن )</option>
             </select>
           </Field>
 
@@ -151,7 +151,7 @@ export default function Home() {
             </Field>
           )}
 
-          <Field label="تاريخ الميلاد الهجري">
+          <Field label="تاريخ الميلاد بالهجري">
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
               <input style={input} placeholder="السنة" value={birthY} onChange={e => setBirthY(e.target.value)} />
               <input style={input} placeholder="الشهر" value={birthM} onChange={e => setBirthM(e.target.value)} />
@@ -159,15 +159,15 @@ export default function Home() {
             </div>
           </Field>
 
-          <Field label="الراتب">
+          <Field label="صافي الراتب ">
             <input style={input} type="number" value={salary} onChange={e => setSalary(Number(e.target.value))} />
           </Field>
 
-          <Field label="الاستقطاعات">
+          <Field label="الإستقطاعات الشهرية في سمه">
             <input style={input} type="number" value={deductions} onChange={e => setDeductions(Number(e.target.value))} />
           </Field>
 
-          <Field label="النسبة السنوية">
+          <Field label="هامش الربح السنوي ">
             <input style={input} type="number" value={annualRate} onChange={e => setAnnualRate(Number(e.target.value))} />
           </Field>
 
