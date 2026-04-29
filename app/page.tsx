@@ -1,59 +1,86 @@
+'use client'
+
+import { useState } from "react"
+import { calculateFinance, calculateAge, maxFinanceMonths } from "../lib/ehtisabEngine"
+
 export default function Home() {
-  return (
-    <main style={{
-      background:"#eef5ff",
-      minHeight:"100vh",
-      fontFamily:"system-ui",
-      padding:"20px"
-    }}>
 
-      <div style={{
-        background:"linear-gradient(135deg,#0d47a1,#1976d2)",
-        color:"white",
-        padding:"25px",
-        borderRadius:"20px",
-        marginBottom:"20px"
-      }}>
-        <h1 style={{fontSize:"28px"}}>احتساب</h1>
-        <p>برنامج احتساب التمويل</p>
-      </div>
+const [salary,setSalary]=useState(0)
+const [deductions,setDeductions]=useState(0)
+const [rate,setRate]=useState(3.7)
+const [birthDate,setBirthDate]=useState("")
+const [months,setMonths]=useState(0)
+const [result,setResult]=useState<any>(null)
 
-      <div style={{
-        background:"white",
-        padding:"20px",
-        borderRadius:"20px",
-        maxWidth:"500px",
-        margin:"auto"
-      }}>
+function calculate(){
 
-        <h2>المدخلات</h2>
+const age = calculateAge(birthDate)
 
-        <label>صافي الراتب</label>
-        <input style={{width:"100%",padding:"12px"}} />
+const maxMonths = maxFinanceMonths(age)
 
-        <label>الاستقطاعات</label>
-        <input style={{width:"100%",padding:"12px"}} />
+if(months > maxMonths){
+alert("عدد الاشهر المدخلة تتجاوز المسموح")
+return
+}
 
-        <label>النسبة السنوية</label>
-        <input style={{width:"100%",padding:"12px"}} />
+const finance = calculateFinance({
+salary,
+deductions,
+annualRate:rate,
+months
+})
 
-        <label>مدة التمويل</label>
-        <input style={{width:"100%",padding:"12px"}} />
+setResult(finance)
 
-        <button style={{
-          width:"100%",
-          padding:"15px",
-          marginTop:"15px",
-          background:"#0d47a1",
-          color:"white",
-          border:"none",
-          borderRadius:"10px"
-        }}>
-          احسب النتيجة
-        </button>
+}
 
-      </div>
+return (
 
-    </main>
-  );
+<div style={{maxWidth:500,margin:"auto",padding:20,fontFamily:"sans-serif"}}>
+
+<h2>احتساب</h2>
+
+<input placeholder="تاريخ الميلاد" type="date"
+onChange={(e)=>setBirthDate(e.target.value)}/>
+
+<input placeholder="صافي الراتب"
+onChange={(e)=>setSalary(Number(e.target.value))}/>
+
+<input placeholder="الاستقطاعات"
+onChange={(e)=>setDeductions(Number(e.target.value))}/>
+
+<input placeholder="النسبة السنوية"
+onChange={(e)=>setRate(Number(e.target.value))}/>
+
+<input placeholder="مدة التمويل بالشهور"
+onChange={(e)=>setMonths(Number(e.target.value))}/>
+
+<button onClick={calculate}>احسب النتيجة</button>
+
+{result && (
+
+<div>
+
+<h3>النتائج</h3>
+
+<p>مبلغ التمويل: {result.financeAmount}</p>
+
+<p>القسط الشهري: {result.installment}</p>
+
+<p>الأرباح: {result.profit}</p>
+
+<p>الرسوم الادارية: {result.adminFee}</p>
+
+<p>صافي التمويل: {result.netAmount}</p>
+
+<p>اجمالي السداد: {result.total}</p>
+
+</div>
+
+)}
+
+</div>
+
+)
+
 }
