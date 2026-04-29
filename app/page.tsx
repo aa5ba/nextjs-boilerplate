@@ -226,13 +226,18 @@ useEffect(() => {
                 </select>
               </Field>
 
-              <Field label="نوع الدعم">
-                <select style={input} value={supportType} onChange={e => setSupportType(e.target.value as SupportType)}>
-                  <option value="none">بدون</option>
-                  <option value="monthly">دعم شهري</option>
-                  <option value="package">باقة الدفعة المقدمة</option>
-                </select>
-              </Field>
+              
+{realEstateType === "supported" && (
+  <Field label="نوع الدعم">
+    <select style={input} value={supportType} onChange={e => setSupportType(e.target.value as SupportType)}>
+      <option value="none">بدون</option>
+      <option value="monthly">دعم شهري</option>
+      <option value="package">باقة الدفعة المقدمة</option>
+    </select>
+  </Field>
+)}
+
+
 
               <Field label="البنك (اختياري)">
                 <select style={input} value={bank} onChange={e => setBank(e.target.value)}>
