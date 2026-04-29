@@ -216,9 +216,6 @@ useEffect(() => {
                   <option value="supported">مدعوم</option>
                 </select>
               </Field>
-              {realEstateType === "supported" && (
-
-)}
 
               <Field label="منتج العقاري">
                 <select style={input} value={product} onChange={e => setProduct(e.target.value as Product)}>
