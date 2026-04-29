@@ -75,7 +75,12 @@ export default function Home() {
     setRealEstateMonths(realAllowed)
 
   }, [birthY, birthM, birthD, sector, rank])
-
+  
+useEffect(() => {
+  if (realEstateType !== "supported") {
+    setSupportType("none")
+  }
+}, [realEstateType])
 
   function handleCalculate() {
 
