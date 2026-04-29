@@ -22,6 +22,7 @@ function money(n: number) {
 }
 
 export default function Home() {
+
   const [financeType, setFinanceType] = useState<FinanceType>("personal")
   const [sector, setSector] = useState<Sector>("civil")
   const [rank, setRank] = useState<Rank>("agent")
@@ -32,7 +33,9 @@ export default function Home() {
 
   const [salary, setSalary] = useState(0)
   const [deductions, setDeductions] = useState(0)
-  const [annualRate, setAnnualRate] = useState(0)
+
+  const [personalAnnualRate, setPersonalAnnualRate] = useState(0)
+  const [realEstateAnnualRate, setRealEstateAnnualRate] = useState(0)
 
   const [personalMonths, setPersonalMonths] = useState(0)
   const [realEstateMonths, setRealEstateMonths] = useState(0)
@@ -51,6 +54,7 @@ export default function Home() {
   const [result, setResult] = useState<EhtisabResult | null>(null)
 
   useEffect(() => {
+
     if (!birthY || !birthM || !birthD) return
 
     const ageMonths = calculateHijriAgeMonths(
@@ -69,9 +73,12 @@ export default function Home() {
 
     setPersonalMonths(personalAllowed)
     setRealEstateMonths(realAllowed)
+
   }, [birthY, birthM, birthD, sector, rank])
 
+
   function handleCalculate() {
+
     const res = calculateEhtisab({
       financeType,
       sector,
@@ -81,7 +88,8 @@ export default function Home() {
       birthHijriDay: Number(birthD),
       salary,
       deductions,
-      annualRate,
+      personalAnnualRate,
+      realEstateAnnualRate,
       personalMonths,
       realEstateMonths,
       realEstateType,
@@ -96,32 +104,38 @@ export default function Home() {
   }
 
   function changePersonalMonths(value: number) {
+
     if (value > allowedPersonalMonths) {
       alert("عدد الأشهر المدخلة يتجاوز المسموح")
       setPersonalMonths(allowedPersonalMonths)
       return
     }
+
     setPersonalMonths(value)
   }
 
   function changeRealMonths(value: number) {
+
     if (value > allowedRealEstateMonths) {
       alert("عدد الأشهر المدخلة يتجاوز المسموح")
       setRealEstateMonths(allowedRealEstateMonths)
       return
     }
+
     setRealEstateMonths(value)
   }
 
   return (
     <main dir="rtl" style={page}>
       <div style={container}>
+
         <div style={header}>
           <h1 style={{ margin: 0 }}>احتساب</h1>
           <p style={{ margin: "8px 0 0" }}>منصة إحتساب التمويل المطورة</p>
         </div>
 
         <section style={card}>
+
           <Field label="نوع التمويل">
             <select style={input} value={financeType} onChange={e => setFinanceType(e.target.value as FinanceType)}>
               <option value="personal">تمويل شخصي</option>
@@ -167,9 +181,17 @@ export default function Home() {
             <input style={input} type="number" value={deductions} onChange={e => setDeductions(Number(e.target.value))} />
           </Field>
 
-          <Field label="هامش الربح السنوي ">
-            <input style={input} type="number" value={annualRate} onChange={e => setAnnualRate(Number(e.target.value))} />
-          </Field>
+          {(financeType === "personal" || financeType === "both") && (
+            <Field label="هامش الربح السنوي للتمويل الشخصي">
+              <input style={input} type="number" value={personalAnnualRate} onChange={e => setPersonalAnnualRate(Number(e.target.value))} />
+            </Field>
+          )}
+
+          {(financeType === "real" || financeType === "both") && (
+            <Field label="هامش الربح السنوي للتمويل العقاري">
+              <input style={input} type="number" value={realEstateAnnualRate} onChange={e => setRealEstateAnnualRate(Number(e.target.value))} />
+            </Field>
+          )}
 
           {(financeType === "personal" || financeType === "both") && (
             <Field label={`عدد الأقساط المتاحه للتمويل الشخصي -  ${allowedPersonalMonths}`}>
@@ -207,31 +229,28 @@ export default function Home() {
                 </select>
               </Field>
 
-              <Field label="البنك">
-                <input style={input} value={bank} onChange={e => setBank(e.target.value)} placeholder="مثال: البنك الأهلي السعودي" />
+              <Field label="البنك (اختياري)">
+                <select style={input} value={bank} onChange={e => setBank(e.target.value)}>
+                  <option value="">بدون تحديد</option>
+                  <option value="البنك الأهلي السعودي">البنك الأهلي السعودي</option>
+                  <option value="مصرف الراجحي">مصرف الراجحي</option>
+                  <option value="بنك الرياض">بنك الرياض</option>
+                  <option value="مصرف الإنماء">مصرف الإنماء</option>
+                  <option value="بنك البلاد">بنك البلاد</option>
+                  <option value="البنك السعودي الفرنسي">البنك السعودي الفرنسي</option>
+                  <option value="ساب">ساب</option>
+                </select>
               </Field>
             </>
           )}
 
-          {financeType === "both" && (
-            <>
-              <label style={{ display: "block", marginTop: 14 }}>
-                <input type="checkbox" checked={flexEnabled} onChange={e => setFlexEnabled(e.target.checked)} /> تفعيل القسط المرن
-              </label>
-
-              {flexEnabled && (
-                <Field label="قسط الفترة الأولى للمرن">
-                  <input style={input} type="number" value={flexFirstInstallment} onChange={e => setFlexFirstInstallment(Number(e.target.value))} />
-                </Field>
-              )}
-            </>
-          )}
-
           <button style={button} onClick={handleCalculate}>احسب</button>
+
         </section>
 
         {result && (
           <section style={card}>
+
             <h2 style={{ color: "#0d47a1", marginTop: 0 }}>النتائج</h2>
 
             {!result.accepted && (
@@ -241,45 +260,12 @@ export default function Home() {
             {result.accepted && (
               <>
                 <Row title="العمر" value={`${result.ageYears} سنة`} />
-             
-
-                {result.personal && (
-                  <>
-                    <h3>التمويل الشخصي</h3>
-                    <Row title="عدد الأقساط" value={`${result.personal.months} شهر`} />
-                    <Row title="القسط" value={`${money(result.personal.installment)} ر.س`} />
-                    <Row title="مبلغ التمويل" value={`${money(result.personal.financeAmount)} ر.س`} />
-                    <Row title="الربح" value={`${money(result.personal.profit)} ر.س`} />
-                    <Row title="الإجمالي" value={`${money(result.personal.total)} ر.س`} />
-                    <Row title="الرسوم" value={`${money(result.personal.fee)} ر.س`} />
-                    <Row title="الصافي" value={`${money(result.personal.net)} ر.س`} />
-                  </>
-                )}
-
-                {result.realEstate && (
-                  <>
-                    <h3>التمويل العقاري</h3>
-                    <Row title="عدد الأقساط" value={`${result.realEstate.months} شهر`} />
-                    <Row title="نسبة القسط العقاري" value={`${Math.round(result.realEstate.ratio * 100)}%`} />
-                    <Row title="قسط الفترة الأولى" value={`${money(result.realEstate.firstInstallment)} ر.س`} />
-                    {result.realEstate.secondMonths > 0 && (
-                      <Row title="قسط الفترة الثانية" value={`${money(result.realEstate.secondInstallment)} ر.س`} />
-                    )}
-                    <Row title="مبلغ التمويل" value={`${money(result.realEstate.financeAmount)} ر.س`} />
-                    <Row title="الربح" value={`${money(result.realEstate.profit)} ر.س`} />
-                    <Row title="الإجمالي" value={`${money(result.realEstate.total)} ر.س`} />
-                    <Row title="الرسوم" value={`${money(result.realEstate.fee)} ر.س`} />
-                    <Row title="الصافي" value={`${money(result.realEstate.net)} ر.س`} />
-                    <Row title="مبلغ الدفعة المقدمة من العميل" value={`${money(result.realEstate.clientDownPayment)} ر.س`} />
-                    <Row title="باقة الدفعة المقدمة" value={`${money(result.realEstate.supportPackage)} ر.س`} />
-                    <Row title="قيمة العقار" value={`${money(result.realEstate.propertyValue)} ر.س`} />
-                    <Row title="مبلغ الشيك" value={`${money(result.realEstate.checkAmount)} ر.س`} />
-                  </>
-                )}
               </>
             )}
+
           </section>
         )}
+
       </div>
     </main>
   )
