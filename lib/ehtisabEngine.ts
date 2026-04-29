@@ -110,7 +110,7 @@ export function calculateHijriAgeMonths(year: number, month: number, day: number
 }
 
 export function getMaxAgeMonths(sector: Sector, rank: Rank = "agent") {
-  if (sector === "retired") return 70 * 12
+  if (sector === "retired") return 75 * 12
   if (sector === "military") return MILITARY_MAX_AGE_MONTHS[rank]
   return 60 * 12
 }
