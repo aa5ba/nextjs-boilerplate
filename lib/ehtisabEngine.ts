@@ -1,58 +1,84 @@
 export function calculateAge(birthDate: string) {
-  const today = new Date();
-  const birth = new Date(birthDate);
 
-  let age = today.getFullYear() - birth.getFullYear();
-  const m = today.getMonth() - birth.getMonth();
+  const today = new Date()
+  const birth = new Date(birthDate)
+
+  let age = today.getFullYear() - birth.getFullYear()
+
+  const m = today.getMonth() - birth.getMonth()
 
   if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
-    age--;
+    age--
   }
 
-  return age;
+  return age
 }
 
-export function maxFinanceMonths(age: number) {
-  const maxAge = 60;
-  const remainingYears = maxAge - age;
+export function maxFinanceMonths(age:number){
 
-  if (remainingYears <= 0) return 0;
+  const maxAge = 60
 
-  return remainingYears * 12;
+  const remainingYears = maxAge - age
+
+  if(remainingYears <= 0) return 0
+
+  const remainingMonths = remainingYears * 12
+
+  return Math.min(remainingMonths,60)
+
 }
 
 export function calculateFinance({
-  salary,
-  deductions,
-  annualRate,
-  months
-}: {
-  salary: number;
-  deductions: number;
-  annualRate: number;
-  months: number;
-}) {
+salary,
+deductions,
+annualRate,
+months,
+isRetired
+}:{
+salary:number
+deductions:number
+annualRate:number
+months:number
+isRetired:boolean
+}){
 
-  const available = salary - deductions;
+const available = salary - deductions
 
-  const installment = available * 0.33;
+const ratio = isRetired ? 0.25 : 0.33
 
-  const totalInstallments = installment * months;
+const installment = available * ratio
 
-  const profit = totalInstallments * (annualRate / 100);
+const totalInstallments = installment * months
 
-  const financeAmount = totalInstallments - profit;
+// النسبة الشهرية
 
-  const adminFee = financeAmount * 0.005;
+const monthlyRate = annualRate / 12 / 100
 
-  const netAmount = financeAmount - adminFee;
+// النسبة الكلية حسب الشهور
 
-  return {
-    installment,
-    financeAmount,
-    profit,
-    adminFee,
-    netAmount,
-    total: totalInstallments
-  };
+const totalRate = monthlyRate * months
+
+// مبلغ التمويل حسب طريقتنا
+
+const financeAmount = totalInstallments / (1 + totalRate)
+
+const profit = financeAmount * totalRate
+
+const total = financeAmount + profit
+
+const adminFee = financeAmount * 0.005
+
+const netAmount = financeAmount - adminFee
+
+return{
+
+installment,
+financeAmount,
+profit,
+adminFee,
+netAmount,
+total
+
+}
+
 }
