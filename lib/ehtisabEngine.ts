@@ -16,7 +16,9 @@ export type EhtisabInput = {
 
   salary: number
   deductions: number
-  annualRate: number
+
+  personalAnnualRate: number
+  realEstateAnnualRate: number
 
   personalMonths: number
   realEstateMonths: number
@@ -279,11 +281,11 @@ export function calculateEhtisab(input: EhtisabInput): EhtisabResult {
     return reject("يرجى إدخال تاريخ الميلاد الهجري")
   }
 
-  if (input.annualRate > 20) {
+  if (input.personalAnnualRate > 20 || input.realEstateAnnualRate > 20) {
     return reject("النسبة أعلى من الحد المسموح 20%")
   }
 
-  if (input.annualRate < 0) {
+  if (input.personalAnnualRate < 0 || input.realEstateAnnualRate < 0) {
     return reject("النسبة السنوية غير صحيحة")
   }
 
@@ -346,7 +348,7 @@ export function calculateEhtisab(input: EhtisabInput): EhtisabResult {
 
     personal = calculateFromInstallment(
       personalInstallment,
-      input.annualRate,
+      input.personalAnnualRate,
       input.personalMonths,
       0.005,
       2500
@@ -421,7 +423,7 @@ export function calculateEhtisab(input: EhtisabInput): EhtisabResult {
 
     const calculated = calculateFromTotalInstallments(
       totalInstallments,
-      input.annualRate,
+      input.realEstateAnnualRate,
       input.realEstateMonths,
       0.01,
       5000
@@ -443,7 +445,7 @@ export function calculateEhtisab(input: EhtisabInput): EhtisabResult {
       )
     }
 
-    const totalRate = getTotalRate(input.annualRate, input.realEstateMonths)
+    const totalRate = getTotalRate(input.realEstateAnnualRate, input.realEstateMonths)
     const profit = financeAmount * totalRate
     const total = financeAmount + profit
     const fee = Math.min(financeAmount * 0.01, 5000)
