@@ -136,7 +136,7 @@ useEffect(() => {
 
         <div style={header}>
           <h1 style={{ margin: 0 }}>احتساب</h1>
-          <p style={{ margin: "8px 0 0" }}>منصة إحتساب التمويل المطورة</p>
+          <p style={{ margin: "8px 0 0" }}>منصة إحتساب التمويل المطوره وفق مبادئ التمويل المسؤول حسب تعليمات البنك المركزي </p>
         </div>
 
         <section style={card}>
