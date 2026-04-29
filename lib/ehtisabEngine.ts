@@ -1,203 +1,506 @@
-export type FinanceType = "personal" | "realEstate" | "both"
-export type CustomerType = "employee" | "retired"
-export type RealEstateType = "supported" | "normal"
-export type RealEstateProduct = "ready" | "selfBuild" | "land" | "mortgage"
-export type SupportType = "none" | "monthly" | "downPaymentPackage"
+export type FinanceType = "personal" | "real" | "both"
+export type Sector = "civil" | "private" | "military" | "retired"
+export type Rank = "soldier" | "corporal" | "agent" | "sergeant" | "chief"
+export type RealEstateType = "normal" | "supported"
+export type Product = "ready" | "selfBuild" | "land" | "mortgage"
+export type SupportType = "none" | "monthly" | "package"
 
-export function calculateAge(birthDate: string) {
-  const today = new Date()
-  const birth = new Date(birthDate)
-  let age = today.getFullYear() - birth.getFullYear()
-  const m = today.getMonth() - birth.getMonth()
-  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--
-  return age
-}
-
-function money(v: number) {
-  return Math.round((v + Number.EPSILON) * 100) / 100
-}
-
-function zero(reason: string) {
-  return {
-    accepted: false,
-    reason,
-    installment: 0,
-    financeAmount: 0,
-    profit: 0,
-    total: 0,
-    adminFee: 0,
-    netAmount: 0,
-    checkAmount: 0,
-    downPayment: 0,
-    supportPackage: 0,
-    propertyValue: 0,
-    months: 0,
-  }
-}
-
-export function maxMonths(age: number, financeType: FinanceType, customerType: CustomerType) {
-  const maxAge = customerType === "retired" ? 70 : 60
-  const ageMonthsLeft = Math.max(0, (maxAge - age) * 12)
-
-  if (financeType === "personal") return Math.min(60, ageMonthsLeft)
-  if (financeType === "realEstate") return Math.min(360, ageMonthsLeft)
-  return Math.min(360, ageMonthsLeft)
-}
-
-export function calculateByInstallment({
-  installment,
-  annualRate,
-  months,
-  adminRate,
-  adminCap,
-}: {
-  installment: number
-  annualRate: number
-  months: number
-  adminRate: number
-  adminCap: number
-}) {
-  const totalInstallments = installment * months
-  const monthlyRate = annualRate / 12 / 100
-  const totalRate = monthlyRate * months
-
-  const financeAmount = totalInstallments / (1 + totalRate)
-  const profit = financeAmount * totalRate
-  const total = financeAmount + profit
-  const adminFee = Math.min(financeAmount * adminRate, adminCap)
-  const netAmount = financeAmount - adminFee
-
-  return {
-    installment: money(installment),
-    financeAmount: money(financeAmount),
-    profit: money(profit),
-    total: money(total),
-    adminFee: money(adminFee),
-    netAmount: money(netAmount),
-  }
-}
-
-export function calculateEhtisab(input: {
+export type EhtisabInput = {
   financeType: FinanceType
-  customerType: CustomerType
-  birthDate: string
+  sector: Sector
+  rank?: Rank
+
+  birthHijriYear: number
+  birthHijriMonth: number
+  birthHijriDay: number
+
   salary: number
   deductions: number
   annualRate: number
-  months: number
+
+  personalMonths: number
+  realEstateMonths: number
 
   realEstateType?: RealEstateType
-  realEstateProduct?: RealEstateProduct
+  product?: Product
   supportType?: SupportType
   bank?: string
-}) {
-  const age = calculateAge(input.birthDate)
-  const allowedMonths = maxMonths(age, input.financeType, input.customerType)
 
-  if (!input.birthDate) return zero("يرجى إدخال تاريخ الميلاد")
-  if (allowedMonths <= 0) return zero("تم الرفض بسبب أن العمر لا يطابق سياسات التمويل.")
-  if (input.months > allowedMonths) return zero("عدد الأشهر المدخلة يتجاوز المسموح.")
-  if (input.annualRate > 20) return zero("النسبة أعلى من الحد المسموح 20%.")
+  flexEnabled?: boolean
+  flexFirstInstallment?: number
+}
 
-  const availableSalary = Math.max(0, input.salary - input.deductions)
+export type RejectResult = {
+  accepted: false
+  reason: string
+}
 
-  if (input.financeType === "personal") {
-    const ratio = input.customerType === "retired" ? 0.25 : 0.3333
-    const installment = availableSalary * ratio
+export type FinanceBlock = {
+  months: number
+  installment: number
+  financeAmount: number
+  profit: number
+  total: number
+  fee: number
+  net: number
+}
 
-    if (input.months < 6) return zero("المدة أقل من الحد الأدنى 6 أشهر.")
+export type RealEstateBlock = FinanceBlock & {
+  ratio: number
+  firstMonths: number
+  secondMonths: number
+  firstInstallment: number
+  secondInstallment: number
+  requiredDownPayment: number
+  clientDownPayment: number
+  supportPackage: number
+  propertyValue: number
+  checkAmount: number
+}
 
-    const result = calculateByInstallment({
-      installment,
-      annualRate: input.annualRate,
-      months: input.months,
-      adminRate: 0.005,
-      adminCap: 2500,
-    })
+export type AcceptResult = {
+  accepted: true
+  ageYears: number
+  ageMonths: number
+  allowedPersonalMonths: number
+  allowedRealEstateMonths: number
+  firstInstallmentDate: string
+  personal?: FinanceBlock
+  realEstate?: RealEstateBlock
+}
 
-    if (result.financeAmount < 5000) {
-      return zero("التمويل أقل من الحد الأدنى المسموح 5000")
-    }
+export type EhtisabResult = RejectResult | AcceptResult
 
-    return {
-      accepted: true,
-      reason: "",
-      ...result,
-      checkAmount: 0,
-      downPayment: 0,
-      supportPackage: 0,
-      propertyValue: 0,
-      months: input.months,
-      age,
-      allowedMonths,
-    }
+const MILITARY_MAX_AGE_MONTHS: Record<Rank, number> = {
+  soldier: 44 * 12,
+  corporal: 46 * 12,
+  agent: 48 * 12,
+  sergeant: 50 * 12,
+  chief: 52 * 12,
+}
+
+function reject(reason: string): RejectResult {
+  return { accepted: false, reason }
+}
+
+export function todayHijri() {
+  const parts = new Intl.DateTimeFormat("en-u-ca-islamic-umalqura", {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).formatToParts(new Date())
+
+  return {
+    year: Number(parts.find((p) => p.type === "year")?.value || 0),
+    month: Number(parts.find((p) => p.type === "month")?.value || 0),
+    day: Number(parts.find((p) => p.type === "day")?.value || 0),
+  }
+}
+
+export function calculateHijriAgeMonths(year: number, month: number, day: number) {
+  const today = todayHijri()
+
+  let months = (today.year - year) * 12 + (today.month - month)
+
+  if (today.day < day) {
+    months -= 1
   }
 
-  const supportType = input.supportType ?? "none"
-  const realEstateType = input.realEstateType ?? "normal"
-  const product = input.realEstateProduct ?? "ready"
+  return months
+}
 
-  if (product === "mortgage" && realEstateType === "supported") {
-    return zero("الرهن العقاري متاح للاعتيادي فقط.")
+export function getMaxAgeMonths(sector: Sector, rank: Rank = "agent") {
+  if (sector === "retired") return 70 * 12
+  if (sector === "military") return MILITARY_MAX_AGE_MONTHS[rank]
+  return 60 * 12
+}
+
+export function getMinAgeMonths(sector: Sector) {
+  return sector === "military" ? 21 * 12 : 18 * 12
+}
+
+export function getPersonalMinSalary(sector: Sector) {
+  if (sector === "private") return 7000
+  if (sector === "military") return 4000
+  if (sector === "retired") return 2000
+  return 3000
+}
+
+export function getRealEstateMinSalary(sector: Sector) {
+  if (sector === "private") return 7000
+  return 5000
+}
+
+export function getFirstInstallmentDate(sector: Sector) {
+  const today = new Date()
+  const day = today.getDate()
+
+  if (sector !== "retired") {
+    if (day < 22) return new Date(today.getFullYear(), today.getMonth(), 27)
+    return new Date(today.getFullYear(), today.getMonth() + 1, 27)
   }
 
-  if (input.months < 24) return zero("المدة أقل من الحد الأدنى 24 شهر.")
+  if (day < 22) return new Date(today.getFullYear(), today.getMonth() + 1, 1)
+  return new Date(today.getFullYear(), today.getMonth() + 2, 1)
+}
 
-  let ratio = 0.55
-
-  if (realEstateType === "supported" && supportType === "monthly") ratio = 0.65
-  else ratio = input.salary >= 15000 ? 0.65 : 0.55
-
-  const installment = availableSalary * ratio
-
-  if (installment < 500) return zero("القسط أقل من الحد الأدنى.")
-
-  const result = calculateByInstallment({
-    installment,
-    annualRate: input.annualRate,
-    months: input.months,
-    adminRate: 0.01,
-    adminCap: 5000,
+export function formatGregorianDate(date: Date) {
+  return date.toLocaleDateString("ar-SA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   })
+}
 
-  if (result.financeAmount > 2500000) {
-    result.financeAmount = 2500000
+export function getTotalRate(annualRate: number, months: number) {
+  return (annualRate / 100 / 12) * months
+}
+
+export function calculateFromTotalInstallments(
+  totalInstallments: number,
+  annualRate: number,
+  months: number,
+  feeRate: number,
+  feeCap: number
+) {
+  const totalRate = getTotalRate(annualRate, months)
+  const financeAmount = totalInstallments / (1 + totalRate)
+  const profit = financeAmount * totalRate
+  const total = financeAmount + profit
+  const fee = Math.min(financeAmount * feeRate, feeCap)
+  const net = financeAmount - fee
+
+  return {
+    financeAmount,
+    profit,
+    total,
+    fee,
+    net,
+  }
+}
+
+export function calculateFromInstallment(
+  installment: number,
+  annualRate: number,
+  months: number,
+  feeRate: number,
+  feeCap: number
+): FinanceBlock {
+  return {
+    months,
+    installment,
+    ...calculateFromTotalInstallments(
+      installment * months,
+      annualRate,
+      months,
+      feeRate,
+      feeCap
+    ),
+  }
+}
+
+export function getRealEstateRatio(
+  realEstateType: RealEstateType,
+  supportType: SupportType,
+  salary: number
+) {
+  if (realEstateType === "supported" && supportType === "monthly") return 0.65
+  if (realEstateType === "supported" && supportType === "package") {
+    return salary >= 15000 ? 0.65 : 0.55
   }
 
-  if ((product === "selfBuild" || product === "land") && result.financeAmount < 100000) {
-    return zero("التمويل أقل من الحد الأدنى المسموح به 100,000 للبناء الذاتي / تمويل شراء أرض")
+  return salary >= 15000 ? 0.65 : 0.55
+}
+
+export function getMinRealEstateFinance(product: Product) {
+  if (product === "selfBuild" || product === "land") return 100000
+  return 200000
+}
+
+export function getRequiredDownPayment(
+  product: Product,
+  realEstateType: RealEstateType,
+  financeAmount: number
+) {
+  if (product === "ready") {
+    return realEstateType === "supported"
+      ? financeAmount * 0.05
+      : financeAmount * 0.10
   }
 
-  if ((product === "ready" || product === "mortgage") && result.financeAmount < 200000) {
-    return zero("التمويل أقل من الحد الأدنى المسموح 200,000 لمنتجات شراء وحدة جاهزة / تمويل رهن عقاري")
+  if (product === "land") {
+    return financeAmount * 0.30
   }
 
-  let requiredDownPayment = 0
-  if (product === "ready") requiredDownPayment = realEstateType === "supported" ? result.financeAmount * 0.05 : result.financeAmount * 0.10
-  if (product === "land") requiredDownPayment = result.financeAmount * 0.30
+  return 0
+}
 
-  let supportPackage = 0
-  if (realEstateType === "supported" && supportType === "downPaymentPackage") {
-    if (!input.bank?.includes("الأهلي")) {
-      return zero("البنك المحدد لا يوفر هذا الخيار.")
+export function getSupportPackage(
+  realEstateType: RealEstateType,
+  supportType: SupportType,
+  bank: string,
+  salary: number
+) {
+  if (supportType !== "package") {
+    return { ok: true, amount: 0, reason: "" }
+  }
+
+  if (realEstateType !== "supported") {
+    return {
+      ok: false,
+      amount: 0,
+      reason: "باقة الدفعة المقدمة متاحة للتمويل العقاري المدعوم فقط",
     }
-    supportPackage = input.salary < 10000 ? 150000 : 100000
   }
 
-  const downPayment = Math.max(0, requiredDownPayment - supportPackage)
-  const propertyValue = result.financeAmount + requiredDownPayment
-  const checkAmount = result.financeAmount + supportPackage + downPayment
+  if (!bank.includes("الأهلي")) {
+    return {
+      ok: false,
+      amount: 0,
+      reason: "البنك المحدد لا يوفر هذا الخيار",
+    }
+  }
+
+  return {
+    ok: true,
+    amount: salary < 10000 ? 150000 : 100000,
+    reason: "",
+  }
+}
+
+export function calculateEhtisab(input: EhtisabInput): EhtisabResult {
+  const rank = input.rank || "agent"
+  const realEstateType = input.realEstateType || "normal"
+  const product = input.product || "ready"
+  const supportType = input.supportType || "none"
+  const bank = input.bank || ""
+
+  if (!input.birthHijriYear || !input.birthHijriMonth || !input.birthHijriDay) {
+    return reject("يرجى إدخال تاريخ الميلاد الهجري")
+  }
+
+  if (input.annualRate > 20) {
+    return reject("النسبة أعلى من الحد المسموح 20%")
+  }
+
+  if (input.annualRate < 0) {
+    return reject("النسبة السنوية غير صحيحة")
+  }
+
+  const ageMonths = calculateHijriAgeMonths(
+    input.birthHijriYear,
+    input.birthHijriMonth,
+    input.birthHijriDay
+  )
+
+  const ageYears = Math.floor(ageMonths / 12)
+  const maxAgeMonths = getMaxAgeMonths(input.sector, rank)
+  const minAgeMonths = getMinAgeMonths(input.sector)
+  const remainingMonths = Math.max(0, maxAgeMonths - ageMonths)
+
+  const allowedPersonalMonths = Math.min(60, remainingMonths)
+  const allowedRealEstateMonths = Math.min(360, remainingMonths)
+
+  if (ageMonths < minAgeMonths || remainingMonths <= 0) {
+    return reject("تم الرفض بسبب أن العمر لا يطابق سياسات التمويل")
+  }
+
+  if (
+    (input.financeType === "personal" || input.financeType === "both") &&
+    input.salary < getPersonalMinSalary(input.sector)
+  ) {
+    return reject("تم الرفض بسبب أن الراتب أقل من الحد الأدنى للسياسات التمويلية")
+  }
+
+  if (
+    (input.financeType === "real" || input.financeType === "both") &&
+    input.salary < getRealEstateMinSalary(input.sector)
+  ) {
+    return reject("تم الرفض بسبب أن الراتب أقل من الحد الأدنى للسياسات التمويلية")
+  }
+
+  let personal: FinanceBlock | undefined
+  let personalInstallment = 0
+
+  if (input.financeType === "personal" || input.financeType === "both") {
+    if (input.personalMonths > allowedPersonalMonths) {
+      return reject("عدد الأشهر المدخلة يتجاوز المسموح")
+    }
+
+    if (input.personalMonths < 6) {
+      return reject("المدة أقل من الحد الأدنى 6 أشهر")
+    }
+
+    const ratio = input.sector === "retired" ? 0.25 : 0.3333
+    const deductionThreshold = input.sector === "retired" ? 0.20 : 0.1167
+
+    personalInstallment = input.salary * ratio
+
+    if (input.deductions > input.salary * deductionThreshold) {
+      personalInstallment = input.salary * 0.45 - input.deductions
+    }
+
+    if (personalInstallment <= 0) {
+      return reject("تم الرفض بسبب تجاوز الاستقطاعات سياسات التمويل")
+    }
+
+    personal = calculateFromInstallment(
+      personalInstallment,
+      input.annualRate,
+      input.personalMonths,
+      0.005,
+      2500
+    )
+
+    if (personal.financeAmount < 5000) {
+      return reject("التمويل أقل من الحد الأدنى المسموح 5000")
+    }
+  }
+
+  let realEstate: RealEstateBlock | undefined
+
+  if (input.financeType === "real" || input.financeType === "both") {
+    if (product === "mortgage" && realEstateType === "supported") {
+      return reject("الرهن العقاري متاح للاعتيادي فقط")
+    }
+
+    if (input.realEstateMonths > allowedRealEstateMonths) {
+      return reject("عدد الأشهر المدخلة يتجاوز المسموح")
+    }
+
+    if (input.realEstateMonths < 24) {
+      return reject("المدة أقل من الحد الأدنى 24 شهر")
+    }
+
+    const ratio = getRealEstateRatio(realEstateType, supportType, input.salary)
+    const maxRealEstateInstallment = input.salary * ratio
+
+    const firstAvailable =
+      maxRealEstateInstallment -
+      input.deductions -
+      (input.financeType === "both" ? personalInstallment : 0)
+
+    const secondAvailable =
+      maxRealEstateInstallment -
+      input.deductions
+
+    if (firstAvailable < 500) {
+      return reject("القسط أقل من الحد الأدنى")
+    }
+
+    let firstMonths = input.realEstateMonths
+    let secondMonths = 0
+    let firstInstallment = firstAvailable
+    let secondInstallment = 0
+    let totalInstallments = 0
+
+    if (input.financeType === "both") {
+      firstMonths = Math.min(input.personalMonths, 60, input.realEstateMonths)
+      secondMonths = input.realEstateMonths - firstMonths
+
+      if (input.flexEnabled) {
+        firstInstallment = input.flexFirstInstallment || 0
+
+        if (firstInstallment < 500) {
+          return reject("القسط أقل من الحد الأدنى المسموح")
+        }
+
+        if (firstInstallment > firstAvailable) {
+          return reject("القسط المرن أعلى من المتاح")
+        }
+      }
+
+      secondInstallment = secondMonths > 0 ? secondAvailable : 0
+
+      totalInstallments =
+        firstInstallment * firstMonths +
+        secondInstallment * secondMonths
+    } else {
+      totalInstallments = firstAvailable * input.realEstateMonths
+    }
+
+    const calculated = calculateFromTotalInstallments(
+      totalInstallments,
+      input.annualRate,
+      input.realEstateMonths,
+      0.01,
+      5000
+    )
+
+    let financeAmount = calculated.financeAmount
+
+    if (financeAmount > 2500000) {
+      financeAmount = 2500000
+    }
+
+    const minimumFinance = getMinRealEstateFinance(product)
+
+    if (financeAmount < minimumFinance) {
+      return reject(
+        minimumFinance === 100000
+          ? "التمويل أقل من الحد الأدنى المسموح به 100,000 للبناء الذاتي / تمويل شراء أرض"
+          : "التمويل أقل من الحد الأدنى المسموح 200,000 لمنتجات شراء وحدة جاهزة / تمويل رهن عقاري"
+      )
+    }
+
+    const totalRate = getTotalRate(input.annualRate, input.realEstateMonths)
+    const profit = financeAmount * totalRate
+    const total = financeAmount + profit
+    const fee = Math.min(financeAmount * 0.01, 5000)
+    const net = financeAmount - fee
+
+    const supportPackage = getSupportPackage(
+      realEstateType,
+      supportType,
+      bank,
+      input.salary
+    )
+
+    if (!supportPackage.ok) {
+      return reject(supportPackage.reason)
+    }
+
+    const requiredDownPayment = getRequiredDownPayment(
+      product,
+      realEstateType,
+      financeAmount
+    )
+
+    const clientDownPayment = Math.max(0, requiredDownPayment - supportPackage.amount)
+    const propertyValue = financeAmount + requiredDownPayment
+    const checkAmount = financeAmount + supportPackage.amount + clientDownPayment
+
+    realEstate = {
+      ratio,
+      months: input.realEstateMonths,
+      installment: firstInstallment,
+      firstMonths,
+      secondMonths,
+      firstInstallment,
+      secondInstallment,
+      financeAmount,
+      profit,
+      total,
+      fee,
+      net,
+      requiredDownPayment,
+      clientDownPayment,
+      supportPackage: supportPackage.amount,
+      propertyValue,
+      checkAmount,
+    }
+  }
 
   return {
     accepted: true,
-    reason: "",
-    ...result,
-    downPayment: money(downPayment),
-    supportPackage: money(supportPackage),
-    propertyValue: money(propertyValue),
-    checkAmount: money(checkAmount),
-    months: input.months,
-    age,
-    allowedMonths,
+    ageYears,
+    ageMonths,
+    allowedPersonalMonths,
+    allowedRealEstateMonths,
+    firstInstallmentDate: formatGregorianDate(
+      getFirstInstallmentDate(input.sector)
+    ),
+    personal,
+    realEstate,
   }
 }
