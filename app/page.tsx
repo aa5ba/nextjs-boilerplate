@@ -173,7 +173,7 @@ export default function Home() {
             </div>
           </Field>
 
-          <Field label="صافي الراتب ">
+          <Field label="صافي الراتب">
             <input style={input} type="number" value={salary} onChange={e => setSalary(Number(e.target.value))} />
           </Field>
 
@@ -194,14 +194,14 @@ export default function Home() {
           )}
 
           {(financeType === "personal" || financeType === "both") && (
-            <Field label={`عدد الأقساط المتاحه للتمويل الشخصي -  ${allowedPersonalMonths}`}>
+            <Field label={`عدد الأقساط المتاحه للتمويل الشخصي - ${allowedPersonalMonths}`}>
               <input style={input} type="number" value={personalMonths} onChange={e => changePersonalMonths(Number(e.target.value))} />
             </Field>
           )}
 
           {(financeType === "real" || financeType === "both") && (
             <>
-              <Field label={`عدد الأقساط المتاحه للتمويل العقاري -  ${allowedRealEstateMonths}`}>
+              <Field label={`عدد الأقساط المتاحه للتمويل العقاري - ${allowedRealEstateMonths}`}>
                 <input style={input} type="number" value={realEstateMonths} onChange={e => changeRealMonths(Number(e.target.value))} />
               </Field>
 
@@ -260,6 +260,42 @@ export default function Home() {
             {result.accepted && (
               <>
                 <Row title="العمر" value={`${result.ageYears} سنة`} />
+
+                {result.personal && (
+                  <>
+                    <h3>التمويل الشخصي</h3>
+                    <Row title="عدد الأقساط" value={`${result.personal.months} شهر`} />
+                    <Row title="القسط" value={`${money(result.personal.installment)} ر.س`} />
+                    <Row title="مبلغ التمويل" value={`${money(result.personal.financeAmount)} ر.س`} />
+                    <Row title="الربح" value={`${money(result.personal.profit)} ر.س`} />
+                    <Row title="الإجمالي" value={`${money(result.personal.total)} ر.س`} />
+                    <Row title="الرسوم" value={`${money(result.personal.fee)} ر.س`} />
+                    <Row title="الصافي" value={`${money(result.personal.net)} ر.س`} />
+                  </>
+                )}
+
+                {result.realEstate && (
+                  <>
+                    <h3>التمويل العقاري</h3>
+                    <Row title="عدد الأقساط" value={`${result.realEstate.months} شهر`} />
+                    <Row title="نسبة القسط العقاري" value={`${Math.round(result.realEstate.ratio * 100)}%`} />
+                    <Row title="قسط الفترة الأولى" value={`${money(result.realEstate.firstInstallment)} ر.س`} />
+
+                    {result.realEstate.secondMonths > 0 && (
+                      <Row title="قسط الفترة الثانية" value={`${money(result.realEstate.secondInstallment)} ر.س`} />
+                    )}
+
+                    <Row title="مبلغ التمويل" value={`${money(result.realEstate.financeAmount)} ر.س`} />
+                    <Row title="الربح" value={`${money(result.realEstate.profit)} ر.س`} />
+                    <Row title="الإجمالي" value={`${money(result.realEstate.total)} ر.س`} />
+                    <Row title="الرسوم" value={`${money(result.realEstate.fee)} ر.س`} />
+                    <Row title="الصافي" value={`${money(result.realEstate.net)} ر.س`} />
+                    <Row title="مبلغ الدفعة المقدمة من العميل" value={`${money(result.realEstate.clientDownPayment)} ر.س`} />
+                    <Row title="باقة الدفعة المقدمة" value={`${money(result.realEstate.supportPackage)} ر.س`} />
+                    <Row title="قيمة العقار" value={`${money(result.realEstate.propertyValue)} ر.س`} />
+                    <Row title="مبلغ الشيك" value={`${money(result.realEstate.checkAmount)} ر.س`} />
+                  </>
+                )}
               </>
             )}
 
@@ -293,7 +329,7 @@ const page = { minHeight: "100vh", background: "#eef5ff", padding: 16, fontFamil
 const container = { maxWidth: 620, margin: "auto" }
 const header = { background: "linear-gradient(135deg,#0d47a1,#1976d2)", color: "white", padding: 24, borderRadius: 24, marginBottom: 16 }
 const card = { background: "white", padding: 20, borderRadius: 24, marginTop: 16, boxShadow: "0 10px 30px rgba(13,71,161,.08)" }
-const input = { width: "100%", padding: 14, borderRadius: 14, border: "1px solid #d9e3f5", fontSize: 16, boxSizing: "border-box" as const }
+const input = { width: "100%", padding: 14, borderRadius: 14, border: "1px solid #d9e3f5", fontSize: 16 }
 const button = { width: "100%", padding: 16, background: "#0d47a1", color: "white", border: "none", borderRadius: 14, fontSize: 18, marginTop: 18 }
 const row = { display: "flex", justifyContent: "space-between", gap: 12, background: "#f4f8ff", padding: 12, borderRadius: 12, marginBottom: 8 }
 const error = { background: "#fee2e2", color: "#991b1b", padding: 12, borderRadius: 12 }
