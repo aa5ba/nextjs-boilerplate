@@ -48,7 +48,22 @@ async function shareResultPDF() {
   const pageHeight = (canvas.height * pageWidth) / canvas.width
 
   pdf.addImage(imgData, "PNG", 0, 0, pageWidth, pageHeight)
-  pdf.save("ehtisab-result.pdf")
+
+  const pdfBlob = pdf.output("blob")
+
+  const file = new File([pdfBlob], "ehtisab-result.pdf", {
+    type: "application/pdf",
+  })
+
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    await navigator.share({
+      title: "تقرير احتساب التمويل",
+      text: "تقرير احتساب التمويل من موقع ehtisab.net",
+      files: [file],
+    })
+  } else {
+    pdf.save("ehtisab-result.pdf")
+  }
 }
   const [salary, setSalary] = useState(0)
   const [deductions, setDeductions] = useState(0)
