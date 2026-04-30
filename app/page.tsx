@@ -1,6 +1,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import html2canvas from "html2canvas"
+import jsPDF from "jspdf"
 import {
   calculateEhtisab,
   calculateHijriAgeMonths,
@@ -30,7 +32,24 @@ export default function Home() {
   const [birthY, setBirthY] = useState("")
   const [birthM, setBirthM] = useState("")
   const [birthD, setBirthD] = useState("")
+async function shareResultPDF() {
+  const element = document.getElementById("ehtisab-report")
+  if (!element) return
 
+  const canvas = await html2canvas(element, {
+    scale: 2,
+    backgroundColor: "#ffffff",
+  })
+
+  const imgData = canvas.toDataURL("image/png")
+  const pdf = new jsPDF("p", "mm", "a4")
+
+  const pageWidth = pdf.internal.pageSize.getWidth()
+  const pageHeight = (canvas.height * pageWidth) / canvas.width
+
+  pdf.addImage(imgData, "PNG", 0, 0, pageWidth, pageHeight)
+  pdf.save("ehtisab-result.pdf")
+}
   const [salary, setSalary] = useState(0)
   const [deductions, setDeductions] = useState(0)
 
