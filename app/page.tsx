@@ -45,9 +45,23 @@ async function shareResultPDF() {
   const pdf = new jsPDF("p", "mm", "a4")
 
   const pageWidth = pdf.internal.pageSize.getWidth()
-  const pageHeight = (canvas.height * pageWidth) / canvas.width
+  const pageHeight = pdf.internal.pageSize.getHeight()
 
-  pdf.addImage(imgData, "PNG", 0, 0, pageWidth, pageHeight)
+  const imgWidth = pageWidth
+  const imgHeight = (canvas.height * imgWidth) / canvas.width
+
+  let heightLeft = imgHeight
+  let position = 0
+
+  pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight)
+  heightLeft -= pageHeight
+
+  while (heightLeft > 0) {
+    position = heightLeft - imgHeight
+    pdf.addPage()
+    pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight)
+    heightLeft -= pageHeight
+  }
 
   const pdfBlob = pdf.output("blob")
 
@@ -57,8 +71,8 @@ async function shareResultPDF() {
 
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     await navigator.share({
-      title: "تقرير احتساب التمويل",
-      text: "تقرير احتساب التمويل من موقع ehtisab.net",
+      title: "نتيجة احتساب التمويل",
+      text: "نتيجة احتساب التمويل من موقع ehtisab.net",
       files: [file],
     })
   } else {
