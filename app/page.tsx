@@ -278,7 +278,7 @@ useEffect(() => {
         </section>
 
         {result && (
-          <section style={card}>
+          <section id="ehtisab-report" style={card}>
 
             <h2 style={{ color: "#0d47a1", marginTop: 0 }}>النتائج</h2>
 
@@ -326,7 +326,26 @@ useEffect(() => {
                   </>
                 )}
               </>
-            )}
+         )}
+
+{result.accepted && (
+  <button
+    onClick={shareResultPDF}
+    style={{
+      width: "100%",
+      padding: "14px",
+      background: "#2563eb",
+      color: "white",
+      border: "none",
+      borderRadius: "12px",
+      fontSize: "18px",
+      marginTop: "20px"
+    }}
+  >
+    مشاركة النتيجة
+  </button>
+)}
+
 
           </section>
         )}
