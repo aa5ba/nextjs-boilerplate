@@ -24,7 +24,6 @@ function money(n: number) {
 }
 
 export default function Home() {
-
   const [financeType, setFinanceType] = useState<FinanceType>("personal")
   const [sector, setSector] = useState<Sector>("civil")
   const [rank, setRank] = useState<Rank>("agent")
@@ -32,61 +31,14 @@ export default function Home() {
   const [birthY, setBirthY] = useState("")
   const [birthM, setBirthM] = useState("")
   const [birthD, setBirthD] = useState("")
-async function shareResultPDF() {
-  const element = document.getElementById("ehtisab-report")
-  if (!element) return
 
-  const canvas = await html2canvas(element, {
-    scale: 2,
-    backgroundColor: "#ffffff",
-  })
-
-  const imgData = canvas.toDataURL("image/png")
-  const pdf = new jsPDF("p", "mm", "a4")
-
-  const pageWidth = pdf.internal.pageSize.getWidth()
-  const pageHeight = pdf.internal.pageSize.getHeight()
-
-  const imgWidth = pageWidth
-  const imgHeight = (canvas.height * imgWidth) / canvas.width
-
-  let heightLeft = imgHeight
-  let position = 0
-
-  pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight)
-  heightLeft -= pageHeight
-
-  while (heightLeft > 0) {
-    position = heightLeft - imgHeight
-    pdf.addPage()
-    pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight)
-    heightLeft -= pageHeight
-  }
-
-  const pdfBlob = pdf.output("blob")
-
-  const file = new File([pdfBlob], "ehtisab-result.pdf", {
-    type: "application/pdf",
-  })
-
-  if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    await navigator.share({
-      title: "نتيجة احتساب التمويل",
-      text: "نتيجة احتساب التمويل من موقع ehtisab.net",
-      files: [file],
-    })
-  } else {
-    pdf.save("ehtisab-result.pdf")
-  }
-}
   const [salary, setSalary] = useState("")
-const [deductions, setDeductions] = useState("")
+  const [deductions, setDeductions] = useState("")
+  const [personalAnnualRate, setPersonalAnnualRate] = useState("")
+  const [realEstateAnnualRate, setRealEstateAnnualRate] = useState("")
+  const [personalMonths, setPersonalMonths] = useState("")
+  const [realEstateMonths, setRealEstateMonths] = useState("")
 
-const [personalAnnualRate, setPersonalAnnualRate] = useState("")
-const [realEstateAnnualRate, setRealEstateAnnualRate] = useState("")
-
-const [personalMonths, setPersonalMonths] = useState("")
-const [realEstateMonths, setRealEstateMonths] = useState("")
   const [allowedPersonalMonths, setAllowedPersonalMonths] = useState(0)
   const [allowedRealEstateMonths, setAllowedRealEstateMonths] = useState(0)
 
@@ -100,8 +52,70 @@ const [realEstateMonths, setRealEstateMonths] = useState("")
 
   const [result, setResult] = useState<EhtisabResult | null>(null)
 
-  useEffect(() => {
+  function parseArabicNumber(value: any) {
+    if (!value) return 0
 
+    const converted = value
+      .toString()
+      .replace(/[\u0660-\u0669]/g, (d: string) =>
+        String(d.charCodeAt(0) - 0x0660)
+      )
+      .replace(/[\u06F0-\u06F9]/g, (d: string) =>
+        String(d.charCodeAt(0) - 0x06F0)
+      )
+
+    return Number(converted)
+  }
+
+  async function shareResultPDF() {
+    const element = document.getElementById("ehtisab-report")
+    if (!element) return
+
+    const canvas = await html2canvas(element, {
+      scale: 2,
+      backgroundColor: "#ffffff",
+    })
+
+    const imgData = canvas.toDataURL("image/png")
+    const pdf = new jsPDF("p", "mm", "a4")
+
+    const pageWidth = pdf.internal.pageSize.getWidth()
+    const pageHeight = pdf.internal.pageSize.getHeight()
+
+    const imgWidth = pageWidth
+    const imgHeight = (canvas.height * imgWidth) / canvas.width
+
+    let heightLeft = imgHeight
+    let position = 0
+
+    pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight)
+    heightLeft -= pageHeight
+
+    while (heightLeft > 0) {
+      position = heightLeft - imgHeight
+      pdf.addPage()
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight)
+      heightLeft -= pageHeight
+    }
+
+    const pdfBlob = pdf.output("blob")
+
+    const file = new File([pdfBlob], "ehtisab-result.pdf", {
+      type: "application/pdf",
+    })
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({
+        title: "نتيجة احتساب التمويل",
+        text: "نتيجة احتساب التمويل من موقع ehtisab.net",
+        files: [file],
+      })
+    } else {
+      pdf.save("ehtisab-result.pdf")
+    }
+  }
+
+  useEffect(() => {
     if (!birthY || !birthM || !birthD) return
 
     const ageMonths = calculateHijriAgeMonths(
@@ -118,26 +132,17 @@ const [realEstateMonths, setRealEstateMonths] = useState("")
     setAllowedPersonalMonths(personalAllowed)
     setAllowedRealEstateMonths(realAllowed)
 
-    setPersonalMonths(personalAllowed)
-    setRealEstateMonths(realAllowed)
-
+    setPersonalMonths(String(personalAllowed))
+    setRealEstateMonths(String(realAllowed))
   }, [birthY, birthM, birthD, sector, rank])
-  
-useEffect(() => {
-  if (realEstateType !== "supported") {
-    setSupportType("none")
-  }
-}, [realEstateType])
-function parseArabicNumber(value: any) {
-  if (!value) return 0
 
-  const arabicToEnglish = value
-  .toString()
-  .replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d).toString())
-  return Number(arabicToEnglish)
-}
+  useEffect(() => {
+    if (realEstateType !== "supported") {
+      setSupportType("none")
+    }
+  }, [realEstateType])
+
   function handleCalculate() {
-
     const res = calculateEhtisab({
       financeType,
       sector,
@@ -146,11 +151,11 @@ function parseArabicNumber(value: any) {
       birthHijriMonth: Number(birthM),
       birthHijriDay: Number(birthD),
       salary: parseArabicNumber(salary),
-deductions: parseArabicNumber(deductions),
-personalAnnualRate: parseArabicNumber(personalAnnualRate),
-realEstateAnnualRate: parseArabicNumber(realEstateAnnualRate),
-      personalMonths,
-      realEstateMonths,
+      deductions: parseArabicNumber(deductions),
+      personalAnnualRate: parseArabicNumber(personalAnnualRate),
+      realEstateAnnualRate: parseArabicNumber(realEstateAnnualRate),
+      personalMonths: parseArabicNumber(personalMonths),
+      realEstateMonths: parseArabicNumber(realEstateMonths),
       realEstateType,
       product,
       supportType,
@@ -162,22 +167,24 @@ realEstateAnnualRate: parseArabicNumber(realEstateAnnualRate),
     setResult(res)
   }
 
-  function changePersonalMonths(value: number) {
+  function changePersonalMonths(value: string) {
+    const months = parseArabicNumber(value)
 
-    if (value > allowedPersonalMonths) {
+    if (months > allowedPersonalMonths) {
       alert("عدد الأشهر المدخلة يتجاوز المسموح")
-      setPersonalMonths(allowedPersonalMonths)
+      setPersonalMonths(String(allowedPersonalMonths))
       return
     }
 
     setPersonalMonths(value)
   }
 
-  function changeRealMonths(value: number) {
+  function changeRealMonths(value: string) {
+    const months = parseArabicNumber(value)
 
-    if (value > allowedRealEstateMonths) {
+    if (months > allowedRealEstateMonths) {
       alert("عدد الأشهر المدخلة يتجاوز المسموح")
-      setRealEstateMonths(allowedRealEstateMonths)
+      setRealEstateMonths(String(allowedRealEstateMonths))
       return
     }
 
@@ -187,16 +194,20 @@ realEstateAnnualRate: parseArabicNumber(realEstateAnnualRate),
   return (
     <main dir="rtl" style={page}>
       <div style={container}>
-
         <div style={header}>
           <h1 style={{ margin: 0 }}>احتساب</h1>
-          <p style={{ margin: "8px 0 0" }}>منصة إحتساب التمويل المطوره وفق مبادئ التمويل المسؤول حسب تعليمات البنك المركزي </p>
+          <p style={{ margin: "8px 0 0" }}>
+            منصة إحتساب التمويل المطوره وفق مبادئ التمويل المسؤول حسب تعليمات البنك المركزي
+          </p>
         </div>
 
         <section style={card}>
-
           <Field label="نوع التمويل">
-            <select style={input} value={financeType} onChange={e => setFinanceType(e.target.value as FinanceType)}>
+            <select
+              style={input}
+              value={financeType}
+              onChange={e => setFinanceType(e.target.value as FinanceType)}
+            >
               <option value="personal">تمويل شخصي</option>
               <option value="real">تمويل عقاري</option>
               <option value="both">شخصي + عقاري ( مع القسط المرن )</option>
@@ -204,7 +215,11 @@ realEstateAnnualRate: parseArabicNumber(realEstateAnnualRate),
           </Field>
 
           <Field label="قطاع العمل">
-            <select style={input} value={sector} onChange={e => setSector(e.target.value as Sector)}>
+            <select
+              style={input}
+              value={sector}
+              onChange={e => setSector(e.target.value as Sector)}
+            >
               <option value="civil">حكومي مدني</option>
               <option value="private">قطاع خاص</option>
               <option value="military">عسكري</option>
@@ -214,7 +229,11 @@ realEstateAnnualRate: parseArabicNumber(realEstateAnnualRate),
 
           {sector === "military" && (
             <Field label="الرتبة العسكرية">
-              <select style={input} value={rank} onChange={e => setRank(e.target.value as Rank)}>
+              <select
+                style={input}
+                value={rank}
+                onChange={e => setRank(e.target.value as Rank)}
+              >
                 <option value="soldier">جندي / جندي أول</option>
                 <option value="corporal">عريف</option>
                 <option value="agent">وكيل رقيب</option>
@@ -233,46 +252,90 @@ realEstateAnnualRate: parseArabicNumber(realEstateAnnualRate),
           </Field>
 
           <Field label="صافي الراتب">
-            <input style={input} type="number" value={salary} onChange={e => setSalary(Number(e.target.value))} />
+            <input
+              style={input}
+              type="text"
+              placeholder="0"
+              value={!salary ? "" : salary}
+              onChange={e => setSalary(e.target.value)}
+            />
           </Field>
 
           <Field label="الإستقطاعات الشهرية في سمه">
-            <input style={input} type="number" value={deductions} onChange={e => setDeductions(Number(e.target.value))} />
+            <input
+              style={input}
+              type="text"
+              placeholder="0"
+              value={!deductions ? "" : deductions}
+              onChange={e => setDeductions(e.target.value)}
+            />
           </Field>
 
           {(financeType === "personal" || financeType === "both") && (
             <Field label="هامش الربح السنوي للتمويل الشخصي">
-              <input style={input} type="number" value={personalAnnualRate} onChange={e => setPersonalAnnualRate(Number(e.target.value))} />
+              <input
+                style={input}
+                type="text"
+                placeholder="0"
+                value={!personalAnnualRate ? "" : personalAnnualRate}
+                onChange={e => setPersonalAnnualRate(e.target.value)}
+              />
             </Field>
           )}
 
           {(financeType === "real" || financeType === "both") && (
             <Field label="هامش الربح السنوي للتمويل العقاري">
-              <input style={input} type="number" value={realEstateAnnualRate} onChange={e => setRealEstateAnnualRate(Number(e.target.value))} />
+              <input
+                style={input}
+                type="text"
+                placeholder="0"
+                value={!realEstateAnnualRate ? "" : realEstateAnnualRate}
+                onChange={e => setRealEstateAnnualRate(e.target.value)}
+              />
             </Field>
           )}
 
           {(financeType === "personal" || financeType === "both") && (
             <Field label={`عدد الأقساط المتاحه للتمويل الشخصي - ${allowedPersonalMonths}`}>
-              <input style={input} type="number" value={personalMonths} onChange={e => changePersonalMonths(Number(e.target.value))} />
+              <input
+                style={input}
+                type="text"
+                placeholder="0"
+                value={!personalMonths ? "" : personalMonths}
+                onChange={e => changePersonalMonths(e.target.value)}
+              />
             </Field>
           )}
 
           {(financeType === "real" || financeType === "both") && (
             <>
               <Field label={`عدد الأقساط المتاحه للتمويل العقاري - ${allowedRealEstateMonths}`}>
-                <input style={input} type="number" value={realEstateMonths} onChange={e => changeRealMonths(Number(e.target.value))} />
+                <input
+                  style={input}
+                  type="text"
+                  placeholder="0"
+                  value={!realEstateMonths ? "" : realEstateMonths}
+                  onChange={e => changeRealMonths(e.target.value)}
+                />
               </Field>
 
               <Field label="نوع العقاري">
-                <select style={input} value={realEstateType} onChange={e => setRealEstateType(e.target.value as RealEstateType)}>
+                <select
+                  style={input}
+                  value={realEstateType}
+                  onChange={e => setRealEstateType(e.target.value as RealEstateType)}
+                >
                   <option value="normal">اعتيادي</option>
                   <option value="supported">مدعوم</option>
                 </select>
               </Field>
 
               <Field label="منتج العقاري">
-                <select style={input} value={product} onChange={e => setProduct(e.target.value as Product)}>
+                <select
+                  style={input}
+                  value={product}
+                  onChange={e => setProduct(e.target.value as Product)}
+                >
                   <option value="ready">شراء وحدة جاهزة</option>
                   <option value="selfBuild">بناء ذاتي</option>
                   <option value="land">شراء أرض</option>
@@ -280,18 +343,19 @@ realEstateAnnualRate: parseArabicNumber(realEstateAnnualRate),
                 </select>
               </Field>
 
-              
-{realEstateType === "supported" && (
-  <Field label="نوع الدعم">
-    <select style={input} value={supportType} onChange={e => setSupportType(e.target.value as SupportType)}>
-      <option value="none">بدون</option>
-      <option value="monthly">دعم شهري</option>
-      <option value="package">باقة الدفعة المقدمة</option>
-    </select>
-  </Field>
-)}
-
-
+              {realEstateType === "supported" && (
+                <Field label="نوع الدعم">
+                  <select
+                    style={input}
+                    value={supportType}
+                    onChange={e => setSupportType(e.target.value as SupportType)}
+                  >
+                    <option value="none">بدون</option>
+                    <option value="monthly">دعم شهري</option>
+                    <option value="package">باقة الدفعة المقدمة</option>
+                  </select>
+                </Field>
+              )}
 
               <Field label="البنك (اختياري)">
                 <select style={input} value={bank} onChange={e => setBank(e.target.value)}>
@@ -309,12 +373,10 @@ realEstateAnnualRate: parseArabicNumber(realEstateAnnualRate),
           )}
 
           <button style={button} onClick={handleCalculate}>احسب</button>
-
         </section>
 
         {result && (
           <section id="ehtisab-report" style={card}>
-
             <h2 style={{ color: "#0d47a1", marginTop: 0 }}>النتائج</h2>
 
             {!result.accepted && (
@@ -346,7 +408,10 @@ realEstateAnnualRate: parseArabicNumber(realEstateAnnualRate),
                     <Row title="قسط الفترة الأولى" value={`${money(result.realEstate.firstInstallment)} ر.س`} />
 
                     {result.realEstate.secondMonths > 0 && (
-                      <Row title="قسط الفترة الثانية" value={`${money(result.realEstate.secondInstallment)} ر.س`} />
+                      <>
+                        <Row title="عدد أقساط الفترة الثانية" value={`${result.realEstate.secondMonths} شهر`} />
+                        <Row title="قسط الفترة الثانية" value={`${money(result.realEstate.secondInstallment)} ر.س`} />
+                      </>
                     )}
 
                     <Row title="مبلغ التمويل" value={`${money(result.realEstate.financeAmount)} ر.س`} />
@@ -361,30 +426,15 @@ realEstateAnnualRate: parseArabicNumber(realEstateAnnualRate),
                   </>
                 )}
               </>
-         )}
+            )}
 
-{result.accepted && (
-  <button
-    onClick={shareResultPDF}
-    style={{
-      width: "100%",
-      padding: "14px",
-      background: "#2563eb",
-      color: "white",
-      border: "none",
-      borderRadius: "12px",
-      fontSize: "18px",
-      marginTop: "20px"
-    }}
-  >
-    مشاركة النتيجة
-  </button>
-)}
-
-
+            {result.accepted && (
+              <button onClick={shareResultPDF} style={shareButton}>
+                مشاركة النتيجة
+              </button>
+            )}
           </section>
         )}
-
       </div>
     </main>
   )
@@ -414,5 +464,6 @@ const header = { background: "linear-gradient(135deg,#0d47a1,#1976d2)", color: "
 const card = { background: "white", padding: 20, borderRadius: 24, marginTop: 16, boxShadow: "0 10px 30px rgba(13,71,161,.08)" }
 const input = { width: "100%", padding: 14, borderRadius: 14, border: "1px solid #d9e3f5", fontSize: 16 }
 const button = { width: "100%", padding: 16, background: "#0d47a1", color: "white", border: "none", borderRadius: 14, fontSize: 18, marginTop: 18 }
+const shareButton = { width: "100%", padding: 14, background: "#2563eb", color: "white", border: "none", borderRadius: 12, fontSize: 18, marginTop: 20 }
 const row = { display: "flex", justifyContent: "space-between", gap: 12, background: "#f4f8ff", padding: 12, borderRadius: 12, marginBottom: 8 }
 const error = { background: "#fee2e2", color: "#991b1b", padding: 12, borderRadius: 12 }
