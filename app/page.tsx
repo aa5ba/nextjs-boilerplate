@@ -53,19 +53,18 @@ export default function Home() {
   const [result, setResult] = useState<EhtisabResult | null>(null)
 
   function parseArabicNumber(value: any) {
-    if (!value) return 0
+  if (value === null || value === undefined || value === "") return 0
 
-    const converted = value
-      .toString()
-      .replace(/[\u0660-\u0669]/g, (d: string) =>
-        String(d.charCodeAt(0) - 0x0660)
-      )
-      .replace(/[\u06F0-\u06F9]/g, (d: string) =>
-        String(d.charCodeAt(0) - 0x06F0)
-      )
+  const converted = value
+    .toString()
+   .replace(/[٠-٩]/g, (d: string) => String(d.charCodeAt(0) - 1632))
+.replace(/[۰-۹]/g, (d: string) => String(d.charCodeAt(0) - 1776))
+    .replace(/٫/g, ".")
+    .replace(/,/g, "")
+    .replace(/[^0-9.]/g, "")
 
-    return Number(converted)
-  }
+  return converted === "" ? 0 : Number(converted)
+}
 
   async function shareResultPDF() {
     const element = document.getElementById("ehtisab-report")
