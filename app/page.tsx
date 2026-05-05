@@ -119,9 +119,10 @@ export default function Home() {
     if (!birthY || !birthM || !birthD) return
 
     const ageMonths = calculateHijriAgeMonths(
-      Number(birthY),
-      Number(birthM),
-      Number(birthD)
+  parseArabicNumber(birthY),
+  parseArabicNumber(birthM),
+  parseArabicNumber(birthD)
+)
     )
 
     const remaining = Math.max(0, getMaxAgeMonths(sector, rank) - ageMonths)
@@ -147,9 +148,9 @@ export default function Home() {
       financeType,
       sector,
       rank,
-      birthHijriYear: Number(birthY),
-      birthHijriMonth: Number(birthM),
-      birthHijriDay: Number(birthD),
+      birthHijriYear: parseArabicNumber(birthY),
+birthHijriMonth: parseArabicNumber(birthM),
+birthHijriDay: parseArabicNumber(birthD),
       salary: parseArabicNumber(salary),
       deductions: parseArabicNumber(deductions),
       personalAnnualRate: parseArabicNumber(personalAnnualRate),
