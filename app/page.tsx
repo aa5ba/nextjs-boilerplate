@@ -79,15 +79,14 @@ async function shareResultPDF() {
     pdf.save("ehtisab-result.pdf")
   }
 }
-  const [salary, setSalary] = useState(0)
-  const [deductions, setDeductions] = useState(0)
+  const [salary, setSalary] = useState("")
+const [deductions, setDeductions] = useState("")
 
-  const [personalAnnualRate, setPersonalAnnualRate] = useState(0)
-  const [realEstateAnnualRate, setRealEstateAnnualRate] = useState(0)
+const [personalAnnualRate, setPersonalAnnualRate] = useState("")
+const [realEstateAnnualRate, setRealEstateAnnualRate] = useState("")
 
-  const [personalMonths, setPersonalMonths] = useState(0)
-  const [realEstateMonths, setRealEstateMonths] = useState(0)
-
+const [personalMonths, setPersonalMonths] = useState("")
+const [realEstateMonths, setRealEstateMonths] = useState("")
   const [allowedPersonalMonths, setAllowedPersonalMonths] = useState(0)
   const [allowedRealEstateMonths, setAllowedRealEstateMonths] = useState(0)
 
