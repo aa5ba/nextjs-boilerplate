@@ -128,7 +128,14 @@ useEffect(() => {
     setSupportType("none")
   }
 }, [realEstateType])
+function parseArabicNumber(value: any) {
+  if (!value) return 0
 
+  const arabicToEnglish = value
+  .toString()
+  .replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d).toString())
+  return Number(arabicToEnglish)
+}
   function handleCalculate() {
 
     const res = calculateEhtisab({
@@ -138,10 +145,10 @@ useEffect(() => {
       birthHijriYear: Number(birthY),
       birthHijriMonth: Number(birthM),
       birthHijriDay: Number(birthD),
-      salary,
-      deductions,
-      personalAnnualRate,
-      realEstateAnnualRate,
+      salary: parseArabicNumber(salary),
+deductions: parseArabicNumber(deductions),
+personalAnnualRate: parseArabicNumber(personalAnnualRate),
+realEstateAnnualRate: parseArabicNumber(realEstateAnnualRate),
       personalMonths,
       realEstateMonths,
       realEstateType,
