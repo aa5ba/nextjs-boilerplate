@@ -189,7 +189,8 @@ birthHijriDay: parseArabicNumber(birthD),
   ])
 
 if (error) {
-  alert(error.message)
+  console.log(error)
+  alert(JSON.stringify(error))
 }
   function changePersonalMonths(value: string) {
     const months = parseArabicNumber(value)
