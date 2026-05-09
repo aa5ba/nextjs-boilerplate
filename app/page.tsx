@@ -126,7 +126,7 @@ export default function Home() {
   parseArabicNumber(birthM),
   parseArabicNumber(birthD)
 )
-    )
+    
 
     const remaining = Math.max(0, getMaxAgeMonths(sector, rank) - ageMonths)
 
