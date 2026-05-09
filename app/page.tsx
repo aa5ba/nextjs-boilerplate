@@ -498,5 +498,5 @@ const errorStyle = {
   borderRadius: 12,
   marginTop: 12,
 }
-}
+
 
