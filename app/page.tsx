@@ -491,4 +491,12 @@ const input = { width: "100%", padding: 14, borderRadius: 14, border: "1px solid
 const button = { width: "100%", padding: 16, background: "#0d47a1", color: "white", border: "none", borderRadius: 14, fontSize: 18, marginTop: 18 }
 const shareButton = { width: "100%", padding: 14, background: "#2563eb", color: "white", border: "none", borderRadius: 12, fontSize: 18, marginTop: 20 }
 const row = { display: "flex", justifyContent: "space-between", gap: 12, background: "#f4f8ff", padding: 12, borderRadius: 12, marginBottom: 8 }
-const error = { background: "#fee2e2", color: "#991b1b", padding: 12, borderRadius: 12 }
+const const error = {
+  background: "#fee2e2",
+  color: "#991b1b",
+  padding: 12,
+  borderRadius: 12,
+  marginTop: 12,
+}
+
+
