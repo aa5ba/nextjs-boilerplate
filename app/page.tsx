@@ -170,23 +170,27 @@ birthHijriDay: parseArabicNumber(birthD),
     })
 
     setResult(res)
-    await supabase.from("calculations").insert([
-  {
-    finance_type: financeType,
-    sector,
-    rank,
-    salary: parseArabicNumber(salary),
-    deductions: parseArabicNumber(deductions),
-    personal_profit_rate: parseArabicNumber(personalAnnualRate),
-    real_estate_profit_rate: parseArabicNumber(realEstateAnnualRate),
-    personal_months: parseArabicNumber(personalMonths),
-    real_estate_months: parseArabicNumber(realEstateMonths),
-    bank,
-    result: res,
-  },
-])
-  }
+ const { error } = await supabase
+  .from("calculations")
+  .insert([
+    {
+      finance_type: financeType,
+      sector,
+      rank,
+      salary: parseArabicNumber(salary),
+      deductions: parseArabicNumber(deductions),
+      personal_profit_rate: parseArabicNumber(personalAnnualRate),
+      real_estate_profit_rate: parseArabicNumber(realEstateAnnualRate),
+      personal_months: parseArabicNumber(personalMonths),
+      real_estate_months: parseArabicNumber(realEstateMonths),
+      bank,
+      result: res,
+    },
+  ])
 
+if (error) {
+  alert(error.message)
+}
   function changePersonalMonths(value: string) {
     const months = parseArabicNumber(value)
 
