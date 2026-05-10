@@ -51,7 +51,7 @@ export default function LoginPage() {
     localStorage.setItem("customer_phone", data.phone);
     localStorage.setItem("customer_sector", data.work_sector);
 
-    window.location.href = "/";
+window.location.href = "/customer";
   };
 
   return (
