@@ -5,7 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
   "https://rqgzoeyyojfwyoewvhev.supabase.co",
-  "ضع_مفتاح_supabase_anon_here"
+  "sb_publishable_Zt56a_KLr3rtcdqI7slvCg_mSrB0ZoM"
 );
 
 export default function RegisterPage() {
