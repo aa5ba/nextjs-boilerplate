@@ -184,13 +184,35 @@ birthHijriDay: parseArabicNumber(birthD),
       personal_months: parseArabicNumber(personalMonths),
       real_estate_months: parseArabicNumber(realEstateMonths),
       bank,
-      result_data: res,
+      result_data: {
+        inputs: {
+          financeType,
+          sector,
+          rank,
+          birthY,
+          birthM,
+          birthD,
+          salary: parseArabicNumber(salary),
+          deductions: parseArabicNumber(deductions),
+          personalAnnualRate: parseArabicNumber(personalAnnualRate),
+          realEstateAnnualRate: parseArabicNumber(realEstateAnnualRate),
+          personalMonths: parseArabicNumber(personalMonths),
+          realEstateMonths: parseArabicNumber(realEstateMonths),
+          realEstateType,
+          product,
+          supportType,
+          bank,
+          flexEnabled,
+          flexFirstInstallment,
+        },
+        result: res,
+      },
     },
   ])
 
 if (error) {
   console.log(error)
-  alert(JSON.stringify(error))
+  alert("تعذر حفظ العملية، حاول مرة أخرى")
 }
   }  
   function changePersonalMonths(value: string) {
