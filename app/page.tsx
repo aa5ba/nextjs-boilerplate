@@ -283,12 +283,21 @@ if (error) {
         </button>
       </>
     ) : (
-      <button
-        style={topLink}
-        onClick={() => (window.location.href = "/login")}
-      >
-        تسجيل الدخول / تسجيل جديد
-      </button>
+      <>
+  <button
+    style={topLink}
+    onClick={() => (window.location.href = "/login")}
+  >
+    تسجيل الدخول
+  </button>
+
+  <button
+    style={topLink}
+    onClick={() => (window.location.href = "/register")}
+  >
+    تسجيل جديد
+  </button>
+</>
     )}
   </div>
 </div>
