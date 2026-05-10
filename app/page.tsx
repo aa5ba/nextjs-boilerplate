@@ -175,6 +175,7 @@ birthHijriDay: parseArabicNumber(birthD),
   .insert([
     {
       finance_type: financeType,
+      customer_id: localStorage.getItem("customer_id"),
       sector,
       rank,
       salary: parseArabicNumber(salary),
