@@ -74,7 +74,7 @@ export default function RegisterPage() {
       if (error.message.includes("duplicate")) {
         setMessage("رقم الجوال مستخدم مسبقاً");
       } else {
-        setMessage("حدث خطأ أثناء التسجيل");
+        setMessage(error.message);
       }
 
       return;
