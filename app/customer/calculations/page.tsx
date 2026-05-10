@@ -23,6 +23,7 @@ export default function CustomerCalculationsPage() {
         .order("created_at", { ascending: false });
 
       if (!error && data) setItems(data);
+
       setLoading(false);
     }
 
@@ -37,11 +38,19 @@ export default function CustomerCalculationsPage() {
         {loading && <p>جارٍ تحميل العمليات...</p>}
 
         {!loading && items.length === 0 && (
-          <p style={{ textAlign: "center" }}>لا توجد عمليات محفوظة حتى الآن.</p>
+          <p style={{ textAlign: "center" }}>
+            لا توجد عمليات محفوظة حتى الآن.
+          </p>
         )}
 
         {items.map((item) => (
-          <div key={item.id} style={itemStyle}>
+          <div
+            key={item.id}
+            style={itemStyle}
+            onClick={() =>
+              (window.location.href = `/customer/calculations/${item.id}`)
+            }
+          >
             <strong>
               {item.finance_type === "personal"
                 ? "تمويل شخصي"
@@ -51,7 +60,9 @@ export default function CustomerCalculationsPage() {
             </strong>
 
             <p>الراتب: {item.salary?.toLocaleString?.() || item.salary}</p>
+
             <p>البنك: {item.bank || "غير محدد"}</p>
+
             <p>
               التاريخ:{" "}
               {item.created_at
@@ -61,7 +72,10 @@ export default function CustomerCalculationsPage() {
           </div>
         ))}
 
-        <button style={buttonStyle} onClick={() => (window.location.href = "/customer")}>
+        <button
+          style={buttonStyle}
+          onClick={() => (window.location.href = "/customer")}
+        >
           الرجوع للوحة العميل
         </button>
       </div>
@@ -97,6 +111,7 @@ const itemStyle = {
   padding: 15,
   marginBottom: 12,
   background: "#fafafa",
+  cursor: "pointer",
 };
 
 const buttonStyle = {
