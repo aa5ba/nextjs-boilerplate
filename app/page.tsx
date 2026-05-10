@@ -52,7 +52,12 @@ export default function Home() {
   const [flexFirstInstallment, setFlexFirstInstallment] = useState(500)
 
   const [result, setResult] = useState<EhtisabResult | null>(null)
+const [loggedIn, setLoggedIn] = useState(false)
 
+useEffect(() => {
+  const customerId = localStorage.getItem("customer_id")
+  setLoggedIn(!!customerId)
+}, [])
   function parseArabicNumber(value: any) {
   if (value === null || value === undefined || value === "") return 0
 
@@ -243,6 +248,43 @@ if (error) {
   return (
     <main dir="rtl" style={page}>
       <div style={container}>
+        <div style={topBar}>
+  <div style={topBarLinks}>
+    <button style={topLink}>الشروط والأحكام</button>
+
+    <button style={topLink}>الاشتراك</button>
+
+    <button style={topLink}>تواصل معنا</button>
+
+    {loggedIn ? (
+      <>
+        <button
+          style={topLink}
+          onClick={() => (window.location.href = "/customer")}
+        >
+          الملف الشخصي
+        </button>
+
+        <button
+          style={topLink}
+          onClick={() => {
+            localStorage.clear()
+            window.location.reload()
+          }}
+        >
+          تسجيل الخروج
+        </button>
+      </>
+    ) : (
+      <button
+        style={topLink}
+        onClick={() => (window.location.href = "/login")}
+      >
+        تسجيل الدخول / تسجيل جديد
+      </button>
+    )}
+  </div>
+</div>
         <div style={header}>
           <h1 style={{ margin: 0 }}>احتساب</h1>
           <p style={{ margin: "8px 0 0" }}>
@@ -522,5 +564,26 @@ const errorStyle = {
   borderRadius: 12,
   marginTop: 12,
 }
+const topBar = {
+  width: "100%",
+  overflowX: "auto" as const,
+  marginBottom: 18,
+  borderBottom: "1px solid #e5e7eb",
+  paddingBottom: 10,
+}
 
+const topBarLinks = {
+  display: "flex",
+  gap: 10,
+  minWidth: "max-content",
+}
+
+const topLink = {
+  border: "none",
+  background: "transparent",
+  fontSize: 13,
+  color: "#374151",
+  cursor: "pointer",
+  whiteSpace: "nowrap" as const,
+}
 
