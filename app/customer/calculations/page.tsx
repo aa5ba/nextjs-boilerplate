@@ -3,6 +3,19 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
+const financeTypeMap: any = {
+  personal: "تمويل شخصي",
+  realEstate: "تمويل عقاري",
+  both: "شخصي + عقاري",
+};
+
+function money(value: any) {
+  if (value === null || value === undefined || value === "") return "-";
+  return Number(value).toLocaleString("en-US", {
+    maximumFractionDigits: 0,
+  });
+}
+
 export default function CustomerCalculationsPage() {
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -16,14 +29,13 @@ export default function CustomerCalculationsPage() {
     }
 
     async function loadCalculations() {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from("calculations")
         .select("*")
         .eq("customer_id", customerId)
         .order("created_at", { ascending: false });
 
-      if (!error && data) setItems(data);
-
+      setItems(data || []);
       setLoading(false);
     }
 
@@ -32,45 +44,48 @@ export default function CustomerCalculationsPage() {
 
   return (
     <div dir="rtl" style={pageStyle}>
-      <div style={cardStyle}>
+      <div style={containerStyle}>
         <h1 style={titleStyle}>عملياتي السابقة</h1>
 
-        {loading && <p>جارٍ تحميل العمليات...</p>}
+        {loading && <p style={emptyStyle}>جارٍ تحميل العمليات...</p>}
 
         {!loading && items.length === 0 && (
-          <p style={{ textAlign: "center" }}>
-            لا توجد عمليات محفوظة حتى الآن.
-          </p>
+          <p style={emptyStyle}>لا توجد عمليات محفوظة حتى الآن.</p>
         )}
 
-        {items.map((item) => (
-          <div
-            key={item.id}
-            style={itemStyle}
-            onClick={() =>
-              (window.location.href = `/customer/calculations/${item.id}`)
-            }
-          >
-            <strong>
-              {item.finance_type === "personal"
-                ? "تمويل شخصي"
-                : item.finance_type === "realEstate"
-                ? "تمويل عقاري"
-                : "تمويل"}
-            </strong>
+        {items.map((item) => {
+          const data = item.result_data || {};
+          const result = data.result || {};
+          const personal = result.personal;
+          const realEstate = result.realEstate;
+          const mainResult = personal || realEstate || {};
 
-            <p>الراتب: {item.salary?.toLocaleString?.() || item.salary}</p>
+          return (
+            <div
+              key={item.id}
+              style={itemStyle}
+              onClick={() =>
+                (window.location.href = `/customer/calculations/${item.id}`)
+              }
+            >
+              <div style={rowBetweenStyle}>
+                <strong>{financeTypeMap[item.finance_type] || "تمويل"}</strong>
+                <span style={arrowStyle}>›</span>
+              </div>
 
-            <p>البنك: {item.bank || "غير محدد"}</p>
+              <div style={detailsStyle}>
+                <span>مبلغ التمويل: {money(mainResult.financeAmount)} ر.س</span>
+                <span>القسط: {money(mainResult.installment)} ر.س</span>
+              </div>
 
-            <p>
-              التاريخ:{" "}
-              {item.created_at
-                ? new Date(item.created_at).toLocaleDateString("ar-SA")
-                : "-"}
-            </p>
-          </div>
-        ))}
+              <div style={dateStyle}>
+                {item.created_at
+                  ? new Date(item.created_at).toLocaleDateString("ar-SA")
+                  : "-"}
+              </div>
+            </div>
+          );
+        })}
 
         <button
           style={buttonStyle}
@@ -86,32 +101,60 @@ export default function CustomerCalculationsPage() {
 const pageStyle = {
   minHeight: "100vh",
   background: "#f5f7fb",
-  padding: 20,
+  padding: 16,
 };
 
-const cardStyle = {
+const containerStyle = {
   width: "100%",
   maxWidth: 520,
   margin: "0 auto",
-  background: "#fff",
-  borderRadius: 20,
-  padding: 24,
-  boxShadow: "0 5px 25px rgba(0,0,0,0.08)",
 };
 
 const titleStyle = {
   textAlign: "center" as const,
-  marginBottom: 25,
-  fontSize: 28,
+  marginBottom: 20,
+  fontSize: 26,
 };
 
 const itemStyle = {
-  border: "1px solid #e5e5e5",
-  borderRadius: 14,
-  padding: 15,
+  background: "#fff",
+  border: "1px solid #e5e7eb",
+  borderRadius: 16,
+  padding: 16,
   marginBottom: 12,
-  background: "#fafafa",
   cursor: "pointer",
+};
+
+const rowBetweenStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  fontSize: 17,
+};
+
+const detailsStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 10,
+  marginTop: 12,
+  fontSize: 14,
+  color: "#374151",
+};
+
+const dateStyle = {
+  marginTop: 10,
+  fontSize: 13,
+  color: "#6b7280",
+};
+
+const arrowStyle = {
+  fontSize: 24,
+  color: "#0d6efd",
+};
+
+const emptyStyle = {
+  textAlign: "center" as const,
+  color: "#6b7280",
 };
 
 const buttonStyle = {
@@ -124,5 +167,5 @@ const buttonStyle = {
   fontSize: 17,
   fontWeight: "bold",
   cursor: "pointer",
-  marginTop: 20,
+  marginTop: 18,
 };
