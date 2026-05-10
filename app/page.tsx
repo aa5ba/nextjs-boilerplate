@@ -248,7 +248,14 @@ if (error) {
   return (
     <main dir="rtl" style={page}>
       <div style={container}>
-        <div style={topBar}>
+        
+        <div style={header}>
+          <h1 style={{ margin: 0 }}>احتساب</h1>
+          <p style={{ margin: "8px 0 0" }}>
+            منصة إحتساب التمويل المطوره وفق مبادئ التمويل المسؤول حسب تعليمات البنك المركزي
+          </p>
+        </div>
+<div style={topBar}>
   <div style={topBarLinks}>
     <button style={topLink}>الشروط والأحكام</button>
 
@@ -285,13 +292,6 @@ if (error) {
     )}
   </div>
 </div>
-        <div style={header}>
-          <h1 style={{ margin: 0 }}>احتساب</h1>
-          <p style={{ margin: "8px 0 0" }}>
-            منصة إحتساب التمويل المطوره وفق مبادئ التمويل المسؤول حسب تعليمات البنك المركزي
-          </p>
-        </div>
-
         <section style={card}>
           <Field label="نوع التمويل">
             <select
@@ -568,8 +568,9 @@ const topBar = {
   width: "100%",
   overflowX: "auto" as const,
   marginBottom: 18,
-  borderBottom: "1px solid #e5e7eb",
-  paddingBottom: 10,
+  padding: "12px 14px",
+  background: "#0d6efd",
+  borderRadius: 14,
 }
 
 const topBarLinks = {
@@ -582,8 +583,8 @@ const topLink = {
   border: "none",
   background: "transparent",
   fontSize: 13,
-  color: "#374151",
+  color: "#ffffff",
   cursor: "pointer",
   whiteSpace: "nowrap" as const,
 }
-
+  
