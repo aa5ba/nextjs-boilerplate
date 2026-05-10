@@ -192,6 +192,7 @@ if (error) {
   console.log(error)
   alert(JSON.stringify(error))
 }
+  }  
   function changePersonalMonths(value: string) {
     const months = parseArabicNumber(value)
 
