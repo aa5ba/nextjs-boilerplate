@@ -4,6 +4,28 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
+const financeTypeMap: any = {
+  personal: "تمويل شخصي",
+  realEstate: "تمويل عقاري",
+  both: "شخصي + عقاري",
+};
+
+const sectorMap: any = {
+  civil: "مدني حكومي",
+  military: "عسكري",
+  retired: "متقاعد",
+  private: "قطاع خاص",
+  other: "غير ذلك",
+};
+
+function money(value: any) {
+  if (value === null || value === undefined || value === "") return "-";
+  return Number(value).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 export default function CalculationDetailsPage() {
   const params = useParams();
   const id = params.id as string;
@@ -20,14 +42,14 @@ export default function CalculationDetailsPage() {
     }
 
     async function loadDetails() {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from("calculations")
         .select("*")
         .eq("id", id)
         .eq("customer_id", customerId)
         .single();
 
-      if (!error && data) setItem(data);
+      setItem(data);
       setLoading(false);
     }
 
@@ -49,31 +71,49 @@ export default function CalculationDetailsPage() {
     );
   }
 
+  const data = item.result_data || {};
+  const inputs = data.inputs || {};
+  const result = data.result || {};
+
   return (
     <div dir="rtl" style={pageStyle}>
       <div style={cardStyle}>
         <h1 style={titleStyle}>تفاصيل العملية</h1>
 
         <div style={infoBoxStyle}>
-          <p><strong>نوع التمويل:</strong> {item.finance_type || "-"}</p>
-          <p><strong>الراتب:</strong> {item.salary || "-"}</p>
-          <p><strong>البنك:</strong> {item.bank || "-"}</p>
-          <p><strong>قطاع العمل:</strong> {item.sector || item.work_sector || "-"}</p>
-          <p><strong>مدة التمويل:</strong> {item.duration_months || item.duration || "-"} شهر</p>
-          <p><strong>النسبة:</strong> {item.rate || "-"}%</p>
-          <p><strong>الاستقطاعات:</strong> {item.obligations || "-"}</p>
-          <p>
-            <strong>تاريخ العملية:</strong>{" "}
-            {item.created_at ? new Date(item.created_at).toLocaleString("ar-SA") : "-"}
-          </p>
+          <p><strong>نوع التمويل:</strong> {financeTypeMap[item.finance_type] || item.finance_type || "-"}</p>
+          <p><strong>قطاع العمل:</strong> {sectorMap[item.sector] || item.sector || "-"}</p>
+          <p><strong>الراتب:</strong> {money(item.salary)} ر.س</p>
+          <p><strong>الاستقطاعات:</strong> {money(item.deductions)} ر.س</p>
+          <p><strong>البنك:</strong> {item.bank || "غير محدد"}</p>
+          <p><strong>تاريخ العملية:</strong> {item.created_at ? new Date(item.created_at).toLocaleString("ar-SA") : "-"}</p>
         </div>
 
-        {item.result && (
-          <div style={resultBoxStyle}>
-            <h3>النتيجة</h3>
-            <pre style={preStyle}>{JSON.stringify(item.result, null, 2)}</pre>
-          </div>
-        )}
+        <div style={resultBoxStyle}>
+          <h3>نتيجة التمويل</h3>
+
+          {result.personal && (
+            <>
+              <h4>التمويل الشخصي</h4>
+              <p><strong>مبلغ التمويل:</strong> {money(result.personal.financeAmount)} ر.س</p>
+              <p><strong>القسط الشهري:</strong> {money(result.personal.installment)} ر.س</p>
+              <p><strong>المدة:</strong> {result.personal.months || inputs.personalMonths || "-"} شهر</p>
+              <p><strong>الأرباح:</strong> {money(result.personal.profit)} ر.س</p>
+              <p><strong>الإجمالي:</strong> {money(result.personal.total)} ر.س</p>
+            </>
+          )}
+
+          {result.realEstate && (
+            <>
+              <h4>التمويل العقاري</h4>
+              <p><strong>مبلغ التمويل:</strong> {money(result.realEstate.financeAmount)} ر.س</p>
+              <p><strong>القسط الشهري:</strong> {money(result.realEstate.installment)} ر.س</p>
+              <p><strong>المدة:</strong> {result.realEstate.months || inputs.realEstateMonths || "-"} شهر</p>
+              <p><strong>الأرباح:</strong> {money(result.realEstate.profit)} ر.س</p>
+              <p><strong>الإجمالي:</strong> {money(result.realEstate.total)} ر.س</p>
+            </>
+          )}
+        </div>
 
         <button style={buttonStyle} onClick={() => window.print()}>
           طباعة / حفظ PDF
@@ -120,17 +160,6 @@ const infoBoxStyle = {
 const resultBoxStyle = {
   ...infoBoxStyle,
   marginTop: 16,
-};
-
-const preStyle = {
-  whiteSpace: "pre-wrap" as const,
-  direction: "ltr" as const,
-  textAlign: "left" as const,
-  background: "#111827",
-  color: "#fff",
-  padding: 12,
-  borderRadius: 12,
-  overflowX: "auto" as const,
 };
 
 const buttonStyle = {
