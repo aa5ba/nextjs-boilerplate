@@ -16,6 +16,11 @@ function money(value: any) {
   });
 }
 
+function formatDate(value: any) {
+  if (!value) return "-";
+  return new Date(value).toLocaleDateString("en-GB");
+}
+
 export default function CustomerCalculationsPage() {
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -68,21 +73,42 @@ export default function CustomerCalculationsPage() {
                 (window.location.href = `/customer/calculations/${item.id}`)
               }
             >
-              <div style={rowBetweenStyle}>
+              <div style={headerStyle}>
                 <strong>{financeTypeMap[item.finance_type] || "تمويل"}</strong>
                 <span style={arrowStyle}>›</span>
               </div>
 
-              <div style={detailsStyle}>
-                <span>مبلغ التمويل: {money(mainResult.financeAmount)} ر.س</span>
-                <span>القسط: {money(mainResult.installment)} ر.س</span>
+              <div style={lineStyle}>
+                <span>مبلغ التمويل</span>
+                <strong>{money(mainResult.financeAmount)} ر.س</strong>
               </div>
 
-              <div style={dateStyle}>
-                {item.created_at
-                  ? new Date(item.created_at).toLocaleDateString("ar-SA")
-                  : "-"}
+              <div style={lineStyle}>
+                <span>القسط الشهري</span>
+                <strong>{money(mainResult.installment)} ر.س</strong>
               </div>
+
+              <div style={lineStyle}>
+                <span>المدة</span>
+                <strong>{mainResult.months || "-"} شهر</strong>
+              </div>
+
+              <div style={lineStyle}>
+                <span>الأرباح</span>
+                <strong>{money(mainResult.profit)} ر.س</strong>
+              </div>
+
+              <div style={lineStyle}>
+                <span>الإجمالي</span>
+                <strong>{money(mainResult.total)} ر.س</strong>
+              </div>
+
+              <div style={lineStyle}>
+                <span>البنك</span>
+                <strong>{item.bank || "غير محدد"}</strong>
+              </div>
+
+              <div style={dateStyle}>{formatDate(item.created_at)}</div>
             </div>
           );
         })}
@@ -125,31 +151,34 @@ const itemStyle = {
   cursor: "pointer",
 };
 
-const rowBetweenStyle = {
+const headerStyle = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
-  fontSize: 17,
-};
-
-const detailsStyle = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 10,
-  marginTop: 12,
-  fontSize: 14,
-  color: "#374151",
-};
-
-const dateStyle = {
-  marginTop: 10,
-  fontSize: 13,
-  color: "#6b7280",
+  fontSize: 18,
+  marginBottom: 14,
 };
 
 const arrowStyle = {
-  fontSize: 24,
+  fontSize: 26,
   color: "#0d6efd",
+};
+
+const lineStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  padding: "7px 0",
+  borderBottom: "1px solid #f1f1f1",
+  fontSize: 14,
+};
+
+const dateStyle = {
+  marginTop: 12,
+  fontSize: 12,
+  color: "#6b7280",
+  textAlign: "left" as const,
+  direction: "ltr" as const,
 };
 
 const emptyStyle = {
