@@ -9,24 +9,14 @@ export default function FinanceCustomersPage() {
         </div>
 
         <section style={groupsSection}>
-          <div style={groupCard}>مجموعة عملاء المهلة</div>
-          <div style={groupCard}>مجموعة عملاء التقسيط</div>
-          <div style={groupCard}>مجموعة عملاء السداد</div>
+          <div style={emptyGroupCard}>لا توجد مجموعات عملاء حتى الآن</div>
         </section>
 
         <section style={actionsSection}>
           <button style={actionButton}>إنشاء عميل جديد</button>
-
           <button style={actionButton}>البحث عن عميل</button>
-
-          <button style={actionButton}>
-            إنشاء / تعديل مجموعة عملاء
-          </button>
-
-          <button style={actionButton}>
-            حذف / تعديل عميل
-          </button>
-
+          <button style={actionButton}>إنشاء / تعديل مجموعة عملاء</button>
+          <button style={actionButton}>حذف / تعديل عميل</button>
           <button style={actionButton}>قائمة الحظر</button>
         </section>
 
@@ -69,15 +59,14 @@ const groupsSection = {
   marginBottom: 18,
 };
 
-const groupCard = {
+const emptyGroupCard = {
   background: "white",
-  border: "1px solid #d9e3f5",
+  border: "1px dashed #cbd5e1",
   borderRadius: 18,
   padding: 20,
-  fontSize: 17,
-  fontWeight: "bold",
+  fontSize: 16,
   textAlign: "center" as const,
-  cursor: "pointer",
+  color: "#6b7280",
 };
 
 const actionsSection = {
