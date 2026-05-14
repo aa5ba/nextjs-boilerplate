@@ -5,22 +5,36 @@ export default function FinanceCustomersPage() {
     <main dir="rtl" style={page}>
       <div style={container}>
         <div style={header}>
-          <h1 style={{ margin: 0 }}>عملاء التمويل</h1>
-          <p style={{ margin: "8px 0 0" }}>
-            إدارة عملاء عقود التقسيط والتمويل.
-          </p>
+          <h1 style={{ margin: 0 }}>العملاء</h1>
         </div>
 
-        <button style={primaryButton}>
-          إضافة عميل جديد
-        </button>
+        <section style={groupsSection}>
+          <div style={groupCard}>مجموعة عملاء المهلة</div>
+          <div style={groupCard}>مجموعة عملاء التقسيط</div>
+          <div style={groupCard}>مجموعة عملاء السداد</div>
+        </section>
 
-        <div style={emptyCard}>
-          لا يوجد عملاء تمويل حتى الآن.
-        </div>
+        <section style={actionsSection}>
+          <button style={actionButton}>إنشاء عميل جديد</button>
 
-        <button style={backButton} onClick={() => (window.location.href = "/finance")}>
-          الرجوع لقسم التمويل
+          <button style={actionButton}>البحث عن عميل</button>
+
+          <button style={actionButton}>
+            إنشاء / تعديل مجموعة عملاء
+          </button>
+
+          <button style={actionButton}>
+            حذف / تعديل عميل
+          </button>
+
+          <button style={actionButton}>قائمة الحظر</button>
+        </section>
+
+        <button
+          style={backButton}
+          onClick={() => (window.location.href = "/finance")}
+        >
+          الرجوع لإدارة التمويل
         </button>
       </div>
     </main>
@@ -30,41 +44,56 @@ export default function FinanceCustomersPage() {
 const page = {
   minHeight: "100vh",
   background: "#eef5ff",
-  padding: 16,
+  padding: 20,
   fontFamily: "system-ui",
 };
 
 const container = {
-  maxWidth: 620,
+  width: "100%",
+  maxWidth: 1100,
   margin: "auto",
 };
 
 const header = {
   background: "linear-gradient(135deg,#0d47a1,#1976d2)",
   color: "white",
-  padding: 24,
+  padding: 28,
   borderRadius: 24,
-  marginBottom: 16,
+  marginBottom: 18,
 };
 
-const primaryButton = {
-  width: "100%",
-  padding: 16,
-  background: "#0d47a1",
-  color: "white",
-  border: "none",
-  borderRadius: 14,
-  fontSize: 17,
-  marginBottom: 16,
+const groupsSection = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))",
+  gap: 14,
+  marginBottom: 18,
 };
 
-const emptyCard = {
+const groupCard = {
   background: "white",
   border: "1px solid #d9e3f5",
   borderRadius: 18,
   padding: 20,
+  fontSize: 17,
+  fontWeight: "bold",
   textAlign: "center" as const,
-  color: "#6b7280",
+  cursor: "pointer",
+};
+
+const actionsSection = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))",
+  gap: 14,
+};
+
+const actionButton = {
+  background: "white",
+  border: "1px solid #d9e3f5",
+  borderRadius: 18,
+  padding: 18,
+  fontSize: 16,
+  fontWeight: "bold",
+  cursor: "pointer",
 };
 
 const backButton = {
