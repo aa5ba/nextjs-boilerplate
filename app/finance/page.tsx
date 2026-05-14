@@ -5,18 +5,19 @@ export default function FinancePage() {
     <main dir="rtl" style={page}>
       <div style={container}>
         <div style={header}>
-          <h1 style={{ margin: 0 }}>قسم التمويل</h1>
+          <h1 style={{ margin: 0 }}>إدارة التمويل</h1>
           <p style={{ margin: "8px 0 0" }}>
-            إدارة عقود التقسيط، العملاء، المنتجات، والمخزون.
+            إدارة العملاء، العقود، المخزون، السداد، والصلاحيات.
           </p>
         </div>
 
         <div style={grid}>
-          <Card title="عملاء التمويل" href="/finance/customers" />
-          <Card title="المنتجات" href="/finance/products" />
-          <Card title="المخزون" href="/finance/inventory" />
+          <Card title="سير العمل" href="/finance/workflow" />
+          <Card title="العملاء" href="/finance/customers" />
+          <Card title="المخزون والمنتجات" href="/finance/inventory" />
           <Card title="العقود" href="/finance/contracts" />
-          <Card title="الأقساط" href="/finance/installments" />
+          <Card title="الملاحظات والتذكيرات" href="/finance/notes" />
+          <Card title="إدارة الصلاحيات" href="/finance/permissions" />
         </div>
 
         <button style={backButton} onClick={() => (window.location.href = "/")}>
