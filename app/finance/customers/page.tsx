@@ -13,7 +13,12 @@ export default function FinanceCustomersPage() {
         </section>
 
         <section style={actionsSection}>
-          <button style={actionButton}>إنشاء عميل جديد</button>
+          <button
+  style={actionButton}
+  onClick={() => (window.location.href = "/finance/customers/new")}
+>
+  إنشاء عميل جديد
+</button>
           <button style={actionButton}>البحث عن عميل</button>
           <button
   style={actionButton}
