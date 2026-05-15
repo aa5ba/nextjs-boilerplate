@@ -1,6 +1,64 @@
 "use client";
 
+import { useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
+
 export default function NewPromissoryNotePage() {
+  const [debtorName, setDebtorName] = useState("");
+  const [debtorNationalId, setDebtorNationalId] = useState("");
+  const [debtorPhone, setDebtorPhone] = useState("");
+  const [amount, setAmount] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [city, setCity] = useState("");
+  const [notes, setNotes] = useState("");
+
+  function toNumber(value: string) {
+    return Number(value || 0);
+  }
+
+  async function createNote() {
+    if (!debtorName || !amount) {
+      alert("أكمل اسم المدين ومبلغ السند");
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("finance_promissory_notes")
+      .insert([
+        {
+          debtor_name: debtorName,
+          debtor_national_id: debtorNationalId,
+          debtor_phone: debtorPhone,
+          amount: toNumber(amount),
+          due_date: dueDate,
+          city,
+          notes,
+          status: "نشط",
+          created_by: "المدير",
+        },
+      ])
+      .select()
+      .single();
+
+    if (error) {
+      alert("تعذر إنشاء السند");
+      return;
+    }
+
+    await supabase.from("finance_activity_logs").insert([
+      {
+        activity_type: "إنشاء سند",
+        description: `تم إنشاء سند جديد باسم ${debtorName} بمبلغ ${amount} ر.س`,
+        customer_name: debtorName,
+        employee_name: "المدير",
+        status: "نشط",
+      },
+    ]);
+
+    alert("تم إنشاء السند بنجاح");
+    window.location.href = `/finance/contracts/promissory-note/print/${data.id}`;
+  }
+
   return (
     <main dir="rtl" style={page}>
       <div style={container}>
@@ -9,9 +67,59 @@ export default function NewPromissoryNotePage() {
         </div>
 
         <section style={card}>
-          <div style={emptyBox}>
-            سيتم تجهيز نموذج السند في الخطوة التالية.
-          </div>
+          <input
+            style={input}
+            placeholder="اسم المدين"
+            value={debtorName}
+            onChange={(e) => setDebtorName(e.target.value)}
+          />
+
+          <input
+            style={input}
+            placeholder="رقم هوية المدين"
+            value={debtorNationalId}
+            onChange={(e) => setDebtorNationalId(e.target.value)}
+          />
+
+          <input
+            style={input}
+            placeholder="رقم جوال المدين"
+            value={debtorPhone}
+            onChange={(e) => setDebtorPhone(e.target.value)}
+          />
+
+          <input
+            style={input}
+            inputMode="numeric"
+            placeholder="مبلغ السند"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+
+          <input
+            style={input}
+            placeholder="تاريخ الاستحقاق"
+            value={dueDate}
+            onChange={(e) => setDueDate(e.target.value)}
+          />
+
+          <input
+            style={input}
+            placeholder="مدينة التحرير / التقاضي"
+            value={city}
+            onChange={(e) => setCity(e.target.value)}
+          />
+
+          <textarea
+            style={textarea}
+            placeholder="ملاحظات"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
+
+          <button style={primaryButton} onClick={createNote}>
+            إنشاء السند
+          </button>
         </section>
 
         <button
@@ -53,13 +161,33 @@ const card = {
   padding: 20,
 };
 
-const emptyBox = {
-  background: "#f8fbff",
-  border: "1px dashed #cbd5e1",
+const input = {
+  width: "100%",
+  padding: 14,
   borderRadius: 14,
-  padding: 22,
-  textAlign: "center" as const,
-  color: "#6b7280",
+  border: "1px solid #d9e3f5",
+  fontSize: 16,
+  marginBottom: 12,
+};
+
+const textarea = {
+  width: "100%",
+  minHeight: 100,
+  padding: 14,
+  borderRadius: 14,
+  border: "1px solid #d9e3f5",
+  fontSize: 16,
+  marginBottom: 12,
+};
+
+const primaryButton = {
+  width: "100%",
+  padding: 16,
+  background: "#0d47a1",
+  color: "white",
+  border: "none",
+  borderRadius: 14,
+  fontSize: 17,
 };
 
 const backButton = {
