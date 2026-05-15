@@ -86,6 +86,7 @@ const card = {
   width: "100%",
   minHeight: 110,
   background: "white",
+  color: "#0f172a",
   border: "1px solid #d9e3f5",
   borderRadius: 18,
   padding: 18,
