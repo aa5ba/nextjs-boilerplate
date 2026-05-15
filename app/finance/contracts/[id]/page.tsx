@@ -240,12 +240,17 @@ export default function FinanceContractDetailsPage() {
   </span>
 </button>
 
-          <button style={actionButton}>
-            <span style={buttonContent}>
-              <span style={buttonIcon}>🖨️</span>
-              طباعة العقد
-            </span>
-          </button>
+          <button
+  style={actionButton}
+  onClick={() =>
+    (window.location.href = `/finance/contracts/print/${contractId}`)
+  }
+>
+  <span style={buttonContent}>
+    <span style={buttonIcon}>🖨️</span>
+    طباعة العقد
+  </span>
+</button>
 
           <button style={actionButton} onClick={closeContract}>
             <span style={buttonContent}>
