@@ -21,12 +21,18 @@ export default function FinanceContractsPage() {
             </span>
           </button>
 
-          <button style={actionButton}>
-            <span style={buttonContent}>
-              <span style={buttonIcon}>🧾</span>
-              إنشاء سند جديد
-            </span>
-          </button>
+          <button
+  style={actionButton}
+  onClick={() =>
+    (window.location.href =
+      "/finance/contracts/promissory-note/new")
+  }
+>
+  <span style={buttonContent}>
+    <span style={buttonIcon}>🧾</span>
+    إنشاء سند جديد
+  </span>
+</button>
 
           <button
             style={actionButton}
