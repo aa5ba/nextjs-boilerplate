@@ -78,6 +78,21 @@ export default function FinanceContractDetailsPage() {
       return;
     }
 
+    await supabase.from("finance_activity_logs").insert([
+      {
+        activity_type: "إلغاء دفعة",
+        description: `تم إلغاء دفعة للعميل ${
+          contract?.finance_customers?.full_name || ""
+        } بمبلغ ${paymentAmount} ر.س`,
+        customer_id: contract?.customer_id,
+        contract_id: contractId,
+        payment_id: payment.id,
+        customer_name: contract?.finance_customers?.full_name || "",
+        employee_name: "المدير",
+        status: newStatus,
+      },
+    ]);
+
     await loadData();
     alert("تم إلغاء الدفعة");
   }
@@ -114,7 +129,10 @@ export default function FinanceContractDetailsPage() {
           <Row label="نوع السداد" value={contract?.payment_type || "-"} />
           <Row label="موعد السداد" value={contract?.payment_due_date || "-"} />
           <Row label="المسدد" value={`${contract?.paid_amount || 0} ر.س`} />
-          <Row label="المتبقي" value={`${contract?.remaining_amount || 0} ر.س`} />
+          <Row
+            label="المتبقي"
+            value={`${contract?.remaining_amount || 0} ر.س`}
+          />
           <Row label="الحالة" value={contract?.contract_status || "-"} />
         </section>
 
