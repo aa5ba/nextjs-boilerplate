@@ -80,12 +80,17 @@ export default function FinanceContractDetailsPage() {
         </section>
 
         <section style={actionsSection}>
-          <button style={actionButton}>
-            <span style={buttonContent}>
-              <span style={buttonIcon}>💳</span>
-              تسجيل سداد
-            </span>
-          </button>
+          <button
+  style={actionButton}
+  onClick={() =>
+    (window.location.href = `/finance/payments/new?contract=${contractId}`)
+  }
+>
+  <span style={buttonContent}>
+    <span style={buttonIcon}>💳</span>
+    تسجيل سداد
+  </span>
+</button>
 
           <button style={actionButton}>
             <span style={buttonContent}>
