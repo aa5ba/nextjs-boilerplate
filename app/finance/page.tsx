@@ -41,7 +41,7 @@ function Card({ title, href, icon }: any) {
     <button style={card} onClick={() => (window.location.href = href)}>
       <div style={cardRight}>
         <span style={iconBox}>{icon}</span>
-        <span>{title}</span>
+        <span style={cardTitle}>{title}</span>
       </div>
 
       <span style={arrow}>‹</span>
@@ -114,6 +114,10 @@ const iconBox = {
   justifyContent: "center",
   fontSize: 22,
 };
+const cardTitle = {
+  color: "#0d47a1",
+  fontWeight: "bold",
+}
 
 const arrow = {
   color: "#0d6efd",
