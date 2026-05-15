@@ -1,6 +1,27 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
+
 export default function FinancePaymentsPage() {
+  const [payments, setPayments] = useState<any[]>([]);
+
+  useEffect(() => {
+    loadPayments();
+  }, []);
+
+  async function loadPayments() {
+    const { data } = await supabase
+      .from("finance_payments")
+      .select(
+        "*, finance_contracts(contract_number, finance_customers(full_name, national_id))"
+      )
+      .order("created_at", { ascending: false })
+      .limit(10);
+
+    setPayments(data || []);
+  }
+
   return (
     <main dir="rtl" style={page}>
       <div style={container}>
@@ -10,12 +31,13 @@ export default function FinancePaymentsPage() {
 
         <section style={actionsSection}>
           <button
-  style={actionButton}
-  onClick={() => (window.location.href = "/finance/payments/new")}
->
-  إجراء سداد
-</button>
-          <button style={actionButton}>إلغاء عملية سداد</button>
+            style={actionButton}
+            onClick={() => (window.location.href = "/finance/payments/new")}
+          >
+            💳 إجراء سداد
+          </button>
+
+          <button style={actionButton}>⛔ إلغاء عملية سداد</button>
         </section>
 
         <section style={card}>
@@ -29,7 +51,40 @@ export default function FinancePaymentsPage() {
             <span>نوع السداد</span>
           </div>
 
-          <div style={emptyBox}>لا توجد عمليات سداد حتى الآن</div>
+          {payments.length === 0 ? (
+            <div style={emptyBox}>لا توجد عمليات سداد حتى الآن</div>
+          ) : (
+            payments.map((payment) => (
+              <div
+                key={payment.id}
+                style={{
+                  ...tableRow,
+                  opacity: payment.is_cancelled ? 0.6 : 1,
+                }}
+                onClick={() =>
+                  payment.finance_contracts?.contract_number &&
+                  (window.location.href = `/finance/contracts/${payment.contract_id}`)
+                }
+              >
+                <span>
+                  {payment.finance_contracts?.finance_customers?.full_name ||
+                    "-"}
+                </span>
+
+                <span>{payment.finance_contracts?.contract_number || "-"}</span>
+
+                <span>{payment.payment_amount || 0} ر.س</span>
+
+                <span>{payment.notes || "-"}</span>
+
+                <span>
+                  {payment.is_cancelled
+                    ? "ملغية"
+                    : payment.payment_type || "-"}
+                </span>
+              </div>
+            ))
+          )}
         </section>
 
         <button
@@ -47,7 +102,7 @@ const page = {
   minHeight: "100vh",
   background: "#eef5ff",
   padding: 20,
-  fontFamily: "system-ui",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const container = {
@@ -79,6 +134,7 @@ const actionButton = {
   fontSize: 16,
   fontWeight: "bold",
   cursor: "pointer",
+  color: "#0d47a1",
 };
 
 const card = {
@@ -106,6 +162,16 @@ const tableHeader = {
   padding: 14,
   borderRadius: 12,
   marginBottom: 10,
+};
+
+const tableRow = {
+  display: "grid",
+  gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr",
+  gap: 12,
+  minWidth: 850,
+  padding: 14,
+  borderBottom: "1px solid #eef2f7",
+  cursor: "pointer",
 };
 
 const emptyBox = {
