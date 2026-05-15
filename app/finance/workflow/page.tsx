@@ -11,14 +11,20 @@ export default function FinanceWorkflowPage() {
   }, []);
 
   async function loadActivities() {
-    const { data } = await supabase
-      .from("finance_activity_logs")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(20);
+  const { data, error } = await supabase
+    .from("finance_activity_logs")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(20);
 
-    setActivities(data || []);
+  if (error) {
+    console.log(error);
+    alert("خطأ في تحميل سير العمل: " + error.message);
+    return;
   }
+
+  setActivities(data || []);
+}
 
   function getIcon(type: string) {
     switch (type) {
