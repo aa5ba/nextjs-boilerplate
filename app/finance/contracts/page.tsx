@@ -13,18 +13,49 @@ export default function FinanceContractsPage() {
   style={actionButton}
   onClick={() => (window.location.href = "/finance/contracts/new")}
 >
-  إنشاء عقد جديد
+  <span style={buttonContent}>
+    <span style={buttonIcon}>📄</span>
+    إنشاء عقد جديد
+  </span>
 </button>
-          <button style={actionButton}>إنشاء سند جديد</button>
-          <button style={actionButton}>البحث عن عقد</button>
-          <button style={actionButton}>تعديل عقد</button>
-          <button
+
+<button style={actionButton}>
+  <span style={buttonContent}>
+    <span style={buttonIcon}>🧾</span>
+    إنشاء سند جديد
+  </span>
+</button>
+
+<button style={actionButton}>
+  <span style={buttonContent}>
+    <span style={buttonIcon}>🔍</span>
+    البحث عن عقد
+  </span>
+</button>
+
+<button style={actionButton}>
+  <span style={buttonContent}>
+    <span style={buttonIcon}>✏️</span>
+    تعديل عقد
+  </span>
+</button>
+
+<button
   style={actionButton}
   onClick={() => (window.location.href = "/finance/contracts/active")}
 >
-  العقود القائمة
+  <span style={buttonContent}>
+    <span style={buttonIcon}>📂</span>
+    العقود القائمة
+  </span>
 </button>
-          <button style={actionButton}>العقود المنتهية</button>
+
+<button style={actionButton}>
+  <span style={buttonContent}>
+    <span style={buttonIcon}>✅</span>
+    العقود المنتهية
+  </span>
+</button>
         </section>
 
         <button
@@ -85,3 +116,13 @@ const backButton = {
   fontSize: 17,
   marginTop: 18,
 };
+const buttonContent = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 10,
+}
+
+const buttonIcon = {
+  fontSize: 20,
+}
