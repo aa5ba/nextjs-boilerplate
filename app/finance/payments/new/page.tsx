@@ -4,6 +4,26 @@ import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
 export default function NewPaymentPage() {
+    useEffect(() => {
+    loadContractFromUrl();
+  }, []);
+
+  async function loadContractFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const contractId = params.get("contract");
+
+    if (!contractId) return;
+
+    const { data } = await supabase
+      .from("finance_contracts")
+      .select("*, finance_customers(full_name, national_id, phone)")
+      .eq("id", contractId)
+      .single();
+
+    if (data) {
+      setSelectedContract(data);
+    }
+  }
   const [search, setSearch] = useState("");
   const [contracts, setContracts] = useState<any[]>([]);
   const [selectedContract, setSelectedContract] = useState<any>(null);
