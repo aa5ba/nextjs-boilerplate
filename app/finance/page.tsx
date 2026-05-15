@@ -15,7 +15,7 @@ export default function FinancePage() {
     <main dir="rtl" style={page}>
       <div style={container}>
         <div style={header}>
-  <h1 style={headerTitle}>إدارة التمويل</h1>
+  <h1 style={headerTitle}>محطة العمل الرئيسية</h1>
 </div>
 
         <div style={grid}>
