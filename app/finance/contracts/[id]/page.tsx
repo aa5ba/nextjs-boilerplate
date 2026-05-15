@@ -228,12 +228,17 @@ export default function FinanceContractDetailsPage() {
             </span>
           </button>
 
-          <button style={actionButton}>
-            <span style={buttonContent}>
-              <span style={buttonIcon}>✏️</span>
-              تعديل العقد
-            </span>
-          </button>
+          <button
+  style={actionButton}
+  onClick={() =>
+    (window.location.href = `/finance/contracts/edit/${contractId}`)
+  }
+>
+  <span style={buttonContent}>
+    <span style={buttonIcon}>✏️</span>
+    تعديل العقد
+  </span>
+</button>
 
           <button style={actionButton}>
             <span style={buttonContent}>
