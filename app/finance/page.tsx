@@ -66,16 +66,17 @@ const container = {
 const header = {
   background: "linear-gradient(135deg,#0d47a1,#1976d2)",
   color: "white",
-  padding: 40,
-  borderRadius: 24,
+  padding: "30px 20px",
+  borderRadius: 22,
   marginBottom: 22,
-};
+}
 const headerTitle = {
   margin: 0,
   textAlign: "center" as const,
-  fontSize: 40,
+  fontSize: 34,
   fontWeight: 700,
-  letterSpacing: "-0.5px",
+  letterSpacing: "0px",
+  lineHeight: 1.4,
 }
 const grid = {
   display: "grid",
