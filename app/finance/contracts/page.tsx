@@ -18,7 +18,12 @@ export default function FinanceContractsPage() {
           <button style={actionButton}>إنشاء سند جديد</button>
           <button style={actionButton}>البحث عن عقد</button>
           <button style={actionButton}>تعديل عقد</button>
-          <button style={actionButton}>العقود القائمة</button>
+          <button
+  style={actionButton}
+  onClick={() => (window.location.href = "/finance/contracts/active")}
+>
+  العقود القائمة
+</button>
           <button style={actionButton}>العقود المنتهية</button>
         </section>
 
