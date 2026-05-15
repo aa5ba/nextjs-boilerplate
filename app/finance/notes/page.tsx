@@ -24,7 +24,7 @@ export default function FinanceNotesPage() {
           style={backButton}
           onClick={() => (window.location.href = "/finance")}
         >
-          الرجوع لإدارة التمويل
+          الرجوع لمحطة العمل الرئيسية
         </button>
       </div>
     </main>
