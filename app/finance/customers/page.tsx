@@ -46,23 +46,45 @@ export default function FinanceCustomersPage() {
 
         <section style={actionsSection}>
           <button
-            style={actionButton}
-            onClick={() => (window.location.href = "/finance/customers/new")}
-          >
-            إنشاء عميل جديد
-          </button>
+  style={actionButton}
+  onClick={() => (window.location.href = "/finance/customers/new")}
+>
+  <span style={buttonContent}>
+    <span style={buttonIcon}>➕</span>
+    إنشاء عميل جديد
+  </span>
+</button>
 
-          <button style={actionButton}>البحث عن عميل</button>
+<button style={actionButton}>
+  <span style={buttonContent}>
+    <span style={buttonIcon}>🔍</span>
+    البحث عن عميل
+  </span>
+</button>
 
-          <button
-            style={actionButton}
-            onClick={() => (window.location.href = "/finance/customers/groups")}
-          >
-            إنشاء / تعديل مجموعة عملاء
-          </button>
+<button
+  style={actionButton}
+  onClick={() => (window.location.href = "/finance/customers/groups")}
+>
+  <span style={buttonContent}>
+    <span style={buttonIcon}>👥</span>
+    إنشاء / تعديل مجموعة عملاء
+  </span>
+</button>
 
-          <button style={actionButton}>حذف / تعديل عميل</button>
-          <button style={actionButton}>قائمة الحظر</button>
+<button style={actionButton}>
+  <span style={buttonContent}>
+    <span style={buttonIcon}>✏️</span>
+    حذف / تعديل عميل
+  </span>
+</button>
+
+<button style={actionButton}>
+  <span style={buttonContent}>
+    <span style={buttonIcon}>⛔</span>
+    قائمة الحظر
+  </span>
+</button>
         </section>
 
         <button
@@ -151,3 +173,13 @@ const backButton = {
   fontSize: 17,
   marginTop: 18,
 };
+const buttonContent = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 10,
+}
+
+const buttonIcon = {
+  fontSize: 20,
+}
