@@ -26,7 +26,10 @@ export default function FinanceContractsPage() {
   </span>
 </button>
 
-<button style={actionButton}>
+<button
+  style={actionButton}
+  onClick={() => (window.location.href = "/finance/contracts/search")}
+>
   <span style={buttonContent}>
     <span style={buttonIcon}>🔍</span>
     البحث عن عقد
