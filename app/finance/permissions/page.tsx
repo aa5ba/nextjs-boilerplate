@@ -18,7 +18,7 @@ export default function FinancePermissionsPage() {
           style={backButton}
           onClick={() => (window.location.href = "/finance")}
         >
-          الرجوع لإدارة التمويل
+          الرجوع لمحطة العمل الرئيسية
         </button>
       </div>
     </main>
