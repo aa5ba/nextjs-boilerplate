@@ -9,7 +9,12 @@ export default function FinancePaymentsPage() {
         </div>
 
         <section style={actionsSection}>
-          <button style={actionButton}>إجراء سداد</button>
+          <button
+  style={actionButton}
+  onClick={() => (window.location.href = "/finance/payments/new")}
+>
+  إجراء سداد
+</button>
           <button style={actionButton}>إلغاء عملية سداد</button>
         </section>
 
