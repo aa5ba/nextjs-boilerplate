@@ -14,8 +14,8 @@ export default function FinancePage() {
     <main dir="rtl" style={page}>
       <div style={container}>
         <div style={header}>
-          <h1 style={{ margin: 0 }}>إدارة التمويل</h1>
-        </div>
+  <h1 style={headerTitle}>إدارة التمويل</h1>
+</div>
 
         <div style={grid}>
           {sections.map((item) => (
@@ -65,11 +65,17 @@ const container = {
 const header = {
   background: "linear-gradient(135deg,#0d47a1,#1976d2)",
   color: "white",
-  padding: 28,
+  padding: 40,
   borderRadius: 24,
-  marginBottom: 18,
+  marginBottom: 22,
 };
-
+const headerTitle = {
+  margin: 0,
+  textAlign: "center" as const,
+  fontSize: 38,
+  fontWeight: "bold",
+  letterSpacing: "-1px",
+}
 const grid = {
   display: "grid",
   gap: 14,
