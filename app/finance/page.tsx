@@ -1,23 +1,31 @@
 "use client";
 
+const sections = [
+  { title: "سير العمل", href: "/finance/workflow", icon: "💼" },
+  { title: "العملاء", href: "/finance/customers", icon: "👥" },
+  { title: "المخزون والمنتجات", href: "/finance/inventory", icon: "📦" },
+  { title: "العقود", href: "/finance/contracts", icon: "📄" },
+  { title: "الملاحظات والتذكيرات", href: "/finance/notes", icon: "✏️" },
+  { title: "إدارة الصلاحيات", href: "/finance/permissions", icon: "🔐" },
+];
+
 export default function FinancePage() {
   return (
     <main dir="rtl" style={page}>
       <div style={container}>
         <div style={header}>
           <h1 style={{ margin: 0 }}>إدارة التمويل</h1>
-          <p style={{ margin: "8px 0 0" }}>
-            إدارة العملاء، العقود، المخزون، السداد، والصلاحيات.
-          </p>
         </div>
 
         <div style={grid}>
-          <Card title="سير العمل" href="/finance/workflow" />
-          <Card title="العملاء" href="/finance/customers" />
-          <Card title="المخزون والمنتجات" href="/finance/inventory" />
-          <Card title="العقود" href="/finance/contracts" />
-          <Card title="الملاحظات والتذكيرات" href="/finance/notes" />
-          <Card title="إدارة الصلاحيات" href="/finance/permissions" />
+          {sections.map((item) => (
+            <Card
+              key={item.href}
+              title={item.title}
+              href={item.href}
+              icon={item.icon}
+            />
+          ))}
         </div>
 
         <button style={backButton} onClick={() => (window.location.href = "/")}>
@@ -28,11 +36,15 @@ export default function FinancePage() {
   );
 }
 
-function Card({ title, href }: any) {
+function Card({ title, href, icon }: any) {
   return (
     <button style={card} onClick={() => (window.location.href = href)}>
-      {title}
-      <span style={arrow}>›</span>
+      <div style={cardRight}>
+        <span style={iconBox}>{icon}</span>
+        <span>{title}</span>
+      </div>
+
+      <span style={arrow}>‹</span>
     </button>
   );
 }
@@ -40,26 +52,27 @@ function Card({ title, href }: any) {
 const page = {
   minHeight: "100vh",
   background: "#eef5ff",
-  padding: 16,
+  padding: 20,
   fontFamily: "system-ui",
 };
 
 const container = {
-  maxWidth: 620,
+  width: "100%",
+  maxWidth: 1100,
   margin: "auto",
 };
 
 const header = {
   background: "linear-gradient(135deg,#0d47a1,#1976d2)",
   color: "white",
-  padding: 24,
+  padding: 28,
   borderRadius: 24,
-  marginBottom: 16,
+  marginBottom: 18,
 };
 
 const grid = {
   display: "grid",
-  gap: 12,
+  gap: 14,
 };
 
 const card = {
@@ -76,15 +89,32 @@ const card = {
   alignItems: "center",
 };
 
+const cardRight = {
+  display: "flex",
+  alignItems: "center",
+  gap: 14,
+};
+
+const iconBox = {
+  width: 44,
+  height: 44,
+  borderRadius: 14,
+  background: "#eef5ff",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: 22,
+};
+
 const arrow = {
   color: "#0d6efd",
-  fontSize: 26,
+  fontSize: 28,
 };
 
 const backButton = {
   width: "100%",
   padding: 16,
-  background: "#0d47a1",
+  background: "#111827",
   color: "white",
   border: "none",
   borderRadius: 14,
