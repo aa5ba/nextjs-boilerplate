@@ -73,9 +73,9 @@ const header = {
 const headerTitle = {
   margin: 0,
   textAlign: "center" as const,
-  fontSize: 38,
-  fontWeight: "bold",
-  letterSpacing: "-1px",
+  fontSize: 40,
+  fontWeight: 700,
+  letterSpacing: "-0.5px",
 }
 const grid = {
   display: "grid",
