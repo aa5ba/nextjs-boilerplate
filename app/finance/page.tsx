@@ -54,7 +54,7 @@ const page = {
   minHeight: "100vh",
   background: "#eef5ff",
   padding: 20,
-  fontFamily: "system-ui",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const container = {
