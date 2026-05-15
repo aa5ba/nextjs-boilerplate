@@ -33,6 +33,18 @@ export default function FinanceContractsPage() {
     إنشاء سند جديد
   </span>
 </button>
+          <button
+  style={actionButton}
+  onClick={() =>
+    (window.location.href =
+      "/finance/contracts/promissory-note/search")
+  }
+>
+  <span style={buttonContent}>
+    <span style={buttonIcon}>🔎</span>
+    البحث عن سند
+  </span>
+</button>
 
           <button
             style={actionButton}
