@@ -61,6 +61,7 @@ export default function FinanceWorkflowPage() {
               <span>العميل</span>
               <span>الحالة</span>
               <span>الموظف</span>
+             <span>التاريخ</span> 
             </div>
 
             {activities.length === 0 ? (
