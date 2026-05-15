@@ -15,7 +15,12 @@ export default function FinanceCustomersPage() {
         <section style={actionsSection}>
           <button style={actionButton}>إنشاء عميل جديد</button>
           <button style={actionButton}>البحث عن عميل</button>
-          <button style={actionButton}>إنشاء / تعديل مجموعة عملاء</button>
+          <button
+  style={actionButton}
+  onClick={() => (window.location.href = "/finance/customers/groups")}
+>
+  إنشاء / تعديل مجموعة عملاء
+</button>
           <button style={actionButton}>حذف / تعديل عميل</button>
           <button style={actionButton}>قائمة الحظر</button>
         </section>
