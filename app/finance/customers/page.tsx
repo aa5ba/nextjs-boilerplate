@@ -1,6 +1,24 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
+
 export default function FinanceCustomersPage() {
+  const [groups, setGroups] = useState<any[]>([]);
+
+  useEffect(() => {
+    loadGroups();
+  }, []);
+
+  async function loadGroups() {
+    const { data } = await supabase
+      .from("finance_customer_groups")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    setGroups(data || []);
+  }
+
   return (
     <main dir="rtl" style={page}>
       <div style={container}>
@@ -9,23 +27,40 @@ export default function FinanceCustomersPage() {
         </div>
 
         <section style={groupsSection}>
-          <div style={emptyGroupCard}>لا توجد مجموعات عملاء حتى الآن</div>
+          {groups.length === 0 ? (
+            <div style={emptyGroupCard}>لا توجد مجموعات عملاء حتى الآن</div>
+          ) : (
+            groups.map((group) => (
+              <button
+                key={group.id}
+                style={groupCard}
+                onClick={() =>
+                  (window.location.href = `/finance/customers/groups/${group.id}`)
+                }
+              >
+                {group.name}
+              </button>
+            ))
+          )}
         </section>
 
         <section style={actionsSection}>
           <button
-  style={actionButton}
-  onClick={() => (window.location.href = "/finance/customers/new")}
->
-  إنشاء عميل جديد
-</button>
+            style={actionButton}
+            onClick={() => (window.location.href = "/finance/customers/new")}
+          >
+            إنشاء عميل جديد
+          </button>
+
           <button style={actionButton}>البحث عن عميل</button>
+
           <button
-  style={actionButton}
-  onClick={() => (window.location.href = "/finance/customers/groups")}
->
-  إنشاء / تعديل مجموعة عملاء
-</button>
+            style={actionButton}
+            onClick={() => (window.location.href = "/finance/customers/groups")}
+          >
+            إنشاء / تعديل مجموعة عملاء
+          </button>
+
           <button style={actionButton}>حذف / تعديل عميل</button>
           <button style={actionButton}>قائمة الحظر</button>
         </section>
@@ -67,6 +102,17 @@ const groupsSection = {
   gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))",
   gap: 14,
   marginBottom: 18,
+};
+
+const groupCard = {
+  background: "white",
+  border: "1px solid #d9e3f5",
+  borderRadius: 18,
+  padding: 20,
+  fontSize: 17,
+  fontWeight: "bold",
+  textAlign: "center" as const,
+  cursor: "pointer",
 };
 
 const emptyGroupCard = {
