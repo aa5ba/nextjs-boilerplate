@@ -1,0 +1,229 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
+
+export default function FinanceContractDetailsPage() {
+  const params = useParams();
+  const contractId = params.id as string;
+
+  const [contract, setContract] = useState<any>(null);
+  const [payments, setPayments] = useState<any[]>([]);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  async function loadData() {
+    const { data: contractData } = await supabase
+      .from("finance_contracts")
+      .select("*, finance_customers(full_name, national_id, phone)")
+      .eq("id", contractId)
+      .single();
+
+    const { data: paymentsData } = await supabase
+      .from("finance_payments")
+      .select("*")
+      .eq("contract_id", contractId)
+      .order("created_at", { ascending: false });
+
+    setContract(contractData);
+    setPayments(paymentsData || []);
+  }
+
+  return (
+    <main dir="rtl" style={page}>
+      <div style={container}>
+        <div style={header}>
+          <h1 style={{ margin: 0 }}>
+            عقد رقم {contract?.contract_number || "-"}
+          </h1>
+        </div>
+
+        <section style={card}>
+          <Row label="العميل" value={contract?.finance_customers?.full_name} />
+          <Row label="رقم الهوية" value={contract?.finance_customers?.national_id} />
+          <Row label="رقم الجوال" value={contract?.finance_customers?.phone} />
+          <Row label="نوع التمويل" value={contract?.finance_type} />
+          <Row label="المستثمر" value={contract?.investor_name || "-"} />
+          <Row label="المنتج" value={contract?.product_name || "-"} />
+          <Row label="كمية المنتجات" value={contract?.product_quantity} />
+          <Row label="مبلغ الدين" value={`${contract?.debt_amount || 0} ر.س`} />
+          <Row label="مبلغ السداد" value={`${contract?.payment_amount || 0} ر.س`} />
+          <Row label="القسط" value={`${contract?.installment_amount || 0} ر.س`} />
+          <Row label="نوع السداد" value={contract?.payment_type || "-"} />
+          <Row label="موعد السداد" value={contract?.payment_due_date || "-"} />
+          <Row label="المسدد" value={`${contract?.paid_amount || 0} ر.س`} />
+          <Row label="المتبقي" value={`${contract?.remaining_amount || 0} ر.س`} />
+          <Row label="الحالة" value={contract?.contract_status || "-"} />
+        </section>
+
+        <section style={card}>
+          <h2 style={sectionTitle}>سجل الدفعات</h2>
+
+          {payments.length === 0 ? (
+            <div style={emptyBox}>لا توجد دفعات مسجلة</div>
+          ) : (
+            payments.map((payment) => (
+              <div key={payment.id} style={paymentRow}>
+                <span>{payment.payment_amount} ر.س</span>
+                <span>{payment.payment_type || "-"}</span>
+                <span>
+                  {payment.created_at
+                    ? new Date(payment.created_at).toLocaleDateString("en-GB")
+                    : "-"}
+                </span>
+              </div>
+            ))
+          )}
+        </section>
+
+        <section style={actionsSection}>
+          <button style={actionButton}>
+            <span style={buttonContent}>
+              <span style={buttonIcon}>💳</span>
+              تسجيل سداد
+            </span>
+          </button>
+
+          <button style={actionButton}>
+            <span style={buttonContent}>
+              <span style={buttonIcon}>✏️</span>
+              تعديل العقد
+            </span>
+          </button>
+
+          <button style={actionButton}>
+            <span style={buttonContent}>
+              <span style={buttonIcon}>🖨️</span>
+              طباعة العقد
+            </span>
+          </button>
+
+          <button style={actionButton}>
+            <span style={buttonContent}>
+              <span style={buttonIcon}>🔒</span>
+              إغلاق العقد
+            </span>
+          </button>
+        </section>
+
+        <button
+          style={backButton}
+          onClick={() => (window.location.href = "/finance/contracts/active")}
+        >
+          الرجوع للعقود القائمة
+        </button>
+      </div>
+    </main>
+  );
+}
+
+function Row({ label, value }: any) {
+  return (
+    <div style={row}>
+      <span>{label}</span>
+      <strong>{value || "-"}</strong>
+    </div>
+  );
+}
+
+const page = {
+  minHeight: "100vh",
+  background: "#eef5ff",
+  padding: 20,
+  fontFamily: "var(--font-almarai), sans-serif",
+};
+
+const container = {
+  width: "100%",
+  maxWidth: 1100,
+  margin: "auto",
+};
+
+const header = {
+  background: "linear-gradient(135deg,#0d47a1,#1976d2)",
+  color: "white",
+  padding: 28,
+  borderRadius: 24,
+  marginBottom: 18,
+};
+
+const card = {
+  background: "white",
+  border: "1px solid #d9e3f5",
+  borderRadius: 18,
+  padding: 20,
+  marginBottom: 16,
+};
+
+const row = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  padding: "12px 0",
+  borderBottom: "1px solid #eef2f7",
+};
+
+const sectionTitle = {
+  marginTop: 0,
+  fontSize: 22,
+  color: "#0d47a1",
+};
+
+const emptyBox = {
+  background: "#f8fbff",
+  border: "1px dashed #cbd5e1",
+  borderRadius: 14,
+  padding: 18,
+  textAlign: "center" as const,
+  color: "#6b7280",
+};
+
+const paymentRow = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr 1fr",
+  gap: 12,
+  padding: 14,
+  borderBottom: "1px solid #eef2f7",
+};
+
+const actionsSection = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
+  gap: 14,
+  marginBottom: 16,
+};
+
+const actionButton = {
+  background: "white",
+  border: "1px solid #d9e3f5",
+  borderRadius: 18,
+  padding: 18,
+  fontSize: 16,
+  fontWeight: "bold",
+  cursor: "pointer",
+  color: "#0d47a1",
+};
+
+const buttonContent = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 10,
+};
+
+const buttonIcon = {
+  fontSize: 20,
+};
+
+const backButton = {
+  width: "100%",
+  padding: 16,
+  background: "#111827",
+  color: "white",
+  border: "none",
+  borderRadius: 14,
+  fontSize: 17,
+};
