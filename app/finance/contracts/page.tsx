@@ -10,55 +10,66 @@ export default function FinanceContractsPage() {
 
         <section style={actionsSection}>
           <button
-  style={actionButton}
-  onClick={() => (window.location.href = "/finance/contracts/new")}
->
-  <span style={buttonContent}>
-    <span style={buttonIcon}>📄</span>
-    إنشاء عقد جديد
-  </span>
-</button>
+            style={actionButton}
+            onClick={() =>
+              (window.location.href = "/finance/contracts/new")
+            }
+          >
+            <span style={buttonContent}>
+              <span style={buttonIcon}>📄</span>
+              إنشاء عقد جديد
+            </span>
+          </button>
 
-<button style={actionButton}>
-  <span style={buttonContent}>
-    <span style={buttonIcon}>🧾</span>
-    إنشاء سند جديد
-  </span>
-</button>
+          <button style={actionButton}>
+            <span style={buttonContent}>
+              <span style={buttonIcon}>🧾</span>
+              إنشاء سند جديد
+            </span>
+          </button>
 
-<button
-  style={actionButton}
-  onClick={() => (window.location.href = "/finance/contracts/search")}
->
-  <span style={buttonContent}>
-    <span style={buttonIcon}>🔍</span>
-    البحث عن عقد
-  </span>
-</button>
+          <button
+            style={actionButton}
+            onClick={() =>
+              (window.location.href = "/finance/contracts/search")
+            }
+          >
+            <span style={buttonContent}>
+              <span style={buttonIcon}>🔍</span>
+              البحث عن عقد
+            </span>
+          </button>
 
-<button style={actionButton}>
-  <span style={buttonContent}>
-    <span style={buttonIcon}>✏️</span>
-    تعديل عقد
-  </span>
-</button>
+          <button style={actionButton}>
+            <span style={buttonContent}>
+              <span style={buttonIcon}>✏️</span>
+              تعديل عقد
+            </span>
+          </button>
 
-<button
-  style={actionButton}
-  onClick={() => (window.location.href = "/finance/contracts/active")}
->
-  <span style={buttonContent}>
-    <span style={buttonIcon}>📂</span>
-    العقود القائمة
-  </span>
-</button>
+          <button
+            style={actionButton}
+            onClick={() =>
+              (window.location.href = "/finance/contracts/active")
+            }
+          >
+            <span style={buttonContent}>
+              <span style={buttonIcon}>📂</span>
+              العقود القائمة
+            </span>
+          </button>
 
-<button style={actionButton}>
-  <span style={buttonContent}>
-    <span style={buttonIcon}>✅</span>
-    العقود المنتهية
-  </span>
-</button>
+          <button
+            style={actionButton}
+            onClick={() =>
+              (window.location.href = "/finance/contracts/closed")
+            }
+          >
+            <span style={buttonContent}>
+              <span style={buttonIcon}>✅</span>
+              العقود المنتهية
+            </span>
+          </button>
         </section>
 
         <button
@@ -76,7 +87,7 @@ const page = {
   minHeight: "100vh",
   background: "#eef5ff",
   padding: 20,
-  fontFamily: "system-ui",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const container = {
@@ -109,6 +120,17 @@ const actionButton = {
   cursor: "pointer",
 };
 
+const buttonContent = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 10,
+};
+
+const buttonIcon = {
+  fontSize: 20,
+};
+
 const backButton = {
   width: "100%",
   padding: 16,
@@ -119,13 +141,3 @@ const backButton = {
   fontSize: 17,
   marginTop: 18,
 };
-const buttonContent = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 10,
-}
-
-const buttonIcon = {
-  fontSize: 20,
-}
