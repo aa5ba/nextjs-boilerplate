@@ -97,6 +97,44 @@ export default function FinanceContractDetailsPage() {
     alert("تم إلغاء الدفعة");
   }
 
+  async function closeContract() {
+    if (!contract) return;
+
+    const confirmed = confirm("هل أنت متأكد من إغلاق العقد؟");
+    if (!confirmed) return;
+
+    const { error } = await supabase
+      .from("finance_contracts")
+      .update({
+        contract_status: "تم السداد",
+        remaining_amount: 0,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", contractId);
+
+    if (error) {
+      alert("تعذر إغلاق العقد");
+      return;
+    }
+
+    await supabase.from("finance_activity_logs").insert([
+      {
+        activity_type: "إغلاق عقد",
+        description: `تم إغلاق عقد العميل ${
+          contract?.finance_customers?.full_name || ""
+        }`,
+        customer_id: contract?.customer_id,
+        contract_id: contractId,
+        customer_name: contract?.finance_customers?.full_name || "",
+        employee_name: "المدير",
+        status: "تم السداد",
+      },
+    ]);
+
+    await loadData();
+    alert("تم إغلاق العقد");
+  }
+
   return (
     <main dir="rtl" style={page}>
       <div style={container}>
@@ -204,7 +242,7 @@ export default function FinanceContractDetailsPage() {
             </span>
           </button>
 
-          <button style={actionButton}>
+          <button style={actionButton} onClick={closeContract}>
             <span style={buttonContent}>
               <span style={buttonIcon}>🔒</span>
               إغلاق العقد
