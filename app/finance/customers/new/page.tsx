@@ -35,7 +35,7 @@ export default function NewFinanceCustomerPage() {
       return;
     }
 
-    const { error } = await supabase
+    const { data: customerData, error } = await supabase
       .from("finance_customers")
       .insert([
         {
@@ -49,12 +49,25 @@ export default function NewFinanceCustomerPage() {
           bank,
           broker,
         },
-      ]);
+      ])
+      .select()
+      .single();
 
     if (error) {
       alert("تعذر إنشاء العميل");
       return;
     }
+
+    await supabase.from("finance_activity_logs").insert([
+      {
+        activity_type: "إنشاء عميل",
+        description: `تم إنشاء عميل جديد باسم ${fullName}`,
+        customer_id: customerData.id,
+        customer_name: fullName,
+        employee_name: "المدير",
+        status: "جديد",
+      },
+    ]);
 
     alert("تم إنشاء العميل بنجاح");
 
@@ -91,61 +104,14 @@ export default function NewFinanceCustomerPage() {
             ))}
           </select>
 
-          <input
-            style={input}
-            placeholder="الاسم كاملاً"
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-          />
-
-          <input
-            style={input}
-            placeholder="رقم الهوية"
-            value={nationalId}
-            onChange={(e) => setNationalId(e.target.value)}
-          />
-
-          <input
-            style={input}
-            placeholder="تاريخ الميلاد بالهجري"
-            value={birthHijri}
-            onChange={(e) => setBirthHijri(e.target.value)}
-          />
-
-          <input
-            style={input}
-            placeholder="رقم الجوال"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-          />
-
-          <input
-            style={input}
-            placeholder="العمل ( اختياري )"
-            value={work}
-            onChange={(e) => setWork(e.target.value)}
-          />
-
-          <input
-            style={input}
-            placeholder="الراتب ( اختياري )"
-            value={salary}
-            onChange={(e) => setSalary(e.target.value)}
-          />
-
-          <input
-            style={input}
-            placeholder="البنك ( اختياري )"
-            value={bank}
-            onChange={(e) => setBank(e.target.value)}
-          />
-
-          <input
-            style={input}
-            placeholder="الوسيط ( اختياري )"
-            value={broker}
-            onChange={(e) => setBroker(e.target.value)}
-          />
+          <input style={input} placeholder="الاسم كاملاً" value={fullName} onChange={(e) => setFullName(e.target.value)} />
+          <input style={input} placeholder="رقم الهوية" value={nationalId} onChange={(e) => setNationalId(e.target.value)} />
+          <input style={input} placeholder="تاريخ الميلاد بالهجري" value={birthHijri} onChange={(e) => setBirthHijri(e.target.value)} />
+          <input style={input} placeholder="رقم الجوال" value={phone} onChange={(e) => setPhone(e.target.value)} />
+          <input style={input} placeholder="العمل ( اختياري )" value={work} onChange={(e) => setWork(e.target.value)} />
+          <input style={input} placeholder="الراتب ( اختياري )" value={salary} onChange={(e) => setSalary(e.target.value)} />
+          <input style={input} placeholder="البنك ( اختياري )" value={bank} onChange={(e) => setBank(e.target.value)} />
+          <input style={input} placeholder="الوسيط ( اختياري )" value={broker} onChange={(e) => setBroker(e.target.value)} />
 
           <button style={primaryButton} onClick={createCustomer}>
             إنشاء العميل
@@ -167,7 +133,7 @@ const page = {
   minHeight: "100vh",
   background: "#eef5ff",
   padding: 20,
-  fontFamily: "system-ui",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const container = {
