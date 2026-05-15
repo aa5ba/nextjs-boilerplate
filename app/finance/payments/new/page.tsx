@@ -4,7 +4,15 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
 export default function NewPaymentPage() {
-    useEffect(() => {
+  const [search, setSearch] = useState("");
+  const [contracts, setContracts] = useState<any[]>([]);
+  const [selectedContract, setSelectedContract] = useState<any>(null);
+
+  const [paymentType, setPaymentType] = useState("");
+  const [amount, setAmount] = useState("");
+  const [method, setMethod] = useState("");
+
+  useEffect(() => {
     loadContractFromUrl();
   }, []);
 
@@ -24,13 +32,6 @@ export default function NewPaymentPage() {
       setSelectedContract(data);
     }
   }
-  const [search, setSearch] = useState("");
-  const [contracts, setContracts] = useState<any[]>([]);
-  const [selectedContract, setSelectedContract] = useState<any>(null);
-
-  const [paymentType, setPaymentType] = useState("");
-  const [amount, setAmount] = useState("");
-  const [method, setMethod] = useState("");
 
   async function searchContracts() {
     if (!search.trim()) {
@@ -61,10 +62,9 @@ export default function NewPaymentPage() {
 
     const newPaid = oldPaid + paid;
     const newRemaining = Math.max(debt - newPaid, 0);
-
     const newStatus = newRemaining <= 0 ? "تم السداد" : "نشط";
 
-    const { error: paymentError } = await supabase
+    const { data: paymentData, error: paymentError } = await supabase
       .from("finance_payments")
       .insert([
         {
@@ -74,7 +74,9 @@ export default function NewPaymentPage() {
           notes: method,
           created_by: "المدير",
         },
-      ]);
+      ])
+      .select()
+      .single();
 
     if (paymentError) {
       alert("تعذر تسجيل السداد");
@@ -95,6 +97,21 @@ export default function NewPaymentPage() {
       alert("تم تسجيل السداد، لكن تعذر تحديث العقد");
       return;
     }
+
+    await supabase.from("finance_activity_logs").insert([
+      {
+        activity_type: "سداد",
+        description: `تم تسجيل سداد للعميل ${
+          selectedContract.finance_customers?.full_name || ""
+        } بمبلغ ${paid} ر.س`,
+        customer_id: selectedContract.customer_id,
+        contract_id: selectedContract.id,
+        payment_id: paymentData.id,
+        customer_name: selectedContract.finance_customers?.full_name || "",
+        employee_name: "المدير",
+        status: newStatus,
+      },
+    ]);
 
     alert("تم تسجيل السداد بنجاح");
     window.location.href = `/finance/contracts/${selectedContract.id}`;
@@ -143,8 +160,14 @@ export default function NewPaymentPage() {
               label="العميل"
               value={selectedContract.finance_customers?.full_name}
             />
-            <Row label="مبلغ الدين" value={`${selectedContract.debt_amount} ر.س`} />
-            <Row label="المسدد" value={`${selectedContract.paid_amount} ر.س`} />
+            <Row
+              label="مبلغ الدين"
+              value={`${selectedContract.debt_amount} ر.س`}
+            />
+            <Row
+              label="المسدد"
+              value={`${selectedContract.paid_amount} ر.س`}
+            />
             <Row
               label="المتبقي"
               value={`${selectedContract.remaining_amount} ر.س`}
