@@ -1,6 +1,44 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
+
 export default function FinanceWorkflowPage() {
+  const [activities, setActivities] = useState<any[]>([]);
+
+  useEffect(() => {
+    loadActivities();
+  }, []);
+
+  async function loadActivities() {
+    const { data } = await supabase
+      .from("finance_activity_logs")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    setActivities(data || []);
+  }
+
+  function getIcon(type: string) {
+    switch (type) {
+      case "إنشاء عقد":
+        return "📄";
+
+      case "سداد":
+        return "💳";
+
+      case "إلغاء دفعة":
+        return "⛔";
+
+      case "إنشاء عميل":
+        return "👤";
+
+      default:
+        return "📌";
+    }
+  }
+
   return (
     <main dir="rtl" style={page}>
       <div style={container}>
@@ -19,7 +57,24 @@ export default function FinanceWorkflowPage() {
               <span>الموظف</span>
             </div>
 
-            <div style={emptyBox}>لا توجد عمليات مسجلة حتى الآن.</div>
+            {activities.length === 0 ? (
+              <div style={emptyBox}>لا توجد عمليات مسجلة حتى الآن.</div>
+            ) : (
+              activities.map((activity) => (
+                <div key={activity.id} style={tableRow}>
+                  <span>
+                    {getIcon(activity.activity_type)}{" "}
+                    {activity.activity_type}
+                  </span>
+
+                  <span>{activity.customer_name || "-"}</span>
+
+                  <span>{activity.status || "-"}</span>
+
+                  <span>{activity.employee_name || "-"}</span>
+                </div>
+              ))
+            )}
           </div>
         </section>
 
@@ -38,7 +93,7 @@ const page = {
   minHeight: "100vh",
   background: "#eef5ff",
   padding: 20,
-  fontFamily: "system-ui",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const container = {
@@ -83,6 +138,16 @@ const tableHeader = {
   padding: 14,
   borderRadius: 12,
   minWidth: 720,
+  marginBottom: 10,
+};
+
+const tableRow = {
+  display: "grid",
+  gridTemplateColumns: "2fr 1.5fr 1fr 1fr",
+  gap: 12,
+  minWidth: 720,
+  padding: 14,
+  borderBottom: "1px solid #eef2f7",
 };
 
 const emptyBox = {
