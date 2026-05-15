@@ -32,6 +32,56 @@ export default function FinanceContractDetailsPage() {
     setPayments(paymentsData || []);
   }
 
+  async function cancelPayment(payment: any) {
+    if (payment.is_cancelled) {
+      alert("تم إلغاء هذه الدفعة مسبقًا");
+      return;
+    }
+
+    const confirmed = confirm("هل أنت متأكد من إلغاء الدفعة؟");
+    if (!confirmed) return;
+
+    const currentPaid = Number(contract?.paid_amount || 0);
+    const debt = Number(contract?.debt_amount || 0);
+    const paymentAmount = Number(payment.payment_amount || 0);
+
+    const newPaid = Math.max(currentPaid - paymentAmount, 0);
+    const newRemaining = Math.max(debt - newPaid, 0);
+    const newStatus = newRemaining <= 0 ? "تم السداد" : "نشط";
+
+    const { error: paymentError } = await supabase
+      .from("finance_payments")
+      .update({
+        is_cancelled: true,
+        cancelled_at: new Date().toISOString(),
+        cancelled_by: "المدير",
+      })
+      .eq("id", payment.id);
+
+    if (paymentError) {
+      alert("تعذر إلغاء الدفعة");
+      return;
+    }
+
+    const { error: contractError } = await supabase
+      .from("finance_contracts")
+      .update({
+        paid_amount: newPaid,
+        remaining_amount: newRemaining,
+        contract_status: newStatus,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", contractId);
+
+    if (contractError) {
+      alert("تم إلغاء الدفعة، لكن تعذر تحديث العقد");
+      return;
+    }
+
+    await loadData();
+    alert("تم إلغاء الدفعة");
+  }
+
   return (
     <main dir="rtl" style={page}>
       <div style={container}>
@@ -43,15 +93,24 @@ export default function FinanceContractDetailsPage() {
 
         <section style={card}>
           <Row label="العميل" value={contract?.finance_customers?.full_name} />
-          <Row label="رقم الهوية" value={contract?.finance_customers?.national_id} />
+          <Row
+            label="رقم الهوية"
+            value={contract?.finance_customers?.national_id}
+          />
           <Row label="رقم الجوال" value={contract?.finance_customers?.phone} />
           <Row label="نوع التمويل" value={contract?.finance_type} />
           <Row label="المستثمر" value={contract?.investor_name || "-"} />
           <Row label="المنتج" value={contract?.product_name || "-"} />
           <Row label="كمية المنتجات" value={contract?.product_quantity} />
           <Row label="مبلغ الدين" value={`${contract?.debt_amount || 0} ر.س`} />
-          <Row label="مبلغ السداد" value={`${contract?.payment_amount || 0} ر.س`} />
-          <Row label="القسط" value={`${contract?.installment_amount || 0} ر.س`} />
+          <Row
+            label="مبلغ السداد"
+            value={`${contract?.payment_amount || 0} ر.س`}
+          />
+          <Row
+            label="القسط"
+            value={`${contract?.installment_amount || 0} ر.س`}
+          />
           <Row label="نوع السداد" value={contract?.payment_type || "-"} />
           <Row label="موعد السداد" value={contract?.payment_due_date || "-"} />
           <Row label="المسدد" value={`${contract?.paid_amount || 0} ر.س`} />
@@ -66,14 +125,35 @@ export default function FinanceContractDetailsPage() {
             <div style={emptyBox}>لا توجد دفعات مسجلة</div>
           ) : (
             payments.map((payment) => (
-              <div key={payment.id} style={paymentRow}>
-                <span>{payment.payment_amount} ر.س</span>
-                <span>{payment.payment_type || "-"}</span>
+              <div
+                key={payment.id}
+                style={{
+                  ...paymentRow,
+                  opacity: payment.is_cancelled ? 0.6 : 1,
+                }}
+              >
+                <span>💰 {payment.payment_amount} ر.س</span>
+
                 <span>
+                  {payment.is_cancelled
+                    ? "❌ ملغية"
+                    : `💳 ${payment.payment_type || "-"}`}
+                </span>
+
+                <span>
+                  📅{" "}
                   {payment.created_at
                     ? new Date(payment.created_at).toLocaleDateString("en-GB")
                     : "-"}
                 </span>
+
+                <button
+                  style={cancelButton}
+                  onClick={() => cancelPayment(payment)}
+                  disabled={payment.is_cancelled}
+                >
+                  ⛔ إلغاء
+                </button>
               </div>
             ))
           )}
@@ -81,16 +161,16 @@ export default function FinanceContractDetailsPage() {
 
         <section style={actionsSection}>
           <button
-  style={actionButton}
-  onClick={() =>
-    (window.location.href = `/finance/payments/new?contract=${contractId}`)
-  }
->
-  <span style={buttonContent}>
-    <span style={buttonIcon}>💳</span>
-    تسجيل سداد
-  </span>
-</button>
+            style={actionButton}
+            onClick={() =>
+              (window.location.href = `/finance/payments/new?contract=${contractId}`)
+            }
+          >
+            <span style={buttonContent}>
+              <span style={buttonIcon}>💳</span>
+              تسجيل سداد
+            </span>
+          </button>
 
           <button style={actionButton}>
             <span style={buttonContent}>
@@ -188,10 +268,21 @@ const emptyBox = {
 
 const paymentRow = {
   display: "grid",
-  gridTemplateColumns: "1fr 1fr 1fr",
+  gridTemplateColumns: "1fr 1fr 1fr 140px",
   gap: 12,
   padding: 14,
   borderBottom: "1px solid #eef2f7",
+  alignItems: "center",
+};
+
+const cancelButton = {
+  background: "#fee2e2",
+  color: "#991b1b",
+  border: "none",
+  borderRadius: 12,
+  padding: "10px 14px",
+  cursor: "pointer",
+  fontWeight: "bold",
 };
 
 const actionsSection = {
