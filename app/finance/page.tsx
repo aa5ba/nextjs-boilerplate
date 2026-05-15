@@ -78,11 +78,13 @@ const headerTitle = {
 }
 const grid = {
   display: "grid",
-  gap: 14,
+  gridTemplateColumns: "repeat(auto-fit,minmax(320px,1fr))",
+  gap: 18,
 };
 
 const card = {
   width: "100%",
+  minHeight: 110,
   background: "white",
   border: "1px solid #d9e3f5",
   borderRadius: 18,
