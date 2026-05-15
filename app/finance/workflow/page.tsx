@@ -11,38 +11,43 @@ export default function FinanceWorkflowPage() {
   }, []);
 
   async function loadActivities() {
-  const { data, error } = await supabase
-    .from("finance_activity_logs")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(20);
+    const { data, error } = await supabase
+      .from("finance_activity_logs")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(20);
 
-  if (error) {
-    console.log(error);
-    alert("خطأ في تحميل سير العمل: " + error.message);
-    return;
+    if (error) {
+      console.log(error);
+      alert("خطأ في تحميل سير العمل: " + error.message);
+      return;
+    }
+
+    setActivities(data || []);
   }
-
-  setActivities(data || []);
-}
 
   function getIcon(type: string) {
     switch (type) {
       case "إنشاء عقد":
         return "📄";
-
       case "سداد":
         return "💳";
-
       case "إلغاء دفعة":
         return "⛔";
-
       case "إنشاء عميل":
         return "👤";
-
       default:
         return "📌";
     }
+  }
+
+  function formatDate(date: string) {
+    if (!date) return "-";
+
+    return new Date(date).toLocaleString("ar-SA", {
+      dateStyle: "short",
+      timeStyle: "short",
+    });
   }
 
   return (
@@ -61,24 +66,22 @@ export default function FinanceWorkflowPage() {
               <span>العميل</span>
               <span>الحالة</span>
               <span>الموظف</span>
-             <span>التاريخ</span> 
+              <span>التاريخ والوقت</span>
             </div>
 
             {activities.length === 0 ? (
-              <div style={emptyBox}>لا توجد عمليات مسجلة حتى اختبار.</div>
+              <div style={emptyBox}>لا توجد عمليات مسجلة حتى الآن.</div>
             ) : (
               activities.map((activity) => (
                 <div key={activity.id} style={tableRow}>
                   <span>
-                    {getIcon(activity.activity_type)}{" "}
-                    {activity.activity_type}
+                    {getIcon(activity.activity_type)} {activity.activity_type}
                   </span>
 
                   <span>{activity.customer_name || "-"}</span>
-
                   <span>{activity.status || "-"}</span>
-
                   <span>{activity.employee_name || "-"}</span>
+                  <span>{formatDate(activity.created_at)}</span>
                 </div>
               ))
             )}
@@ -137,28 +140,28 @@ const tableBox = {
 
 const tableHeader = {
   display: "grid",
-gridTemplateColumns: "220px 180px 120px 120px",
+  gridTemplateColumns: "220px 180px 120px 120px 190px",
   gap: 12,
   background: "#f4f8ff",
   color: "#0d47a1",
   fontWeight: "bold",
   padding: 14,
   borderRadius: 12,
-  minWidth: 720,
+  minWidth: 890,
   marginBottom: 10,
 };
 
 const tableRow = {
   display: "grid",
-  gridTemplateColumns: "220px 180px 120px 120px",
+  gridTemplateColumns: "220px 180px 120px 120px 190px",
   gap: 12,
-  minWidth: 720,
+  minWidth: 890,
   padding: 14,
   borderBottom: "1px solid #eef2f7",
 };
 
 const emptyBox = {
-  minWidth: 720,
+  minWidth: 890,
   background: "#f8fbff",
   border: "1px dashed #cbd5e1",
   borderRadius: 14,
