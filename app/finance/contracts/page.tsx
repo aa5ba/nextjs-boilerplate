@@ -9,7 +9,12 @@ export default function FinanceContractsPage() {
         </div>
 
         <section style={actionsSection}>
-          <button style={actionButton}>إنشاء عقد جديد</button>
+          <button
+  style={actionButton}
+  onClick={() => (window.location.href = "/finance/contracts/new")}
+>
+  إنشاء عقد جديد
+</button>
           <button style={actionButton}>إنشاء سند جديد</button>
           <button style={actionButton}>البحث عن عقد</button>
           <button style={actionButton}>تعديل عقد</button>
