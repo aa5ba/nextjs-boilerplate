@@ -40,7 +40,13 @@ export default function ActiveContractsPage() {
             <div style={emptyBox}>لا توجد عقود قائمة</div>
           ) : (
             contracts.map((contract) => (
-              <div key={contract.id} style={tableRow}>
+              <div
+                key={contract.id}
+                style={tableRow}
+                onClick={() =>
+                  (window.location.href = `/finance/contracts/${contract.id}`)
+                }
+              >
                 <span>{contract.contract_number}</span>
                 <span>{contract.finance_customers?.full_name || "-"}</span>
                 <span>{contract.finance_type}</span>
@@ -66,7 +72,7 @@ const page = {
   minHeight: "100vh",
   background: "#eef5ff",
   padding: 20,
-  fontFamily: "system-ui",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const container = {
@@ -111,6 +117,7 @@ const tableRow = {
   minWidth: 850,
   padding: 14,
   borderBottom: "1px solid #eef2f7",
+  cursor: "pointer",
 };
 
 const emptyBox = {
