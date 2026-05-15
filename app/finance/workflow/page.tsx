@@ -64,7 +64,7 @@ export default function FinanceWorkflowPage() {
             </div>
 
             {activities.length === 0 ? (
-              <div style={emptyBox}>لا توجد عمليات مسجلة حتى الآن.</div>
+              <div style={emptyBox}>لا توجد عمليات مسجلة حتى اختبار.</div>
             ) : (
               activities.map((activity) => (
                 <div key={activity.id} style={tableRow}>
