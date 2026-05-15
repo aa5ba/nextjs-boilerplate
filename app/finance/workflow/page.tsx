@@ -136,7 +136,7 @@ const tableBox = {
 
 const tableHeader = {
   display: "grid",
-  gridTemplateColumns: "2fr 1.5fr 1fr 1fr",
+gridTemplateColumns: "220px 180px 120px 120px",
   gap: 12,
   background: "#f4f8ff",
   color: "#0d47a1",
@@ -149,7 +149,7 @@ const tableHeader = {
 
 const tableRow = {
   display: "grid",
-  gridTemplateColumns: "2fr 1.5fr 1fr 1fr",
+  gridTemplateColumns: "220px 180px 120px 120px",
   gap: 12,
   minWidth: 720,
   padding: 14,
