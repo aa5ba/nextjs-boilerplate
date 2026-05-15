@@ -44,36 +44,54 @@ export default function NewFinanceContractPage() {
       return;
     }
 
-    const { error } = await supabase.from("finance_contracts").insert([
-      {
-        customer_id: customerId,
-        finance_type: financeType,
-        investor_name: investorName,
-        product_name: productName,
-        product_quantity: toNumber(productQuantity),
-        debt_amount: toNumber(debtAmount),
-        payment_amount: toNumber(paymentAmount),
-        installment_amount: toNumber(installmentAmount),
-        payment_type: paymentType,
-        payment_due_date: paymentDueDate,
-        guarantor_name: guarantorName,
-        legal_city: legalCity,
-        judicial_amount: toNumber(judicialAmount),
-        notes,
-        contract_status: "نشط",
-        paid_amount: 0,
-        remaining_amount: toNumber(debtAmount),
-        created_by: "المدير",
-      },
-    ]);
+    const selectedCustomer = customers.find((c) => c.id === customerId);
+
+    const { data: contractData, error } = await supabase
+      .from("finance_contracts")
+      .insert([
+        {
+          customer_id: customerId,
+          finance_type: financeType,
+          investor_name: investorName,
+          product_name: productName,
+          product_quantity: toNumber(productQuantity),
+          debt_amount: toNumber(debtAmount),
+          payment_amount: toNumber(paymentAmount),
+          installment_amount: toNumber(installmentAmount),
+          payment_type: paymentType,
+          payment_due_date: paymentDueDate,
+          guarantor_name: guarantorName,
+          legal_city: legalCity,
+          judicial_amount: toNumber(judicialAmount),
+          notes,
+          contract_status: "نشط",
+          paid_amount: 0,
+          remaining_amount: toNumber(debtAmount),
+          created_by: "المدير",
+        },
+      ])
+      .select()
+      .single();
 
     if (error) {
       alert("تعذر إنشاء العقد");
       return;
     }
 
+    await supabase.from("finance_activity_logs").insert([
+      {
+        activity_type: "إنشاء عقد",
+        description: `تم إنشاء عقد جديد للعميل ${selectedCustomer?.full_name || ""}`,
+        customer_id: customerId,
+        contract_id: contractData.id,
+        customer_name: selectedCustomer?.full_name || "",
+        employee_name: "المدير",
+        status: "نشط",
+      },
+    ]);
+
     alert("تم إنشاء العقد بنجاح");
-    window.location.href = "/finance/contracts";
+    window.location.href = `/finance/contracts/${contractData.id}`;
   }
 
   return (
@@ -97,97 +115,25 @@ export default function NewFinanceContractPage() {
             ))}
           </select>
 
-          <input
-            style={input}
-            placeholder="نوع التمويل"
-            value={financeType}
-            onChange={(e) => setFinanceType(e.target.value)}
-          />
+          <input style={input} placeholder="نوع التمويل" value={financeType} onChange={(e) => setFinanceType(e.target.value)} />
+          <input style={input} placeholder="المستثمر" value={investorName} onChange={(e) => setInvestorName(e.target.value)} />
+          <input style={input} placeholder="اسم المنتج" value={productName} onChange={(e) => setProductName(e.target.value)} />
 
-          <input
-            style={input}
-            placeholder="المستثمر"
-            value={investorName}
-            onChange={(e) => setInvestorName(e.target.value)}
-          />
+          <input style={input} inputMode="numeric" placeholder="كمية المنتجات" value={productQuantity} onChange={(e) => setProductQuantity(e.target.value)} />
+          <input style={input} inputMode="numeric" placeholder="مبلغ الدين" value={debtAmount} onChange={(e) => setDebtAmount(e.target.value)} />
+          <input style={input} inputMode="numeric" placeholder="مبلغ السداد" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} />
+          <input style={input} inputMode="numeric" placeholder="القسط" value={installmentAmount} onChange={(e) => setInstallmentAmount(e.target.value)} />
 
-          <input
-            style={input}
-            placeholder="اسم المنتج"
-            value={productName}
-            onChange={(e) => setProductName(e.target.value)}
-          />
-
-          <input
-            style={input}
-            inputMode="numeric"
-            placeholder="كمية المنتجات"
-            value={productQuantity}
-            onChange={(e) => setProductQuantity(e.target.value)}
-          />
-
-          <input
-            style={input}
-            inputMode="numeric"
-            placeholder="مبلغ الدين"
-            value={debtAmount}
-            onChange={(e) => setDebtAmount(e.target.value)}
-          />
-
-          <input
-            style={input}
-            inputMode="numeric"
-            placeholder="مبلغ السداد"
-            value={paymentAmount}
-            onChange={(e) => setPaymentAmount(e.target.value)}
-          />
-
-          <input
-            style={input}
-            inputMode="numeric"
-            placeholder="القسط"
-            value={installmentAmount}
-            onChange={(e) => setInstallmentAmount(e.target.value)}
-          />
-
-          <select
-            style={input}
-            value={paymentType}
-            onChange={(e) => setPaymentType(e.target.value)}
-          >
+          <select style={input} value={paymentType} onChange={(e) => setPaymentType(e.target.value)}>
             <option value="">نوع السداد</option>
             <option value="موعد محدد">موعد محدد</option>
             <option value="شهري مجدول">شهري مجدول</option>
           </select>
 
-          <input
-            style={input}
-            placeholder="موعد السداد"
-            value={paymentDueDate}
-            onChange={(e) => setPaymentDueDate(e.target.value)}
-          />
-
-          <input
-            style={input}
-            placeholder="الكفيل"
-            value={guarantorName}
-            onChange={(e) => setGuarantorName(e.target.value)}
-          />
-
-          <input
-            style={input}
-            placeholder="مدينة التقاضي"
-            value={legalCity}
-            onChange={(e) => setLegalCity(e.target.value)}
-          />
-
-          <input
-            style={input}
-            inputMode="numeric"
-            placeholder="المبلغ القضائي"
-            value={judicialAmount}
-            onChange={(e) => setJudicialAmount(e.target.value)}
-          />
+          <input style={input} placeholder="موعد السداد" value={paymentDueDate} onChange={(e) => setPaymentDueDate(e.target.value)} />
+          <input style={input} placeholder="الكفيل" value={guarantorName} onChange={(e) => setGuarantorName(e.target.value)} />
+          <input style={input} placeholder="مدينة التقاضي" value={legalCity} onChange={(e) => setLegalCity(e.target.value)} />
+          <input style={input} inputMode="numeric" placeholder="المبلغ القضائي" value={judicialAmount} onChange={(e) => setJudicialAmount(e.target.value)} />
 
           <textarea
             style={textarea}
@@ -216,7 +162,7 @@ const page = {
   minHeight: "100vh",
   background: "#eef5ff",
   padding: 20,
-  fontFamily: "system-ui",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const container = {
