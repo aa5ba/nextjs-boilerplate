@@ -53,8 +53,6 @@ export default function EditContractPage() {
     setContractStatus(data.contract_status || "نشط");
   }
 
-  
-
   async function updateContract() {
     const { error } = await supabase
       .from("finance_contracts")
@@ -104,33 +102,117 @@ export default function EditContractPage() {
         </div>
 
         <section style={card}>
-          <input style={input} placeholder="نوع التمويل" value={financeType} onChange={(e) => setFinanceType(e.target.value)} />
-          <input style={input} placeholder="المستثمر" value={investorName} onChange={(e) => setInvestorName(e.target.value)} />
-          <input style={input} placeholder="اسم المنتج" value={productName} onChange={(e) => setProductName(e.target.value)} />
-          <input style={input} inputMode="numeric" placeholder="كمية المنتجات" value={productQuantity} onChange={(e) => setProductQuantity(e.target.value)} />
-          <input style={input} inputMode="numeric" placeholder="مبلغ الدين" value={debtAmount} onChange={(e) => setDebtAmount(e.target.value)} />
-          <input style={input} inputMode="numeric" placeholder="مبلغ السداد" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} />
-          <input style={input} inputMode="numeric" placeholder="القسط" value={installmentAmount} onChange={(e) => setInstallmentAmount(e.target.value)} />
+          <input
+            style={input}
+            placeholder="نوع التمويل"
+            value={financeType}
+            onChange={(e) => setFinanceType(e.target.value)}
+          />
 
-          <select style={input} value={paymentType} onChange={(e) => setPaymentType(e.target.value)}>
+          <input
+            style={input}
+            placeholder="المستثمر"
+            value={investorName}
+            onChange={(e) => setInvestorName(e.target.value)}
+          />
+
+          <input
+            style={input}
+            placeholder="اسم المنتج"
+            value={productName}
+            onChange={(e) => setProductName(e.target.value)}
+          />
+
+          <input
+            style={input}
+            inputMode="numeric"
+            placeholder="كمية المنتجات"
+            value={productQuantity}
+            onChange={(e) => setProductQuantity(normalizeNumber(e.target.value))}
+          />
+
+          <input
+            style={input}
+            inputMode="numeric"
+            placeholder="مبلغ الدين"
+            value={debtAmount}
+            onChange={(e) => setDebtAmount(normalizeNumber(e.target.value))}
+          />
+
+          <input
+            style={input}
+            inputMode="numeric"
+            placeholder="مبلغ السداد"
+            value={paymentAmount}
+            onChange={(e) => setPaymentAmount(normalizeNumber(e.target.value))}
+          />
+
+          <input
+            style={input}
+            inputMode="numeric"
+            placeholder="القسط"
+            value={installmentAmount}
+            onChange={(e) =>
+              setInstallmentAmount(normalizeNumber(e.target.value))
+            }
+          />
+
+          <select
+            style={input}
+            value={paymentType}
+            onChange={(e) => setPaymentType(e.target.value)}
+          >
             <option value="">نوع السداد</option>
             <option value="موعد محدد">موعد محدد</option>
             <option value="شهري مجدول">شهري مجدول</option>
           </select>
 
-          <input style={input} placeholder="موعد السداد" value={paymentDueDate} onChange={(e) => setPaymentDueDate(e.target.value)} />
-          <input style={input} placeholder="الكفيل" value={guarantorName} onChange={(e) => setGuarantorName(e.target.value)} />
-          <input style={input} placeholder="مدينة التقاضي" value={legalCity} onChange={(e) => setLegalCity(e.target.value)} />
-          <input style={input} inputMode="numeric" placeholder="المبلغ القضائي" value={judicialAmount} onChange={(e) => setJudicialAmount(e.target.value)} />
+          <input
+            style={input}
+            placeholder="موعد السداد"
+            value={paymentDueDate}
+            onChange={(e) => setPaymentDueDate(e.target.value)}
+          />
 
-          <select style={input} value={contractStatus} onChange={(e) => setContractStatus(e.target.value)}>
+          <input
+            style={input}
+            placeholder="الكفيل"
+            value={guarantorName}
+            onChange={(e) => setGuarantorName(e.target.value)}
+          />
+
+          <input
+            style={input}
+            placeholder="مدينة التقاضي"
+            value={legalCity}
+            onChange={(e) => setLegalCity(e.target.value)}
+          />
+
+          <input
+            style={input}
+            inputMode="numeric"
+            placeholder="المبلغ القضائي"
+            value={judicialAmount}
+            onChange={(e) => setJudicialAmount(normalizeNumber(e.target.value))}
+          />
+
+          <select
+            style={input}
+            value={contractStatus}
+            onChange={(e) => setContractStatus(e.target.value)}
+          >
             <option value="نشط">نشط</option>
             <option value="متأخر">متأخر</option>
             <option value="تم السداد">تم السداد</option>
             <option value="ملغي">ملغي</option>
           </select>
 
-          <textarea style={textarea} placeholder="ملاحظات" value={notes} onChange={(e) => setNotes(e.target.value)} />
+          <textarea
+            style={textarea}
+            placeholder="ملاحظات"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
 
           <button style={primaryButton} onClick={updateContract}>
             حفظ التعديل
@@ -139,7 +221,9 @@ export default function EditContractPage() {
 
         <button
           style={backButton}
-          onClick={() => (window.location.href = `/finance/contracts/${contractId}`)}
+          onClick={() =>
+            (window.location.href = `/finance/contracts/${contractId}`)
+          }
         >
           الرجوع للعقد
         </button>
@@ -148,11 +232,70 @@ export default function EditContractPage() {
   );
 }
 
-const page = { minHeight: "100vh", background: "#eef5ff", padding: 20, fontFamily: "var(--font-almarai), sans-serif" };
-const container = { width: "100%", maxWidth: 900, margin: "auto" };
-const header = { background: "linear-gradient(135deg,#0d47a1,#1976d2)", color: "white", padding: 28, borderRadius: 24, marginBottom: 18 };
-const card = { background: "white", border: "1px solid #d9e3f5", borderRadius: 18, padding: 20 };
-const input = { width: "100%", padding: 14, borderRadius: 14, border: "1px solid #d9e3f5", fontSize: 16, marginBottom: 12 };
-const textarea = { width: "100%", minHeight: 100, padding: 14, borderRadius: 14, border: "1px solid #d9e3f5", fontSize: 16, marginBottom: 12 };
-const primaryButton = { width: "100%", padding: 16, background: "#0d47a1", color: "white", border: "none", borderRadius: 14, fontSize: 17 };
-const backButton = { width: "100%", padding: 16, background: "#111827", color: "white", border: "none", borderRadius: 14, fontSize: 17, marginTop: 18 };
+const page = {
+  minHeight: "100vh",
+  background: "#eef5ff",
+  padding: 20,
+  fontFamily: "var(--font-almarai), sans-serif",
+};
+
+const container = {
+  width: "100%",
+  maxWidth: 900,
+  margin: "auto",
+};
+
+const header = {
+  background: "linear-gradient(135deg,#0d47a1,#1976d2)",
+  color: "white",
+  padding: 28,
+  borderRadius: 24,
+  marginBottom: 18,
+};
+
+const card = {
+  background: "white",
+  border: "1px solid #d9e3f5",
+  borderRadius: 18,
+  padding: 20,
+};
+
+const input = {
+  width: "100%",
+  padding: 14,
+  borderRadius: 14,
+  border: "1px solid #d9e3f5",
+  fontSize: 16,
+  marginBottom: 12,
+};
+
+const textarea = {
+  width: "100%",
+  minHeight: 100,
+  padding: 14,
+  borderRadius: 14,
+  border: "1px solid #d9e3f5",
+  fontSize: 16,
+  marginBottom: 12,
+};
+
+const primaryButton = {
+  width: "100%",
+  padding: 16,
+  background: "#0d47a1",
+  color: "white",
+  border: "none",
+  borderRadius: 14,
+  fontSize: 17,
+};
+
+const backButton = {
+  width: "100%",
+  padding: 16,
+  background: "#111827",
+  color: "white",
+  border: "none",
+  borderRadius: 14,
+  fontSize: 17,
+  marginTop: 18,
+};
