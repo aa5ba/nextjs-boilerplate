@@ -78,7 +78,7 @@ export default function NewPromissoryNotePage() {
             style={input}
             placeholder="رقم هوية المدين"
             value={debtorNationalId}
-            onChange={(e) => setDebtorNationalId(e.target.value)}
+            onChange={(e) => setAmount(normalizeNumber(e.target.value))}
           />
 
           <input
