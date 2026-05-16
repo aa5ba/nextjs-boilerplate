@@ -1,5 +1,5 @@
 "use client";
-
+import { normalizeNumber, toNumber } from "@/lib/numberUtils";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -34,9 +34,6 @@ export default function NewFinanceContractPage() {
     setCustomers(data || []);
   }
 
-  function toNumber(value: string) {
-    return Number(value || 0);
-  }
 
   async function createContract() {
     if (!customerId || !financeType || !debtAmount || !paymentAmount) {
