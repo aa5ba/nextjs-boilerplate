@@ -9,19 +9,63 @@ export default function FinanceCustomerProfilePage() {
   const customerId = params.id as string;
 
   const [customer, setCustomer] = useState<any>(null);
+  const [activeContracts, setActiveContracts] = useState<any[]>([]);
+  const [closedContracts, setClosedContracts] = useState<any[]>([]);
+  const [notes, setNotes] = useState<any[]>([]);
+  const [activities, setActivities] = useState<any[]>([]);
 
   useEffect(() => {
-    loadCustomer();
+    loadData();
   }, []);
 
-  async function loadCustomer() {
-    const { data } = await supabase
+  async function loadData() {
+    const { data: customerData } = await supabase
       .from("finance_customers")
       .select("*, finance_customer_groups(name)")
       .eq("id", customerId)
       .single();
 
-    setCustomer(data);
+    const { data: activeData } = await supabase
+      .from("finance_contracts")
+      .select("*")
+      .eq("customer_id", customerId)
+      .in("contract_status", ["نشط", "متأخر"])
+      .order("created_at", { ascending: false });
+
+    const { data: closedData } = await supabase
+      .from("finance_contracts")
+      .select("*")
+      .eq("customer_id", customerId)
+      .in("contract_status", ["تم السداد", "ملغي"])
+      .order("created_at", { ascending: false });
+
+    const { data: notesData } = await supabase
+      .from("finance_promissory_notes")
+      .select("*")
+      .eq("customer_id", customerId)
+      .order("created_at", { ascending: false });
+
+    const { data: activitiesData } = await supabase
+      .from("finance_activity_logs")
+      .select("*")
+      .eq("customer_id", customerId)
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    setCustomer(customerData);
+    setActiveContracts(activeData || []);
+    setClosedContracts(closedData || []);
+    setNotes(notesData || []);
+    setActivities(activitiesData || []);
+  }
+
+  function formatDate(date: string) {
+    if (!date) return "-";
+
+    return new Date(date).toLocaleString("ar-SA", {
+      dateStyle: "short",
+      timeStyle: "short",
+    });
   }
 
   return (
@@ -40,28 +84,94 @@ export default function FinanceCustomerProfilePage() {
           <Row label="الراتب" value={customer?.salary || "-"} />
           <Row label="البنك" value={customer?.bank || "-"} />
           <Row label="الوسيط" value={customer?.broker || "-"} />
-          <Row label="مجموعة العملاء" value={customer?.finance_customer_groups?.name || "-"} />
+          <Row
+            label="مجموعة العملاء"
+            value={customer?.finance_customer_groups?.name || "-"}
+          />
         </section>
 
         <section style={card}>
           <h2 style={sectionTitle}>العقود الحالية</h2>
-          <div style={emptyBox}>لا توجد عقود حالية</div>
+
+          {activeContracts.length === 0 ? (
+            <div style={emptyBox}>لا توجد عقود حالية</div>
+          ) : (
+            activeContracts.map((contract) => (
+              <button
+                key={contract.id}
+                style={itemButton}
+                onClick={() =>
+                  (window.location.href = `/finance/contracts/${contract.id}`)
+                }
+              >
+                📄 عقد رقم {contract.contract_number} -{" "}
+                {contract.contract_status} - المتبقي{" "}
+                {contract.remaining_amount || 0} ر.س
+              </button>
+            ))
+          )}
         </section>
 
         <section style={card}>
           <h2 style={sectionTitle}>العقود السابقة</h2>
-          <div style={emptyBox}>لا توجد عقود سابقة</div>
+
+          {closedContracts.length === 0 ? (
+            <div style={emptyBox}>لا توجد عقود سابقة</div>
+          ) : (
+            closedContracts.map((contract) => (
+              <button
+                key={contract.id}
+                style={itemButton}
+                onClick={() =>
+                  (window.location.href = `/finance/contracts/${contract.id}`)
+                }
+              >
+                ✅ عقد رقم {contract.contract_number} -{" "}
+                {contract.contract_status} - المسدد {contract.paid_amount || 0}{" "}
+                ر.س
+              </button>
+            ))
+          )}
+        </section>
+
+        <section style={card}>
+          <h2 style={sectionTitle}>السندات</h2>
+
+          {notes.length === 0 ? (
+            <div style={emptyBox}>لا توجد سندات مرتبطة بالعميل</div>
+          ) : (
+            notes.map((note) => (
+              <button
+                key={note.id}
+                style={itemButton}
+                onClick={() =>
+                  (window.location.href = `/finance/contracts/promissory-note/print/${note.id}`)
+                }
+              >
+                🧾 سند رقم {note.note_number} - {note.amount || 0} ر.س -{" "}
+                {note.status || "-"}
+              </button>
+            ))
+          )}
         </section>
 
         <section style={card}>
           <h2 style={sectionTitle}>سجل العمليات</h2>
-          <div style={emptyBox}>لا توجد عمليات حتى الآن</div>
+
+          {activities.length === 0 ? (
+            <div style={emptyBox}>لا توجد عمليات حتى الآن</div>
+          ) : (
+            activities.map((activity) => (
+              <div key={activity.id} style={activityRow}>
+                <span>{activity.activity_type || "-"}</span>
+                <span>{activity.status || "-"}</span>
+                <span>{formatDate(activity.created_at)}</span>
+              </div>
+            ))
+          )}
         </section>
 
-        <button
-          style={backButton}
-          onClick={() => (window.history.back())}
-        >
+        <button style={backButton} onClick={() => window.history.back()}>
           رجوع
         </button>
       </div>
@@ -82,7 +192,7 @@ const page = {
   minHeight: "100vh",
   background: "#eef5ff",
   padding: 20,
-  fontFamily: "system-ui",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const container = {
@@ -128,6 +238,26 @@ const emptyBox = {
   padding: 18,
   textAlign: "center" as const,
   color: "#6b7280",
+};
+
+const itemButton = {
+  width: "100%",
+  padding: 14,
+  background: "#f8fbff",
+  border: "1px solid #d9e3f5",
+  borderRadius: 14,
+  fontSize: 16,
+  cursor: "pointer",
+  marginBottom: 10,
+  textAlign: "right" as const,
+};
+
+const activityRow = {
+  display: "grid",
+  gridTemplateColumns: "1.5fr 1fr 1.5fr",
+  gap: 12,
+  padding: 14,
+  borderBottom: "1px solid #eef2f7",
 };
 
 const backButton = {
