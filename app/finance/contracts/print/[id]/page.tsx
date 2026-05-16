@@ -17,7 +17,9 @@ export default function PrintContractPage() {
   async function loadContract() {
     const { data } = await supabase
       .from("finance_contracts")
-      .select("*, finance_customers(full_name, national_id, phone, birth_hijri)")
+      .select(
+        "*, finance_customers(full_name, national_id, phone, birth_hijri)"
+      )
       .eq("id", contractId)
       .single();
 
@@ -30,10 +32,30 @@ export default function PrintContractPage() {
         <h1 style={title}>عقد تمويل</h1>
 
         <p>رقم العقد: {contract?.contract_number || "-"}</p>
+
+        <p>
+          تاريخ العقد بالهجري:{" "}
+          {contract?.contract_date_hijri || "-"}
+        </p>
+
+        <p>
+          تاريخ العقد بالميلادي:{" "}
+          {contract?.contract_date_gregorian || "-"}
+        </p>
+
         <p>اسم العميل: {contract?.finance_customers?.full_name || "-"}</p>
-        <p>رقم الهوية: {contract?.finance_customers?.national_id || "-"}</p>
+
+        <p>
+          رقم الهوية:{" "}
+          {contract?.finance_customers?.national_id || "-"}
+        </p>
+
         <p>رقم الجوال: {contract?.finance_customers?.phone || "-"}</p>
-        <p>تاريخ الميلاد: {contract?.finance_customers?.birth_hijri || "-"}</p>
+
+        <p>
+          تاريخ الميلاد:{" "}
+          {contract?.finance_customers?.birth_hijri || "-"}
+        </p>
 
         <hr />
 
@@ -48,7 +70,11 @@ export default function PrintContractPage() {
         <p>مبلغ السداد: {contract?.payment_amount || 0} ر.س</p>
         <p>القسط: {contract?.installment_amount || 0} ر.س</p>
         <p>نوع السداد: {contract?.payment_type || "-"}</p>
-        <p>موعد السداد: {contract?.payment_due_date || "-"}</p>
+
+        <p>
+          موعد السداد (ميلادي):{" "}
+          {contract?.payment_due_date || "-"}
+        </p>
 
         <hr />
 
@@ -68,7 +94,9 @@ export default function PrintContractPage() {
 
       <button
         style={backButton}
-        onClick={() => (window.location.href = `/finance/contracts/${contractId}`)}
+        onClick={() =>
+          (window.location.href = `/finance/contracts/${contractId}`)
+        }
       >
         الرجوع للعقد
       </button>
