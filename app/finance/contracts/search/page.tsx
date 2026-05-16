@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { normalizeNumber } from "@/lib/numberUtils";
 
 export default function SearchContractsPage() {
   const [search, setSearch] = useState("");
@@ -13,15 +14,17 @@ export default function SearchContractsPage() {
       return;
     }
 
+    const normalizedSearch = normalizeNumber(search);
+
     const { data, error } = await supabase
       .from("finance_contracts")
       .select("*, finance_customers(full_name, national_id, phone)")
       .or(
         `
-        contract_number.eq.${search},
+        contract_number.eq.${normalizedSearch},
         finance_customers.full_name.ilike.%${search}%,
-        finance_customers.national_id.ilike.%${search}%,
-        finance_customers.phone.ilike.%${search}%
+        finance_customers.national_id.ilike.%${normalizedSearch}%,
+        finance_customers.phone.ilike.%${normalizedSearch}%
       `
       )
       .order("created_at", { ascending: false });
@@ -76,15 +79,8 @@ export default function SearchContractsPage() {
                 }
               >
                 <span>📄 {contract.contract_number}</span>
-
-                <span>
-                  👤 {contract.finance_customers?.full_name || "-"}
-                </span>
-
-                <span>
-                  📱 {contract.finance_customers?.phone || "-"}
-                </span>
-
+                <span>👤 {contract.finance_customers?.full_name || "-"}</span>
+                <span>📱 {contract.finance_customers?.phone || "-"}</span>
                 <span>📌 {contract.contract_status || "-"}</span>
               </div>
             ))
@@ -129,6 +125,7 @@ const card = {
   borderRadius: 18,
   padding: 20,
   marginBottom: 16,
+  overflowX: "auto" as const,
 };
 
 const searchRow = {
