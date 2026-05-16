@@ -102,7 +102,7 @@ export default function NewFinanceContractPage() {
           <select
             style={input}
             value={customerId}
-            onChange={(e) => setCustomerId(e.target.value)}
+onChange={(e) => setDebtAmount(normalizeNumber(e.target.value))}
           >
             <option value="">اختر العميل</option>
             {customers.map((customer) => (
