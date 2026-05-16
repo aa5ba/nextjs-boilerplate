@@ -4,7 +4,6 @@ import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { normalizeNumber, toNumber } from "@/lib/numberUtils";
 
-
 export default function NewPromissoryNotePage() {
   const [debtorName, setDebtorName] = useState("");
   const [debtorNationalId, setDebtorNationalId] = useState("");
@@ -14,11 +13,16 @@ export default function NewPromissoryNotePage() {
   const [city, setCity] = useState("");
   const [notes, setNotes] = useState("");
 
-  
-
   async function createNote() {
     if (!debtorName || !amount) {
       alert("أكمل اسم المدين ومبلغ السند");
+      return;
+    }
+
+    const noteAmount = toNumber(amount);
+
+    if (noteAmount <= 0) {
+      alert("أدخل مبلغ سند صحيح");
       return;
     }
 
@@ -27,9 +31,9 @@ export default function NewPromissoryNotePage() {
       .insert([
         {
           debtor_name: debtorName,
-          debtor_national_id: debtorNationalId,
-          debtor_phone: debtorPhone,
-          amount: toNumber(amount),
+          debtor_national_id: normalizeNumber(debtorNationalId),
+          debtor_phone: normalizeNumber(debtorPhone),
+          amount: noteAmount,
           due_date: dueDate,
           city,
           notes,
@@ -48,7 +52,7 @@ export default function NewPromissoryNotePage() {
     await supabase.from("finance_activity_logs").insert([
       {
         activity_type: "إنشاء سند",
-        description: `تم إنشاء سند جديد باسم ${debtorName} بمبلغ ${amount} ر.س`,
+        description: `تم إنشاء سند جديد باسم ${debtorName} بمبلغ ${noteAmount} ر.س`,
         customer_name: debtorName,
         employee_name: "المدير",
         status: "نشط",
@@ -76,16 +80,18 @@ export default function NewPromissoryNotePage() {
 
           <input
             style={input}
+            inputMode="numeric"
             placeholder="رقم هوية المدين"
             value={debtorNationalId}
-            onChange={(e) => setAmount(normalizeNumber(e.target.value))}
+            onChange={(e) => setDebtorNationalId(normalizeNumber(e.target.value))}
           />
 
           <input
             style={input}
+            inputMode="numeric"
             placeholder="رقم جوال المدين"
             value={debtorPhone}
-            onChange={(e) => setDebtorPhone(e.target.value)}
+            onChange={(e) => setDebtorPhone(normalizeNumber(e.target.value))}
           />
 
           <input
@@ -93,7 +99,7 @@ export default function NewPromissoryNotePage() {
             inputMode="numeric"
             placeholder="مبلغ السند"
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={(e) => setAmount(normalizeNumber(e.target.value))}
           />
 
           <input
