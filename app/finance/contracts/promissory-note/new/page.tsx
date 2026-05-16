@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { normalizeNumber, toNumber } from "@/lib/numberUtils";
+
 
 export default function NewPromissoryNotePage() {
   const [debtorName, setDebtorName] = useState("");
@@ -12,9 +14,7 @@ export default function NewPromissoryNotePage() {
   const [city, setCity] = useState("");
   const [notes, setNotes] = useState("");
 
-  function toNumber(value: string) {
-    return Number(value || 0);
-  }
+  
 
   async function createNote() {
     if (!debtorName || !amount) {
