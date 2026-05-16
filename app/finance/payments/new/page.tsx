@@ -40,11 +40,13 @@ export default function NewPaymentPage() {
       return;
     }
 
+    const normalizedSearch = normalizeNumber(search);
+
     const { data } = await supabase
       .from("finance_contracts")
       .select("*, finance_customers(full_name, national_id, phone)")
       .or(
-        `finance_customers.full_name.ilike.%${search}%,finance_customers.national_id.ilike.%${search}%`
+        `finance_customers.full_name.ilike.%${search}%,finance_customers.national_id.ilike.%${normalizedSearch}%`
       )
       .eq("contract_status", "نشط");
 
@@ -57,9 +59,14 @@ export default function NewPaymentPage() {
       return;
     }
 
-    const paid = Number(amount || 0);
+    const paid = toNumber(amount);
     const oldPaid = Number(selectedContract.paid_amount || 0);
     const debt = Number(selectedContract.debt_amount || 0);
+
+    if (paid <= 0) {
+      alert("أدخل مبلغ سداد صحيح");
+      return;
+    }
 
     const newPaid = oldPaid + paid;
     const newRemaining = Math.max(debt - newPaid, 0);
@@ -189,7 +196,7 @@ export default function NewPaymentPage() {
               inputMode="numeric"
               placeholder="المبلغ المدفوع"
               value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              onChange={(e) => setAmount(normalizeNumber(e.target.value))}
             />
 
             <select
