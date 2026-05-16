@@ -46,6 +46,19 @@ export default function NewFinanceCustomerPage() {
       return;
     }
 
+    const cleanNationalId = normalizeNumber(nationalId);
+    const cleanPhone = normalizeNumber(phone);
+
+    if (cleanNationalId.length !== 10) {
+      alert("رقم الهوية يجب أن يكون 10 أرقام");
+      return;
+    }
+
+    if (cleanPhone.length !== 10) {
+      alert("رقم الجوال يجب أن يكون 10 أرقام");
+      return;
+    }
+
     const birthHijri = `${birthDay}/${birthMonth}/${birthYear}`;
 
     const { data: customerData, error } = await supabase
@@ -54,9 +67,9 @@ export default function NewFinanceCustomerPage() {
         {
           group_id: groupId,
           full_name: fullName,
-          national_id: normalizeNumber(nationalId),
+          national_id: cleanNationalId,
           birth_hijri: birthHijri,
-          phone: normalizeNumber(phone),
+          phone: cleanPhone,
           work,
           salary: salary ? toNumber(salary) : null,
           bank,
@@ -129,6 +142,7 @@ export default function NewFinanceCustomerPage() {
           <input
             style={input}
             inputMode="numeric"
+            maxLength={10}
             placeholder="رقم الهوية"
             value={nationalId}
             onChange={(e) => setNationalId(normalizeNumber(e.target.value))}
@@ -163,6 +177,7 @@ export default function NewFinanceCustomerPage() {
           <input
             style={input}
             inputMode="numeric"
+            maxLength={10}
             placeholder="رقم الجوال"
             value={phone}
             onChange={(e) => setPhone(normalizeNumber(e.target.value))}
