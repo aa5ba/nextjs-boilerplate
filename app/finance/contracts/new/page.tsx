@@ -16,6 +16,8 @@ export default function NewFinanceContractPage() {
   const [paymentAmount, setPaymentAmount] = useState("");
   const [installmentAmount, setInstallmentAmount] = useState("");
   const [paymentType, setPaymentType] = useState("");
+  const [contractDateHijri, setContractDateHijri] = useState("");
+  const [contractDateGregorian, setContractDateGregorian] = useState("");
   const [paymentDueDate, setPaymentDueDate] = useState("");
   const [guarantorName, setGuarantorName] = useState("");
   const [legalCity, setLegalCity] = useState("");
@@ -36,7 +38,14 @@ export default function NewFinanceContractPage() {
   }
 
   async function createContract() {
-    if (!customerId || !financeType || !debtAmount || !paymentAmount) {
+    if (
+      !customerId ||
+      !financeType ||
+      !debtAmount ||
+      !paymentAmount ||
+      !contractDateHijri ||
+      !contractDateGregorian
+    ) {
       alert("أكمل البيانات المطلوبة");
       return;
     }
@@ -56,6 +65,8 @@ export default function NewFinanceContractPage() {
           payment_amount: toNumber(paymentAmount),
           installment_amount: toNumber(installmentAmount),
           payment_type: paymentType,
+          contract_date_hijri: contractDateHijri,
+          contract_date_gregorian: contractDateGregorian,
           payment_due_date: paymentDueDate,
           guarantor_name: guarantorName,
           legal_city: legalCity,
@@ -181,7 +192,23 @@ export default function NewFinanceContractPage() {
 
           <input
             style={input}
-            placeholder="موعد السداد"
+            placeholder="تاريخ إنشاء العقد بالهجري مثال: 1446/12/15"
+            value={contractDateHijri}
+            onChange={(e) => setContractDateHijri(normalizeNumber(e.target.value))}
+          />
+
+          <input
+            style={input}
+            type="date"
+            placeholder="تاريخ إنشاء العقد بالميلادي"
+            value={contractDateGregorian}
+            onChange={(e) => setContractDateGregorian(e.target.value)}
+          />
+
+          <input
+            style={input}
+            type="date"
+            placeholder="موعد السداد بالميلادي"
             value={paymentDueDate}
             onChange={(e) => setPaymentDueDate(e.target.value)}
           />
