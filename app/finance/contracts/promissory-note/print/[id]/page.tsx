@@ -227,3 +227,25 @@ const backButton = {
   borderRadius: 14,
   fontSize: 17,
 };
+if (typeof window !== "undefined") {
+  const style = document.createElement("style");
+
+  style.innerHTML = `
+    @media print {
+      button {
+        display: none !important;
+      }
+
+      body {
+        background: white !important;
+      }
+    }
+
+    @page {
+      size: A4;
+      margin: 12mm;
+    }
+  `;
+
+  document.head.appendChild(style);
+}
