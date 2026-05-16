@@ -3,6 +3,7 @@
 const sections = [
   { title: "سير العمل", href: "/finance/workflow", icon: "💼" },
   { title: "العملاء", href: "/finance/customers", icon: "👥" },
+  { title: "طلب جديد", href: "/finance/new-request", icon: "➕🧩" },
   { title: "سداد", href: "/finance/payments", icon: "💳" },
   { title: "المخزون والمنتجات", href: "/finance/inventory", icon: "📦" },
   { title: "العقود", href: "/finance/contracts", icon: "📄" },
