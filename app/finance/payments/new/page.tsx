@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { normalizeNumber, toNumber } from "@/lib/numberUtils";
 
 export default function NewPaymentPage() {
   const [search, setSearch] = useState("");
