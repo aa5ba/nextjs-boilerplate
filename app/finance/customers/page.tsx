@@ -66,6 +66,15 @@ export default function FinanceCustomersPage() {
           </button>
 
           <button
+  style={actionButton}
+  onClick={() => (window.location.href = "/finance/customers/list")}
+>
+  <span style={buttonContent}>
+    <span style={buttonIcon}>📋</span>
+    قائمة العملاء
+  </span>
+</button>
+          <button
             style={actionButton}
             onClick={() => (window.location.href = "/finance/customers/groups")}
           >
