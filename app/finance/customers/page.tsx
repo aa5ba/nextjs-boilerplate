@@ -46,45 +46,48 @@ export default function FinanceCustomersPage() {
 
         <section style={actionsSection}>
           <button
-  style={actionButton}
-  onClick={() => (window.location.href = "/finance/customers/new")}
->
-  <span style={buttonContent}>
-    <span style={buttonIcon}>➕</span>
-    إنشاء عميل جديد
-  </span>
-</button>
+            style={actionButton}
+            onClick={() => (window.location.href = "/finance/customers/new")}
+          >
+            <span style={buttonContent}>
+              <span style={buttonIcon}>➕</span>
+              إنشاء عميل جديد
+            </span>
+          </button>
 
-<button style={actionButton}>
-  <span style={buttonContent}>
-    <span style={buttonIcon}>🔍</span>
-    البحث عن عميل
-  </span>
-</button>
+          <button
+            style={actionButton}
+            onClick={() => (window.location.href = "/finance/customers/search")}
+          >
+            <span style={buttonContent}>
+              <span style={buttonIcon}>🔍</span>
+              البحث عن عميل
+            </span>
+          </button>
 
-<button
-  style={actionButton}
-  onClick={() => (window.location.href = "/finance/customers/groups")}
->
-  <span style={buttonContent}>
-    <span style={buttonIcon}>👥</span>
-    إنشاء / تعديل مجموعة عملاء
-  </span>
-</button>
+          <button
+            style={actionButton}
+            onClick={() => (window.location.href = "/finance/customers/groups")}
+          >
+            <span style={buttonContent}>
+              <span style={buttonIcon}>👥</span>
+              إنشاء / تعديل مجموعة عملاء
+            </span>
+          </button>
 
-<button style={actionButton}>
-  <span style={buttonContent}>
-    <span style={buttonIcon}>✏️</span>
-    حذف / تعديل عميل
-  </span>
-</button>
+          <button style={actionButton}>
+            <span style={buttonContent}>
+              <span style={buttonIcon}>✏️</span>
+              حذف / تعديل عميل
+            </span>
+          </button>
 
-<button style={actionButton}>
-  <span style={buttonContent}>
-    <span style={buttonIcon}>⛔</span>
-    قائمة الحظر
-  </span>
-</button>
+          <button style={actionButton}>
+            <span style={buttonContent}>
+              <span style={buttonIcon}>⛔</span>
+              قائمة الحظر
+            </span>
+          </button>
         </section>
 
         <button
@@ -102,7 +105,7 @@ const page = {
   minHeight: "100vh",
   background: "#eef5ff",
   padding: 20,
-  fontFamily: "system-ui",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const container = {
@@ -173,13 +176,14 @@ const backButton = {
   fontSize: 17,
   marginTop: 18,
 };
+
 const buttonContent = {
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
   gap: 10,
-}
+};
 
 const buttonIcon = {
   fontSize: 20,
-}
+};
