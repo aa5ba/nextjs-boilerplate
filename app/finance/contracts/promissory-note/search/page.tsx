@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { normalizeNumber } from "@/lib/numberUtils";
 
 export default function SearchPromissoryNotesPage() {
   const [search, setSearch] = useState("");
@@ -13,15 +14,17 @@ export default function SearchPromissoryNotesPage() {
       return;
     }
 
+    const normalizedSearch = normalizeNumber(search);
+
     const { data, error } = await supabase
       .from("finance_promissory_notes")
       .select("*")
       .or(
         `
-        note_number.eq.${search},
+        note_number.eq.${normalizedSearch},
         debtor_name.ilike.%${search}%,
-        debtor_national_id.ilike.%${search}%,
-        debtor_phone.ilike.%${search}%
+        debtor_national_id.ilike.%${normalizedSearch}%,
+        debtor_phone.ilike.%${normalizedSearch}%
       `
       )
       .order("created_at", { ascending: false });
