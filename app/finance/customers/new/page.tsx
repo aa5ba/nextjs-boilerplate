@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { normalizeNumber, toNumber } from "@/lib/numberUtils";
 
 export default function NewFinanceCustomerPage() {
   const [groups, setGroups] = useState<any[]>([]);
@@ -9,7 +10,9 @@ export default function NewFinanceCustomerPage() {
   const [groupId, setGroupId] = useState("");
   const [fullName, setFullName] = useState("");
   const [nationalId, setNationalId] = useState("");
-  const [birthHijri, setBirthHijri] = useState("");
+  const [birthDay, setBirthDay] = useState("");
+  const [birthMonth, setBirthMonth] = useState("");
+  const [birthYear, setBirthYear] = useState("");
   const [phone, setPhone] = useState("");
   const [work, setWork] = useState("");
   const [salary, setSalary] = useState("");
@@ -30,10 +33,20 @@ export default function NewFinanceCustomerPage() {
   }
 
   async function createCustomer() {
-    if (!groupId || !fullName || !nationalId || !birthHijri || !phone) {
+    if (
+      !groupId ||
+      !fullName ||
+      !nationalId ||
+      !birthDay ||
+      !birthMonth ||
+      !birthYear ||
+      !phone
+    ) {
       alert("أكمل البيانات المطلوبة");
       return;
     }
+
+    const birthHijri = `${birthDay}/${birthMonth}/${birthYear}`;
 
     const { data: customerData, error } = await supabase
       .from("finance_customers")
@@ -41,11 +54,11 @@ export default function NewFinanceCustomerPage() {
         {
           group_id: groupId,
           full_name: fullName,
-          national_id: nationalId,
+          national_id: normalizeNumber(nationalId),
           birth_hijri: birthHijri,
-          phone,
+          phone: normalizeNumber(phone),
           work,
-          salary: salary || null,
+          salary: salary ? toNumber(salary) : null,
           bank,
           broker,
         },
@@ -74,7 +87,9 @@ export default function NewFinanceCustomerPage() {
     setGroupId("");
     setFullName("");
     setNationalId("");
-    setBirthHijri("");
+    setBirthDay("");
+    setBirthMonth("");
+    setBirthYear("");
     setPhone("");
     setWork("");
     setSalary("");
@@ -104,14 +119,83 @@ export default function NewFinanceCustomerPage() {
             ))}
           </select>
 
-          <input style={input} placeholder="الاسم كاملاً" value={fullName} onChange={(e) => setFullName(e.target.value)} />
-          <input style={input} placeholder="رقم الهوية" value={nationalId} onChange={(e) => setNationalId(e.target.value)} />
-          <input style={input} placeholder="تاريخ الميلاد بالهجري" value={birthHijri} onChange={(e) => setBirthHijri(e.target.value)} />
-          <input style={input} placeholder="رقم الجوال" value={phone} onChange={(e) => setPhone(e.target.value)} />
-          <input style={input} placeholder="العمل ( اختياري )" value={work} onChange={(e) => setWork(e.target.value)} />
-          <input style={input} placeholder="الراتب ( اختياري )" value={salary} onChange={(e) => setSalary(e.target.value)} />
-          <input style={input} placeholder="البنك ( اختياري )" value={bank} onChange={(e) => setBank(e.target.value)} />
-          <input style={input} placeholder="الوسيط ( اختياري )" value={broker} onChange={(e) => setBroker(e.target.value)} />
+          <input
+            style={input}
+            placeholder="الاسم كاملاً"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+          />
+
+          <input
+            style={input}
+            inputMode="numeric"
+            placeholder="رقم الهوية"
+            value={nationalId}
+            onChange={(e) => setNationalId(normalizeNumber(e.target.value))}
+          />
+
+          <div style={dateGrid}>
+            <input
+              style={input}
+              inputMode="numeric"
+              placeholder="اليوم هجري"
+              value={birthDay}
+              onChange={(e) => setBirthDay(normalizeNumber(e.target.value))}
+            />
+
+            <input
+              style={input}
+              inputMode="numeric"
+              placeholder="الشهر هجري"
+              value={birthMonth}
+              onChange={(e) => setBirthMonth(normalizeNumber(e.target.value))}
+            />
+
+            <input
+              style={input}
+              inputMode="numeric"
+              placeholder="السنة هجري"
+              value={birthYear}
+              onChange={(e) => setBirthYear(normalizeNumber(e.target.value))}
+            />
+          </div>
+
+          <input
+            style={input}
+            inputMode="numeric"
+            placeholder="رقم الجوال"
+            value={phone}
+            onChange={(e) => setPhone(normalizeNumber(e.target.value))}
+          />
+
+          <input
+            style={input}
+            placeholder="العمل ( اختياري )"
+            value={work}
+            onChange={(e) => setWork(e.target.value)}
+          />
+
+          <input
+            style={input}
+            inputMode="numeric"
+            placeholder="الراتب ( اختياري )"
+            value={salary}
+            onChange={(e) => setSalary(normalizeNumber(e.target.value))}
+          />
+
+          <input
+            style={input}
+            placeholder="البنك ( اختياري )"
+            value={bank}
+            onChange={(e) => setBank(e.target.value)}
+          />
+
+          <input
+            style={input}
+            placeholder="الوسيط ( اختياري )"
+            value={broker}
+            onChange={(e) => setBroker(e.target.value)}
+          />
 
           <button style={primaryButton} onClick={createCustomer}>
             إنشاء العميل
@@ -164,6 +248,12 @@ const input = {
   border: "1px solid #d9e3f5",
   fontSize: 16,
   marginBottom: 12,
+};
+
+const dateGrid = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr 1fr",
+  gap: 10,
 };
 
 const primaryButton = {
