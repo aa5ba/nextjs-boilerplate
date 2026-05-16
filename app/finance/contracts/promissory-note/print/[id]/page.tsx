@@ -27,61 +27,64 @@ export default function PrintPromissoryNotePage() {
   return (
     <main dir="rtl" style={page}>
       <div style={printArea}>
-        <h1 style={title}>سند لأمر</h1>
-
-        <div style={noteNumber}>
-          رقم السند: {note?.note_number || "-"}
+        <div style={topLine}>
+          <span>المملكة العربية السعودية</span>
+          <span>بيع * شراء</span>
         </div>
 
-        <p>
-          أتعهد أنا الموقع أدناه:
-          <strong> {note?.debtor_name || "-"} </strong>
+        <div style={logoBox}>الشعار</div>
+
+        <h1 style={title}>النموذج 1 للسند</h1>
+        <h2 style={subtitle}>سند لأمر</h2>
+
+        <div style={metaRow}>
+          <span>رقم السند: {note?.note_number || "-"}</span>
+          <span>تاريخ التحرير: {note?.note_date_gregorian || "-"}</span>
+        </div>
+
+        <div style={metaRow}>
+          <span>تاريخ التحرير هجري: {note?.note_date_hijri || "-"}</span>
+          <span>تاريخ الاستحقاق: {note?.due_date || "-"}</span>
+        </div>
+
+        <p style={paragraph}>
+          حرر هذا السند في مدينة <strong>{note?.city || "................"}</strong>،
+          وبموجب هذا السند أتعهد أنا الموقع أدناه بأن أدفع لأمر الطرف المستفيد
+          مبلغًا وقدره <strong>{note?.amount || 0}</strong> ريال سعودي.
         </p>
 
-        <p>
-          رقم الهوية:
-          <strong> {note?.debtor_national_id || "-"} </strong>
+        <p style={paragraph}>
+          ويستحق هذا المبلغ في تاريخ{" "}
+          <strong>{note?.due_date || "................"}</strong>، دون مماطلة أو
+          تأخير، ويعد هذا السند التزامًا واجب الوفاء حسب الأنظمة المعمول بها.
         </p>
 
-        <p>
-          رقم الجوال:
-          <strong> {note?.debtor_phone || "-"} </strong>
-        </p>
+        <div style={infoBox}>
+          <div>اسم المدين / {note?.debtor_name || "................"}</div>
+          <div>رقم الهوية / {note?.debtor_national_id || "................"}</div>
+          <div>رقم الجوال / {note?.debtor_phone || "................"}</div>
+          <div>العنوان / {note?.city || "................"}</div>
+          <div>حالة السند / {note?.status || "-"}</div>
+        </div>
 
-        <p>
-          بأن أدفع بموجب هذا السند مبلغًا وقدره:
-          <strong> {note?.amount || 0} ر.س </strong>
-        </p>
-
-        <p>
-          وذلك في تاريخ الاستحقاق:
-          <strong> {note?.due_date || "-"} </strong>
-        </p>
-
-        <p>
-          بمدينة:
-          <strong> {note?.city || "-"} </strong>
-        </p>
-
-        <p>
-          حالة السند:
-          <strong> {note?.status || "-"} </strong>
-        </p>
-
-        <p>
-          ملاحظات:
-          <strong> {note?.notes || "-"} </strong>
+        <p style={paragraph}>
+          ملاحظات: <strong>{note?.notes || "-"}</strong>
         </p>
 
         <div style={signatures}>
-          <div>
-            <div>توقيع المدين</div>
-            <div style={line}></div>
+          <div style={signatureBox}>
+            <strong>المدين</strong>
+            <div>الاسم / {note?.debtor_name || "................"}</div>
+            <div>التوقيع / ................</div>
+            <div>البصمة / ................</div>
           </div>
 
-          <div>
-            <div>التاريخ</div>
-            <div style={line}></div>
+          <div style={signatureBox}>
+            <strong>الكفيل</strong>
+            <div>الاسم / ................</div>
+            <div>رقم الهوية / ................</div>
+            <div>التوقيع / ................</div>
+            <div>البصمة / ................</div>
           </div>
         </div>
       </div>
@@ -120,37 +123,83 @@ const printArea = {
   background: "white",
   maxWidth: 850,
   margin: "auto",
-  padding: 40,
+  padding: 38,
   borderRadius: 18,
-  lineHeight: 2.2,
-  fontSize: 18,
+  lineHeight: 2,
+  color: "#111827",
+};
+
+const topLine = {
+  display: "flex",
+  justifyContent: "space-between",
+  fontSize: 15,
+  fontWeight: "bold",
+  marginBottom: 16,
+};
+
+const logoBox = {
+  width: 90,
+  height: 90,
+  margin: "0 auto 14px",
+  border: "1px dashed #94a3b8",
+  borderRadius: 18,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  color: "#64748b",
+  fontSize: 14,
 };
 
 const title = {
   textAlign: "center" as const,
   color: "#0d47a1",
-  fontSize: 34,
-  marginBottom: 28,
+  fontSize: 22,
+  margin: "0 0 4px",
 };
 
-const noteNumber = {
+const subtitle = {
   textAlign: "center" as const,
-  marginBottom: 28,
-  fontWeight: "bold",
   color: "#111827",
+  fontSize: 28,
+  margin: "0 0 20px",
+  textDecoration: "underline",
+};
+
+const metaRow = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 20,
+  borderBottom: "1px solid #e5e7eb",
+  paddingBottom: 8,
+  marginBottom: 8,
+  fontSize: 15,
+};
+
+const paragraph = {
+  fontSize: 17,
+  margin: "16px 0",
+  textAlign: "justify" as const,
+};
+
+const infoBox = {
+  border: "1px solid #e5e7eb",
+  borderRadius: 12,
+  padding: 16,
+  marginTop: 20,
+  lineHeight: 2,
 };
 
 const signatures = {
-  display: "flex",
-  justifyContent: "space-between",
-  marginTop: 70,
-  gap: 40,
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: 24,
+  marginTop: 50,
 };
 
-const line = {
-  width: 220,
-  borderBottom: "1px solid #111827",
-  marginTop: 35,
+const signatureBox = {
+  borderTop: "1px solid #111827",
+  paddingTop: 12,
+  lineHeight: 2,
 };
 
 const printButton = {
