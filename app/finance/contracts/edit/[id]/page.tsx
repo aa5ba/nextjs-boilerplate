@@ -1,5 +1,6 @@
 "use client";
 
+import { normalizeNumber, toNumber } from "@/lib/numberUtils";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
@@ -52,9 +53,7 @@ export default function EditContractPage() {
     setContractStatus(data.contract_status || "نشط");
   }
 
-  function toNumber(value: string) {
-    return Number(value || 0);
-  }
+  
 
   async function updateContract() {
     const { error } = await supabase
