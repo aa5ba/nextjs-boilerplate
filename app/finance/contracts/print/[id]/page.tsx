@@ -26,65 +26,95 @@ export default function PrintContractPage() {
     setContract(data);
   }
 
+  const customerName = contract?.finance_customers?.full_name || "................";
+  const nationalId = contract?.finance_customers?.national_id || "................";
+  const phone = contract?.finance_customers?.phone || "................";
+  const birthHijri = contract?.finance_customers?.birth_hijri || "................";
+
   return (
     <main dir="rtl" style={page}>
       <div style={printArea}>
-        <h1 style={title}>عقد تمويل</h1>
+        <div style={topLine}>
+          <span>المملكة العربية السعودية</span>
+          <span>بيع * شراء</span>
+        </div>
 
-        <p>رقم العقد: {contract?.contract_number || "-"}</p>
+        <div style={logoBox}>الشعار</div>
 
-        <p>
-          تاريخ العقد بالهجري:{" "}
-          {contract?.contract_date_hijri || "-"}
+        <h1 style={title}>النموذج 1 للعقد</h1>
+        <h2 style={subtitle}>عقد اتفاق بيع</h2>
+
+        <div style={metaRow}>
+          <span>رقم العقد: {contract?.contract_number || "-"}</span>
+          <span>التاريخ الميلادي: {contract?.contract_date_gregorian || "-"}</span>
+        </div>
+
+        <div style={metaRow}>
+          <span>التاريخ الهجري: {contract?.contract_date_hijri || "-"}</span>
+          <span>موعد السداد: {contract?.payment_due_date || "-"}</span>
+        </div>
+
+        <p style={paragraph}>
+          الحمد لله والصلاة والسلام على من لا نبي بعده، وبعد:
         </p>
 
-        <p>
-          تاريخ العقد بالميلادي:{" "}
-          {contract?.contract_date_gregorian || "-"}
+        <p style={paragraph}>
+          أقر أنا الموقع أدناه الطرف الثاني / <strong>{customerName}</strong>،
+          رقم الهوية / <strong>{nationalId}</strong>، تاريخ الميلاد /
+          <strong> {birthHijri}</strong>، رقم الجوال /
+          <strong> {phone}</strong>، بأني اشتريت من الطرف الأول /
+          <strong> {contract?.investor_name || "................"}</strong>.
         </p>
 
-        <p>اسم العميل: {contract?.finance_customers?.full_name || "-"}</p>
-
-        <p>
-          رقم الهوية:{" "}
-          {contract?.finance_customers?.national_id || "-"}
+        <p style={paragraph}>
+          وذلك مقابل منتج / <strong>{contract?.product_name || "................"}</strong>
+          ، وعددها / <strong>{contract?.product_quantity || "-"}</strong>، بمبلغ دين
+          وقدره / <strong>{contract?.debt_amount || 0}</strong> ريال سعودي.
         </p>
 
-        <p>رقم الجوال: {contract?.finance_customers?.phone || "-"}</p>
-
-        <p>
-          تاريخ الميلاد:{" "}
-          {contract?.finance_customers?.birth_hijri || "-"}
+        <p style={paragraph}>
+          ويلتزم الطرف الثاني بسداد مبلغ وقدره /
+          <strong> {contract?.payment_amount || 0}</strong> ريال سعودي، وذلك حسب نوع
+          السداد / <strong>{contract?.payment_type || "-"}</strong>، وبقسط قدره /
+          <strong> {contract?.installment_amount || 0}</strong> ريال سعودي.
         </p>
 
-        <hr />
-
-        <p>نوع التمويل: {contract?.finance_type || "-"}</p>
-        <p>المستثمر: {contract?.investor_name || "-"}</p>
-        <p>المنتج: {contract?.product_name || "-"}</p>
-        <p>كمية المنتجات: {contract?.product_quantity || "-"}</p>
-
-        <hr />
-
-        <p>مبلغ الدين: {contract?.debt_amount || 0} ر.س</p>
-        <p>مبلغ السداد: {contract?.payment_amount || 0} ر.س</p>
-        <p>القسط: {contract?.installment_amount || 0} ر.س</p>
-        <p>نوع السداد: {contract?.payment_type || "-"}</p>
-
-        <p>
-          موعد السداد (ميلادي):{" "}
-          {contract?.payment_due_date || "-"}
+        <p style={paragraph}>
+          وتكون مدينة التقاضي / <strong>{contract?.legal_city || "-"}</strong>.
         </p>
 
-        <hr />
+        <p style={paragraph}>
+          كما يقر الطرف الثاني بأنه اطلع على كامل بنود هذا العقد، وأنه ملتزم
+          بالسداد في المواعيد المتفق عليها، وفي حال التأخر يحق للطرف الأول
+          اتخاذ الإجراءات النظامية اللازمة للمطالبة بكامل المبلغ المتبقي.
+        </p>
 
-        <p>الكفيل: {contract?.guarantor_name || "-"}</p>
-        <p>مدينة التقاضي: {contract?.legal_city || "-"}</p>
-        <p>الملاحظات: {contract?.notes || "-"}</p>
+        <p style={paragraph}>
+          ملاحظات: <strong>{contract?.notes || "-"}</strong>
+        </p>
 
         <div style={signatures}>
-          <div>توقيع الطرف الأول</div>
-          <div>توقيع الطرف الثاني</div>
+          <div style={signatureBox}>
+            <strong>الطرف الأول البائع</strong>
+            <div>الاسم / {contract?.investor_name || "................"}</div>
+            <div>التوقيع / ................</div>
+          </div>
+
+          <div style={signatureBox}>
+            <strong>الطرف الثاني المشتري</strong>
+            <div>الاسم / {customerName}</div>
+            <div>رقم الهوية / {nationalId}</div>
+            <div>الجوال / {phone}</div>
+            <div>التوقيع / ................</div>
+          </div>
+        </div>
+
+        <div style={guarantorBox}>
+          <strong>الكفيل الغارم</strong>
+          <div>الاسم / {contract?.guarantor_name || "................"}</div>
+          <div>رقم الهوية / ................</div>
+          <div>الجوال / ................</div>
+          <div>التوقيع / ................</div>
         </div>
       </div>
 
@@ -115,20 +145,82 @@ const printArea = {
   background: "white",
   maxWidth: 850,
   margin: "auto",
-  padding: 40,
+  padding: 38,
   borderRadius: 18,
   lineHeight: 2,
+  color: "#111827",
+};
+
+const topLine = {
+  display: "flex",
+  justifyContent: "space-between",
+  fontSize: 15,
+  fontWeight: "bold",
+  marginBottom: 16,
+};
+
+const logoBox = {
+  width: 90,
+  height: 90,
+  margin: "0 auto 14px",
+  border: "1px dashed #94a3b8",
+  borderRadius: 18,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  color: "#64748b",
+  fontSize: 14,
 };
 
 const title = {
   textAlign: "center" as const,
   color: "#0d47a1",
+  fontSize: 22,
+  margin: "0 0 4px",
+};
+
+const subtitle = {
+  textAlign: "center" as const,
+  color: "#111827",
+  fontSize: 24,
+  margin: "0 0 20px",
+  textDecoration: "underline",
+};
+
+const metaRow = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 20,
+  borderBottom: "1px solid #e5e7eb",
+  paddingBottom: 8,
+  marginBottom: 8,
+  fontSize: 15,
+};
+
+const paragraph = {
+  fontSize: 16,
+  margin: "12px 0",
+  textAlign: "justify" as const,
 };
 
 const signatures = {
-  display: "flex",
-  justifyContent: "space-between",
-  marginTop: 60,
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: 24,
+  marginTop: 40,
+};
+
+const signatureBox = {
+  borderTop: "1px solid #111827",
+  paddingTop: 12,
+  lineHeight: 2,
+};
+
+const guarantorBox = {
+  marginTop: 30,
+  borderTop: "1px solid #111827",
+  paddingTop: 12,
+  lineHeight: 2,
 };
 
 const printButton = {
