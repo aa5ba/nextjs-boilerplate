@@ -1,4 +1,5 @@
 "use client";
+
 import { normalizeNumber, toNumber } from "@/lib/numberUtils";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
@@ -33,7 +34,6 @@ export default function NewFinanceContractPage() {
 
     setCustomers(data || []);
   }
-
 
   async function createContract() {
     if (!customerId || !financeType || !debtAmount || !paymentAmount) {
@@ -78,7 +78,9 @@ export default function NewFinanceContractPage() {
     await supabase.from("finance_activity_logs").insert([
       {
         activity_type: "إنشاء عقد",
-        description: `تم إنشاء عقد جديد للعميل ${selectedCustomer?.full_name || ""}`,
+        description: `تم إنشاء عقد جديد للعميل ${
+          selectedCustomer?.full_name || ""
+        }`,
         customer_id: customerId,
         contract_id: contractData.id,
         customer_name: selectedCustomer?.full_name || "",
@@ -102,7 +104,7 @@ export default function NewFinanceContractPage() {
           <select
             style={input}
             value={customerId}
-onChange={(e) => setDebtAmount(normalizeNumber(e.target.value))}
+            onChange={(e) => setCustomerId(e.target.value)}
           >
             <option value="">اختر العميل</option>
             {customers.map((customer) => (
@@ -112,25 +114,99 @@ onChange={(e) => setDebtAmount(normalizeNumber(e.target.value))}
             ))}
           </select>
 
-          <input style={input} placeholder="نوع التمويل" value={financeType} onChange={(e) => setFinanceType(e.target.value)} />
-          <input style={input} placeholder="المستثمر" value={investorName} onChange={(e) => setInvestorName(e.target.value)} />
-          <input style={input} placeholder="اسم المنتج" value={productName} onChange={(e) => setProductName(e.target.value)} />
+          <input
+            style={input}
+            placeholder="نوع التمويل"
+            value={financeType}
+            onChange={(e) => setFinanceType(e.target.value)}
+          />
 
-          <input style={input} inputMode="numeric" placeholder="كمية المنتجات" value={productQuantity} onChange={(e) => setProductQuantity(e.target.value)} />
-          <input style={input} inputMode="numeric" placeholder="مبلغ الدين" value={debtAmount} onChange={(e) => setDebtAmount(e.target.value)} />
-          <input style={input} inputMode="numeric" placeholder="مبلغ السداد" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} />
-          <input style={input} inputMode="numeric" placeholder="القسط" value={installmentAmount} onChange={(e) => setInstallmentAmount(e.target.value)} />
+          <input
+            style={input}
+            placeholder="المستثمر"
+            value={investorName}
+            onChange={(e) => setInvestorName(e.target.value)}
+          />
 
-          <select style={input} value={paymentType} onChange={(e) => setPaymentType(e.target.value)}>
+          <input
+            style={input}
+            placeholder="اسم المنتج"
+            value={productName}
+            onChange={(e) => setProductName(e.target.value)}
+          />
+
+          <input
+            style={input}
+            inputMode="numeric"
+            placeholder="كمية المنتجات"
+            value={productQuantity}
+            onChange={(e) => setProductQuantity(normalizeNumber(e.target.value))}
+          />
+
+          <input
+            style={input}
+            inputMode="numeric"
+            placeholder="مبلغ الدين"
+            value={debtAmount}
+            onChange={(e) => setDebtAmount(normalizeNumber(e.target.value))}
+          />
+
+          <input
+            style={input}
+            inputMode="numeric"
+            placeholder="مبلغ السداد"
+            value={paymentAmount}
+            onChange={(e) => setPaymentAmount(normalizeNumber(e.target.value))}
+          />
+
+          <input
+            style={input}
+            inputMode="numeric"
+            placeholder="القسط"
+            value={installmentAmount}
+            onChange={(e) =>
+              setInstallmentAmount(normalizeNumber(e.target.value))
+            }
+          />
+
+          <select
+            style={input}
+            value={paymentType}
+            onChange={(e) => setPaymentType(e.target.value)}
+          >
             <option value="">نوع السداد</option>
             <option value="موعد محدد">موعد محدد</option>
             <option value="شهري مجدول">شهري مجدول</option>
           </select>
 
-          <input style={input} placeholder="موعد السداد" value={paymentDueDate} onChange={(e) => setPaymentDueDate(e.target.value)} />
-          <input style={input} placeholder="الكفيل" value={guarantorName} onChange={(e) => setGuarantorName(e.target.value)} />
-          <input style={input} placeholder="مدينة التقاضي" value={legalCity} onChange={(e) => setLegalCity(e.target.value)} />
-          <input style={input} inputMode="numeric" placeholder="المبلغ القضائي" value={judicialAmount} onChange={(e) => setJudicialAmount(e.target.value)} />
+          <input
+            style={input}
+            placeholder="موعد السداد"
+            value={paymentDueDate}
+            onChange={(e) => setPaymentDueDate(e.target.value)}
+          />
+
+          <input
+            style={input}
+            placeholder="الكفيل"
+            value={guarantorName}
+            onChange={(e) => setGuarantorName(e.target.value)}
+          />
+
+          <input
+            style={input}
+            placeholder="مدينة التقاضي"
+            value={legalCity}
+            onChange={(e) => setLegalCity(e.target.value)}
+          />
+
+          <input
+            style={input}
+            inputMode="numeric"
+            placeholder="المبلغ القضائي"
+            value={judicialAmount}
+            onChange={(e) => setJudicialAmount(normalizeNumber(e.target.value))}
+          />
 
           <textarea
             style={textarea}
