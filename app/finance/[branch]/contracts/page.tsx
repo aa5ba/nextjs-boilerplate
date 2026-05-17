@@ -1,6 +1,11 @@
 "use client";
 
+import { useParams } from "next/navigation";
+
 export default function FinanceContractsPage() {
+  const params = useParams();
+  const branch = params.branch as string;
+
   return (
     <main dir="rtl" style={page}>
       <div style={container}>
@@ -12,7 +17,7 @@ export default function FinanceContractsPage() {
           <button
             style={actionButton}
             onClick={() =>
-              (window.location.href = "/finance/contracts/new")
+              (window.location.href = `/finance/${branch}/contracts/new`)
             }
           >
             <span style={buttonContent}>
@@ -22,34 +27,33 @@ export default function FinanceContractsPage() {
           </button>
 
           <button
-  style={actionButton}
-  onClick={() =>
-    (window.location.href =
-      "/finance/contracts/promissory-note/new")
-  }
->
-  <span style={buttonContent}>
-    <span style={buttonIcon}>🧾</span>
-    إنشاء سند جديد
-  </span>
-</button>
-          <button
-  style={actionButton}
-  onClick={() =>
-    (window.location.href =
-      "/finance/contracts/promissory-note/search")
-  }
->
-  <span style={buttonContent}>
-    <span style={buttonIcon}>🔎</span>
-    البحث عن سند
-  </span>
-</button>
+            style={actionButton}
+            onClick={() =>
+              (window.location.href = `/finance/${branch}/contracts/promissory-note/new`)
+            }
+          >
+            <span style={buttonContent}>
+              <span style={buttonIcon}>🧾</span>
+              إنشاء سند جديد
+            </span>
+          </button>
 
           <button
             style={actionButton}
             onClick={() =>
-              (window.location.href = "/finance/contracts/search")
+              (window.location.href = `/finance/${branch}/contracts/promissory-note/search`)
+            }
+          >
+            <span style={buttonContent}>
+              <span style={buttonIcon}>🔎</span>
+              البحث عن سند
+            </span>
+          </button>
+
+          <button
+            style={actionButton}
+            onClick={() =>
+              (window.location.href = `/finance/${branch}/contracts/search`)
             }
           >
             <span style={buttonContent}>
@@ -68,7 +72,7 @@ export default function FinanceContractsPage() {
           <button
             style={actionButton}
             onClick={() =>
-              (window.location.href = "/finance/contracts/active")
+              (window.location.href = `/finance/${branch}/contracts/active`)
             }
           >
             <span style={buttonContent}>
@@ -80,7 +84,7 @@ export default function FinanceContractsPage() {
           <button
             style={actionButton}
             onClick={() =>
-              (window.location.href = "/finance/contracts/closed")
+              (window.location.href = `/finance/${branch}/contracts/closed`)
             }
           >
             <span style={buttonContent}>
@@ -92,7 +96,7 @@ export default function FinanceContractsPage() {
 
         <button
           style={backButton}
-          onClick={() => (window.location.href = "/finance")}
+          onClick={() => (window.location.href = `/finance/${branch}`)}
         >
           الرجوع لمحطة العمل الرئيسية
         </button>
