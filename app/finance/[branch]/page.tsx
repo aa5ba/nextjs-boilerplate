@@ -1,48 +1,76 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getOrganizationName } from "@/lib/getOrganizationName";
+import { useParams } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
 
 const sections = [
-  { title: "سير العمل", href: "/finance/workflow", icon: "💼" },
-  { title: "العملاء", href: "/finance/customers", icon: "👥" },
-  { title: "طلب جديد", href: "/finance/new-request", icon: "➕🧩" },
-  { title: "سداد", href: "/finance/payments", icon: "💳" },
-  { title: "المخزون والمنتجات", href: "/finance/inventory", icon: "📦" },
-  { title: "العقود", href: "/finance/contracts", icon: "📄" },
-  { title: "الملاحظات والتذكيرات", href: "/finance/notes", icon: "✏️" },
-  { title: "إدارة الصلاحيات", href: "/finance/permissions", icon: "🔐" },
+  { title: "سير العمل", path: "workflow", icon: "💼" },
+  { title: "العملاء", path: "customers", icon: "👥" },
+  { title: "طلب جديد", path: "new-request", icon: "➕🧩" },
+  { title: "سداد", path: "payments", icon: "💳" },
+  { title: "المخزون والمنتجات", path: "inventory", icon: "📦" },
+  { title: "العقود", path: "contracts", icon: "📄" },
+  { title: "الملاحظات والتذكيرات", path: "notes", icon: "✏️" },
+  { title: "إدارة الصلاحيات", path: "permissions", icon: "🔐" },
 ];
 
 export default function FinancePage() {
+  const params = useParams();
+  const branch = params.branch as string;
+
   const [organizationName, setOrganizationName] = useState("احتساب");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadOrganizationName();
-  }, []);
+    if (branch) {
+      loadBranch();
+    }
+  }, [branch]);
 
-  async function loadOrganizationName() {
-    const name = await getOrganizationName();
-    setOrganizationName(name);
+  async function loadBranch() {
+    const { data, error } = await supabase
+      .from("finance_branches")
+      .select("organization_name, branch_name, is_active")
+      .eq("branch_slug", branch)
+      .single();
+
+    if (error || !data || !data.is_active) {
+      setOrganizationName("فرع غير موجود");
+      setLoading(false);
+      return;
+    }
+
+    setOrganizationName(data.organization_name || "احتساب");
+    setLoading(false);
+  }
+
+  if (loading) {
+    return (
+      <main dir="rtl" style={page}>
+        <div style={container}>
+          <div style={header}>
+            <h1 style={headerTitle}>جاري تحميل الفرع...</h1>
+          </div>
+        </div>
+      </main>
+    );
   }
 
   return (
     <main dir="rtl" style={page}>
       <div style={container}>
         <div style={header}>
-          <div style={organizationBadge}>
-            🏢 {organizationName}
-          </div>
-
+          <div style={organizationBadge}>🏢 {organizationName}</div>
           <h1 style={headerTitle}>محطة العمل الرئيسية</h1>
         </div>
 
         <div style={grid}>
           {sections.map((item) => (
             <Card
-              key={item.href}
+              key={item.path}
               title={item.title}
-              href={item.href}
+              href={`/finance/${branch}/${item.path}`}
               icon={item.icon}
             />
           ))}
