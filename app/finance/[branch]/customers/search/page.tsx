@@ -1,10 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { normalizeNumber } from "@/lib/numberUtils";
 
 export default function SearchCustomersPage() {
+  const params = useParams();
+  const branch = params.branch as string;
+
   const [search, setSearch] = useState("");
   const [customers, setCustomers] = useState<any[]>([]);
 
@@ -70,7 +74,7 @@ export default function SearchCustomersPage() {
                 key={customer.id}
                 style={tableRow}
                 onClick={() =>
-                  (window.location.href = `/finance/customers/${customer.id}`)
+                  (window.location.href = `/finance/${branch}/customers/${customer.id}`)
                 }
               >
                 <span>👤 {customer.full_name || "-"}</span>
@@ -84,7 +88,7 @@ export default function SearchCustomersPage() {
 
         <button
           style={backButton}
-          onClick={() => (window.location.href = "/finance/customers")}
+          onClick={() => (window.location.href = `/finance/${branch}/customers`)}
         >
           الرجوع للعملاء
         </button>
