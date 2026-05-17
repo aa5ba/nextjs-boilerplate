@@ -40,7 +40,7 @@ export default function PrintNewRequestPage() {
 
       @page {
         size: A4;
-        margin: 10mm;
+        margin: 8mm;
       }
     `;
 
@@ -282,8 +282,9 @@ const page = {
 const printArea = {
   background: "white",
   width: "190mm",
-  minHeight: "267mm",
-  margin: "0 auto 12mm",
+  height: "257mm",
+margin: "0 auto",
+overflow: "hidden" as const,
   padding: "7mm",
   borderRadius: 0,
   lineHeight: 1.45,
