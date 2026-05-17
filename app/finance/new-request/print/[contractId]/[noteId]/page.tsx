@@ -209,12 +209,14 @@ const page = {
 
 const printArea = {
   background: "white",
-  maxWidth: 850,
-  margin: "0 auto 24px",
-  padding: 38,
-  borderRadius: 18,
-  lineHeight: 2,
+  width: "190mm",
+  minHeight: "267mm",
+  margin: "0 auto 12mm",
+  padding: "8mm",
+  borderRadius: 0,
+  lineHeight: 1.55,
   color: "#111827",
+  boxSizing: "border-box" as const,
 };
 
 const topLine = {
@@ -264,8 +266,8 @@ const metaRow = {
 };
 
 const paragraph = {
-  fontSize: 16,
-  margin: "12px 0",
+  fontSize: 13,
+  margin: "6px 0",
   textAlign: "justify" as const,
 };
 
@@ -280,8 +282,8 @@ const infoBox = {
 const signatures = {
   display: "grid",
   gridTemplateColumns: "1fr 1fr",
-  gap: 24,
-  marginTop: 40,
+  gap: 18,
+  marginTop: 18,
 };
 
 const signatureBox = {
