@@ -1,9 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
 export default function FinanceCustomersPage() {
+  const params = useParams();
+  const branch = params.branch as string;
+
   const [groups, setGroups] = useState<any[]>([]);
 
   useEffect(() => {
@@ -35,7 +39,7 @@ export default function FinanceCustomersPage() {
                 key={group.id}
                 style={groupCard}
                 onClick={() =>
-                  (window.location.href = `/finance/customers/groups/${group.id}`)
+                  (window.location.href = `/finance/${branch}/customers/groups/${group.id}`)
                 }
               >
                 {group.name}
@@ -47,7 +51,9 @@ export default function FinanceCustomersPage() {
         <section style={actionsSection}>
           <button
             style={actionButton}
-            onClick={() => (window.location.href = "/finance/customers/new")}
+            onClick={() =>
+              (window.location.href = `/finance/${branch}/customers/new`)
+            }
           >
             <span style={buttonContent}>
               <span style={buttonIcon}>➕</span>
@@ -57,7 +63,9 @@ export default function FinanceCustomersPage() {
 
           <button
             style={actionButton}
-            onClick={() => (window.location.href = "/finance/customers/search")}
+            onClick={() =>
+              (window.location.href = `/finance/${branch}/customers/search`)
+            }
           >
             <span style={buttonContent}>
               <span style={buttonIcon}>🔍</span>
@@ -66,17 +74,22 @@ export default function FinanceCustomersPage() {
           </button>
 
           <button
-  style={actionButton}
-  onClick={() => (window.location.href = "/finance/customers/list")}
->
-  <span style={buttonContent}>
-    <span style={buttonIcon}>📋</span>
-    قائمة العملاء
-  </span>
-</button>
+            style={actionButton}
+            onClick={() =>
+              (window.location.href = `/finance/${branch}/customers/list`)
+            }
+          >
+            <span style={buttonContent}>
+              <span style={buttonIcon}>📋</span>
+              قائمة العملاء
+            </span>
+          </button>
+
           <button
             style={actionButton}
-            onClick={() => (window.location.href = "/finance/customers/groups")}
+            onClick={() =>
+              (window.location.href = `/finance/${branch}/customers/groups`)
+            }
           >
             <span style={buttonContent}>
               <span style={buttonIcon}>👥</span>
@@ -101,7 +114,7 @@ export default function FinanceCustomersPage() {
 
         <button
           style={backButton}
-          onClick={() => (window.location.href = "/finance")}
+          onClick={() => (window.location.href = `/finance/${branch}`)}
         >
           الرجوع لمحطة العمل الرئيسية
         </button>
