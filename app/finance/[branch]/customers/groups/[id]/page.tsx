@@ -6,6 +6,8 @@ import { supabase } from "@/lib/supabaseClient";
 
 export default function FinanceCustomerGroupDetailsPage() {
   const params = useParams();
+
+  const branch = params.branch as string;
   const groupId = params.id as string;
 
   const [group, setGroup] = useState<any>(null);
@@ -50,7 +52,13 @@ export default function FinanceCustomerGroupDetailsPage() {
             <div style={emptyBox}>لا يوجد عملاء في هذه المجموعة</div>
           ) : (
             customers.map((customer) => (
-              <div key={customer.id} style={tableRow}>
+              <div
+                key={customer.id}
+                style={tableRow}
+                onClick={() =>
+                  (window.location.href = `/finance/${branch}/customers/${customer.id}`)
+                }
+              >
                 <span>{customer.full_name}</span>
                 <span>{customer.national_id}</span>
                 <span>{customer.phone}</span>
@@ -61,7 +69,7 @@ export default function FinanceCustomerGroupDetailsPage() {
 
         <button
           style={backButton}
-          onClick={() => (window.location.href = "/finance/customers")}
+          onClick={() => (window.location.href = `/finance/${branch}/customers`)}
         >
           الرجوع للعملاء
         </button>
@@ -74,7 +82,7 @@ const page = {
   minHeight: "100vh",
   background: "#eef5ff",
   padding: 20,
-  fontFamily: "system-ui",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const container = {
@@ -119,6 +127,7 @@ const tableRow = {
   minWidth: 720,
   padding: 14,
   borderBottom: "1px solid #eef2f7",
+  cursor: "pointer",
 };
 
 const emptyBox = {
