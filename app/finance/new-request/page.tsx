@@ -132,7 +132,8 @@ export default function NewRequestPage() {
     ]);
 
     alert("تم إنشاء الطلب بنجاح");
-    window.location.href = `/finance/contracts/print/${contractData.id}`;
+window.location.href =
+  `/finance/new-request/print/${contractData.id}/${noteData.id}`;
   }
 
   return (
