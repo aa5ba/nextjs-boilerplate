@@ -1,5 +1,8 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { getOrganizationName } from "@/lib/getOrganizationName";
+
 const sections = [
   { title: "سير العمل", href: "/finance/workflow", icon: "💼" },
   { title: "العملاء", href: "/finance/customers", icon: "👥" },
@@ -12,12 +15,27 @@ const sections = [
 ];
 
 export default function FinancePage() {
+  const [organizationName, setOrganizationName] = useState("احتساب");
+
+  useEffect(() => {
+    loadOrganizationName();
+  }, []);
+
+  async function loadOrganizationName() {
+    const name = await getOrganizationName();
+    setOrganizationName(name);
+  }
+
   return (
     <main dir="rtl" style={page}>
       <div style={container}>
         <div style={header}>
-  <h1 style={headerTitle}>محطة العمل الرئيسية</h1>
-</div>
+          <div style={organizationBadge}>
+            🏢 {organizationName}
+          </div>
+
+          <h1 style={headerTitle}>محطة العمل الرئيسية</h1>
+        </div>
 
         <div style={grid}>
           {sections.map((item) => (
@@ -70,7 +88,20 @@ const header = {
   padding: "30px 20px",
   borderRadius: 22,
   marginBottom: 22,
-}
+};
+
+const organizationBadge = {
+  width: "fit-content",
+  margin: "0 auto 14px auto",
+  background: "rgba(255,255,255,0.15)",
+  border: "1px solid rgba(255,255,255,0.25)",
+  padding: "10px 18px",
+  borderRadius: 14,
+  fontSize: 16,
+  fontWeight: "bold",
+  backdropFilter: "blur(6px)",
+};
+
 const headerTitle = {
   margin: 0,
   textAlign: "center" as const,
@@ -78,7 +109,8 @@ const headerTitle = {
   fontWeight: 700,
   letterSpacing: "0px",
   lineHeight: 1.4,
-}
+};
+
 const grid = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit,minmax(320px,1fr))",
@@ -117,10 +149,11 @@ const iconBox = {
   justifyContent: "center",
   fontSize: 22,
 };
+
 const cardTitle = {
   color: "#0d47a1",
   fontWeight: "bold",
-}
+};
 
 const arrow = {
   color: "#0d6efd",
