@@ -1,10 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { normalizeNumber, toNumber } from "@/lib/numberUtils";
 
 export default function NewFinanceCustomerPage() {
+  const params = useParams();
+  const branch = params.branch as string;
+
   const [groups, setGroups] = useState<any[]>([]);
 
   const [groupId, setGroupId] = useState("");
@@ -97,17 +101,7 @@ export default function NewFinanceCustomerPage() {
 
     alert("تم إنشاء العميل بنجاح");
 
-    setGroupId("");
-    setFullName("");
-    setNationalId("");
-    setBirthDay("");
-    setBirthMonth("");
-    setBirthYear("");
-    setPhone("");
-    setWork("");
-    setSalary("");
-    setBank("");
-    setBroker("");
+    window.location.href = `/finance/${branch}/customers/${customerData.id}`;
   }
 
   return (
@@ -219,7 +213,7 @@ export default function NewFinanceCustomerPage() {
 
         <button
           style={backButton}
-          onClick={() => (window.location.href = "/finance/customers")}
+          onClick={() => (window.location.href = `/finance/${branch}/customers`)}
         >
           الرجوع للعملاء
         </button>
