@@ -14,12 +14,49 @@ export default function PrintNewRequestPage() {
 
   useEffect(() => {
     loadData();
+
+    const style = document.createElement("style");
+
+    style.innerHTML = `
+      @media print {
+        button {
+          display: none !important;
+        }
+
+        body {
+          background: white !important;
+        }
+
+        main {
+          padding: 0 !important;
+          background: white !important;
+        }
+
+        section {
+          break-inside: avoid !important;
+          page-break-inside: avoid !important;
+        }
+      }
+
+      @page {
+        size: A4;
+        margin: 10mm;
+      }
+    `;
+
+    document.head.appendChild(style);
+
+    return () => {
+      document.head.removeChild(style);
+    };
   }, []);
 
   async function loadData() {
     const { data: contractData } = await supabase
       .from("finance_contracts")
-      .select("*, finance_customers(full_name, national_id, phone, birth_hijri)")
+      .select(
+        "*, finance_customers(full_name, national_id, phone, birth_hijri)"
+      )
       .eq("id", contractId)
       .single();
 
@@ -34,11 +71,20 @@ export default function PrintNewRequestPage() {
   }
 
   const customerName =
-    contract?.finance_customers?.full_name || note?.debtor_name || "................";
+    contract?.finance_customers?.full_name ||
+    note?.debtor_name ||
+    "................";
+
   const nationalId =
-    contract?.finance_customers?.national_id || note?.debtor_national_id || "................";
+    contract?.finance_customers?.national_id ||
+    note?.debtor_national_id ||
+    "................";
+
   const phone =
-    contract?.finance_customers?.phone || note?.debtor_phone || "................";
+    contract?.finance_customers?.phone ||
+    note?.debtor_phone ||
+    "................";
+
   const birthHijri =
     contract?.finance_customers?.birth_hijri || "................";
 
@@ -57,7 +103,10 @@ export default function PrintNewRequestPage() {
 
         <div style={metaRow}>
           <span>رقم العقد: {contract?.contract_number || "-"}</span>
-          <span>التاريخ الميلادي: {contract?.contract_date_gregorian || "-"}</span>
+          <span>
+            التاريخ الميلادي:{" "}
+            {contract?.contract_date_gregorian || "-"}
+          </span>
         </div>
 
         <div style={metaRow}>
@@ -65,31 +114,42 @@ export default function PrintNewRequestPage() {
           <span>موعد السداد: {contract?.payment_due_date || "-"}</span>
         </div>
 
-        <p style={paragraph}>الحمد لله والصلاة والسلام على من لا نبي بعده، وبعد:</p>
-
         <p style={paragraph}>
-          أقر أنا الموقع أدناه الطرف الثاني / <strong>{customerName}</strong>،
-          رقم الهوية / <strong>{nationalId}</strong>، تاريخ الميلاد /
-          <strong> {birthHijri}</strong>، رقم الجوال /
-          <strong> {phone}</strong>، بأني اشتريت من الطرف الأول /
-          <strong> {contract?.investor_name || "................"}</strong>.
+          الحمد لله والصلاة والسلام على من لا نبي بعده، وبعد:
         </p>
 
         <p style={paragraph}>
-          وذلك مقابل منتج / <strong>{contract?.product_name || "................"}</strong>
-          ، وعددها / <strong>{contract?.product_quantity || "-"}</strong>، بمبلغ دين
-          وقدره / <strong>{contract?.debt_amount || 0}</strong> ريال سعودي.
+          أقر أنا الموقع أدناه الطرف الثاني /{" "}
+          <strong>{customerName}</strong>، رقم الهوية /{" "}
+          <strong>{nationalId}</strong>، تاريخ الميلاد /
+          <strong> {birthHijri}</strong>، رقم الجوال /
+          <strong> {phone}</strong>، بأني اشتريت من الطرف الأول /
+          <strong>
+            {" "}
+            {contract?.investor_name || "................"}
+          </strong>
+          .
+        </p>
+
+        <p style={paragraph}>
+          وذلك مقابل منتج /{" "}
+          <strong>{contract?.product_name || "................"}</strong>
+          ، وعددها / <strong>{contract?.product_quantity || "-"}</strong>،
+          بمبلغ دين وقدره /
+          <strong> {contract?.debt_amount || 0}</strong> ريال سعودي.
         </p>
 
         <p style={paragraph}>
           ويلتزم الطرف الثاني بسداد مبلغ وقدره /
-          <strong> {contract?.payment_amount || 0}</strong> ريال سعودي، وذلك حسب نوع
-          السداد / <strong>{contract?.payment_type || "-"}</strong>، وبقسط قدره /
+          <strong> {contract?.payment_amount || 0}</strong> ريال سعودي، وذلك
+          حسب نوع السداد /
+          <strong> {contract?.payment_type || "-"}</strong>، وبقسط قدره /
           <strong> {contract?.installment_amount || 0}</strong> ريال سعودي.
         </p>
 
         <p style={paragraph}>
-          وتكون مدينة التقاضي / <strong>{contract?.legal_city || "-"}</strong>.
+          وتكون مدينة التقاضي /{" "}
+          <strong>{contract?.legal_city || "-"}</strong>.
         </p>
 
         <p style={paragraph}>
@@ -98,12 +158,16 @@ export default function PrintNewRequestPage() {
           اتخاذ الإجراءات النظامية اللازمة للمطالبة بكامل المبلغ المتبقي.
         </p>
 
-        <p style={paragraph}>ملاحظات: <strong>{contract?.notes || "-"}</strong></p>
+        <p style={paragraph}>
+          ملاحظات: <strong>{contract?.notes || "-"}</strong>
+        </p>
 
         <div style={signatures}>
           <div style={signatureBox}>
             <strong>الطرف الأول البائع</strong>
-            <div>الاسم / {contract?.investor_name || "................"}</div>
+            <div>
+              الاسم / {contract?.investor_name || "................"}
+            </div>
             <div>التوقيع / ................</div>
           </div>
 
@@ -118,14 +182,16 @@ export default function PrintNewRequestPage() {
 
         <div style={guarantorBox}>
           <strong>الكفيل الغارم</strong>
-          <div>الاسم / {contract?.guarantor_name || "................"}</div>
+          <div>
+            الاسم / {contract?.guarantor_name || "................"}
+          </div>
           <div>رقم الهوية / ................</div>
           <div>الجوال / ................</div>
           <div>التوقيع / ................</div>
         </div>
       </section>
 
-      <section style={{ ...printArea, pageBreakBefore: "always" as const }}>
+      <section style={secondPrintArea}>
         <div style={topLine}>
           <span>المملكة العربية السعودية</span>
           <span>بيع * شراء</span>
@@ -147,15 +213,17 @@ export default function PrintNewRequestPage() {
         </div>
 
         <p style={paragraph}>
-          حرر هذا السند في مدينة <strong>{note?.city || "................"}</strong>،
-          وبموجب هذا السند أتعهد أنا الموقع أدناه بأن أدفع لأمر الطرف المستفيد
-          مبلغًا وقدره <strong>{note?.amount || 0}</strong> ريال سعودي.
+          حرر هذا السند في مدينة{" "}
+          <strong>{note?.city || "................"}</strong>، وبموجب هذا
+          السند أتعهد أنا الموقع أدناه بأن أدفع لأمر الطرف المستفيد مبلغًا
+          وقدره <strong>{note?.amount || 0}</strong> ريال سعودي.
         </p>
 
         <p style={paragraph}>
           ويستحق هذا المبلغ في تاريخ{" "}
-          <strong>{note?.due_date || "................"}</strong>، دون مماطلة أو
-          تأخير، ويعد هذا السند التزامًا واجب الوفاء حسب الأنظمة المعمول بها.
+          <strong>{note?.due_date || "................"}</strong>، دون
+          مماطلة أو تأخير، ويعد هذا السند التزامًا واجب الوفاء حسب الأنظمة
+          المعمول بها.
         </p>
 
         <div style={infoBox}>
@@ -166,7 +234,9 @@ export default function PrintNewRequestPage() {
           <div>حالة السند / {note?.status || "-"}</div>
         </div>
 
-        <p style={paragraph}>ملاحظات: <strong>{note?.notes || "-"}</strong></p>
+        <p style={paragraph}>
+          ملاحظات: <strong>{note?.notes || "-"}</strong>
+        </p>
 
         <div style={signatures}>
           <div style={signatureBox}>
@@ -192,7 +262,9 @@ export default function PrintNewRequestPage() {
 
       <button
         style={backButton}
-        onClick={() => (window.location.href = `/finance/contracts/${contractId}`)}
+        onClick={() =>
+          (window.location.href = `/finance/contracts/${contractId}`)
+        }
       >
         الرجوع للعقد
       </button>
@@ -212,91 +284,100 @@ const printArea = {
   width: "190mm",
   minHeight: "267mm",
   margin: "0 auto 12mm",
-  padding: "8mm",
+  padding: "7mm",
   borderRadius: 0,
-  lineHeight: 1.55,
+  lineHeight: 1.45,
   color: "#111827",
   boxSizing: "border-box" as const,
+  pageBreakInside: "avoid" as const,
+};
+
+const secondPrintArea = {
+  ...printArea,
+  pageBreakBefore: "always" as const,
 };
 
 const topLine = {
   display: "flex",
   justifyContent: "space-between",
-  fontSize: 15,
+  fontSize: 12,
   fontWeight: "bold",
-  marginBottom: 16,
+  marginBottom: 8,
 };
 
 const logoBox = {
-  width: 90,
-  height: 90,
-  margin: "0 auto 14px",
+  width: 55,
+  height: 55,
+  margin: "0 auto 6px",
   border: "1px dashed #94a3b8",
-  borderRadius: 18,
+  borderRadius: 10,
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
   color: "#64748b",
-  fontSize: 14,
+  fontSize: 11,
 };
 
 const title = {
   textAlign: "center" as const,
   color: "#0d47a1",
-  fontSize: 22,
-  margin: "0 0 4px",
+  fontSize: 16,
+  margin: "0 0 2px",
 };
 
 const subtitle = {
   textAlign: "center" as const,
   color: "#111827",
-  fontSize: 24,
-  margin: "0 0 20px",
+  fontSize: 20,
+  margin: "0 0 10px",
   textDecoration: "underline",
 };
 
 const metaRow = {
   display: "flex",
   justifyContent: "space-between",
-  gap: 20,
+  gap: 14,
   borderBottom: "1px solid #e5e7eb",
-  paddingBottom: 8,
-  marginBottom: 8,
-  fontSize: 15,
+  paddingBottom: 4,
+  marginBottom: 5,
+  fontSize: 12,
 };
 
 const paragraph = {
-  fontSize: 13,
-  margin: "6px 0",
+  fontSize: 12.5,
+  margin: "5px 0",
   textAlign: "justify" as const,
 };
 
 const infoBox = {
   border: "1px solid #e5e7eb",
-  borderRadius: 12,
-  padding: 16,
-  marginTop: 20,
-  lineHeight: 2,
+  borderRadius: 8,
+  padding: 10,
+  marginTop: 10,
+  lineHeight: 1.7,
+  fontSize: 12.5,
 };
 
 const signatures = {
   display: "grid",
   gridTemplateColumns: "1fr 1fr",
-  gap: 18,
-  marginTop: 18,
+  gap: 16,
+  marginTop: 16,
 };
 
 const signatureBox = {
   borderTop: "1px solid #111827",
-  paddingTop: 12,
-  lineHeight: 2,
+  paddingTop: 8,
+  lineHeight: 1.7,
+  fontSize: 12.5,
 };
 
 const guarantorBox = {
-  marginTop: 30,
+  marginTop: 16,
   borderTop: "1px solid #111827",
-  paddingTop: 12,
-  lineHeight: 2,
+  paddingTop: 8,
+  lineHeight: 1.7,
+  fontSize: 12.5,
 };
 
 const printButton = {
@@ -324,31 +405,3 @@ const backButton = {
   borderRadius: 14,
   fontSize: 17,
 };
-
-if (typeof window !== "undefined") {
-  const style = document.createElement("style");
-
-  style.innerHTML = `
-    @media print {
-      button {
-        display: none !important;
-      }
-
-      body {
-        background: white !important;
-      }
-
-      main {
-        padding: 0 !important;
-        background: white !important;
-      }
-    }
-
-    @page {
-      size: A4;
-      margin: 12mm;
-    }
-  `;
-
-  document.head.appendChild(style);
-}
