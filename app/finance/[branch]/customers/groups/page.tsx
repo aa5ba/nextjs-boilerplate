@@ -1,9 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
 export default function FinanceCustomerGroupsPage() {
+  const params = useParams();
+  const branch = params.branch as string;
+
   const [name, setName] = useState("");
   const [groups, setGroups] = useState<any[]>([]);
 
@@ -73,7 +77,7 @@ export default function FinanceCustomerGroupsPage() {
 
         <button
           style={backButton}
-          onClick={() => (window.location.href = "/finance/customers")}
+          onClick={() => (window.location.href = `/finance/${branch}/customers`)}
         >
           الرجوع للعملاء
         </button>
@@ -86,7 +90,7 @@ const page = {
   minHeight: "100vh",
   background: "#eef5ff",
   padding: 20,
-  fontFamily: "system-ui",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const container = {
