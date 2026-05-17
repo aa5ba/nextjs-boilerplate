@@ -6,6 +6,8 @@ import { supabase } from "@/lib/supabaseClient";
 
 export default function FinanceCustomerProfilePage() {
   const params = useParams();
+
+  const branch = params.branch as string;
   const customerId = params.id as string;
 
   const [customer, setCustomer] = useState<any>(null);
@@ -101,7 +103,7 @@ export default function FinanceCustomerProfilePage() {
                 key={contract.id}
                 style={itemButton}
                 onClick={() =>
-                  (window.location.href = `/finance/contracts/${contract.id}`)
+                  (window.location.href = `/finance/${branch}/contracts/${contract.id}`)
                 }
               >
                 📄 عقد رقم {contract.contract_number} -{" "}
@@ -123,7 +125,7 @@ export default function FinanceCustomerProfilePage() {
                 key={contract.id}
                 style={itemButton}
                 onClick={() =>
-                  (window.location.href = `/finance/contracts/${contract.id}`)
+                  (window.location.href = `/finance/${branch}/contracts/${contract.id}`)
                 }
               >
                 ✅ عقد رقم {contract.contract_number} -{" "}
@@ -145,7 +147,7 @@ export default function FinanceCustomerProfilePage() {
                 key={note.id}
                 style={itemButton}
                 onClick={() =>
-                  (window.location.href = `/finance/contracts/promissory-note/print/${note.id}`)
+                  (window.location.href = `/finance/${branch}/contracts/promissory-note/print/${note.id}`)
                 }
               >
                 🧾 سند رقم {note.note_number} - {note.amount || 0} ر.س -{" "}
