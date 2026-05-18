@@ -6,6 +6,8 @@ import { supabase } from "@/lib/supabaseClient";
 
 export default function FinanceContractDetailsPage() {
   const params = useParams();
+
+  const branch = params.branch as string;
   const contractId = params.id as string;
 
   const [contract, setContract] = useState<any>(null);
@@ -219,7 +221,7 @@ export default function FinanceContractDetailsPage() {
           <button
             style={actionButton}
             onClick={() =>
-              (window.location.href = `/finance/payments/new?contract=${contractId}`)
+              (window.location.href = `/finance/${branch}/payments/new?contract=${contractId}`)
             }
           >
             <span style={buttonContent}>
@@ -229,28 +231,28 @@ export default function FinanceContractDetailsPage() {
           </button>
 
           <button
-  style={actionButton}
-  onClick={() =>
-    (window.location.href = `/finance/contracts/edit/${contractId}`)
-  }
->
-  <span style={buttonContent}>
-    <span style={buttonIcon}>✏️</span>
-    تعديل العقد
-  </span>
-</button>
+            style={actionButton}
+            onClick={() =>
+              (window.location.href = `/finance/${branch}/contracts/edit/${contractId}`)
+            }
+          >
+            <span style={buttonContent}>
+              <span style={buttonIcon}>✏️</span>
+              تعديل العقد
+            </span>
+          </button>
 
           <button
-  style={actionButton}
-  onClick={() =>
-    (window.location.href = `/finance/contracts/print/${contractId}`)
-  }
->
-  <span style={buttonContent}>
-    <span style={buttonIcon}>🖨️</span>
-    طباعة العقد
-  </span>
-</button>
+            style={actionButton}
+            onClick={() =>
+              (window.location.href = `/finance/${branch}/contracts/print/${contractId}`)
+            }
+          >
+            <span style={buttonContent}>
+              <span style={buttonIcon}>🖨️</span>
+              طباعة العقد
+            </span>
+          </button>
 
           <button style={actionButton} onClick={closeContract}>
             <span style={buttonContent}>
@@ -262,7 +264,9 @@ export default function FinanceContractDetailsPage() {
 
         <button
           style={backButton}
-          onClick={() => (window.location.href = "/finance/contracts/active")}
+          onClick={() =>
+            (window.location.href = `/finance/${branch}/contracts/active`)
+          }
         >
           الرجوع للعقود القائمة
         </button>
