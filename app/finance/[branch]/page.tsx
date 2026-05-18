@@ -14,6 +14,7 @@ const sections = [
   { title: "العقود", path: "contracts", icon: "📄" },
   { title: "الملاحظات والتذكيرات", path: "notes", icon: "✏️" },
   { title: "إدارة الصلاحيات", path: "permissions", icon: "🔐" },
+  { title: "الإعدادات", path: "settings", icon: "⚙️" },
 ];
 
 export default function FinancePage() {
