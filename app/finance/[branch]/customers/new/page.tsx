@@ -71,8 +71,8 @@ export default function NewFinanceCustomerPage() {
       return;
     }
 
-    if (cleanPhone.length !== 10) {
-      alert("رقم الجوال يجب أن يكون 10 أرقام");
+    if (!/^05\d{8}$/.test(cleanPhone)) {
+      alert("رقم الجوال يجب أن يكون 10 أرقام ويبدأ بـ 05");
       return;
     }
 
