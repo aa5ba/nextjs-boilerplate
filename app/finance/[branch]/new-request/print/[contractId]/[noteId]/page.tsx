@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { getOrganizationName } from "@/lib/getOrganizationName";
 
 export default function PrintNewRequestPage() {
   const params = useParams();
@@ -13,6 +14,7 @@ export default function PrintNewRequestPage() {
 
   const [contract, setContract] = useState<any>(null);
   const [note, setNote] = useState<any>(null);
+  const [organizationName, setOrganizationName] = useState("احتساب");
 
   useEffect(() => {
     loadData();
@@ -68,6 +70,9 @@ export default function PrintNewRequestPage() {
       .eq("id", noteId)
       .single();
 
+    const orgName = await getOrganizationName();
+
+    setOrganizationName(orgName);
     setContract(contractData);
     setNote(noteData);
   }
@@ -98,7 +103,9 @@ export default function PrintNewRequestPage() {
           <span>بيع * شراء</span>
         </div>
 
-        <div style={logoBox}>الشعار</div>
+        <div style={logoBox}>
+          <div style={organizationLogoText}>{organizationName}</div>
+        </div>
 
         <h1 style={title}>النموذج 1 للعقد</h1>
         <h2 style={subtitle}>عقد اتفاق بيع</h2>
@@ -106,8 +113,7 @@ export default function PrintNewRequestPage() {
         <div style={metaRow}>
           <span>رقم العقد: {contract?.contract_number || "-"}</span>
           <span>
-            التاريخ الميلادي:{" "}
-            {contract?.contract_date_gregorian || "-"}
+            التاريخ الميلادي: {contract?.contract_date_gregorian || "-"}
           </span>
         </div>
 
@@ -121,43 +127,36 @@ export default function PrintNewRequestPage() {
         </p>
 
         <p style={paragraph}>
-          أقر أنا الموقع أدناه الطرف الثاني /{" "}
-          <strong>{customerName}</strong>، رقم الهوية /{" "}
-          <strong>{nationalId}</strong>، تاريخ الميلاد /
+          أقر أنا الموقع أدناه الطرف الثاني / <strong>{customerName}</strong>،
+          رقم الهوية / <strong>{nationalId}</strong>، تاريخ الميلاد /
           <strong> {birthHijri}</strong>، رقم الجوال /
           <strong> {phone}</strong>، بأني اشتريت من الطرف الأول /
-          <strong>
-            {" "}
-            {contract?.investor_name || "................"}
-          </strong>
-          .
+          <strong> {contract?.investor_name || "................"}</strong>.
         </p>
 
         <p style={paragraph}>
           وذلك مقابل منتج /{" "}
-          <strong>{contract?.product_name || "................"}</strong>
-          ، وعددها / <strong>{contract?.product_quantity || "-"}</strong>،
-          بمبلغ دين وقدره /
-          <strong> {contract?.debt_amount || 0}</strong> ريال سعودي.
+          <strong>{contract?.product_name || "................"}</strong>،
+          وعددها / <strong>{contract?.product_quantity || "-"}</strong>، بمبلغ
+          دين وقدره / <strong> {contract?.debt_amount || 0}</strong> ريال سعودي.
         </p>
 
         <p style={paragraph}>
           ويلتزم الطرف الثاني بسداد مبلغ وقدره /
-          <strong> {contract?.payment_amount || 0}</strong> ريال سعودي، وذلك
-          حسب نوع السداد /
-          <strong> {contract?.payment_type || "-"}</strong>، وبقسط قدره /
-          <strong> {contract?.installment_amount || 0}</strong> ريال سعودي.
+          <strong> {contract?.payment_amount || 0}</strong> ريال سعودي، وذلك حسب
+          نوع السداد / <strong> {contract?.payment_type || "-"}</strong>، وبقسط
+          قدره / <strong> {contract?.installment_amount || 0}</strong> ريال
+          سعودي.
         </p>
 
         <p style={paragraph}>
-          وتكون مدينة التقاضي /{" "}
-          <strong>{contract?.legal_city || "-"}</strong>.
+          وتكون مدينة التقاضي / <strong>{contract?.legal_city || "-"}</strong>.
         </p>
 
         <p style={paragraph}>
           كما يقر الطرف الثاني بأنه اطلع على كامل بنود هذا العقد، وأنه ملتزم
-          بالسداد في المواعيد المتفق عليها، وفي حال التأخر يحق للطرف الأول
-          اتخاذ الإجراءات النظامية اللازمة للمطالبة بكامل المبلغ المتبقي.
+          بالسداد في المواعيد المتفق عليها، وفي حال التأخر يحق للطرف الأول اتخاذ
+          الإجراءات النظامية اللازمة للمطالبة بكامل المبلغ المتبقي.
         </p>
 
         <p style={paragraph}>
@@ -167,9 +166,7 @@ export default function PrintNewRequestPage() {
         <div style={signatures}>
           <div style={signatureBox}>
             <strong>الطرف الأول البائع</strong>
-            <div>
-              الاسم / {contract?.investor_name || "................"}
-            </div>
+            <div>الاسم / {contract?.investor_name || "................"}</div>
             <div>التوقيع / ................</div>
           </div>
 
@@ -184,9 +181,7 @@ export default function PrintNewRequestPage() {
 
         <div style={guarantorBox}>
           <strong>الكفيل الغارم</strong>
-          <div>
-            الاسم / {contract?.guarantor_name || "................"}
-          </div>
+          <div>الاسم / {contract?.guarantor_name || "................"}</div>
           <div>رقم الهوية / ................</div>
           <div>الجوال / ................</div>
           <div>التوقيع / ................</div>
@@ -199,7 +194,9 @@ export default function PrintNewRequestPage() {
           <span>بيع * شراء</span>
         </div>
 
-        <div style={logoBox}>الشعار</div>
+        <div style={logoBox}>
+          <div style={organizationLogoText}>{organizationName}</div>
+        </div>
 
         <h1 style={title}>النموذج 1 للسند</h1>
         <h2 style={subtitle}>سند لأمر</h2>
@@ -216,16 +213,15 @@ export default function PrintNewRequestPage() {
 
         <p style={paragraph}>
           حرر هذا السند في مدينة{" "}
-          <strong>{note?.city || "................"}</strong>، وبموجب هذا
-          السند أتعهد أنا الموقع أدناه بأن أدفع لأمر الطرف المستفيد مبلغًا
-          وقدره <strong>{note?.amount || 0}</strong> ريال سعودي.
+          <strong>{note?.city || "................"}</strong>، وبموجب هذا السند
+          أتعهد أنا الموقع أدناه بأن أدفع لأمر الطرف المستفيد مبلغًا وقدره{" "}
+          <strong>{note?.amount || 0}</strong> ريال سعودي.
         </p>
 
         <p style={paragraph}>
           ويستحق هذا المبلغ في تاريخ{" "}
-          <strong>{note?.due_date || "................"}</strong>، دون
-          مماطلة أو تأخير، ويعد هذا السند التزامًا واجب الوفاء حسب الأنظمة
-          المعمول بها.
+          <strong>{note?.due_date || "................"}</strong>، دون مماطلة أو
+          تأخير، ويعد هذا السند التزامًا واجب الوفاء حسب الأنظمة المعمول بها.
         </p>
 
         <div style={infoBox}>
@@ -263,13 +259,13 @@ export default function PrintNewRequestPage() {
       </button>
 
       <button
-  style={backButton}
-  onClick={() =>
-    (window.location.href = `/finance/${branch}/contracts/${contractId}`)
-  }
->
-  الرجوع للعقد
-</button>
+        style={backButton}
+        onClick={() =>
+          (window.location.href = `/finance/${branch}/contracts/${contractId}`)
+        }
+      >
+        الرجوع للعقد
+      </button>
     </main>
   );
 }
@@ -285,8 +281,8 @@ const printArea = {
   background: "white",
   width: "190mm",
   height: "257mm",
-margin: "0 auto",
-overflow: "hidden" as const,
+  margin: "0 auto",
+  overflow: "hidden" as const,
   padding: "7mm",
   borderRadius: 0,
   lineHeight: 1.45,
@@ -319,6 +315,15 @@ const logoBox = {
   justifyContent: "center",
   color: "#64748b",
   fontSize: 11,
+};
+
+const organizationLogoText = {
+  textAlign: "center" as const,
+  fontSize: 11,
+  fontWeight: "bold",
+  color: "#0f172a",
+  lineHeight: 1.5,
+  padding: 4,
 };
 
 const title = {
@@ -402,8 +407,8 @@ const backButton = {
   display: "block",
   margin: "12px auto 0",
   padding: 16,
-  background: "#111827",
-  color: "white",
+  background: "#6b7280",
+  color: "#111827",
   border: "none",
   borderRadius: 14,
   fontSize: 17,
