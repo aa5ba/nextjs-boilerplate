@@ -92,7 +92,7 @@ export default function NewFinanceContractPage() {
           notes,
           contract_status: "نشط",
           paid_amount: 0,
-          remaining_amount: toNumber(debtAmount),
+          remaining_amount: toNumber(paymentAmount),
           created_by: "المدير",
         },
       ])
