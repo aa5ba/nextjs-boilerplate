@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import FinanceTrialSidebar from "./FinanceTrialSidebar";
 
 const sections = [
   { title: "سير العمل", path: "workflow", icon: "💼" },
@@ -59,26 +60,30 @@ export default function FinancePage() {
 
   return (
     <main dir="rtl" style={page}>
-      <div style={container}>
-        <div style={header}>
-          <div style={organizationBadge}>🏢 {organizationName}</div>
-          <h1 style={headerTitle}>محطة العمل الرئيسية</h1>
-        </div>
+      <div style={layout}>
+        <FinanceTrialSidebar />
 
-        <div style={grid}>
-          {sections.map((item) => (
-            <Card
-              key={item.path}
-              title={item.title}
-              href={`/finance/${branch}/${item.path}`}
-              icon={item.icon}
-            />
-          ))}
-        </div>
+        <div style={container}>
+          <div style={header}>
+            <div style={organizationBadge}>🏢 {organizationName}</div>
+            <h1 style={headerTitle}>محطة العمل الرئيسية</h1>
+          </div>
 
-        <button style={backButton} onClick={() => (window.location.href = "/")}>
-          الرجوع للرئيسية
-        </button>
+          <div style={grid}>
+            {sections.map((item) => (
+              <Card
+                key={item.path}
+                title={item.title}
+                href={`/finance/${branch}/${item.path}`}
+                icon={item.icon}
+              />
+            ))}
+          </div>
+
+          <button style={backButton} onClick={() => (window.location.href = "/")}>
+            الرجوع للرئيسية
+          </button>
+        </div>
       </div>
     </main>
   );
@@ -102,6 +107,15 @@ const page = {
   background: "#eef5ff",
   padding: 20,
   fontFamily: "var(--font-almarai), sans-serif",
+};
+
+const layout = {
+  width: "100%",
+  maxWidth: 1420,
+  margin: "auto",
+  display: "flex",
+  gap: 20,
+  alignItems: "flex-start",
 };
 
 const container = {
