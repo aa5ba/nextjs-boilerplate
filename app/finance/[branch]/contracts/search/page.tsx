@@ -1,10 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { normalizeNumber } from "@/lib/numberUtils";
 
 export default function SearchContractsPage() {
+  const params = useParams();
+  const branch = params.branch as string;
+
   const [search, setSearch] = useState("");
   const [contracts, setContracts] = useState<any[]>([]);
 
@@ -75,7 +79,7 @@ export default function SearchContractsPage() {
                 key={contract.id}
                 style={tableRow}
                 onClick={() =>
-                  (window.location.href = `/finance/contracts/${contract.id}`)
+                  (window.location.href = `/finance/${branch}/contracts/${contract.id}`)
                 }
               >
                 <span>📄 {contract.contract_number}</span>
@@ -89,7 +93,7 @@ export default function SearchContractsPage() {
 
         <button
           style={backButton}
-          onClick={() => (window.location.href = "/finance/contracts")}
+          onClick={() => (window.location.href = `/finance/${branch}/contracts`)}
         >
           الرجوع للعقود
         </button>
