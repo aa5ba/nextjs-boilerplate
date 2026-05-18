@@ -6,6 +6,8 @@ import { supabase } from "@/lib/supabaseClient";
 
 export default function PrintPromissoryNotePage() {
   const params = useParams();
+
+  const branch = params.branch as string;
   const noteId = params.id as string;
 
   const [note, setNote] = useState<any>(null);
@@ -96,7 +98,7 @@ export default function PrintPromissoryNotePage() {
       <button
         style={backButton}
         onClick={() =>
-          (window.location.href = "/finance/contracts/promissory-note/new")
+          (window.location.href = `/finance/${branch}/contracts/promissory-note/new`)
         }
       >
         إنشاء سند جديد
@@ -104,7 +106,7 @@ export default function PrintPromissoryNotePage() {
 
       <button
         style={backButton}
-        onClick={() => (window.location.href = "/finance/contracts")}
+        onClick={() => (window.location.href = `/finance/${branch}/contracts`)}
       >
         الرجوع للعقود
       </button>
@@ -227,6 +229,7 @@ const backButton = {
   borderRadius: 14,
   fontSize: 17,
 };
+
 if (typeof window !== "undefined") {
   const style = document.createElement("style");
 
