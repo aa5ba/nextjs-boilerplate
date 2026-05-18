@@ -13,6 +13,7 @@ export default function EditContractPage() {
   const contractId = params.id as string;
 
   const [branchId, setBranchId] = useState<string | null>(null);
+  const [paidAmount, setPaidAmount] = useState(0);
 
   const [financeType, setFinanceType] = useState("");
   const [investorName, setInvestorName] = useState("");
@@ -63,6 +64,7 @@ export default function EditContractPage() {
     setJudicialAmount(String(data.judicial_amount || ""));
     setNotes(data.notes || "");
     setContractStatus(data.contract_status || "نشط");
+    setPaidAmount(Number(data.paid_amount || 0));
   }
 
   async function updateContract() {
@@ -70,6 +72,13 @@ export default function EditContractPage() {
       alert("تعذر تحديد الفرع");
       return;
     }
+
+    const newPaymentAmount = toNumber(paymentAmount);
+    const newRemainingAmount = Math.max(newPaymentAmount - paidAmount, 0);
+    const finalStatus =
+      contractStatus === "تم السداد" || newRemainingAmount <= 0
+        ? "تم السداد"
+        : contractStatus;
 
     const { error } = await supabase
       .from("finance_contracts")
@@ -79,7 +88,7 @@ export default function EditContractPage() {
         product_name: productName,
         product_quantity: toNumber(productQuantity),
         debt_amount: toNumber(debtAmount),
-        payment_amount: toNumber(paymentAmount),
+        payment_amount: newPaymentAmount,
         installment_amount: toNumber(installmentAmount),
         payment_type: paymentType,
         payment_due_date: paymentDueDate,
@@ -87,7 +96,8 @@ export default function EditContractPage() {
         legal_city: legalCity,
         judicial_amount: toNumber(judicialAmount),
         notes,
-        contract_status: contractStatus,
+        contract_status: finalStatus,
+        remaining_amount: finalStatus === "تم السداد" ? 0 : newRemainingAmount,
         updated_at: new Date().toISOString(),
       })
       .eq("id", contractId)
@@ -105,7 +115,7 @@ export default function EditContractPage() {
         description: "تم تعديل بيانات العقد",
         contract_id: contractId,
         employee_name: "المدير",
-        status: contractStatus,
+        status: finalStatus,
       },
     ]);
 
