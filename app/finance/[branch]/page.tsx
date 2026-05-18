@@ -158,7 +158,7 @@ function Card({ title, href, icon }: any) {
 
 const page = {
   minHeight: "100vh",
-  background: "#eef5ff",
+  background: "transparent",
   padding: 20,
   fontFamily: "var(--font-almarai), sans-serif",
 };
