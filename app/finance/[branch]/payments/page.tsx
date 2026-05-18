@@ -1,21 +1,34 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { getBranchId } from "@/lib/getBranchId";
 
 export default function FinancePaymentsPage() {
+  const params = useParams();
+  const branch = params.branch as string;
+
   const [payments, setPayments] = useState<any[]>([]);
 
   useEffect(() => {
     loadPayments();
-  }, []);
+  }, [branch]);
 
   async function loadPayments() {
+    const branchId = await getBranchId(branch);
+
+    if (!branchId) {
+      setPayments([]);
+      return;
+    }
+
     const { data } = await supabase
       .from("finance_payments")
       .select(
         "*, finance_contracts(contract_number, finance_customers(full_name, national_id))"
       )
+      .eq("branch_id", branchId)
       .order("created_at", { ascending: false })
       .limit(10);
 
@@ -32,7 +45,9 @@ export default function FinancePaymentsPage() {
         <section style={actionsSection}>
           <button
             style={actionButton}
-            onClick={() => (window.location.href = "/finance/payments/new")}
+            onClick={() =>
+              (window.location.href = `/finance/${branch}/payments/new`)
+            }
           >
             💳 إجراء سداد
           </button>
@@ -63,7 +78,7 @@ export default function FinancePaymentsPage() {
                 }}
                 onClick={() =>
                   payment.finance_contracts?.contract_number &&
-                  (window.location.href = `/finance/contracts/${payment.contract_id}`)
+                  (window.location.href = `/finance/${branch}/contracts/${payment.contract_id}`)
                 }
               >
                 <span>
@@ -89,7 +104,7 @@ export default function FinancePaymentsPage() {
 
         <button
           style={backButton}
-          onClick={() => (window.location.href = "/finance")}
+          onClick={() => (window.location.href = `/finance/${branch}`)}
         >
           الرجوع لمحطة العمل الرئيسية
         </button>
