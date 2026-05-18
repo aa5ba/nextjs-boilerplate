@@ -132,10 +132,13 @@ export default function FinanceContractDetailsPage() {
     const confirmed = confirm("هل أنت متأكد من إغلاق العقد؟");
     if (!confirmed) return;
 
+    const debt = Number(contract?.debt_amount || 0);
+
     const { error } = await supabase
       .from("finance_contracts")
       .update({
         contract_status: "تم السداد",
+        paid_amount: debt,
         remaining_amount: 0,
         updated_at: new Date().toISOString(),
       })
