@@ -1,9 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
 export default function ActiveContractsPage() {
+  const params = useParams();
+  const branch = params.branch as string;
+
   const [contracts, setContracts] = useState<any[]>([]);
 
   useEffect(() => {
@@ -44,7 +48,7 @@ export default function ActiveContractsPage() {
                 key={contract.id}
                 style={tableRow}
                 onClick={() =>
-                  (window.location.href = `/finance/contracts/${contract.id}`)
+                  (window.location.href = `/finance/${branch}/contracts/${contract.id}`)
                 }
               >
                 <span>{contract.contract_number}</span>
@@ -59,7 +63,7 @@ export default function ActiveContractsPage() {
 
         <button
           style={backButton}
-          onClick={() => (window.location.href = "/finance/contracts")}
+          onClick={() => (window.location.href = `/finance/${branch}/contracts`)}
         >
           الرجوع للعقود
         </button>
