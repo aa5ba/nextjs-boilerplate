@@ -7,7 +7,7 @@ export default function FinanceTrialSidebar() {
   const [hijri, setHijri] = useState("");
   const [announcement, setAnnouncement] = useState("");
   const [duration, setDuration] = useState("24h");
-  const [userName, setUserName] = useState("محمد");
+  const [userName, setUserName] = useState("عبدالله");
 
   useEffect(() => {
     const now = new Date();
