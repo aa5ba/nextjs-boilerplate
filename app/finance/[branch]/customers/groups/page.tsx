@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { getBranchId } from "@/lib/getBranchId";
 
 export default function FinanceCustomerGroupsPage() {
   const params = useParams();
@@ -10,11 +11,22 @@ export default function FinanceCustomerGroupsPage() {
 
   const [name, setName] = useState("");
   const [groups, setGroups] = useState<any[]>([]);
+  const [branchId, setBranchId] = useState<string | null>(null);
 
   async function loadGroups() {
+    const currentBranchId = await getBranchId(branch);
+
+    setBranchId(currentBranchId);
+
+    if (!currentBranchId) {
+      setGroups([]);
+      return;
+    }
+
     const { data } = await supabase
       .from("finance_customer_groups")
       .select("*")
+      .eq("branch_id", currentBranchId)
       .order("created_at", { ascending: false });
 
     setGroups(data || []);
@@ -22,9 +34,14 @@ export default function FinanceCustomerGroupsPage() {
 
   useEffect(() => {
     loadGroups();
-  }, []);
+  }, [branch]);
 
   async function addGroup() {
+    if (!branchId) {
+      alert("تعذر تحديد الفرع");
+      return;
+    }
+
     if (!name.trim()) {
       alert("اكتب اسم مجموعة العملاء");
       return;
@@ -32,7 +49,10 @@ export default function FinanceCustomerGroupsPage() {
 
     const { error } = await supabase
       .from("finance_customer_groups")
-      .insert({ name: name.trim() });
+      .insert({
+        branch_id: branchId,
+        name: name.trim(),
+      });
 
     if (error) {
       alert("تعذر إنشاء المجموعة");
