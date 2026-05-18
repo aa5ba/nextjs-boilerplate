@@ -2,9 +2,13 @@
 
 import { normalizeNumber, toNumber } from "@/lib/numberUtils";
 import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
 export default function NewFinanceContractPage() {
+  const params = useParams();
+  const branch = params.branch as string;
+
   const [customers, setCustomers] = useState<any[]>([]);
 
   const [customerId, setCustomerId] = useState("");
@@ -101,7 +105,7 @@ export default function NewFinanceContractPage() {
     ]);
 
     alert("تم إنشاء العقد بنجاح");
-    window.location.href = `/finance/contracts/${contractData.id}`;
+    window.location.href = `/finance/${branch}/contracts/${contractData.id}`;
   }
 
   return (
@@ -249,7 +253,7 @@ export default function NewFinanceContractPage() {
 
         <button
           style={backButton}
-          onClick={() => (window.location.href = "/finance/contracts")}
+          onClick={() => (window.location.href = `/finance/${branch}/contracts`)}
         >
           الرجوع للعقود
         </button>
