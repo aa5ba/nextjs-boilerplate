@@ -1,6 +1,11 @@
 "use client";
 
+import { useParams } from "next/navigation";
+
 export default function FinancePermissionsPage() {
+  const params = useParams();
+  const branch = params.branch as string;
+
   return (
     <main dir="rtl" style={page}>
       <div style={container}>
@@ -10,13 +15,15 @@ export default function FinancePermissionsPage() {
 
         <section style={actionsSection}>
           <button style={actionButton}>المستثمرين</button>
+
           <button style={actionButton}>الصلاحيات</button>
+
           <button style={actionButton}>الأرشيف</button>
         </section>
 
         <button
           style={backButton}
-          onClick={() => (window.location.href = "/finance")}
+          onClick={() => (window.location.href = `/finance/${branch}`)}
         >
           الرجوع لمحطة العمل الرئيسية
         </button>
@@ -29,7 +36,7 @@ const page = {
   minHeight: "100vh",
   background: "#eef5ff",
   padding: 20,
-  fontFamily: "system-ui",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const container = {
