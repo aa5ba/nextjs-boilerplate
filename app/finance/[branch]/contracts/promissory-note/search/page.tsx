@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { getBranchId } from "@/lib/getBranchId";
 import { normalizeNumber } from "@/lib/numberUtils";
 
 export default function SearchPromissoryNotesPage() {
@@ -18,11 +19,19 @@ export default function SearchPromissoryNotesPage() {
       return;
     }
 
+    const branchId = await getBranchId(branch);
+
+    if (!branchId) {
+      setNotes([]);
+      return;
+    }
+
     const normalizedSearch = normalizeNumber(search);
 
     const { data, error } = await supabase
       .from("finance_promissory_notes")
       .select("*")
+      .eq("branch_id", branchId)
       .or(
         `
         note_number.eq.${normalizedSearch},
