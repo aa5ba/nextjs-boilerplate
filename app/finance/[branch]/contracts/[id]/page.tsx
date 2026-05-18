@@ -294,14 +294,9 @@ export default function FinanceContractDetailsPage() {
           </button>
         </section>
 
-        <button
-          style={backButton}
-          onClick={() =>
-            (window.location.href = `/finance/${branch}/contracts/active`)
-          }
-        >
-          الرجوع للعقود القائمة
-        </button>
+        <button style={backButton} onClick={() => window.history.back()}>
+  رجوع
+</button>
       </div>
     </main>
   );
