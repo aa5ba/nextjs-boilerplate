@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { getBranchId } from "@/lib/getBranchId";
 
 export default function CustomersListPage() {
   const params = useParams();
@@ -12,12 +13,20 @@ export default function CustomersListPage() {
 
   useEffect(() => {
     loadCustomers();
-  }, []);
+  }, [branch]);
 
   async function loadCustomers() {
+    const branchId = await getBranchId(branch);
+
+    if (!branchId) {
+      setCustomers([]);
+      return;
+    }
+
     const { data } = await supabase
       .from("finance_customers")
       .select("*, finance_customer_groups(name)")
+      .eq("branch_id", branchId)
       .order("created_at", { ascending: false });
 
     setCustomers(data || []);
