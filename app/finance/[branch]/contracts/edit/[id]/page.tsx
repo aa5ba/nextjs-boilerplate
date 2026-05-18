@@ -7,6 +7,8 @@ import { supabase } from "@/lib/supabaseClient";
 
 export default function EditContractPage() {
   const params = useParams();
+
+  const branch = params.branch as string;
   const contractId = params.id as string;
 
   const [financeType, setFinanceType] = useState("");
@@ -91,7 +93,7 @@ export default function EditContractPage() {
     ]);
 
     alert("تم تعديل العقد بنجاح");
-    window.location.href = `/finance/contracts/${contractId}`;
+    window.location.href = `/finance/${branch}/contracts/${contractId}`;
   }
 
   return (
@@ -222,7 +224,7 @@ export default function EditContractPage() {
         <button
           style={backButton}
           onClick={() =>
-            (window.location.href = `/finance/contracts/${contractId}`)
+            (window.location.href = `/finance/${branch}/contracts/${contractId}`)
           }
         >
           الرجوع للعقد
