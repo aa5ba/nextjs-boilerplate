@@ -27,7 +27,7 @@ export default function ActiveContractsPage() {
       .from("finance_contracts")
       .select("*, finance_customers(full_name, national_id, phone)")
       .eq("branch_id", branchId)
-      .eq("contract_status", "نشط")
+      .in("contract_status", ["نشط", "متأخر"])
       .order("created_at", { ascending: false });
 
     setContracts(data || []);
