@@ -28,19 +28,36 @@ export default function SearchContractsPage() {
 
     const normalizedSearch = normalizeNumber(search);
 
-    const { data, error } = await supabase
+    const { data: customersData } = await supabase
+      .from("finance_customers")
+      .select("id")
+      .eq("branch_id", branchId)
+      .or(
+        `full_name.ilike.%${search}%,national_id.ilike.%${normalizedSearch}%,phone.ilike.%${normalizedSearch}%`
+      );
+
+    const customerIds = customersData?.map((customer) => customer.id) || [];
+
+    let query = supabase
       .from("finance_contracts")
       .select("*, finance_customers(full_name, national_id, phone)")
       .eq("branch_id", branchId)
-      .or(
-        `
-        contract_number.eq.${normalizedSearch},
-        finance_customers.full_name.ilike.%${search}%,
-        finance_customers.national_id.ilike.%${normalizedSearch}%,
-        finance_customers.phone.ilike.%${normalizedSearch}%
-      `
-      )
       .order("created_at", { ascending: false });
+
+    if (customerIds.length > 0 && normalizedSearch) {
+      query = query.or(
+        `contract_number.eq.${normalizedSearch},customer_id.in.(${customerIds.join(",")})`
+      );
+    } else if (customerIds.length > 0) {
+      query = query.in("customer_id", customerIds);
+    } else if (normalizedSearch) {
+      query = query.eq("contract_number", normalizedSearch);
+    } else {
+      setContracts([]);
+      return;
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       alert("تعذر البحث");
