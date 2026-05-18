@@ -6,6 +6,8 @@ import { supabase } from "@/lib/supabaseClient";
 
 export default function PrintNewRequestPage() {
   const params = useParams();
+
+  const branch = params.branch as string;
   const contractId = params.contractId as string;
   const noteId = params.noteId as string;
 
@@ -261,13 +263,13 @@ export default function PrintNewRequestPage() {
       </button>
 
       <button
-        style={backButton}
-        onClick={() =>
-          (window.location.href = `/finance/contracts/${contractId}`)
-        }
-      >
-        الرجوع للعقد
-      </button>
+  style={backButton}
+  onClick={() =>
+    (window.location.href = `/finance/${branch}/contracts/${contractId}`)
+  }
+>
+  الرجوع للعقد
+</button>
     </main>
   );
 }
