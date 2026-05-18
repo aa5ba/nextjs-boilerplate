@@ -4,12 +4,15 @@ import { normalizeNumber, toNumber } from "@/lib/numberUtils";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { getBranchId } from "@/lib/getBranchId";
 
 export default function EditContractPage() {
   const params = useParams();
 
   const branch = params.branch as string;
   const contractId = params.id as string;
+
+  const [branchId, setBranchId] = useState<string | null>(null);
 
   const [financeType, setFinanceType] = useState("");
   const [investorName, setInvestorName] = useState("");
@@ -28,13 +31,20 @@ export default function EditContractPage() {
 
   useEffect(() => {
     loadContract();
-  }, []);
+  }, [branch, contractId]);
 
   async function loadContract() {
+    const currentBranchId = await getBranchId(branch);
+
+    setBranchId(currentBranchId);
+
+    if (!currentBranchId) return;
+
     const { data } = await supabase
       .from("finance_contracts")
       .select("*")
       .eq("id", contractId)
+      .eq("branch_id", currentBranchId)
       .single();
 
     if (!data) return;
@@ -56,6 +66,11 @@ export default function EditContractPage() {
   }
 
   async function updateContract() {
+    if (!branchId) {
+      alert("تعذر تحديد الفرع");
+      return;
+    }
+
     const { error } = await supabase
       .from("finance_contracts")
       .update({
@@ -75,7 +90,8 @@ export default function EditContractPage() {
         contract_status: contractStatus,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", contractId);
+      .eq("id", contractId)
+      .eq("branch_id", branchId);
 
     if (error) {
       alert("تعذر تعديل العقد");
@@ -84,6 +100,7 @@ export default function EditContractPage() {
 
     await supabase.from("finance_activity_logs").insert([
       {
+        branch_id: branchId,
         activity_type: "تعديل عقد",
         description: "تم تعديل بيانات العقد",
         contract_id: contractId,
