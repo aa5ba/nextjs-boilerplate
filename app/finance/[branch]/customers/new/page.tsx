@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { getBranchId } from "@/lib/getBranchId";
 import { normalizeNumber, toNumber } from "@/lib/numberUtils";
 
 export default function NewFinanceCustomerPage() {
@@ -10,6 +11,7 @@ export default function NewFinanceCustomerPage() {
   const branch = params.branch as string;
 
   const [groups, setGroups] = useState<any[]>([]);
+  const [branchId, setBranchId] = useState<string | null>(null);
 
   const [groupId, setGroupId] = useState("");
   const [fullName, setFullName] = useState("");
@@ -25,12 +27,22 @@ export default function NewFinanceCustomerPage() {
 
   useEffect(() => {
     loadGroups();
-  }, []);
+  }, [branch]);
 
   async function loadGroups() {
+    const currentBranchId = await getBranchId(branch);
+
+    setBranchId(currentBranchId);
+
+    if (!currentBranchId) {
+      setGroups([]);
+      return;
+    }
+
     const { data } = await supabase
       .from("finance_customer_groups")
       .select("*")
+      .eq("branch_id", currentBranchId)
       .order("created_at", { ascending: false });
 
     setGroups(data || []);
@@ -38,6 +50,7 @@ export default function NewFinanceCustomerPage() {
 
   async function createCustomer() {
     if (
+      !branchId ||
       !groupId ||
       !fullName ||
       !nationalId ||
@@ -69,6 +82,7 @@ export default function NewFinanceCustomerPage() {
       .from("finance_customers")
       .insert([
         {
+          branch_id: branchId,
           group_id: groupId,
           full_name: fullName,
           national_id: cleanNationalId,
@@ -90,6 +104,7 @@ export default function NewFinanceCustomerPage() {
 
     await supabase.from("finance_activity_logs").insert([
       {
+        branch_id: branchId,
         activity_type: "إنشاء عميل",
         description: `تم إنشاء عميل جديد باسم ${fullName}`,
         customer_id: customerData.id,
