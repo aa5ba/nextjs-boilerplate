@@ -27,7 +27,7 @@ export default function ClosedContractsPage() {
       .from("finance_contracts")
       .select("*, finance_customers(full_name, national_id, phone)")
       .eq("branch_id", branchId)
-      .eq("contract_status", "تم السداد")
+      .in("contract_status", ["تم السداد", "ملغي"])
       .order("updated_at", { ascending: false });
 
     setContracts(data || []);
@@ -62,15 +62,13 @@ export default function ClosedContractsPage() {
               >
                 <span>📄 {contract.contract_number}</span>
 
-                <span>
-                  👤 {contract.finance_customers?.full_name || "-"}
-                </span>
+                <span>👤 {contract.finance_customers?.full_name || "-"}</span>
 
                 <span>📌 {contract.finance_type}</span>
 
                 <span>💰 {contract.paid_amount || 0} ر.س</span>
 
-                <span>✅ تم السداد</span>
+                <span>✅ {contract.contract_status || "-"}</span>
               </div>
             ))
           )}
