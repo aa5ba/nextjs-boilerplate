@@ -7,12 +7,14 @@ export default function FinanceTrialSidebar() {
   const [hijri, setHijri] = useState("");
   const [announcement, setAnnouncement] = useState("");
   const [duration, setDuration] = useState("24h");
+  const [userName, setUserName] = useState("محمد");
 
   useEffect(() => {
     const now = new Date();
 
     setToday(
       now.toLocaleDateString("ar-SA", {
+        weekday: "long",
         year: "numeric",
         month: "long",
         day: "numeric",
@@ -21,6 +23,7 @@ export default function FinanceTrialSidebar() {
 
     setHijri(
       now.toLocaleDateString("ar-SA-u-ca-islamic", {
+        weekday: "long",
         year: "numeric",
         month: "long",
         day: "numeric",
@@ -29,6 +32,13 @@ export default function FinanceTrialSidebar() {
 
     const saved = localStorage.getItem("finance_trial_announcement");
     if (saved) setAnnouncement(saved);
+
+    const savedUserName =
+      localStorage.getItem("employee_name") ||
+      localStorage.getItem("user_name") ||
+      localStorage.getItem("customer_name");
+
+    if (savedUserName) setUserName(savedUserName);
   }, []);
 
   function saveAnnouncement() {
@@ -46,11 +56,18 @@ export default function FinanceTrialSidebar() {
 
   return (
     <aside style={sidebar}>
+      <div style={userCard}>
+        <div style={userTopRow}>
+          <span style={onlineDot} />
+          <span style={onlineText}>تم الدخول بنجاح</span>
+        </div>
+
+        <div style={userNameText}>المستخدم: {userName}</div>
+      </div>
+
       <div style={dateCard}>
-        <div style={smallLabel}>اليوم</div>
-        <div style={dateTitle}>📅 التاريخ</div>
-        <div style={dateLine}>ميلادي: {today}</div>
-        <div style={dateLine}>هجري: {hijri}</div>
+        <div style={dateLine}>{hijri}</div>
+        <div style={dateLineMuted}>{today}</div>
       </div>
 
       <div style={announcementCard}>
@@ -107,44 +124,71 @@ const sidebar = {
   gap: 14,
 };
 
-const dateCard = {
-  background: "linear-gradient(135deg, rgba(255,255,255,.96), rgba(239,246,255,.92))",
-  border: "1px solid rgba(191,219,254,.85)",
-  borderRadius: 24,
-  padding: 18,
-  boxShadow: "0 18px 45px rgba(15, 23, 42, .08)",
+const userCard = {
+  background: "rgba(255,255,255,.9)",
+  border: "1px solid rgba(217,227,245,.9)",
+  borderRadius: 22,
+  padding: 16,
+  boxShadow: "0 16px 38px rgba(15, 23, 42, .07)",
+  backdropFilter: "blur(6px)",
 };
 
-const smallLabel = {
-  width: "fit-content",
-  background: "#dbeafe",
-  color: "#0d47a1",
-  padding: "5px 10px",
-  borderRadius: 999,
-  fontSize: 12,
-  fontWeight: "bold",
+const userTopRow = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
   marginBottom: 10,
 };
 
-const dateTitle = {
+const onlineDot = {
+  width: 10,
+  height: 10,
+  borderRadius: "50%",
+  background: "#22c55e",
+  boxShadow: "0 0 0 5px rgba(34,197,94,.12)",
+};
+
+const onlineText = {
+  color: "#15803d",
+  fontSize: 13,
+  fontWeight: "bold",
+};
+
+const userNameText = {
   color: "#0f172a",
-  fontSize: 18,
+  fontSize: 15,
   fontWeight: "bold",
-  marginBottom: 10,
+};
+
+const dateCard = {
+  background: "linear-gradient(135deg, rgba(255,255,255,.92), rgba(239,246,255,.82))",
+  border: "1px solid rgba(191,219,254,.72)",
+  borderRadius: 22,
+  padding: 16,
+  boxShadow: "0 16px 38px rgba(15, 23, 42, .07)",
+  backdropFilter: "blur(6px)",
 };
 
 const dateLine = {
-  color: "#475569",
+  color: "#0d47a1",
   fontSize: 14,
-  lineHeight: 1.9,
+  fontWeight: "bold",
+  lineHeight: 1.8,
+};
+
+const dateLineMuted = {
+  color: "#64748b",
+  fontSize: 13,
+  lineHeight: 1.8,
 };
 
 const announcementCard = {
-  background: "rgba(255,255,255,.94)",
-  border: "1px solid #e2e8f0",
-  borderRadius: 24,
-  padding: 18,
-  boxShadow: "0 18px 45px rgba(15, 23, 42, .08)",
+  background: "rgba(255,255,255,.9)",
+  border: "1px solid rgba(226,232,240,.9)",
+  borderRadius: 22,
+  padding: 16,
+  boxShadow: "0 16px 38px rgba(15, 23, 42, .07)",
+  backdropFilter: "blur(6px)",
 };
 
 const sectionHead = {
@@ -152,13 +196,13 @@ const sectionHead = {
   alignItems: "center",
   gap: 8,
   color: "#0d47a1",
-  fontSize: 17,
+  fontSize: 16,
   marginBottom: 12,
 };
 
 const sectionIcon = {
-  width: 34,
-  height: 34,
+  width: 32,
+  height: 32,
   borderRadius: 12,
   background: "#eef5ff",
   display: "flex",
@@ -170,7 +214,7 @@ const textarea = {
   width: "100%",
   minHeight: 105,
   border: "1px solid #d9e3f5",
-  background: "#f8fbff",
+  background: "rgba(248,251,255,.9)",
   borderRadius: 16,
   padding: 12,
   fontSize: 14,
@@ -193,7 +237,7 @@ const select = {
 const saveButton = {
   width: "100%",
   padding: 13,
-  background: "linear-gradient(135deg,#0d47a1,#1976d2)",
+  background: "linear-gradient(135deg,#2563eb,#38bdf8)",
   color: "white",
   border: "none",
   borderRadius: 14,
@@ -206,9 +250,9 @@ const saveButton = {
 const deleteButton = {
   width: "100%",
   padding: 12,
-  background: "#fff1f2",
-  color: "#be123c",
-  border: "1px solid #fecdd3",
+  background: "#fff7ed",
+  color: "#c2410c",
+  border: "1px solid #fed7aa",
   borderRadius: 14,
   fontSize: 15,
   fontWeight: "bold",
@@ -217,13 +261,13 @@ const deleteButton = {
 
 const logoutButton = {
   width: "100%",
-  padding: 15,
-  background: "linear-gradient(135deg,#111827,#1f2937)",
-  color: "white",
-  border: "none",
+  padding: 14,
+  background: "linear-gradient(135deg,#e8f1ff,#dbeafe)",
+  color: "#0d47a1",
+  border: "1px solid #bfdbfe",
   borderRadius: 18,
   fontSize: 16,
   fontWeight: "bold",
   cursor: "pointer",
-  boxShadow: "0 12px 30px rgba(17,24,39,.18)",
+  boxShadow: "0 12px 28px rgba(37,99,235,.12)",
 };
