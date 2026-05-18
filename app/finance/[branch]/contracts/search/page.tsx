@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { getBranchId } from "@/lib/getBranchId";
 import { normalizeNumber } from "@/lib/numberUtils";
 
 export default function SearchContractsPage() {
@@ -18,11 +19,19 @@ export default function SearchContractsPage() {
       return;
     }
 
+    const branchId = await getBranchId(branch);
+
+    if (!branchId) {
+      setContracts([]);
+      return;
+    }
+
     const normalizedSearch = normalizeNumber(search);
 
     const { data, error } = await supabase
       .from("finance_contracts")
       .select("*, finance_customers(full_name, national_id, phone)")
+      .eq("branch_id", branchId)
       .or(
         `
         contract_number.eq.${normalizedSearch},
