@@ -4,11 +4,13 @@ import { normalizeNumber, toNumber } from "@/lib/numberUtils";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { getBranchId } from "@/lib/getBranchId";
 
 export default function NewFinanceContractPage() {
   const params = useParams();
   const branch = params.branch as string;
 
+  const [branchId, setBranchId] = useState<string | null>(null);
   const [customers, setCustomers] = useState<any[]>([]);
 
   const [customerId, setCustomerId] = useState("");
@@ -30,12 +32,22 @@ export default function NewFinanceContractPage() {
 
   useEffect(() => {
     loadCustomers();
-  }, []);
+  }, [branch]);
 
   async function loadCustomers() {
+    const currentBranchId = await getBranchId(branch);
+
+    setBranchId(currentBranchId);
+
+    if (!currentBranchId) {
+      setCustomers([]);
+      return;
+    }
+
     const { data } = await supabase
       .from("finance_customers")
       .select("*")
+      .eq("branch_id", currentBranchId)
       .order("created_at", { ascending: false });
 
     setCustomers(data || []);
@@ -43,6 +55,7 @@ export default function NewFinanceContractPage() {
 
   async function createContract() {
     if (
+      !branchId ||
       !customerId ||
       !financeType ||
       !debtAmount ||
@@ -60,6 +73,7 @@ export default function NewFinanceContractPage() {
       .from("finance_contracts")
       .insert([
         {
+          branch_id: branchId,
           customer_id: customerId,
           finance_type: financeType,
           investor_name: investorName,
@@ -92,6 +106,7 @@ export default function NewFinanceContractPage() {
 
     await supabase.from("finance_activity_logs").insert([
       {
+        branch_id: branchId,
         activity_type: "إنشاء عقد",
         description: `تم إنشاء عقد جديد للعميل ${
           selectedCustomer?.full_name || ""
