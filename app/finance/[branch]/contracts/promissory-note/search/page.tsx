@@ -1,10 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { normalizeNumber } from "@/lib/numberUtils";
 
 export default function SearchPromissoryNotesPage() {
+  const params = useParams();
+  const branch = params.branch as string;
+
   const [search, setSearch] = useState("");
   const [notes, setNotes] = useState<any[]>([]);
 
@@ -76,7 +80,7 @@ export default function SearchPromissoryNotesPage() {
                 key={note.id}
                 style={tableRow}
                 onClick={() =>
-                  (window.location.href = `/finance/contracts/promissory-note/print/${note.id}`)
+                  (window.location.href = `/finance/${branch}/contracts/promissory-note/print/${note.id}`)
                 }
               >
                 <span>🧾 {note.note_number}</span>
@@ -91,7 +95,7 @@ export default function SearchPromissoryNotesPage() {
 
         <button
           style={backButton}
-          onClick={() => (window.location.href = "/finance/contracts")}
+          onClick={() => (window.location.href = `/finance/${branch}/contracts`)}
         >
           الرجوع للعقود
         </button>
