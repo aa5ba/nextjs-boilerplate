@@ -190,8 +190,11 @@ export default function FinanceCustomerProfilePage() {
           )}
         </section>
 
-        <button style={backButton} onClick={() => window.history.back()}>
-          رجوع
+        <button
+          style={backButton}
+          onClick={() => (window.location.href = `/finance/${branch}/customers`)}
+        >
+          الرجوع للعملاء
         </button>
       </div>
     </main>
