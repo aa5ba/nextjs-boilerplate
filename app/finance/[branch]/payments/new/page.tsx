@@ -1,10 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { normalizeNumber, toNumber } from "@/lib/numberUtils";
 
 export default function NewPaymentPage() {
+  const params = useParams();
+  const branch = params.branch as string;
+
   const [search, setSearch] = useState("");
   const [contracts, setContracts] = useState<any[]>([]);
   const [selectedContract, setSelectedContract] = useState<any>(null);
@@ -122,7 +126,7 @@ export default function NewPaymentPage() {
     ]);
 
     alert("تم تسجيل السداد بنجاح");
-    window.location.href = `/finance/contracts/${selectedContract.id}`;
+    window.location.href = `/finance/${branch}/contracts/${selectedContract.id}`;
   }
 
   return (
@@ -220,7 +224,7 @@ export default function NewPaymentPage() {
 
         <button
           style={backButton}
-          onClick={() => (window.location.href = "/finance/payments")}
+          onClick={() => (window.location.href = `/finance/${branch}/payments`)}
         >
           الرجوع للسداد
         </button>
