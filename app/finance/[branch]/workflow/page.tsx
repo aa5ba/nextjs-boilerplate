@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { getBranchId } from "@/lib/getBranchId";
 
 export default function FinanceWorkflowPage() {
   const params = useParams();
@@ -12,12 +13,20 @@ export default function FinanceWorkflowPage() {
 
   useEffect(() => {
     loadActivities();
-  }, []);
+  }, [branch]);
 
   async function loadActivities() {
+    const branchId = await getBranchId(branch);
+
+    if (!branchId) {
+      setActivities([]);
+      return;
+    }
+
     const { data, error } = await supabase
       .from("finance_activity_logs")
       .select("*")
+      .eq("branch_id", branchId)
       .order("created_at", { ascending: false })
       .limit(20);
 
@@ -40,6 +49,12 @@ export default function FinanceWorkflowPage() {
         return "⛔";
       case "إنشاء عميل":
         return "👤";
+      case "إنشاء سند":
+        return "🧾";
+      case "تعديل عقد":
+        return "✏️";
+      case "إغلاق عقد":
+        return "🔒";
       default:
         return "📌";
     }
