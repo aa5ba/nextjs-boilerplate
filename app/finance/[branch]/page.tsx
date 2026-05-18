@@ -60,6 +60,7 @@ export default function FinancePage() {
 
   return (
     <main dir="rtl" style={page}>
+      <div style={backgroundLayer} />
       <div style={layout}>
         <FinanceTrialSidebar />
 
@@ -108,8 +109,26 @@ const page = {
   padding: 20,
   fontFamily: "var(--font-almarai), sans-serif",
 };
+const backgroundLayer = {
+  position: "fixed" as const,
+  inset: 0,
+  zIndex: 0,
 
+  background: `
+    linear-gradient(
+      135deg,
+      #f8fbff 0%,
+      #eef5ff 45%,
+      #f4f8ff 100%
+    )
+  `,
+
+  overflow: "hidden" as const,
+  pointerEvents: "none" as const,
+};
 const layout = {
+  position: "relative" as const,
+  zIndex: 1,
   width: "100%",
   maxWidth: 1420,
   margin: "auto",
