@@ -1,9 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
 export default function FinanceWorkflowPage() {
+  const params = useParams();
+  const branch = params.branch as string;
+
   const [activities, setActivities] = useState<any[]>([]);
 
   useEffect(() => {
@@ -90,7 +94,7 @@ export default function FinanceWorkflowPage() {
 
         <button
           style={backButton}
-          onClick={() => (window.location.href = "/finance")}
+          onClick={() => (window.location.href = `/finance/${branch}`)}
         >
           الرجوع لمحطة العمل الرئيسية
         </button>
