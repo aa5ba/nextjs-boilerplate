@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { getBranchId } from "@/lib/getBranchId";
 import { normalizeNumber, toNumber } from "@/lib/numberUtils";
 
 export default function NewPromissoryNotePage() {
@@ -23,6 +24,13 @@ export default function NewPromissoryNotePage() {
       return;
     }
 
+    const branchId = await getBranchId(branch);
+
+    if (!branchId) {
+      alert("تعذر تحديد الفرع");
+      return;
+    }
+
     const noteAmount = toNumber(amount);
 
     if (noteAmount <= 0) {
@@ -34,6 +42,7 @@ export default function NewPromissoryNotePage() {
       .from("finance_promissory_notes")
       .insert([
         {
+          branch_id: branchId,
           debtor_name: debtorName,
           debtor_national_id: normalizeNumber(debtorNationalId),
           debtor_phone: normalizeNumber(debtorPhone),
@@ -55,6 +64,7 @@ export default function NewPromissoryNotePage() {
 
     await supabase.from("finance_activity_logs").insert([
       {
+        branch_id: branchId,
         activity_type: "إنشاء سند",
         description: `تم إنشاء سند جديد باسم ${debtorName} بمبلغ ${noteAmount} ر.س`,
         customer_name: debtorName,
@@ -64,6 +74,7 @@ export default function NewPromissoryNotePage() {
     ]);
 
     alert("تم إنشاء السند بنجاح");
+
     window.location.href = `/finance/${branch}/contracts/promissory-note/print/${data.id}`;
   }
 
@@ -87,7 +98,9 @@ export default function NewPromissoryNotePage() {
             inputMode="numeric"
             placeholder="رقم هوية المدين"
             value={debtorNationalId}
-            onChange={(e) => setDebtorNationalId(normalizeNumber(e.target.value))}
+            onChange={(e) =>
+              setDebtorNationalId(normalizeNumber(e.target.value))
+            }
           />
 
           <input
@@ -95,7 +108,9 @@ export default function NewPromissoryNotePage() {
             inputMode="numeric"
             placeholder="رقم جوال المدين"
             value={debtorPhone}
-            onChange={(e) => setDebtorPhone(normalizeNumber(e.target.value))}
+            onChange={(e) =>
+              setDebtorPhone(normalizeNumber(e.target.value))
+            }
           />
 
           <input
@@ -134,7 +149,9 @@ export default function NewPromissoryNotePage() {
 
         <button
           style={backButton}
-          onClick={() => (window.location.href = `/finance/${branch}/contracts`)}
+          onClick={() =>
+            (window.location.href = `/finance/${branch}/contracts`)
+          }
         >
           الرجوع للعقود
         </button>
