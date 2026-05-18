@@ -1,6 +1,11 @@
 "use client";
 
+import { useParams } from "next/navigation";
+
 export default function FinanceNotesPage() {
+  const params = useParams();
+  const branch = params.branch as string;
+
   return (
     <main dir="rtl" style={page}>
       <div style={container}>
@@ -22,7 +27,7 @@ export default function FinanceNotesPage() {
 
         <button
           style={backButton}
-          onClick={() => (window.location.href = "/finance")}
+          onClick={() => (window.location.href = `/finance/${branch}`)}
         >
           الرجوع لمحطة العمل الرئيسية
         </button>
@@ -35,7 +40,7 @@ const page = {
   minHeight: "100vh",
   background: "#eef5ff",
   padding: 20,
-  fontFamily: "system-ui",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const container = {
