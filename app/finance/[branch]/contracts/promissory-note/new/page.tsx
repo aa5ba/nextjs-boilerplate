@@ -1,10 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { normalizeNumber, toNumber } from "@/lib/numberUtils";
 
 export default function NewPromissoryNotePage() {
+  const params = useParams();
+  const branch = params.branch as string;
+
   const [debtorName, setDebtorName] = useState("");
   const [debtorNationalId, setDebtorNationalId] = useState("");
   const [debtorPhone, setDebtorPhone] = useState("");
@@ -60,7 +64,7 @@ export default function NewPromissoryNotePage() {
     ]);
 
     alert("تم إنشاء السند بنجاح");
-    window.location.href = `/finance/contracts/promissory-note/print/${data.id}`;
+    window.location.href = `/finance/${branch}/contracts/promissory-note/print/${data.id}`;
   }
 
   return (
@@ -130,7 +134,7 @@ export default function NewPromissoryNotePage() {
 
         <button
           style={backButton}
-          onClick={() => (window.location.href = "/finance/contracts")}
+          onClick={() => (window.location.href = `/finance/${branch}/contracts`)}
         >
           الرجوع للعقود
         </button>
