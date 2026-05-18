@@ -81,10 +81,17 @@ export default function FinancePaymentsPage() {
                   (window.location.href = `/finance/${branch}/contracts/${payment.contract_id}`)
                 }
               >
-                <span>
-                  {payment.finance_contracts?.finance_customers?.full_name ||
-                    "-"}
-                </span>
+                <span
+  style={{ cursor: "pointer", color: "#0d47a1", fontWeight: "bold" }}
+  onClick={(e) => {
+    e.stopPropagation();
+
+    window.location.href =
+      `/finance/${branch}/customers/${payment.finance_contracts?.customer_id}`;
+  }}
+>
+  {payment.finance_contracts?.finance_customers?.full_name || "-"}
+</span>
 
                 <span>{payment.finance_contracts?.contract_number || "-"}</span>
 
