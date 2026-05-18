@@ -1,10 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { getBranchId } from "@/lib/getBranchId";
 import { normalizeNumber, toNumber } from "@/lib/numberUtils";
 
 export default function NewRequestPage() {
+  const params = useParams();
+  const branch = params.branch as string;
+
   const [fullName, setFullName] = useState("");
   const [nationalId, setNationalId] = useState("");
   const [birthDay, setBirthDay] = useState("");
@@ -22,6 +27,13 @@ export default function NewRequestPage() {
   const [notes, setNotes] = useState("");
 
   async function createRequest() {
+    const branchId = await getBranchId(branch);
+
+    if (!branchId) {
+      alert("تعذر تحديد الفرع");
+      return;
+    }
+
     if (!fullName || !nationalId || !birthDay || !birthMonth || !birthYear || !phone) {
       alert("أكمل بيانات العميل");
       return;
@@ -40,18 +52,20 @@ export default function NewRequestPage() {
       return;
     }
 
-    if (cleanPhone.length !== 10) {
-      alert("رقم الجوال يجب أن يكون 10 أرقام");
+    if (!/^05\d{8}$/.test(cleanPhone)) {
+      alert("رقم الجوال يجب أن يكون 10 أرقام ويبدأ بـ 05");
       return;
     }
 
     const birthHijri = `${birthDay}/${birthMonth}/${birthYear}`;
     const debt = toNumber(debtAmount);
+    const totalPayment = toNumber(paymentAmount);
 
     const { data: customerData, error: customerError } = await supabase
       .from("finance_customers")
       .insert([
         {
+          branch_id: branchId,
           full_name: fullName,
           national_id: cleanNationalId,
           birth_hijri: birthHijri,
@@ -70,10 +84,11 @@ export default function NewRequestPage() {
       .from("finance_contracts")
       .insert([
         {
+          branch_id: branchId,
           customer_id: customerData.id,
           finance_type: financeType,
           debt_amount: debt,
-          payment_amount: toNumber(paymentAmount),
+          payment_amount: totalPayment,
           installment_amount: toNumber(installmentAmount),
           payment_type: paymentType,
           payment_due_date: paymentDueDate,
@@ -81,7 +96,7 @@ export default function NewRequestPage() {
           notes,
           contract_status: "نشط",
           paid_amount: 0,
-          remaining_amount: debt,
+          remaining_amount: totalPayment,
           created_by: "المدير",
         },
       ])
@@ -97,6 +112,7 @@ export default function NewRequestPage() {
       .from("finance_promissory_notes")
       .insert([
         {
+          branch_id: branchId,
           contract_id: contractData.id,
           customer_id: customerData.id,
           debtor_name: fullName,
@@ -120,6 +136,7 @@ export default function NewRequestPage() {
 
     await supabase.from("finance_activity_logs").insert([
       {
+        branch_id: branchId,
         activity_type: "طلب جديد",
         description: `تم إنشاء طلب جديد للعميل ${fullName}`,
         customer_id: customerData.id,
@@ -132,8 +149,8 @@ export default function NewRequestPage() {
     ]);
 
     alert("تم إنشاء الطلب بنجاح");
-window.location.href =
-  `/finance/new-request/print/${contractData.id}/${noteData.id}`;
+
+    window.location.href = `/finance/${branch}/new-request/print/${contractData.id}/${noteData.id}`;
   }
 
   return (
@@ -189,7 +206,10 @@ window.location.href =
           </button>
         </section>
 
-        <button style={backButton} onClick={() => (window.location.href = "/finance")}>
+        <button
+          style={backButton}
+          onClick={() => (window.location.href = `/finance/${branch}`)}
+        >
           الرجوع لمحطة العمل الرئيسية
         </button>
       </div>
