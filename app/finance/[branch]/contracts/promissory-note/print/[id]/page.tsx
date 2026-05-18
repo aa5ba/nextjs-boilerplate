@@ -113,12 +113,9 @@ export default function PrintPromissoryNotePage() {
         إنشاء سند جديد
       </button>
 
-      <button
-        style={backButton}
-        onClick={() => (window.location.href = `/finance/${branch}/contracts`)}
-      >
-        الرجوع للعقود
-      </button>
+      <button style={backButton} onClick={() => window.history.back()}>
+  رجوع
+</button>
     </main>
   );
 }
