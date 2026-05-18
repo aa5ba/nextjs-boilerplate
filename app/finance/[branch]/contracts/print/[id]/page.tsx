@@ -6,6 +6,8 @@ import { supabase } from "@/lib/supabaseClient";
 
 export default function PrintContractPage() {
   const params = useParams();
+
+  const branch = params.branch as string;
   const contractId = params.id as string;
 
   const [contract, setContract] = useState<any>(null);
@@ -26,10 +28,13 @@ export default function PrintContractPage() {
     setContract(data);
   }
 
-  const customerName = contract?.finance_customers?.full_name || "................";
-  const nationalId = contract?.finance_customers?.national_id || "................";
+  const customerName =
+    contract?.finance_customers?.full_name || "................";
+  const nationalId =
+    contract?.finance_customers?.national_id || "................";
   const phone = contract?.finance_customers?.phone || "................";
-  const birthHijri = contract?.finance_customers?.birth_hijri || "................";
+  const birthHijri =
+    contract?.finance_customers?.birth_hijri || "................";
 
   return (
     <main dir="rtl" style={page}>
@@ -46,7 +51,9 @@ export default function PrintContractPage() {
 
         <div style={metaRow}>
           <span>رقم العقد: {contract?.contract_number || "-"}</span>
-          <span>التاريخ الميلادي: {contract?.contract_date_gregorian || "-"}</span>
+          <span>
+            التاريخ الميلادي: {contract?.contract_date_gregorian || "-"}
+          </span>
         </div>
 
         <div style={metaRow}>
@@ -67,16 +74,18 @@ export default function PrintContractPage() {
         </p>
 
         <p style={paragraph}>
-          وذلك مقابل منتج / <strong>{contract?.product_name || "................"}</strong>
-          ، وعددها / <strong>{contract?.product_quantity || "-"}</strong>، بمبلغ دين
-          وقدره / <strong>{contract?.debt_amount || 0}</strong> ريال سعودي.
+          وذلك مقابل منتج /{" "}
+          <strong>{contract?.product_name || "................"}</strong>،
+          وعددها / <strong>{contract?.product_quantity || "-"}</strong>، بمبلغ
+          دين وقدره / <strong>{contract?.debt_amount || 0}</strong> ريال سعودي.
         </p>
 
         <p style={paragraph}>
           ويلتزم الطرف الثاني بسداد مبلغ وقدره /
-          <strong> {contract?.payment_amount || 0}</strong> ريال سعودي، وذلك حسب نوع
-          السداد / <strong>{contract?.payment_type || "-"}</strong>، وبقسط قدره /
-          <strong> {contract?.installment_amount || 0}</strong> ريال سعودي.
+          <strong> {contract?.payment_amount || 0}</strong> ريال سعودي، وذلك حسب
+          نوع السداد / <strong>{contract?.payment_type || "-"}</strong>، وبقسط
+          قدره / <strong> {contract?.installment_amount || 0}</strong> ريال
+          سعودي.
         </p>
 
         <p style={paragraph}>
@@ -125,7 +134,7 @@ export default function PrintContractPage() {
       <button
         style={backButton}
         onClick={() =>
-          (window.location.href = `/finance/contracts/${contractId}`)
+          (window.location.href = `/finance/${branch}/contracts/${contractId}`)
         }
       >
         الرجوع للعقد
@@ -248,6 +257,7 @@ const backButton = {
   borderRadius: 14,
   fontSize: 17,
 };
+
 if (typeof window !== "undefined") {
   const style = document.createElement("style");
 
