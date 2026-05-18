@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { getBranchId } from "@/lib/getBranchId";
 
 export default function PrintContractPage() {
   const params = useParams();
@@ -14,15 +15,23 @@ export default function PrintContractPage() {
 
   useEffect(() => {
     loadContract();
-  }, []);
+  }, [branch, contractId]);
 
   async function loadContract() {
+    const branchId = await getBranchId(branch);
+
+    if (!branchId) {
+      setContract(null);
+      return;
+    }
+
     const { data } = await supabase
       .from("finance_contracts")
       .select(
         "*, finance_customers(full_name, national_id, phone, birth_hijri)"
       )
       .eq("id", contractId)
+      .eq("branch_id", branchId)
       .single();
 
     setContract(data);
