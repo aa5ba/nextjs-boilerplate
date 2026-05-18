@@ -3,242 +3,104 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { normalizeNumber, toNumber } from "@/lib/numberUtils";
 
-export default function NewPaymentPage() {
+export default function FinancePaymentsPage() {
   const params = useParams();
   const branch = params.branch as string;
 
-  const [search, setSearch] = useState("");
-  const [contracts, setContracts] = useState<any[]>([]);
-  const [selectedContract, setSelectedContract] = useState<any>(null);
-
-  const [paymentType, setPaymentType] = useState("");
-  const [amount, setAmount] = useState("");
-  const [method, setMethod] = useState("");
+  const [payments, setPayments] = useState<any[]>([]);
 
   useEffect(() => {
-    loadContractFromUrl();
+    loadPayments();
   }, []);
 
-  async function loadContractFromUrl() {
-    const params = new URLSearchParams(window.location.search);
-    const contractId = params.get("contract");
-
-    if (!contractId) return;
-
+  async function loadPayments() {
     const { data } = await supabase
-      .from("finance_contracts")
-      .select("*, finance_customers(full_name, national_id, phone)")
-      .eq("id", contractId)
-      .single();
-
-    if (data) {
-      setSelectedContract(data);
-    }
-  }
-
-  async function searchContracts() {
-    if (!search.trim()) {
-      alert("اكتب الاسم أو رقم الهوية");
-      return;
-    }
-
-    const normalizedSearch = normalizeNumber(search);
-
-    const { data } = await supabase
-      .from("finance_contracts")
-      .select("*, finance_customers(full_name, national_id, phone)")
-      .or(
-        `finance_customers.full_name.ilike.%${search}%,finance_customers.national_id.ilike.%${normalizedSearch}%`
-      )
-      .eq("contract_status", "نشط");
-
-    setContracts(data || []);
-  }
-
-  async function savePayment() {
-    if (!selectedContract || !paymentType || !amount || !method) {
-      alert("أكمل بيانات السداد");
-      return;
-    }
-
-    const paid = toNumber(amount);
-    const oldPaid = Number(selectedContract.paid_amount || 0);
-    const debt = Number(selectedContract.debt_amount || 0);
-
-    if (paid <= 0) {
-      alert("أدخل مبلغ سداد صحيح");
-      return;
-    }
-
-    const newPaid = oldPaid + paid;
-    const newRemaining = Math.max(debt - newPaid, 0);
-    const newStatus = newRemaining <= 0 ? "تم السداد" : "نشط";
-
-    const { data: paymentData, error: paymentError } = await supabase
       .from("finance_payments")
-      .insert([
-        {
-          contract_id: selectedContract.id,
-          payment_amount: paid,
-          payment_type: paymentType,
-          notes: method,
-          created_by: "المدير",
-        },
-      ])
-      .select()
-      .single();
+      .select(
+        "*, finance_contracts(contract_number, finance_customers(full_name, national_id))"
+      )
+      .order("created_at", { ascending: false })
+      .limit(10);
 
-    if (paymentError) {
-      alert("تعذر تسجيل السداد");
-      return;
-    }
-
-    const { error: contractError } = await supabase
-      .from("finance_contracts")
-      .update({
-        paid_amount: newPaid,
-        remaining_amount: newRemaining,
-        contract_status: newStatus,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", selectedContract.id);
-
-    if (contractError) {
-      alert("تم تسجيل السداد، لكن تعذر تحديث العقد");
-      return;
-    }
-
-    await supabase.from("finance_activity_logs").insert([
-      {
-        activity_type: "سداد",
-        description: `تم تسجيل سداد للعميل ${
-          selectedContract.finance_customers?.full_name || ""
-        } بمبلغ ${paid} ر.س`,
-        customer_id: selectedContract.customer_id,
-        contract_id: selectedContract.id,
-        payment_id: paymentData.id,
-        customer_name: selectedContract.finance_customers?.full_name || "",
-        employee_name: "المدير",
-        status: newStatus,
-      },
-    ]);
-
-    alert("تم تسجيل السداد بنجاح");
-    window.location.href = `/finance/${branch}/contracts/${selectedContract.id}`;
+    setPayments(data || []);
   }
 
   return (
     <main dir="rtl" style={page}>
       <div style={container}>
         <div style={header}>
-          <h1 style={{ margin: 0 }}>إجراء سداد</h1>
+          <h1 style={{ margin: 0 }}>سداد</h1>
         </div>
 
-        <section style={card}>
-          <div style={searchRow}>
-            <input
-              style={input}
-              placeholder="بحث بالاسم أو رقم الهوية"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+        <section style={actionsSection}>
+          <button
+            style={actionButton}
+            onClick={() =>
+              (window.location.href = `/finance/${branch}/payments/new`)
+            }
+          >
+            💳 إجراء سداد
+          </button>
 
-            <button style={searchButton} onClick={searchContracts}>
-              بحث
-            </button>
-          </div>
-
-          {contracts.map((contract) => (
-            <button
-              key={contract.id}
-              style={contractButton}
-              onClick={() => setSelectedContract(contract)}
-            >
-              عقد رقم {contract.contract_number} -{" "}
-              {contract.finance_customers?.full_name}
-            </button>
-          ))}
+          <button style={actionButton}>⛔ إلغاء عملية سداد</button>
         </section>
 
-        {selectedContract && (
-          <section style={card}>
-            <h2 style={sectionTitle}>
-              عقد رقم {selectedContract.contract_number}
-            </h2>
+        <section style={card}>
+          <h2 style={sectionTitle}>آخر 10 عمليات سداد</h2>
 
-            <Row
-              label="العميل"
-              value={selectedContract.finance_customers?.full_name}
-            />
-            <Row
-              label="مبلغ الدين"
-              value={`${selectedContract.debt_amount} ر.س`}
-            />
-            <Row
-              label="المسدد"
-              value={`${selectedContract.paid_amount} ر.س`}
-            />
-            <Row
-              label="المتبقي"
-              value={`${selectedContract.remaining_amount} ر.س`}
-            />
+          <div style={tableHeader}>
+            <span>العميل</span>
+            <span>رقم العقد</span>
+            <span>المبلغ</span>
+            <span>طريقة الدفع</span>
+            <span>نوع السداد</span>
+          </div>
 
-            <select
-              style={input}
-              value={paymentType}
-              onChange={(e) => setPaymentType(e.target.value)}
-            >
-              <option value="">نوع السداد</option>
-              <option value="كلي">كلي</option>
-              <option value="جزئي">جزئي</option>
-            </select>
+          {payments.length === 0 ? (
+            <div style={emptyBox}>لا توجد عمليات سداد حتى الآن</div>
+          ) : (
+            payments.map((payment) => (
+              <div
+                key={payment.id}
+                style={{
+                  ...tableRow,
+                  opacity: payment.is_cancelled ? 0.6 : 1,
+                }}
+                onClick={() =>
+                  payment.finance_contracts?.contract_number &&
+                  (window.location.href = `/finance/${branch}/contracts/${payment.contract_id}`)
+                }
+              >
+                <span>
+                  {payment.finance_contracts?.finance_customers?.full_name ||
+                    "-"}
+                </span>
 
-            <input
-              style={input}
-              inputMode="numeric"
-              placeholder="المبلغ المدفوع"
-              value={amount}
-              onChange={(e) => setAmount(normalizeNumber(e.target.value))}
-            />
+                <span>{payment.finance_contracts?.contract_number || "-"}</span>
 
-            <select
-              style={input}
-              value={method}
-              onChange={(e) => setMethod(e.target.value)}
-            >
-              <option value="">طريقة الدفع</option>
-              <option value="نقدًا">نقدًا</option>
-              <option value="تحويل">تحويل</option>
-              <option value="شبكة">شبكة</option>
-              <option value="شيك">شيك</option>
-              <option value="تسوية">تسوية</option>
-            </select>
+                <span>{payment.payment_amount || 0} ر.س</span>
 
-            <button style={primaryButton} onClick={savePayment}>
-              حفظ السداد
-            </button>
-          </section>
-        )}
+                <span>{payment.notes || "-"}</span>
+
+                <span>
+                  {payment.is_cancelled
+                    ? "ملغية"
+                    : payment.payment_type || "-"}
+                </span>
+              </div>
+            ))
+          )}
+        </section>
 
         <button
           style={backButton}
-          onClick={() => (window.location.href = `/finance/${branch}/payments`)}
+          onClick={() => (window.location.href = `/finance/${branch}`)}
         >
-          الرجوع للسداد
+          الرجوع لمحطة العمل الرئيسية
         </button>
       </div>
     </main>
-  );
-}
-
-function Row({ label, value }: any) {
-  return (
-    <div style={row}>
-      <span>{label}</span>
-      <strong>{value || "-"}</strong>
-    </div>
   );
 }
 
@@ -263,72 +125,69 @@ const header = {
   marginBottom: 18,
 };
 
+const actionsSection = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))",
+  gap: 14,
+  marginBottom: 18,
+};
+
+const actionButton = {
+  background: "white",
+  border: "1px solid #d9e3f5",
+  borderRadius: 18,
+  padding: 18,
+  fontSize: 16,
+  fontWeight: "bold",
+  cursor: "pointer",
+  color: "#0d47a1",
+};
+
 const card = {
   background: "white",
   border: "1px solid #d9e3f5",
   borderRadius: 18,
   padding: 20,
-  marginBottom: 16,
-};
-
-const searchRow = {
-  display: "grid",
-  gridTemplateColumns: "1fr 140px",
-  gap: 12,
-};
-
-const input = {
-  width: "100%",
-  padding: 14,
-  borderRadius: 14,
-  border: "1px solid #d9e3f5",
-  fontSize: 16,
-  marginBottom: 12,
-};
-
-const searchButton = {
-  padding: 14,
-  background: "#0d47a1",
-  color: "white",
-  border: "none",
-  borderRadius: 14,
-  fontSize: 16,
-  height: 50,
-};
-
-const contractButton = {
-  width: "100%",
-  padding: 14,
-  background: "#f8fbff",
-  border: "1px solid #d9e3f5",
-  borderRadius: 14,
-  fontSize: 16,
-  cursor: "pointer",
-  marginTop: 10,
-  textAlign: "right" as const,
+  overflowX: "auto" as const,
 };
 
 const sectionTitle = {
   marginTop: 0,
+  fontSize: 22,
   color: "#0d47a1",
 };
 
-const row = {
-  display: "flex",
-  justifyContent: "space-between",
+const tableHeader = {
+  display: "grid",
+  gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr",
   gap: 12,
-  padding: "10px 0",
-  borderBottom: "1px solid #eef2f7",
+  minWidth: 850,
+  background: "#f4f8ff",
+  color: "#0d47a1",
+  fontWeight: "bold",
+  padding: 14,
+  borderRadius: 12,
+  marginBottom: 10,
 };
 
-const primaryButton = {
-  width: "100%",
-  padding: 16,
-  background: "#0d47a1",
-  color: "white",
-  border: "none",
+const tableRow = {
+  display: "grid",
+  gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr",
+  gap: 12,
+  minWidth: 850,
+  padding: 14,
+  borderBottom: "1px solid #eef2f7",
+  cursor: "pointer",
+};
+
+const emptyBox = {
+  minWidth: 850,
+  background: "#f8fbff",
+  border: "1px dashed #cbd5e1",
   borderRadius: 14,
-  fontSize: 17,
+  padding: 22,
+  textAlign: "center" as const,
+  color: "#6b7280",
 };
 
 const backButton = {
@@ -339,4 +198,5 @@ const backButton = {
   border: "none",
   borderRadius: 14,
   fontSize: 17,
+  marginTop: 18,
 };
