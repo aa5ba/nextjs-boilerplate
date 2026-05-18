@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { getBranchId } from "@/lib/getBranchId";
 
 export default function FinanceCustomerProfilePage() {
   const params = useParams();
@@ -18,19 +19,32 @@ export default function FinanceCustomerProfilePage() {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [branch, customerId]);
 
   async function loadData() {
+    const branchId = await getBranchId(branch);
+
+    if (!branchId) {
+      setCustomer(null);
+      setActiveContracts([]);
+      setClosedContracts([]);
+      setNotes([]);
+      setActivities([]);
+      return;
+    }
+
     const { data: customerData } = await supabase
       .from("finance_customers")
       .select("*, finance_customer_groups(name)")
       .eq("id", customerId)
+      .eq("branch_id", branchId)
       .single();
 
     const { data: activeData } = await supabase
       .from("finance_contracts")
       .select("*")
       .eq("customer_id", customerId)
+      .eq("branch_id", branchId)
       .in("contract_status", ["نشط", "متأخر"])
       .order("created_at", { ascending: false });
 
@@ -38,6 +52,7 @@ export default function FinanceCustomerProfilePage() {
       .from("finance_contracts")
       .select("*")
       .eq("customer_id", customerId)
+      .eq("branch_id", branchId)
       .in("contract_status", ["تم السداد", "ملغي"])
       .order("created_at", { ascending: false });
 
@@ -45,12 +60,14 @@ export default function FinanceCustomerProfilePage() {
       .from("finance_promissory_notes")
       .select("*")
       .eq("customer_id", customerId)
+      .eq("branch_id", branchId)
       .order("created_at", { ascending: false });
 
     const { data: activitiesData } = await supabase
       .from("finance_activity_logs")
       .select("*")
       .eq("customer_id", customerId)
+      .eq("branch_id", branchId)
       .order("created_at", { ascending: false })
       .limit(20);
 
