@@ -192,7 +192,7 @@ export default function FinanceCustomerProfilePage() {
 
         <button
           style={backButton}
-          onClick={() => (window.location.href = `/finance/${branch}/customers`)}
+          onClick={() => window.history.back()}
         >
           الرجوع للعملاء
         </button>
