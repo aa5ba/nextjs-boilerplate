@@ -60,7 +60,60 @@ export default function FinancePage() {
 
   return (
     <main dir="rtl" style={page}>
-      <div style={backgroundLayer} />
+      <div style={backgroundLayer}>
+  <svg
+    viewBox="0 0 1440 900"
+    preserveAspectRatio="xMidYMid slice"
+    style={backgroundSvg}
+  >
+    <defs>
+      <linearGradient id="softBlue" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stopColor="#dbeafe" stopOpacity="0.95" />
+        <stop offset="55%" stopColor="#f8fbff" stopOpacity="1" />
+        <stop offset="100%" stopColor="#eef5ff" stopOpacity="1" />
+      </linearGradient>
+    </defs>
+
+    <rect width="1440" height="900" fill="url(#softBlue)" />
+
+    <g opacity="0.26">
+      <rect x="70" y="210" width="150" height="480" rx="10" fill="#dbeafe" />
+      <rect x="95" y="250" width="95" height="55" rx="6" fill="#f59e0b" opacity="0.45" />
+      <rect x="95" y="335" width="95" height="55" rx="6" fill="#f59e0b" opacity="0.35" />
+      <rect x="95" y="420" width="95" height="55" rx="6" fill="#f59e0b" opacity="0.42" />
+      <rect x="95" y="505" width="95" height="55" rx="6" fill="#f59e0b" opacity="0.32" />
+      <rect x="95" y="590" width="95" height="55" rx="6" fill="#f59e0b" opacity="0.38" />
+
+      <rect x="62" y="205" width="20" height="500" rx="8" fill="#2563eb" opacity="0.22" />
+      <rect x="208" y="205" width="20" height="500" rx="8" fill="#2563eb" opacity="0.22" />
+    </g>
+
+    <g opacity="0.18">
+      <circle cx="1240" cy="160" r="180" fill="#bfdbfe" />
+      <circle cx="1280" cy="760" r="260" fill="#dbeafe" />
+      <circle cx="1120" cy="520" r="110" fill="#93c5fd" />
+    </g>
+
+    <g opacity="0.16" stroke="#2563eb" strokeWidth="2" fill="none">
+      <path d="M930 90 C1050 40, 1180 70, 1320 25" />
+      <path d="M955 125 C1070 80, 1200 100, 1340 65" />
+      <path d="M980 160 C1095 120, 1220 130, 1360 105" />
+    </g>
+
+    <g opacity="0.22">
+      <rect x="300" y="240" width="70" height="70" rx="6" fill="#ffffff" />
+      <rect x="390" y="240" width="70" height="70" rx="6" fill="#ffffff" />
+      <rect x="300" y="330" width="70" height="70" rx="6" fill="#ffffff" />
+      <rect x="390" y="330" width="70" height="70" rx="6" fill="#ffffff" />
+    </g>
+
+    <g opacity="0.2" fill="#22c55e">
+      <ellipse cx="250" cy="680" rx="18" ry="60" transform="rotate(-25 250 680)" />
+      <ellipse cx="292" cy="660" rx="15" ry="48" transform="rotate(28 292 660)" />
+      <rect x="262" y="700" width="55" height="60" rx="10" fill="#94a3b8" opacity="0.55" />
+    </g>
+  </svg>
+</div>
       <div style={layout}>
         <FinanceTrialSidebar />
 
@@ -113,16 +166,6 @@ const backgroundLayer = {
   position: "fixed" as const,
   inset: 0,
   zIndex: 0,
-
-  background: `
-    linear-gradient(
-      135deg,
-      #f8fbff 0%,
-      #eef5ff 45%,
-      #f4f8ff 100%
-    )
-  `,
-
   overflow: "hidden" as const,
   pointerEvents: "none" as const,
 };
