@@ -169,6 +169,11 @@ const backgroundLayer = {
   overflow: "hidden" as const,
   pointerEvents: "none" as const,
 };
+const backgroundSvg = {
+  width: "100%",
+  height: "100%",
+  display: "block",
+};
 const layout = {
   position: "relative" as const,
   zIndex: 1,
