@@ -61,59 +61,264 @@ export default function FinancePage() {
   return (
     <main dir="rtl" style={page}>
       <div style={backgroundLayer}>
-  <svg
-    viewBox="0 0 1440 900"
-    preserveAspectRatio="xMidYMid slice"
-    style={backgroundSvg}
-  >
-    <defs>
-      <linearGradient id="softBlue" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0%" stopColor="#dbeafe" stopOpacity="0.95" />
-        <stop offset="55%" stopColor="#f8fbff" stopOpacity="1" />
-        <stop offset="100%" stopColor="#eef5ff" stopOpacity="1" />
-      </linearGradient>
-    </defs>
+        <svg
+          viewBox="0 0 1440 900"
+          preserveAspectRatio="xMidYMid slice"
+          style={backgroundSvg}
+        >
+          <defs>
+            <linearGradient id="softBlue" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#eff6ff" stopOpacity="1" />
+              <stop offset="55%" stopColor="#f8fbff" stopOpacity="1" />
+              <stop offset="100%" stopColor="#ffffff" stopOpacity="1" />
+            </linearGradient>
+          </defs>
 
-    <rect width="1440" height="900" fill="url(#softBlue)" />
+          <rect width="1440" height="900" fill="url(#softBlue)" />
 
-    <g opacity="0.26">
-      <rect x="70" y="210" width="150" height="480" rx="10" fill="#dbeafe" />
-      <rect x="95" y="250" width="95" height="55" rx="6" fill="#f59e0b" opacity="0.45" />
-      <rect x="95" y="335" width="95" height="55" rx="6" fill="#f59e0b" opacity="0.35" />
-      <rect x="95" y="420" width="95" height="55" rx="6" fill="#f59e0b" opacity="0.42" />
-      <rect x="95" y="505" width="95" height="55" rx="6" fill="#f59e0b" opacity="0.32" />
-      <rect x="95" y="590" width="95" height="55" rx="6" fill="#f59e0b" opacity="0.38" />
+          <circle cx="300" cy="180" r="190" fill="#dbeafe" opacity="0.32" />
+          <circle cx="1180" cy="120" r="260" fill="#f8fbff" opacity="0.95" />
 
-      <rect x="62" y="205" width="20" height="500" rx="8" fill="#2563eb" opacity="0.22" />
-      <rect x="208" y="205" width="20" height="500" rx="8" fill="#2563eb" opacity="0.22" />
-    </g>
+          <line
+            x1="245"
+            y1="0"
+            x2="245"
+            y2="130"
+            stroke="#93a4bd"
+            strokeWidth="3"
+            opacity="0.35"
+          />
+          <path
+            d="M205 145 Q245 95 285 145 Z"
+            fill="#8fa8c8"
+            opacity="0.34"
+          />
+          <ellipse
+            cx="245"
+            cy="150"
+            rx="46"
+            ry="10"
+            fill="#8fa8c8"
+            opacity="0.28"
+          />
 
-    <g opacity="0.18">
-      <circle cx="1240" cy="160" r="180" fill="#bfdbfe" />
-      <circle cx="1280" cy="760" r="260" fill="#dbeafe" />
-      <circle cx="1120" cy="520" r="110" fill="#93c5fd" />
-    </g>
+          <g opacity="0.72">
+            <rect
+              x="0"
+              y="220"
+              width="205"
+              height="500"
+              rx="4"
+              fill="#dbeafe"
+              opacity="0.45"
+            />
 
-    <g opacity="0.16" stroke="#2563eb" strokeWidth="2" fill="none">
-      <path d="M930 90 C1050 40, 1180 70, 1320 25" />
-      <path d="M955 125 C1070 80, 1200 100, 1340 65" />
-      <path d="M980 160 C1095 120, 1220 130, 1360 105" />
-    </g>
+            <rect
+              x="35"
+              y="245"
+              width="18"
+              height="460"
+              rx="7"
+              fill="#5b7da8"
+              opacity="0.65"
+            />
+            <rect
+              x="180"
+              y="245"
+              width="18"
+              height="460"
+              rx="7"
+              fill="#5b7da8"
+              opacity="0.65"
+            />
 
-    <g opacity="0.22">
-      <rect x="300" y="240" width="70" height="70" rx="6" fill="#ffffff" />
-      <rect x="390" y="240" width="70" height="70" rx="6" fill="#ffffff" />
-      <rect x="300" y="330" width="70" height="70" rx="6" fill="#ffffff" />
-      <rect x="390" y="330" width="70" height="70" rx="6" fill="#ffffff" />
-    </g>
+            <rect
+              x="30"
+              y="305"
+              width="175"
+              height="16"
+              rx="6"
+              fill="#5b7da8"
+              opacity="0.55"
+            />
+            <rect
+              x="30"
+              y="415"
+              width="175"
+              height="16"
+              rx="6"
+              fill="#5b7da8"
+              opacity="0.55"
+            />
+            <rect
+              x="30"
+              y="525"
+              width="175"
+              height="16"
+              rx="6"
+              fill="#5b7da8"
+              opacity="0.55"
+            />
+            <rect
+              x="30"
+              y="635"
+              width="175"
+              height="16"
+              rx="6"
+              fill="#5b7da8"
+              opacity="0.55"
+            />
 
-    <g opacity="0.2" fill="#22c55e">
-      <ellipse cx="250" cy="680" rx="18" ry="60" transform="rotate(-25 250 680)" />
-      <ellipse cx="292" cy="660" rx="15" ry="48" transform="rotate(28 292 660)" />
-      <rect x="262" y="700" width="55" height="60" rx="10" fill="#94a3b8" opacity="0.55" />
-    </g>
-  </svg>
-</div>
+            <rect
+              x="65"
+              y="255"
+              width="75"
+              height="55"
+              rx="5"
+              fill="#f3c178"
+              opacity="0.78"
+            />
+            <rect
+              x="70"
+              y="365"
+              width="78"
+              height="55"
+              rx="5"
+              fill="#f3c178"
+              opacity="0.72"
+            />
+            <rect
+              x="60"
+              y="475"
+              width="85"
+              height="55"
+              rx="5"
+              fill="#f3c178"
+              opacity="0.70"
+            />
+            <rect
+              x="72"
+              y="585"
+              width="76"
+              height="55"
+              rx="5"
+              fill="#f3c178"
+              opacity="0.68"
+            />
+
+            <line
+              x1="100"
+              y1="255"
+              x2="100"
+              y2="310"
+              stroke="#fff7ed"
+              strokeWidth="3"
+              opacity="0.5"
+            />
+            <line
+              x1="108"
+              y1="365"
+              x2="108"
+              y2="420"
+              stroke="#fff7ed"
+              strokeWidth="3"
+              opacity="0.5"
+            />
+            <line
+              x1="105"
+              y1="475"
+              x2="105"
+              y2="530"
+              stroke="#fff7ed"
+              strokeWidth="3"
+              opacity="0.5"
+            />
+          </g>
+
+          <rect
+            x="320"
+            y="230"
+            width="90"
+            height="90"
+            rx="6"
+            fill="#ffffff"
+            opacity="0.22"
+          />
+          <rect
+            x="425"
+            y="230"
+            width="90"
+            height="90"
+            rx="6"
+            fill="#ffffff"
+            opacity="0.22"
+          />
+          <rect
+            x="320"
+            y="335"
+            width="90"
+            height="90"
+            rx="6"
+            fill="#ffffff"
+            opacity="0.22"
+          />
+          <rect
+            x="425"
+            y="335"
+            width="90"
+            height="90"
+            rx="6"
+            fill="#ffffff"
+            opacity="0.22"
+          />
+
+          <g opacity="0.55">
+            <rect
+              x="220"
+              y="660"
+              width="62"
+              height="58"
+              rx="12"
+              fill="#94a3b8"
+              opacity="0.55"
+            />
+            <ellipse
+              cx="235"
+              cy="620"
+              rx="18"
+              ry="62"
+              fill="#22c55e"
+              transform="rotate(-28 235 620)"
+              opacity="0.45"
+            />
+            <ellipse
+              cx="275"
+              cy="605"
+              rx="16"
+              ry="54"
+              fill="#22c55e"
+              transform="rotate(30 275 605)"
+              opacity="0.42"
+            />
+            <ellipse
+              cx="255"
+              cy="565"
+              rx="13"
+              ry="48"
+              fill="#22c55e"
+              transform="rotate(-10 255 565)"
+              opacity="0.35"
+            />
+          </g>
+
+          <path
+            d="M0 760 C260 700, 460 820, 730 760 C980 705, 1160 750, 1440 700 L1440 900 L0 900 Z"
+            fill="#dbeafe"
+            opacity="0.20"
+          />
+        </svg>
+      </div>
+
       <div style={layout}>
         <FinanceTrialSidebar />
 
@@ -162,6 +367,7 @@ const page = {
   padding: 20,
   fontFamily: "var(--font-almarai), sans-serif",
 };
+
 const backgroundLayer = {
   position: "fixed" as const,
   inset: 0,
@@ -169,11 +375,13 @@ const backgroundLayer = {
   overflow: "hidden" as const,
   pointerEvents: "none" as const,
 };
+
 const backgroundSvg = {
   width: "100%",
   height: "100%",
   display: "block",
 };
+
 const layout = {
   position: "relative" as const,
   zIndex: 1,
@@ -229,7 +437,7 @@ const grid = {
 const card = {
   width: "100%",
   minHeight: 110,
-  background: "white",
+  background: "rgba(255,255,255,0.92)",
   color: "#0f172a",
   border: "1px solid #d9e3f5",
   borderRadius: 18,
