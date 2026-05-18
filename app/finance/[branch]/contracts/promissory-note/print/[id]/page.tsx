@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { getBranchId } from "@/lib/getBranchId";
 
 export default function PrintPromissoryNotePage() {
   const params = useParams();
@@ -14,13 +15,21 @@ export default function PrintPromissoryNotePage() {
 
   useEffect(() => {
     loadNote();
-  }, []);
+  }, [branch, noteId]);
 
   async function loadNote() {
+    const branchId = await getBranchId(branch);
+
+    if (!branchId) {
+      setNote(null);
+      return;
+    }
+
     const { data } = await supabase
       .from("finance_promissory_notes")
       .select("*")
       .eq("id", noteId)
+      .eq("branch_id", branchId)
       .single();
 
     setNote(data);
