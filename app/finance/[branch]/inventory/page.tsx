@@ -1,6 +1,11 @@
 "use client";
 
+import { useParams } from "next/navigation";
+
 export default function FinanceInventoryPage() {
+  const params = useParams();
+  const branch = params.branch as string;
+
   return (
     <main dir="rtl" style={page}>
       <div style={container}>
@@ -22,14 +27,17 @@ export default function FinanceInventoryPage() {
 
         <section style={actionsSection}>
           <button style={actionButton}>إضافة مخزون</button>
+
           <button style={actionButton}>إضافة منتج جديد</button>
+
           <button style={actionButton}>تعديل / حذف مخزون</button>
+
           <button style={actionButton}>تعديل / حذف منتج</button>
         </section>
 
         <button
           style={backButton}
-          onClick={() => (window.location.href = "/finance")}
+          onClick={() => (window.location.href = `/finance/${branch}`)}
         >
           الرجوع لمحطة العمل الرئيسية
         </button>
