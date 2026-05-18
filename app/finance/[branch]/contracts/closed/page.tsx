@@ -62,7 +62,17 @@ export default function ClosedContractsPage() {
               >
                 <span>📄 {contract.contract_number}</span>
 
-                <span>👤 {contract.finance_customers?.full_name || "-"}</span>
+                <span
+  style={{ cursor: "pointer", color: "#0d47a1", fontWeight: "bold" }}
+  onClick={(e) => {
+    e.stopPropagation();
+
+    window.location.href =
+      `/finance/${branch}/customers/${contract.customer_id}`;
+  }}
+>
+  👤 {contract.finance_customers?.full_name || "-"}
+</span>
 
                 <span>📌 {contract.finance_type}</span>
 
