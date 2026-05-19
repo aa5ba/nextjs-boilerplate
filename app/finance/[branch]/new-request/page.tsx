@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
 import { normalizeNumber, toNumber } from "@/lib/numberUtils";
+import { getOrganizationName } from "@/lib/getOrganizationName";
 
 export default function NewRequestPage() {
   const params = useParams();
@@ -18,6 +19,9 @@ export default function NewRequestPage() {
   const [phone, setPhone] = useState("");
 
   const [financeType, setFinanceType] = useState("");
+  const [firstPartyType, setFirstPartyType] = useState("organization");
+  const [investorName, setInvestorName] = useState("");
+
   const [debtAmount, setDebtAmount] = useState("");
   const [paymentAmount, setPaymentAmount] = useState("");
   const [installmentAmount, setInstallmentAmount] = useState("");
@@ -44,6 +48,11 @@ export default function NewRequestPage() {
       return;
     }
 
+    if (firstPartyType === "investor" && !investorName) {
+      alert("أدخل اسم المستثمر للطرف الأول");
+      return;
+    }
+
     const cleanNationalId = normalizeNumber(nationalId);
     const cleanPhone = normalizeNumber(phone);
 
@@ -56,6 +65,10 @@ export default function NewRequestPage() {
       alert("رقم الجوال يجب أن يكون 10 أرقام ويبدأ بـ 05");
       return;
     }
+
+    const organizationName = await getOrganizationName();
+    const firstPartyName =
+      firstPartyType === "organization" ? organizationName : investorName;
 
     const birthHijri = `${birthDay}/${birthMonth}/${birthYear}`;
     const debt = toNumber(debtAmount);
@@ -87,6 +100,9 @@ export default function NewRequestPage() {
           branch_id: branchId,
           customer_id: customerData.id,
           finance_type: financeType,
+          first_party_type: firstPartyType,
+          first_party_name: firstPartyName,
+          investor_name: investorName || null,
           debt_amount: debt,
           payment_amount: totalPayment,
           installment_amount: toNumber(installmentAmount),
@@ -182,6 +198,24 @@ export default function NewRequestPage() {
           <h2 style={sectionTitle}>بيانات العقد والسند</h2>
 
           <input style={input} placeholder="نوع التمويل" value={financeType} onChange={(e) => setFinanceType(e.target.value)} />
+
+          <select
+            style={input}
+            value={firstPartyType}
+            onChange={(e) => setFirstPartyType(e.target.value)}
+          >
+            <option value="organization">الطرف الأول: المنظمة</option>
+            <option value="investor">الطرف الأول: المستثمر</option>
+          </select>
+
+          {firstPartyType === "investor" && (
+            <input
+              style={input}
+              placeholder="اسم المستثمر / الطرف الأول"
+              value={investorName}
+              onChange={(e) => setInvestorName(e.target.value)}
+            />
+          )}
 
           <input style={input} inputMode="numeric" placeholder="مبلغ الدين / مبلغ السند" value={debtAmount} onChange={(e) => setDebtAmount(normalizeNumber(e.target.value))} />
 
