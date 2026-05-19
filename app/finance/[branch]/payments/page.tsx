@@ -25,9 +25,9 @@ export default function FinancePaymentsPage() {
 
     const { data } = await supabase
       .from("finance_payments")
-      .select(
-        "*, finance_contracts(contract_number, finance_customers(full_name, national_id))"
-      )
+     .select(
+  "*, finance_contracts(id, customer_id, contract_number, finance_customers(full_name, national_id))"
+)
       .eq("branch_id", branchId)
       .order("created_at", { ascending: false })
       .limit(10);
