@@ -37,7 +37,7 @@ const noteAmount = toNumber(amount);
 const { data: noteSequenceData } = await supabase.rpc(
   "nextval",
   {
-    seq_name: "finance_promissory_note_number_seq",
+    seq_name: "finance_note_number_seq",
   }
 );
 
