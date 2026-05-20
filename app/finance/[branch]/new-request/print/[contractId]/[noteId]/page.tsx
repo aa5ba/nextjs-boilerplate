@@ -95,6 +95,12 @@ export default function PrintNewRequestPage() {
   const birthHijri =
     contract?.finance_customers?.birth_hijri || "................";
 
+  const firstPartyName =
+    contract?.first_party_name ||
+    contract?.investor_name ||
+    organizationName ||
+    "................";
+
   return (
     <main dir="rtl" style={page}>
       <section style={printArea}>
@@ -131,7 +137,7 @@ export default function PrintNewRequestPage() {
           رقم الهوية / <strong>{nationalId}</strong>، تاريخ الميلاد /
           <strong> {birthHijri}</strong>، رقم الجوال /
           <strong> {phone}</strong>، بأني اشتريت من الطرف الأول /
-          <strong> {contract?.investor_name || "................"}</strong>.
+          <strong> {firstPartyName}</strong>.
         </p>
 
         <p style={paragraph}>
@@ -166,7 +172,7 @@ export default function PrintNewRequestPage() {
         <div style={signatures}>
           <div style={signatureBox}>
             <strong>الطرف الأول البائع</strong>
-            <div>الاسم / {contract?.investor_name || "................"}</div>
+            <div>الاسم / {firstPartyName}</div>
             <div>التوقيع / ................</div>
           </div>
 
@@ -214,7 +220,8 @@ export default function PrintNewRequestPage() {
         <p style={paragraph}>
           حرر هذا السند في مدينة{" "}
           <strong>{note?.city || "................"}</strong>، وبموجب هذا السند
-          أتعهد أنا الموقع أدناه بأن أدفع لأمر الطرف المستفيد مبلغًا وقدره{" "}
+          أتعهد أنا الموقع أدناه بأن أدفع لأمر الطرف المستفيد /
+          <strong> {firstPartyName}</strong> مبلغًا وقدره{" "}
           <strong>{note?.amount || 0}</strong> ريال سعودي.
         </p>
 
