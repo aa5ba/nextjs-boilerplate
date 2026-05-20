@@ -22,6 +22,7 @@ export default function NewFinanceContractPage() {
   const [investorId, setInvestorId] = useState("");
   const [productId, setProductId] = useState("");
   const [productQuantity, setProductQuantity] = useState("");
+  const [availableStock, setAvailableStock] = useState<number | null>(null);
   const [printPartyType, setPrintPartyType] = useState("organization");
 
   const [debtAmount, setDebtAmount] = useState("");
@@ -41,6 +42,10 @@ export default function NewFinanceContractPage() {
   useEffect(() => {
     loadData();
   }, [branch]);
+
+  useEffect(() => {
+    loadAvailableStock();
+  }, [branchId, investorId, productId]);
 
   async function loadData() {
     const currentBranchId = await getBranchId(branch);
@@ -78,7 +83,26 @@ export default function NewFinanceContractPage() {
     setProducts(productsData || []);
   }
 
+  async function loadAvailableStock() {
+    if (!branchId || !investorId || !productId) {
+      setAvailableStock(null);
+      return;
+    }
+
+    const { data } = await supabase
+      .from("finance_inventory")
+      .select("quantity")
+      .eq("branch_id", branchId)
+      .eq("investor_id", investorId)
+      .eq("product_id", productId)
+      .maybeSingle();
+
+    setAvailableStock(data ? Number(data.quantity || 0) : 0);
+  }
+
   async function createContract() {
+    if (saving) return;
+
     if (
       !branchId ||
       !customerId ||
@@ -114,13 +138,17 @@ export default function NewFinanceContractPage() {
     try {
       setSaving(true);
 
-      const { data: stockData } = await supabase
+      const { data: stockData, error: stockError } = await supabase
         .from("finance_inventory")
         .select("*")
         .eq("branch_id", branchId)
         .eq("investor_id", investorId)
         .eq("product_id", productId)
         .maybeSingle();
+
+      if (stockError) {
+        throw new Error(stockError.message);
+      }
 
       if (!stockData) {
         alert("لا يوجد مخزون لهذا المستثمر والمنتج");
@@ -130,8 +158,13 @@ export default function NewFinanceContractPage() {
       const beforeQty = Number(stockData.quantity || 0);
 
       if (beforeQty < qty) {
-        alert("الكمية المطلوبة أكبر من المخزون المتاح");
-        return;
+        const confirmContinue = window.confirm(
+          "الكمية في الطلب أكثر من المتاحة في المخزون، هل تريد الاستمرار؟"
+        );
+
+        if (!confirmContinue) {
+          return;
+        }
       }
 
       const afterQty = beforeQty - qty;
@@ -150,19 +183,18 @@ export default function NewFinanceContractPage() {
 
       const payment = toNumber(paymentAmount);
 
-      const { data: contractSequenceData } = await supabase.rpc(
-  "nextval",
-  {
-    seq_name: "finance_contract_number_seq",
-  }
-);
+      const { data: contractSequenceData, error: sequenceError } =
+        await supabase.rpc("nextval", {
+          seq_name: "finance_contract_number_seq",
+        });
 
-const contractSequence =
-  Number(contractSequenceData || 1);
+      if (sequenceError) {
+        throw new Error("تعذر توليد رقم العقد");
+      }
 
-const contractNumber = `CTR-${String(
-  contractSequence
-).padStart(6, "0")}`;
+      const contractSequence = Number(contractSequenceData);
+      const contractNumber = `CTR-${String(contractSequence).padStart(6, "0")}`;
+
       const { data: contractData, error } = await supabase
         .from("finance_contracts")
         .insert([
@@ -207,17 +239,20 @@ const contractNumber = `CTR-${String(
         .single();
 
       if (error) {
-        alert(error.message);
-        return;
+        throw new Error(error.message);
       }
 
-      await supabase
+      const { error: inventoryError } = await supabase
         .from("finance_inventory")
         .update({
           quantity: afterQty,
           updated_at: new Date().toISOString(),
         })
         .eq("id", stockData.id);
+
+      if (inventoryError) {
+        throw new Error(inventoryError.message);
+      }
 
       await supabase.from("finance_inventory_movements").insert([
         {
@@ -230,7 +265,10 @@ const contractNumber = `CTR-${String(
           quantity: qty,
           before_quantity: beforeQty,
           after_quantity: afterQty,
-          notes: `خصم بسبب إنشاء عقد للعميل ${selectedCustomer.full_name}`,
+          notes:
+            afterQty < 0
+              ? `خصم بسبب إنشاء عقد للعميل ${selectedCustomer.full_name} مع تجاوز المخزون المتاح`
+              : `خصم بسبب إنشاء عقد للعميل ${selectedCustomer.full_name}`,
           created_by: "المدير",
         },
       ]);
@@ -244,12 +282,14 @@ const contractNumber = `CTR-${String(
           contract_id: contractData.id,
           customer_name: selectedCustomer.full_name || "",
           employee_name: "المدير",
-          status: "نشط",
+          status: afterQty < 0 ? "مخزون بالسالب" : "نشط",
         },
       ]);
 
       alert("تم إنشاء العقد وخصم المخزون بنجاح");
       window.location.href = `/finance/${branch}/contracts/${contractData.id}`;
+    } catch (error: any) {
+      alert(error.message || "حدث خطأ أثناء إنشاء العقد");
     } finally {
       setSaving(false);
     }
@@ -307,6 +347,12 @@ const contractNumber = `CTR-${String(
               </option>
             ))}
           </select>
+
+          {availableStock !== null && (
+            <div style={availableStock < 0 ? stockDanger : stockInfo}>
+              المتوفر في المخزون: {availableStock}
+            </div>
+          )}
 
           <input
             style={input}
@@ -495,6 +541,28 @@ const textarea = {
   fontSize: 16,
   marginBottom: 12,
   boxSizing: "border-box" as const,
+};
+
+const stockInfo = {
+  background: "#f0fdf4",
+  color: "#166534",
+  border: "1px solid #bbf7d0",
+  padding: 12,
+  borderRadius: 12,
+  fontSize: 15,
+  fontWeight: "bold",
+  marginBottom: 12,
+};
+
+const stockDanger = {
+  background: "#fef2f2",
+  color: "#991b1b",
+  border: "1px solid #fecaca",
+  padding: 12,
+  borderRadius: 12,
+  fontSize: 15,
+  fontWeight: "bold",
+  marginBottom: 12,
 };
 
 const primaryButton = {
