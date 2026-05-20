@@ -222,6 +222,9 @@ export default function NewFinanceContractPage() {
       if (rpcError) {
         throw new Error(rpcError.message);
       }
+      if (!contractId) {
+  throw new Error("تم إنشاء العقد لكن لم يتم إرجاع رقم العقد");
+}
 
       alert("تم إنشاء العقد وخصم المخزون بنجاح");
       window.location.href = `/finance/${branch}/contracts/${contractId}`;
