@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { getOrganizationName } from "@/lib/getOrganizationName";
+import { getOrganizationSettings } from "@/lib/getOrganizationSettings";
 
 export default function PrintNewRequestPage() {
   const params = useParams();
@@ -14,7 +14,12 @@ export default function PrintNewRequestPage() {
 
   const [contract, setContract] = useState<any>(null);
   const [note, setNote] = useState<any>(null);
-  const [organizationName, setOrganizationName] = useState("احتساب");
+  const [organizationSettings, setOrganizationSettings] = useState({
+  name: "احتساب",
+  phone: "",
+  city: "",
+  commercialRecord: "",
+});
 
   useEffect(() => {
     loadData();
@@ -70,9 +75,9 @@ export default function PrintNewRequestPage() {
       .eq("id", noteId)
       .single();
 
-    const orgName = await getOrganizationName();
+    const orgSettings = await getOrganizationSettings();
 
-    setOrganizationName(orgName);
+setOrganizationSettings(orgSettings);
     setContract(contractData);
     setNote(noteData);
   }
