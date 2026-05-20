@@ -1,14 +1,11 @@
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 
-export async function exportElementToPdf(
-  elementId: string,
-  fileName: string
-) {
+export async function exportElementToPdf(elementId: string, fileName: string) {
   const element = document.getElementById(elementId);
 
   if (!element) {
-    alert("تعذر العثور على العنصر");
+    alert("تعذر العثور على عنصر الطباعة");
     return;
   }
 
@@ -28,24 +25,18 @@ export async function exportElementToPdf(
 
   const pdfWidth = 210;
   const pdfHeight = 297;
-
-  const imgWidth = pdfWidth;
-  const imgHeight = (canvas.height * imgWidth) / canvas.width;
+  const imgHeight = (canvas.height * pdfWidth) / canvas.width;
 
   let heightLeft = imgHeight;
   let position = 0;
 
-  pdf.addImage(imageData, "PNG", 0, position, imgWidth, imgHeight);
-
+  pdf.addImage(imageData, "PNG", 0, position, pdfWidth, imgHeight);
   heightLeft -= pdfHeight;
 
   while (heightLeft > 0) {
     position = heightLeft - imgHeight;
-
     pdf.addPage();
-
-    pdf.addImage(imageData, "PNG", 0, position, imgWidth, imgHeight);
-
+    pdf.addImage(imageData, "PNG", 0, position, pdfWidth, imgHeight);
     heightLeft -= pdfHeight;
   }
 
