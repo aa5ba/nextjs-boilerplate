@@ -101,10 +101,22 @@ export default function PrintNewRequestPage() {
     contract?.finance_customers?.birth_hijri || "................";
 
   const firstPartyName =
+    contract?.print_party_name ||
     contract?.first_party_name ||
     contract?.investor_name ||
     organizationSettings.name ||
     "................";
+
+  const firstPartyIdentifier =
+    contract?.print_party_identifier ||
+    contract?.first_party_identifier ||
+    "";
+
+  const firstPartyIdentifierLabel =
+    contract?.print_party_type === "investor" ||
+    contract?.first_party_type === "investor"
+      ? "رقم الهوية"
+      : "السجل التجاري";
 
   return (
     <main dir="rtl" style={page}>
@@ -152,7 +164,14 @@ export default function PrintNewRequestPage() {
           رقم الهوية / <strong>{nationalId}</strong>، تاريخ الميلاد /
           <strong> {birthHijri}</strong>، رقم الجوال /
           <strong> {phone}</strong>، بأني اشتريت من الطرف الأول /
-          <strong> {firstPartyName}</strong>.
+          <strong> {firstPartyName}</strong>
+          {firstPartyIdentifier ? (
+            <>
+              ، {firstPartyIdentifierLabel} /{" "}
+              <strong>{firstPartyIdentifier}</strong>
+            </>
+          ) : null}
+          .
         </p>
 
         <p style={paragraph}>
@@ -188,6 +207,10 @@ export default function PrintNewRequestPage() {
           <div style={signatureBox}>
             <strong>الطرف الأول البائع</strong>
             <div>الاسم / {firstPartyName}</div>
+            <div>
+              {firstPartyIdentifierLabel} /{" "}
+              {firstPartyIdentifier || "................"}
+            </div>
             <div>التوقيع / ................</div>
           </div>
 
@@ -244,10 +267,18 @@ export default function PrintNewRequestPage() {
 
         <p style={paragraph}>
           حرر هذا السند في مدينة{" "}
-          <strong>{note?.city || organizationSettings.city || "................"}</strong>،
-          وبموجب هذا السند أتعهد أنا الموقع أدناه بأن أدفع لأمر الطرف المستفيد /
-          <strong> {firstPartyName}</strong> مبلغًا وقدره{" "}
-          <strong>{note?.amount || 0}</strong> ريال سعودي.
+          <strong>
+            {note?.city || organizationSettings.city || "................"}
+          </strong>
+          ، وبموجب هذا السند أتعهد أنا الموقع أدناه بأن أدفع لأمر الطرف
+          المستفيد / <strong>{firstPartyName}</strong>
+          {firstPartyIdentifier ? (
+            <>
+              ، {firstPartyIdentifierLabel} /{" "}
+              <strong>{firstPartyIdentifier}</strong>
+            </>
+          ) : null}{" "}
+          مبلغًا وقدره <strong>{note?.amount || 0}</strong> ريال سعودي.
         </p>
 
         <p style={paragraph}>
@@ -448,9 +479,10 @@ const backButton = {
   display: "block",
   margin: "12px auto 0",
   padding: 16,
-  background: "#6b7280",
-  color: "#111827",
-  border: "none",
+  background: "#e5e7eb",
+  color: "#0d47a1",
+  border: "1px solid #cbd5e1",
   borderRadius: 14,
   fontSize: 17,
+  fontWeight: "bold",
 };
