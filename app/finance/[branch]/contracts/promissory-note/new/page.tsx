@@ -31,8 +31,22 @@ export default function NewPromissoryNotePage() {
       return;
     }
 
-    const noteAmount = toNumber(amount);
+    
+const noteAmount = toNumber(amount);
 
+const { data: noteSequenceData } = await supabase.rpc(
+  "nextval",
+  {
+    seq_name: "finance_promissory_note_number_seq",
+  }
+);
+
+const noteSequence =
+  Number(noteSequenceData || 1);
+
+const noteNumber = `PNO-${String(
+  noteSequence
+).padStart(6, "0")}`;
     if (noteAmount <= 0) {
       alert("أدخل مبلغ سند صحيح");
       return;
@@ -43,6 +57,7 @@ export default function NewPromissoryNotePage() {
       .insert([
         {
           branch_id: branchId,
+          note_number: noteNumber,
           debtor_name: debtorName,
           debtor_national_id: normalizeNumber(debtorNationalId),
           debtor_phone: normalizeNumber(debtorPhone),
@@ -220,10 +235,11 @@ const primaryButton = {
 const backButton = {
   width: "100%",
   padding: 16,
-  background: "#111827",
-  color: "white",
-  border: "none",
+  background: "#e5e7eb",
+  color: "#0d47a1",
+  border: "1px solid #cbd5e1",
   borderRadius: 14,
   fontSize: 17,
+  fontWeight: "bold",
   marginTop: 18,
 };
