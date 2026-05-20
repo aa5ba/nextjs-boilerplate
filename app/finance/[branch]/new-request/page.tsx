@@ -1,15 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
 import { normalizeNumber, toNumber } from "@/lib/numberUtils";
-import { getOrganizationName } from "@/lib/getOrganizationName";
+import { getOrganizationSettings } from "@/lib/getOrganizationSettings";
 
 export default function NewRequestPage() {
   const params = useParams();
   const branch = params.branch as string;
+
+  const [investors, setInvestors] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
 
   const [fullName, setFullName] = useState("");
   const [nationalId, setNationalId] = useState("");
@@ -19,8 +22,10 @@ export default function NewRequestPage() {
   const [phone, setPhone] = useState("");
 
   const [financeType, setFinanceType] = useState("");
-  const [firstPartyType, setFirstPartyType] = useState("organization");
-  const [investorName, setInvestorName] = useState("");
+  const [investorId, setInvestorId] = useState("");
+  const [productId, setProductId] = useState("");
+  const [productQuantity, setProductQuantity] = useState("");
+  const [printPartyType, setPrintPartyType] = useState("organization");
 
   const [debtAmount, setDebtAmount] = useState("");
   const [paymentAmount, setPaymentAmount] = useState("");
@@ -29,6 +34,32 @@ export default function NewRequestPage() {
   const [paymentDueDate, setPaymentDueDate] = useState("");
   const [legalCity, setLegalCity] = useState("");
   const [notes, setNotes] = useState("");
+
+  useEffect(() => {
+    loadLists();
+  }, [branch]);
+
+  async function loadLists() {
+    const branchId = await getBranchId(branch);
+    if (!branchId) return;
+
+    const { data: investorsData } = await supabase
+      .from("finance_investors")
+      .select("*")
+      .eq("branch_id", branchId)
+      .eq("is_active", true)
+      .order("created_at", { ascending: false });
+
+    const { data: productsData } = await supabase
+      .from("finance_products")
+      .select("*")
+      .eq("branch_id", branchId)
+      .eq("is_active", true)
+      .order("created_at", { ascending: false });
+
+    setInvestors(investorsData || []);
+    setProducts(productsData || []);
+  }
 
   async function createRequest() {
     const branchId = await getBranchId(branch);
@@ -48,13 +79,22 @@ export default function NewRequestPage() {
       return;
     }
 
-    if (firstPartyType === "investor" && !investorName) {
-      alert("أدخل اسم المستثمر للطرف الأول");
+    if (!investorId || !productId || !productQuantity) {
+      alert("اختر المستثمر والمنتج والكمية");
+      return;
+    }
+
+    const selectedInvestor = investors.find((item) => item.id === investorId);
+    const selectedProduct = products.find((item) => item.id === productId);
+
+    if (!selectedInvestor || !selectedProduct) {
+      alert("تعذر تحديد المستثمر أو المنتج");
       return;
     }
 
     const cleanNationalId = normalizeNumber(nationalId);
     const cleanPhone = normalizeNumber(phone);
+    const qty = toNumber(productQuantity);
 
     if (cleanNationalId.length !== 10) {
       alert("رقم الهوية يجب أن يكون 10 أرقام");
@@ -66,9 +106,44 @@ export default function NewRequestPage() {
       return;
     }
 
-    const organizationName = await getOrganizationName();
-    const firstPartyName =
-      firstPartyType === "organization" ? organizationName : investorName;
+    if (qty <= 0) {
+      alert("أدخل كمية صحيحة");
+      return;
+    }
+
+    const { data: stockData } = await supabase
+      .from("finance_inventory")
+      .select("*")
+      .eq("branch_id", branchId)
+      .eq("investor_id", investorId)
+      .eq("product_id", productId)
+      .single();
+
+    if (!stockData) {
+      alert("لا يوجد مخزون لهذا المستثمر والمنتج");
+      return;
+    }
+
+    const beforeQty = Number(stockData.quantity || 0);
+
+    if (beforeQty < qty) {
+      alert("الكمية المطلوبة أكبر من المخزون المتاح");
+      return;
+    }
+
+    const afterQty = beforeQty - qty;
+
+    const organizationSettings = await getOrganizationSettings();
+
+    const printPartyName =
+      printPartyType === "organization"
+        ? organizationSettings.name
+        : selectedInvestor.investor_name;
+
+    const printPartyIdentifier =
+      printPartyType === "organization"
+        ? organizationSettings.commercialRecord
+        : selectedInvestor.national_id;
 
     const birthHijri = `${birthDay}/${birthMonth}/${birthYear}`;
     const debt = toNumber(debtAmount);
@@ -100,9 +175,21 @@ export default function NewRequestPage() {
           branch_id: branchId,
           customer_id: customerData.id,
           finance_type: financeType,
-          first_party_type: firstPartyType,
-          first_party_name: firstPartyName,
-          investor_name: investorName || null,
+
+          investor_id: selectedInvestor.id,
+          investor_name: selectedInvestor.investor_name,
+          product_id: selectedProduct.id,
+          product_name: selectedProduct.product_name,
+          product_quantity: qty,
+
+          print_party_type: printPartyType,
+          print_party_name: printPartyName,
+          print_party_identifier: printPartyIdentifier || null,
+
+          first_party_type: printPartyType,
+          first_party_name: printPartyName,
+          first_party_identifier: printPartyIdentifier || null,
+
           debt_amount: debt,
           payment_amount: totalPayment,
           installment_amount: toNumber(installmentAmount),
@@ -123,6 +210,30 @@ export default function NewRequestPage() {
       alert("تم إنشاء العميل، لكن تعذر إنشاء العقد");
       return;
     }
+
+    await supabase
+      .from("finance_inventory")
+      .update({
+        quantity: afterQty,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", stockData.id);
+
+    await supabase.from("finance_inventory_movements").insert([
+      {
+        branch_id: branchId,
+        investor_id: selectedInvestor.id,
+        product_id: selectedProduct.id,
+        contract_id: contractData.id,
+        customer_id: customerData.id,
+        movement_type: "خصم",
+        quantity: qty,
+        before_quantity: beforeQty,
+        after_quantity: afterQty,
+        notes: `خصم بسبب إنشاء عقد للعميل ${fullName}`,
+        created_by: "المدير",
+      },
+    ]);
 
     const { data: noteData, error: noteError } = await supabase
       .from("finance_promissory_notes")
@@ -154,7 +265,7 @@ export default function NewRequestPage() {
       {
         branch_id: branchId,
         activity_type: "طلب جديد",
-        description: `تم إنشاء طلب جديد للعميل ${fullName}`,
+        description: `تم إنشاء طلب جديد للعميل ${fullName} وخصم ${qty} من ${selectedProduct.product_name}`,
         customer_id: customerData.id,
         contract_id: contractData.id,
         payment_id: null,
@@ -164,7 +275,7 @@ export default function NewRequestPage() {
       },
     ]);
 
-    alert("تم إنشاء الطلب بنجاح");
+    alert("تم إنشاء الطلب وخصم المخزون بنجاح");
 
     window.location.href = `/finance/${branch}/new-request/print/${contractData.id}/${noteData.id}`;
   }
@@ -195,27 +306,48 @@ export default function NewRequestPage() {
         </section>
 
         <section style={card}>
-          <h2 style={sectionTitle}>بيانات العقد والسند</h2>
+          <h2 style={sectionTitle}>المخزون والطرف الأول</h2>
 
-          <input style={input} placeholder="نوع التمويل" value={financeType} onChange={(e) => setFinanceType(e.target.value)} />
+          <select style={input} value={investorId} onChange={(e) => setInvestorId(e.target.value)}>
+            <option value="">المستثمر المرتبط بالمخزون</option>
+            {investors.map((investor) => (
+              <option key={investor.id} value={investor.id}>
+                {investor.investor_name}
+              </option>
+            ))}
+          </select>
+
+          <select style={input} value={productId} onChange={(e) => setProductId(e.target.value)}>
+            <option value="">اختر المنتج</option>
+            {products.map((product) => (
+              <option key={product.id} value={product.id}>
+                {product.product_name}
+              </option>
+            ))}
+          </select>
+
+          <input
+            style={input}
+            inputMode="numeric"
+            placeholder="الكمية"
+            value={productQuantity}
+            onChange={(e) => setProductQuantity(normalizeNumber(e.target.value))}
+          />
 
           <select
             style={input}
-            value={firstPartyType}
-            onChange={(e) => setFirstPartyType(e.target.value)}
+            value={printPartyType}
+            onChange={(e) => setPrintPartyType(e.target.value)}
           >
-            <option value="organization">الطرف الأول: المنظمة</option>
-            <option value="investor">الطرف الأول: المستثمر</option>
+            <option value="organization">الطرف الأول في الطباعة: المنظمة</option>
+            <option value="investor">الطرف الأول في الطباعة: المستثمر</option>
           </select>
+        </section>
 
-          {firstPartyType === "investor" && (
-            <input
-              style={input}
-              placeholder="اسم المستثمر / الطرف الأول"
-              value={investorName}
-              onChange={(e) => setInvestorName(e.target.value)}
-            />
-          )}
+        <section style={card}>
+          <h2 style={sectionTitle}>بيانات العقد والسند</h2>
+
+          <input style={input} placeholder="نوع التمويل" value={financeType} onChange={(e) => setFinanceType(e.target.value)} />
 
           <input style={input} inputMode="numeric" placeholder="مبلغ الدين / مبلغ السند" value={debtAmount} onChange={(e) => setDebtAmount(normalizeNumber(e.target.value))} />
 
@@ -330,9 +462,11 @@ const primaryButton = {
 const backButton = {
   width: "100%",
   padding: 16,
-  background: "#111827",
-  color: "white",
-  border: "none",
+  background: "#e5e7eb",
+  color: "#0d47a1",
+  border: "1px solid #cbd5e1",
   borderRadius: 14,
   fontSize: 17,
+  fontWeight: "bold",
+  marginTop: 18,
 };
