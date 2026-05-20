@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
 import { getOrganizationSettings } from "@/lib/getOrganizationSettings";
+import { exportElementToPdf } from "@/lib/exportElementToPdf";
 
 export default function PrintContractPage() {
   const params = useParams();
@@ -98,7 +99,7 @@ export default function PrintContractPage() {
 
   return (
     <main dir="rtl" style={page}>
-      <section style={printArea}>
+      <section id="contract-print-area" style={printArea}>
         <div style={topLine}>
           <span>المملكة العربية السعودية</span>
           <span>{organizationSettings.city || "بيع * شراء"}</span>
@@ -213,6 +214,17 @@ export default function PrintContractPage() {
       <button style={printButton} onClick={() => window.print()}>
         🖨️ طباعة العقد
       </button>
+      <button
+  style={printButton}
+  onClick={() =>
+    exportElementToPdf(
+      "contract-print-area",
+      contract?.contract_number || "contract"
+    )
+  }
+>
+  📄 تحميل PDF
+</button>
 
       <button
         style={backButton}
