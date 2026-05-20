@@ -4,335 +4,461 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
+import { normalizeNumber, toNumber } from "@/lib/numberUtils";
+import { getOrganizationSettings } from "@/lib/getOrganizationSettings";
 
-export default function FinanceContractDetailsPage() {
+export default function EditContractPage() {
   const params = useParams();
-
   const branch = params.branch as string;
   const contractId = params.id as string;
 
-  const [contract, setContract] = useState<any>(null);
-  const [payments, setPayments] = useState<any[]>([]);
   const [branchId, setBranchId] = useState<string | null>(null);
+  const [contract, setContract] = useState<any>(null);
+
+  const [investors, setInvestors] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
+
+  const [investorId, setInvestorId] = useState("");
+  const [productId, setProductId] = useState("");
+  const [productQuantity, setProductQuantity] = useState("");
+  const [printPartyType, setPrintPartyType] = useState("organization");
+
+  const [debtAmount, setDebtAmount] = useState("");
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [installmentAmount, setInstallmentAmount] = useState("");
+  const [paymentType, setPaymentType] = useState("");
+  const [paymentDueDate, setPaymentDueDate] = useState("");
+  const [legalCity, setLegalCity] = useState("");
+  const [notes, setNotes] = useState("");
+
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     loadData();
   }, [branch, contractId]);
 
   async function loadData() {
-    const currentBranchId = await getBranchId(branch);
+    setLoading(true);
 
+    const currentBranchId = await getBranchId(branch);
     setBranchId(currentBranchId);
 
     if (!currentBranchId) {
-      setContract(null);
-      setPayments([]);
+      setLoading(false);
       return;
     }
 
+    const { data: investorsData } = await supabase
+      .from("finance_investors")
+      .select("*")
+      .eq("branch_id", currentBranchId)
+      .eq("is_active", true)
+      .order("created_at", { ascending: false });
+
+    const { data: productsData } = await supabase
+      .from("finance_products")
+      .select("*")
+      .eq("branch_id", currentBranchId)
+      .eq("is_active", true)
+      .order("created_at", { ascending: false });
+
     const { data: contractData } = await supabase
       .from("finance_contracts")
-      .select("*, finance_customers(full_name, national_id, phone)")
+      .select("*, finance_customers(full_name)")
       .eq("id", contractId)
       .eq("branch_id", currentBranchId)
       .single();
 
-    const { data: paymentsData } = await supabase
-      .from("finance_payments")
-      .select("*")
-      .eq("contract_id", contractId)
-      .eq("branch_id", currentBranchId)
-      .order("created_at", { ascending: false });
-
+    setInvestors(investorsData || []);
+    setProducts(productsData || []);
     setContract(contractData);
-    setPayments(paymentsData || []);
+
+    if (contractData) {
+      setInvestorId(contractData.investor_id || "");
+      setProductId(contractData.product_id || "");
+      setProductQuantity(String(contractData.product_quantity || ""));
+      setPrintPartyType(contractData.print_party_type || "organization");
+
+      setDebtAmount(String(contractData.debt_amount || ""));
+      setPaymentAmount(String(contractData.payment_amount || ""));
+      setInstallmentAmount(String(contractData.installment_amount || ""));
+      setPaymentType(contractData.payment_type || "");
+      setPaymentDueDate(contractData.payment_due_date || "");
+      setLegalCity(contractData.legal_city || "");
+      setNotes(contractData.notes || "");
+    }
+
+    setLoading(false);
   }
 
-  async function cancelPayment(payment: any) {
-    if (!branchId) {
-      alert("تعذر تحديد الفرع");
+  async function saveContract() {
+    if (!branchId || !contract) {
+      alert("تعذر تحميل العقد");
       return;
     }
 
-    if (payment.is_cancelled) {
-      alert("تم إلغاء هذه الدفعة مسبقًا");
+    if (!investorId || !productId || !productQuantity) {
+      alert("اختر المستثمر والمنتج والكمية");
       return;
     }
 
-    const confirmed = confirm("هل أنت متأكد من إلغاء الدفعة؟");
-    if (!confirmed) return;
-
-    const currentPaid = Number(contract?.paid_amount || 0);
-    const debt = Number(contract?.debt_amount || 0);
-    const paymentAmount = Number(payment.payment_amount || 0);
-
-    const newPaid = Math.max(currentPaid - paymentAmount, 0);
-    const newRemaining = Math.max(debt - newPaid, 0);
-    const newStatus = newRemaining <= 0 ? "تم السداد" : "نشط";
-
-    const { error: paymentError } = await supabase
-      .from("finance_payments")
-      .update({
-        is_cancelled: true,
-        cancelled_at: new Date().toISOString(),
-        cancelled_by: "المدير",
-      })
-      .eq("id", payment.id)
-      .eq("branch_id", branchId);
-
-    if (paymentError) {
-      alert("تعذر إلغاء الدفعة");
+    if (!debtAmount || !paymentAmount) {
+      alert("أكمل مبالغ العقد");
       return;
     }
 
-    const { error: contractError } = await supabase
-      .from("finance_contracts")
-      .update({
-        paid_amount: newPaid,
-        remaining_amount: newRemaining,
-        contract_status: newStatus,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", contractId)
-      .eq("branch_id", branchId);
+    const selectedInvestor = investors.find((x) => x.id === investorId);
+    const selectedProduct = products.find((x) => x.id === productId);
 
-    if (contractError) {
-      alert("تم إلغاء الدفعة، لكن تعذر تحديث العقد");
+    if (!selectedInvestor || !selectedProduct) {
+      alert("تعذر تحديد المستثمر أو المنتج");
       return;
     }
 
-    await supabase.from("finance_activity_logs").insert([
-      {
-        branch_id: branchId,
-        activity_type: "إلغاء دفعة",
-        description: `تم إلغاء دفعة للعميل ${
-          contract?.finance_customers?.full_name || ""
-        } بمبلغ ${paymentAmount} ر.س`,
-        customer_id: contract?.customer_id,
-        contract_id: contractId,
-        payment_id: payment.id,
-        customer_name: contract?.finance_customers?.full_name || "",
-        employee_name: "المدير",
-        status: newStatus,
-      },
-    ]);
+    const newQty = toNumber(productQuantity);
+    const oldQty = Number(contract.product_quantity || 0);
 
-    await loadData();
-    alert("تم إلغاء الدفعة");
+    if (newQty <= 0) {
+      alert("أدخل كمية صحيحة");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const organizationSettings = await getOrganizationSettings();
+
+      const printPartyName =
+        printPartyType === "organization"
+          ? organizationSettings.name
+          : selectedInvestor.investor_name;
+
+      const printPartyIdentifier =
+        printPartyType === "organization"
+          ? organizationSettings.commercialRecord
+          : selectedInvestor.national_id;
+
+      const investorChanged = contract.investor_id !== investorId;
+      const productChanged = contract.product_id !== productId;
+      const quantityChanged = oldQty !== newQty;
+
+      if (investorChanged || productChanged || quantityChanged) {
+        try {
+          await adjustInventory({
+            oldInvestorId: contract.investor_id,
+            oldProductId: contract.product_id,
+            oldQty,
+            newInvestorId: investorId,
+            newProductId: productId,
+            newQty,
+            customerId: contract.customer_id,
+            customerName: contract.finance_customers?.full_name || "",
+          });
+        } catch (error: any) {
+          alert(error.message || "حدث خطأ أثناء تعديل المخزون");
+          setSaving(false);
+          return;
+        }
+      }
+
+      const debt = toNumber(debtAmount);
+      const payment = toNumber(paymentAmount);
+      const paid = Number(contract.paid_amount || 0);
+      const remaining = Math.max(payment - paid, 0);
+
+      const { error } = await supabase
+        .from("finance_contracts")
+        .update({
+          investor_id: selectedInvestor.id,
+          investor_name: selectedInvestor.investor_name,
+          product_id: selectedProduct.id,
+          product_name: selectedProduct.product_name,
+          product_quantity: newQty,
+
+          print_party_type: printPartyType,
+          print_party_name: printPartyName,
+          print_party_identifier: printPartyIdentifier || null,
+
+          first_party_type: printPartyType,
+          first_party_name: printPartyName,
+          first_party_identifier: printPartyIdentifier || null,
+
+          debt_amount: debt,
+          payment_amount: payment,
+          installment_amount: toNumber(installmentAmount),
+          payment_type: paymentType,
+          payment_due_date: paymentDueDate,
+          legal_city: legalCity,
+          notes,
+          remaining_amount: remaining,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", contractId)
+        .eq("branch_id", branchId);
+
+      if (error) {
+        alert(error.message);
+        return;
+      }
+
+      await supabase.from("finance_activity_logs").insert([
+        {
+          branch_id: branchId,
+          activity_type: "تعديل عقد",
+          description: `تم تعديل عقد العميل ${
+            contract.finance_customers?.full_name || ""
+          }`,
+          customer_id: contract.customer_id,
+          contract_id: contractId,
+          customer_name: contract.finance_customers?.full_name || "",
+          employee_name: "المدير",
+          status: contract.contract_status || "نشط",
+        },
+      ]);
+
+      alert("تم حفظ تعديل العقد بنجاح");
+      window.location.href = `/finance/${branch}/contracts/${contractId}`;
+    } finally {
+      setSaving(false);
+    }
   }
 
-  async function closeContract() {
-    if (!branchId) {
-      alert("تعذر تحديد الفرع");
-      return;
+  async function adjustInventory({
+    oldInvestorId,
+    oldProductId,
+    oldQty,
+    newInvestorId,
+    newProductId,
+    newQty,
+    customerId,
+    customerName,
+  }: any) {
+    if (!branchId) return;
+
+    if (oldInvestorId && oldProductId && oldQty > 0) {
+      const { data: oldStock } = await supabase
+        .from("finance_inventory")
+        .select("*")
+        .eq("branch_id", branchId)
+        .eq("investor_id", oldInvestorId)
+        .eq("product_id", oldProductId)
+        .maybeSingle();
+
+      if (oldStock) {
+        const before = Number(oldStock.quantity || 0);
+        const after = before + oldQty;
+
+        await supabase
+          .from("finance_inventory")
+          .update({
+            quantity: after,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", oldStock.id);
+
+        await supabase.from("finance_inventory_movements").insert([
+          {
+            branch_id: branchId,
+            investor_id: oldInvestorId,
+            product_id: oldProductId,
+            contract_id: contractId,
+            customer_id: customerId,
+            movement_type: "إرجاع",
+            quantity: oldQty,
+            before_quantity: before,
+            after_quantity: after,
+            notes: `إرجاع كمية بسبب تعديل عقد العميل ${customerName}`,
+            created_by: "المدير",
+          },
+        ]);
+      }
     }
 
-    if (!contract) return;
+    const { data: newStock } = await supabase
+      .from("finance_inventory")
+      .select("*")
+      .eq("branch_id", branchId)
+      .eq("investor_id", newInvestorId)
+      .eq("product_id", newProductId)
+      .maybeSingle();
 
-    const confirmed = confirm("هل أنت متأكد من إغلاق العقد؟");
-    if (!confirmed) return;
+    if (!newStock) {
+      throw new Error("لا يوجد مخزون للمستثمر والمنتج الجديد");
+    }
 
-    const debt = Number(contract?.debt_amount || 0);
+    const beforeNew = Number(newStock.quantity || 0);
 
-    const { error } = await supabase
-      .from("finance_contracts")
+    if (beforeNew < newQty) {
+      throw new Error("الكمية الجديدة أكبر من المخزون المتاح");
+    }
+
+    const afterNew = beforeNew - newQty;
+
+    await supabase
+      .from("finance_inventory")
       .update({
-        contract_status: "تم السداد",
-        paid_amount: debt,
-        remaining_amount: 0,
+        quantity: afterNew,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", contractId)
-      .eq("branch_id", branchId);
+      .eq("id", newStock.id);
 
-    if (error) {
-      alert("تعذر إغلاق العقد");
-      return;
-    }
-
-    await supabase.from("finance_activity_logs").insert([
+    await supabase.from("finance_inventory_movements").insert([
       {
         branch_id: branchId,
-        activity_type: "إغلاق عقد",
-        description: `تم إغلاق عقد العميل ${
-          contract?.finance_customers?.full_name || ""
-        }`,
-        customer_id: contract?.customer_id,
+        investor_id: newInvestorId,
+        product_id: newProductId,
         contract_id: contractId,
-        customer_name: contract?.finance_customers?.full_name || "",
-        employee_name: "المدير",
-        status: "تم السداد",
+        customer_id: customerId,
+        movement_type: "خصم",
+        quantity: newQty,
+        before_quantity: beforeNew,
+        after_quantity: afterNew,
+        notes: `خصم كمية جديدة بسبب تعديل عقد العميل ${customerName}`,
+        created_by: "المدير",
       },
     ]);
+  }
 
-    await loadData();
-    alert("تم إغلاق العقد");
+  if (loading) {
+    return (
+      <main dir="rtl" style={page}>
+        <div style={loadingBox}>جاري تحميل العقد...</div>
+      </main>
+    );
   }
 
   return (
     <main dir="rtl" style={page}>
       <div style={container}>
         <div style={header}>
-          <h1 style={{ margin: 0 }}>
-            عقد رقم {contract?.contract_number || "-"}
-          </h1>
+          <h1 style={{ margin: 0 }}>✏️ تعديل العقد</h1>
         </div>
 
         <section style={card}>
-          <Row label="العميل" value={contract?.finance_customers?.full_name} />
-          <Row
-            label="رقم الهوية"
-            value={contract?.finance_customers?.national_id}
-          />
-          <Row label="رقم الجوال" value={contract?.finance_customers?.phone} />
-          <Row label="نوع التمويل" value={contract?.finance_type} />
-          <Row
-  label="المستثمر المرتبط بالمخزون"
-  value={contract?.investor_name || "-"}
-/>
+          <h2 style={sectionTitle}>المخزون والطرف الأول</h2>
 
-<Row
-  label="المنتج"
-  value={contract?.product_name || "-"}
-/>
+          <select
+            style={input}
+            value={investorId}
+            onChange={(e) => setInvestorId(e.target.value)}
+          >
+            <option value="">اختر المستثمر</option>
+            {investors.map((investor) => (
+              <option key={investor.id} value={investor.id}>
+                {investor.investor_name}
+              </option>
+            ))}
+          </select>
 
-<Row
-  label="كمية المنتجات"
-  value={contract?.product_quantity || "-"}
-/>
+          <select
+            style={input}
+            value={productId}
+            onChange={(e) => setProductId(e.target.value)}
+          >
+            <option value="">اختر المنتج</option>
+            {products.map((product) => (
+              <option key={product.id} value={product.id}>
+                {product.product_name}
+              </option>
+            ))}
+          </select>
 
-<Row
-  label="الطرف الأول في الطباعة"
-  value={contract?.print_party_name || "-"}
-/>
+          <input
+            style={input}
+            inputMode="numeric"
+            placeholder="الكمية"
+            value={productQuantity}
+            onChange={(e) =>
+              setProductQuantity(normalizeNumber(e.target.value))
+            }
+          />
 
-<Row
-  label={
-    contract?.print_party_type === "investor"
-      ? "هوية الطرف الأول"
-      : "السجل التجاري للطرف الأول"
-  }
-  value={contract?.print_party_identifier || "-"}
-/>
-          <Row label="مبلغ الدين" value={`${contract?.debt_amount || 0} ر.س`} />
-          <Row
-            label="مبلغ السداد"
-            value={`${contract?.payment_amount || 0} ر.س`}
-          />
-          <Row
-            label="القسط"
-            value={`${contract?.installment_amount || 0} ر.س`}
-          />
-          <Row label="نوع السداد" value={contract?.payment_type || "-"} />
-          <Row label="موعد السداد" value={contract?.payment_due_date || "-"} />
-          <Row label="المسدد" value={`${contract?.paid_amount || 0} ر.س`} />
-          <Row
-            label="المتبقي"
-            value={`${contract?.remaining_amount || 0} ر.س`}
-          />
-          <Row label="الحالة" value={contract?.contract_status || "-"} />
+          <select
+            style={input}
+            value={printPartyType}
+            onChange={(e) => setPrintPartyType(e.target.value)}
+          >
+            <option value="organization">الطرف الأول في الطباعة: المنظمة</option>
+            <option value="investor">الطرف الأول في الطباعة: المستثمر</option>
+          </select>
         </section>
 
         <section style={card}>
-          <h2 style={sectionTitle}>سجل الدفعات</h2>
+          <h2 style={sectionTitle}>بيانات العقد</h2>
 
-          {payments.length === 0 ? (
-            <div style={emptyBox}>لا توجد دفعات مسجلة</div>
-          ) : (
-            payments.map((payment) => (
-              <div
-                key={payment.id}
-                style={{
-                  ...paymentRow,
-                  opacity: payment.is_cancelled ? 0.6 : 1,
-                }}
-              >
-                <span>💰 {payment.payment_amount} ر.س</span>
+          <input
+            style={input}
+            inputMode="numeric"
+            placeholder="مبلغ الدين"
+            value={debtAmount}
+            onChange={(e) => setDebtAmount(normalizeNumber(e.target.value))}
+          />
 
-                <span>
-                  {payment.is_cancelled
-                    ? "❌ ملغية"
-                    : `💳 ${payment.payment_type || "-"}`}
-                </span>
+          <input
+            style={input}
+            inputMode="numeric"
+            placeholder="مبلغ السداد"
+            value={paymentAmount}
+            onChange={(e) => setPaymentAmount(normalizeNumber(e.target.value))}
+          />
 
-                <span>
-                  📅{" "}
-                  {payment.created_at
-                    ? new Date(payment.created_at).toLocaleDateString("en-GB")
-                    : "-"}
-                </span>
-
-                <button
-                  style={cancelButton}
-                  onClick={() => cancelPayment(payment)}
-                  disabled={payment.is_cancelled}
-                >
-                  ⛔ إلغاء
-                </button>
-              </div>
-            ))
-          )}
-        </section>
-
-        <section style={actionsSection}>
-          <button
-            style={actionButton}
-            onClick={() =>
-              (window.location.href = `/finance/${branch}/payments/new?contract=${contractId}`)
+          <input
+            style={input}
+            inputMode="numeric"
+            placeholder="القسط"
+            value={installmentAmount}
+            onChange={(e) =>
+              setInstallmentAmount(normalizeNumber(e.target.value))
             }
-          >
-            <span style={buttonContent}>
-              <span style={buttonIcon}>💳</span>
-              تسجيل سداد
-            </span>
-          </button>
+          />
 
-          <button
-            style={actionButton}
-            onClick={() =>
-              (window.location.href = `/finance/${branch}/contracts/edit/${contractId}`)
-            }
+          <select
+            style={input}
+            value={paymentType}
+            onChange={(e) => setPaymentType(e.target.value)}
           >
-            <span style={buttonContent}>
-              <span style={buttonIcon}>✏️</span>
-              تعديل العقد
-            </span>
-          </button>
+            <option value="">نوع السداد</option>
+            <option value="موعد محدد">موعد محدد</option>
+            <option value="شهري مجدول">شهري مجدول</option>
+          </select>
 
-          <button
-            style={actionButton}
-            onClick={() =>
-              (window.location.href = `/finance/${branch}/contracts/print/${contractId}`)
-            }
-          >
-            <span style={buttonContent}>
-              <span style={buttonIcon}>🖨️</span>
-              طباعة العقد
-            </span>
-          </button>
+          <input
+            style={input}
+            type="date"
+            value={paymentDueDate}
+            onChange={(e) => setPaymentDueDate(e.target.value)}
+          />
 
-          <button style={actionButton} onClick={closeContract}>
-            <span style={buttonContent}>
-              <span style={buttonIcon}>🔒</span>
-              إغلاق العقد
-            </span>
+          <input
+            style={input}
+            placeholder="مدينة التقاضي"
+            value={legalCity}
+            onChange={(e) => setLegalCity(e.target.value)}
+          />
+
+          <textarea
+            style={textarea}
+            placeholder="ملاحظات"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
+
+          <button style={saveButton} onClick={saveContract} disabled={saving}>
+            {saving ? "جاري الحفظ..." : "حفظ التعديلات"}
           </button>
         </section>
 
-        <button style={backButton} onClick={() => window.history.back()}>
-  رجوع
-</button>
+        <button
+          style={backButton}
+          onClick={() =>
+            (window.location.href = `/finance/${branch}/contracts/${contractId}`)
+          }
+        >
+          الرجوع للعقد
+        </button>
       </div>
     </main>
-  );
-}
-
-function Row({ label, value }: any) {
-  return (
-    <div style={row}>
-      <span>{label}</span>
-      <strong>{value || "-"}</strong>
-    </div>
   );
 }
 
@@ -345,7 +471,7 @@ const page = {
 
 const container = {
   width: "100%",
-  maxWidth: 1100,
+  maxWidth: 900,
   margin: "auto",
 };
 
@@ -365,83 +491,55 @@ const card = {
   marginBottom: 16,
 };
 
-const row = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 12,
-  padding: "12px 0",
-  borderBottom: "1px solid #eef2f7",
-};
-
 const sectionTitle = {
   marginTop: 0,
-  fontSize: 22,
   color: "#0d47a1",
 };
 
-const emptyBox = {
-  background: "#f8fbff",
-  border: "1px dashed #cbd5e1",
-  borderRadius: 14,
-  padding: 18,
-  textAlign: "center" as const,
-  color: "#6b7280",
-};
-
-const paymentRow = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr 1fr 140px",
-  gap: 12,
+const input = {
+  width: "100%",
   padding: 14,
-  borderBottom: "1px solid #eef2f7",
-  alignItems: "center",
-};
-
-const cancelButton = {
-  background: "#fee2e2",
-  color: "#991b1b",
-  border: "none",
-  borderRadius: 12,
-  padding: "10px 14px",
-  cursor: "pointer",
-  fontWeight: "bold",
-};
-
-const actionsSection = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
-  gap: 14,
-  marginBottom: 16,
-};
-
-const actionButton = {
-  background: "white",
+  borderRadius: 14,
   border: "1px solid #d9e3f5",
-  borderRadius: 18,
-  padding: 18,
   fontSize: 16,
+  marginBottom: 12,
+};
+
+const textarea = {
+  width: "100%",
+  minHeight: 100,
+  padding: 14,
+  borderRadius: 14,
+  border: "1px solid #d9e3f5",
+  fontSize: 16,
+  marginBottom: 12,
+};
+
+const saveButton = {
+  width: "100%",
+  padding: 16,
+  background: "#0d47a1",
+  color: "white",
+  border: "none",
+  borderRadius: 14,
+  fontSize: 17,
   fontWeight: "bold",
-  cursor: "pointer",
-  color: "#0d47a1",
-};
-
-const buttonContent = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 10,
-};
-
-const buttonIcon = {
-  fontSize: 20,
 };
 
 const backButton = {
   width: "100%",
   padding: 16,
-  background: "#111827",
-  color: "white",
-  border: "none",
+  background: "#e5e7eb",
+  color: "#0d47a1",
+  border: "1px solid #cbd5e1",
   borderRadius: 14,
   fontSize: 17,
+  fontWeight: "bold",
+  marginTop: 18,
+};
+
+const loadingBox = {
+  textAlign: "center" as const,
+  paddingTop: 80,
+  fontSize: 18,
 };
