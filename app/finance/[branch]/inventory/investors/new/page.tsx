@@ -1,0 +1,167 @@
+"use client";
+
+import { useState } from "react";
+import { useParams } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
+import { getBranchId } from "@/lib/getBranchId";
+
+export default function NewInvestorPage() {
+  const params = useParams();
+  const branch = params.branch as string;
+
+  const [investorName, setInvestorName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function saveInvestor() {
+    if (!investorName.trim()) {
+      alert("أدخل اسم المستثمر");
+      return;
+    }
+
+    const branchId = await getBranchId(branch);
+
+    if (!branchId) {
+      alert("تعذر تحديد الفرع");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const { error } = await supabase.from("finance_investors").insert([
+        {
+          branch_id: branchId,
+          investor_name: investorName.trim(),
+          phone: phone.trim() || null,
+          notes: notes.trim() || null,
+          is_active: true,
+        },
+      ]);
+
+      if (error) {
+        alert("تعذر حفظ المستثمر");
+        return;
+      }
+
+      alert("تم حفظ المستثمر بنجاح");
+      window.location.href = `/finance/${branch}/inventory`;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <main dir="rtl" style={page}>
+      <div style={container}>
+        <div style={header}>
+          <h1 style={{ margin: 0 }}>👤 إضافة مستثمر</h1>
+        </div>
+
+        <section style={card}>
+          <input
+            style={input}
+            placeholder="اسم المستثمر"
+            value={investorName}
+            onChange={(e) => setInvestorName(e.target.value)}
+          />
+
+          <input
+            style={input}
+            inputMode="numeric"
+            placeholder="رقم الجوال"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+          />
+
+          <textarea
+            style={textarea}
+            placeholder="ملاحظات"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
+
+          <button style={primaryButton} onClick={saveInvestor} disabled={saving}>
+            {saving ? "جاري الحفظ..." : "حفظ المستثمر"}
+          </button>
+        </section>
+
+        <button
+          style={backButton}
+          onClick={() => (window.location.href = `/finance/${branch}/inventory`)}
+        >
+          الرجوع للمخزون
+        </button>
+      </div>
+    </main>
+  );
+}
+
+const page = {
+  minHeight: "100vh",
+  background: "#eef5ff",
+  padding: 20,
+  fontFamily: "var(--font-almarai), sans-serif",
+};
+
+const container = {
+  width: "100%",
+  maxWidth: 800,
+  margin: "auto",
+};
+
+const header = {
+  background: "linear-gradient(135deg,#0d47a1,#1976d2)",
+  color: "white",
+  padding: 28,
+  borderRadius: 24,
+  marginBottom: 18,
+};
+
+const card = {
+  background: "white",
+  border: "1px solid #d9e3f5",
+  borderRadius: 18,
+  padding: 20,
+};
+
+const input = {
+  width: "100%",
+  padding: 14,
+  borderRadius: 14,
+  border: "1px solid #d9e3f5",
+  fontSize: 16,
+  marginBottom: 12,
+};
+
+const textarea = {
+  width: "100%",
+  minHeight: 100,
+  padding: 14,
+  borderRadius: 14,
+  border: "1px solid #d9e3f5",
+  fontSize: 16,
+  marginBottom: 12,
+};
+
+const primaryButton = {
+  width: "100%",
+  padding: 16,
+  background: "#0d47a1",
+  color: "white",
+  border: "none",
+  borderRadius: 14,
+  fontSize: 17,
+};
+
+const backButton = {
+  width: "100%",
+  padding: 16,
+  background: "#6b7280",
+  color: "#111827",
+  border: "none",
+  borderRadius: 14,
+  fontSize: 17,
+  marginTop: 18,
+};
