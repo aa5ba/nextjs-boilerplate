@@ -140,7 +140,7 @@ export default function NewFinanceContractPage() {
 
       const { data: stockData, error: stockError } = await supabase
         .from("finance_inventory")
-        .select("*")
+        .select("quantity")
         .eq("branch_id", branchId)
         .eq("investor_id", investorId)
         .eq("product_id", productId)
@@ -167,8 +167,6 @@ export default function NewFinanceContractPage() {
         }
       }
 
-      const afterQty = beforeQty - qty;
-
       const organizationSettings = await getOrganizationSettings();
 
       const printPartyName =
@@ -183,111 +181,50 @@ export default function NewFinanceContractPage() {
 
       const payment = toNumber(paymentAmount);
 
-      const { data: contractSequenceData, error: sequenceError } =
-        await supabase.rpc("nextval", {
-          seq_name: "finance_contract_number_seq",
-        });
-
-      if (sequenceError) {
-        throw new Error("تعذر توليد رقم العقد");
-      }
-
-      const contractSequence = Number(contractSequenceData);
-      const contractNumber = `CTR-${String(contractSequence).padStart(6, "0")}`;
-
-      const { data: contractData, error } = await supabase
-        .from("finance_contracts")
-        .insert([
-          {
-            branch_id: branchId,
-            customer_id: customerId,
-            finance_type: financeType,
-            contract_number: contractNumber,
-
-            investor_id: selectedInvestor.id,
-            investor_name: selectedInvestor.investor_name,
-            product_id: selectedProduct.id,
-            product_name: selectedProduct.product_name,
-            product_quantity: qty,
-
-            print_party_type: printPartyType,
-            print_party_name: printPartyName,
-            print_party_identifier: printPartyIdentifier || null,
-
-            first_party_type: printPartyType,
-            first_party_name: printPartyName,
-            first_party_identifier: printPartyIdentifier || null,
-
-            debt_amount: toNumber(debtAmount),
-            payment_amount: payment,
-            installment_amount: toNumber(installmentAmount),
-            payment_type: paymentType,
-            contract_date_hijri: contractDateHijri,
-            contract_date_gregorian: contractDateGregorian,
-            payment_due_date: paymentDueDate,
-            guarantor_name: guarantorName,
-            legal_city: legalCity,
-            judicial_amount: toNumber(judicialAmount),
-            notes,
-            contract_status: "نشط",
-            paid_amount: 0,
-            remaining_amount: payment,
-            created_by: "المدير",
-          },
-        ])
-        .select()
-        .single();
-
-      if (error) {
-        throw new Error(error.message);
-      }
-
-      const { error: inventoryError } = await supabase
-        .from("finance_inventory")
-        .update({
-          quantity: afterQty,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", stockData.id);
-
-      if (inventoryError) {
-        throw new Error(inventoryError.message);
-      }
-
-      await supabase.from("finance_inventory_movements").insert([
+      const { data: contractId, error: rpcError } = await supabase.rpc(
+        "create_finance_contract_atomic",
         {
-          branch_id: branchId,
-          investor_id: selectedInvestor.id,
-          product_id: selectedProduct.id,
-          contract_id: contractData.id,
-          customer_id: customerId,
-          movement_type: "خصم",
-          quantity: qty,
-          before_quantity: beforeQty,
-          after_quantity: afterQty,
-          notes:
-            afterQty < 0
-              ? `خصم بسبب إنشاء عقد للعميل ${selectedCustomer.full_name} مع تجاوز المخزون المتاح`
-              : `خصم بسبب إنشاء عقد للعميل ${selectedCustomer.full_name}`,
-          created_by: "المدير",
-        },
-      ]);
+          p_branch_id: branchId,
+          p_customer_id: customerId,
+          p_finance_type: financeType,
 
-      await supabase.from("finance_activity_logs").insert([
-        {
-          branch_id: branchId,
-          activity_type: "إنشاء عقد",
-          description: `تم إنشاء عقد جديد للعميل ${selectedCustomer.full_name}`,
-          customer_id: customerId,
-          contract_id: contractData.id,
-          customer_name: selectedCustomer.full_name || "",
-          employee_name: "المدير",
-          status: afterQty < 0 ? "مخزون بالسالب" : "نشط",
-        },
-      ]);
+          p_investor_id: selectedInvestor.id,
+          p_investor_name: selectedInvestor.investor_name,
+
+          p_product_id: selectedProduct.id,
+          p_product_name: selectedProduct.product_name,
+          p_product_quantity: qty,
+
+          p_print_party_type: printPartyType,
+          p_print_party_name: printPartyName,
+          p_print_party_identifier: printPartyIdentifier || "",
+
+          p_debt_amount: toNumber(debtAmount),
+          p_payment_amount: payment,
+          p_installment_amount: toNumber(installmentAmount),
+
+          p_payment_type: paymentType,
+
+          p_contract_date_hijri: contractDateHijri,
+          p_contract_date_gregorian: contractDateGregorian,
+
+          p_payment_due_date: paymentDueDate || null,
+
+          p_guarantor_name: guarantorName,
+          p_legal_city: legalCity,
+          p_judicial_amount: toNumber(judicialAmount),
+
+          p_notes: notes,
+          p_customer_name: selectedCustomer.full_name || "",
+        }
+      );
+
+      if (rpcError) {
+        throw new Error(rpcError.message);
+      }
 
       alert("تم إنشاء العقد وخصم المخزون بنجاح");
-      window.location.href = `/finance/${branch}/contracts/${contractData.id}`;
+      window.location.href = `/finance/${branch}/contracts/${contractId}`;
     } catch (error: any) {
       alert(error.message || "حدث خطأ أثناء إنشاء العقد");
     } finally {
