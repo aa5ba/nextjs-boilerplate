@@ -131,13 +131,24 @@ export default function PrintNewRequestPage() {
         </div>
 
         <div style={organizationInfo}>
-          {organizationSettings.phone && (
-            <span>جوال: {organizationSettings.phone}</span>
-          )}
+  {organizationSettings.phone && (
+    <span>جوال: {organizationSettings.phone}</span>
+  )}
 
-          {organizationSettings.commercialRecord && (
-            <span>سجل تجاري: {organizationSettings.commercialRecord}</span>
-          )}
+  {contract?.print_party_type !== "investor" &&
+    organizationSettings.commercialRecord && (
+      <span>
+        سجل تجاري: {organizationSettings.commercialRecord}
+      </span>
+    )}
+
+  {contract?.print_party_type === "investor" &&
+    firstPartyIdentifier && (
+      <span>
+        رقم هوية المستثمر: {firstPartyIdentifier}
+      </span>
+    )}
+</div>
         </div>
 
         <h1 style={title}>النموذج 1 للعقد</h1>
