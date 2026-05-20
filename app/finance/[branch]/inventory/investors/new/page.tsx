@@ -4,12 +4,14 @@ import { useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
+import { normalizeNumber } from "@/lib/numberUtils";
 
 export default function NewInvestorPage() {
   const params = useParams();
   const branch = params.branch as string;
 
   const [investorName, setInvestorName] = useState("");
+  const [nationalId, setNationalId] = useState("");
   const [phone, setPhone] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
@@ -17,6 +19,14 @@ export default function NewInvestorPage() {
   async function saveInvestor() {
     if (!investorName.trim()) {
       alert("أدخل اسم المستثمر");
+      return;
+    }
+
+    const cleanNationalId = normalizeNumber(nationalId);
+    const cleanPhone = normalizeNumber(phone);
+
+    if (cleanNationalId && cleanNationalId.length !== 10) {
+      alert("رقم هوية المستثمر يجب أن يكون 10 أرقام");
       return;
     }
 
@@ -34,14 +44,15 @@ export default function NewInvestorPage() {
         {
           branch_id: branchId,
           investor_name: investorName.trim(),
-          phone: phone.trim() || null,
+          national_id: cleanNationalId || null,
+          phone: cleanPhone || null,
           notes: notes.trim() || null,
           is_active: true,
         },
       ]);
 
       if (error) {
-        alert("تعذر حفظ المستثمر");
+        alert(error.message);
         return;
       }
 
@@ -70,9 +81,19 @@ export default function NewInvestorPage() {
           <input
             style={input}
             inputMode="numeric"
+            maxLength={10}
+            placeholder="رقم هوية المستثمر"
+            value={nationalId}
+            onChange={(e) => setNationalId(normalizeNumber(e.target.value))}
+          />
+
+          <input
+            style={input}
+            inputMode="numeric"
+            maxLength={10}
             placeholder="رقم الجوال"
             value={phone}
-            onChange={(e) => setPhone(e.target.value)}
+            onChange={(e) => setPhone(normalizeNumber(e.target.value))}
           />
 
           <textarea
@@ -158,10 +179,11 @@ const primaryButton = {
 const backButton = {
   width: "100%",
   padding: 16,
-  background: "#6b7280",
-  color: "#111827",
-  border: "none",
+  background: "#e5e7eb",
+  color: "#0d47a1",
+  border: "1px solid #cbd5e1",
   borderRadius: 14,
   fontSize: 17,
+  fontWeight: "bold",
   marginTop: 18,
 };
