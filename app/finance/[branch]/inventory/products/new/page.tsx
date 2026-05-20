@@ -44,9 +44,10 @@ export default function NewProductPage() {
       ]);
 
       if (error) {
-        alert("تعذر حفظ المنتج");
-        return;
-      }
+  console.log(error);
+  alert(error.message);
+  return;
+}
 
       alert("تم حفظ المنتج بنجاح");
       window.location.href = `/finance/${branch}/inventory`;
