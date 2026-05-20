@@ -34,19 +34,13 @@ export default function NewPromissoryNotePage() {
     
 const noteAmount = toNumber(amount);
 
-const { data: noteSequenceData } = await supabase.rpc(
-  "nextval",
-  {
-    seq_name: "finance_note_number_seq",
-  }
-);
+const { data: noteSequenceData } = await supabase.rpc("nextval", {
+  seq_name: "finance_note_number_seq",
+});
 
-const noteSequence =
-  Number(noteSequenceData || 1);
+const noteSequence = Number(noteSequenceData || 1);
 
-const noteNumber = `PNO-${String(
-  noteSequence
-).padStart(6, "0")}`;
+const noteNumber = `PNO-${String(noteSequence).padStart(6, "0")}`;
     if (noteAmount <= 0) {
       alert("أدخل مبلغ سند صحيح");
       return;
@@ -138,7 +132,7 @@ const noteNumber = `PNO-${String(
 
           <input
             style={input}
-            placeholder="تاريخ الاستحقاق"
+            type="date"
             value={dueDate}
             onChange={(e) => setDueDate(e.target.value)}
           />
