@@ -93,6 +93,8 @@ export default function EditContractPage() {
   }
 
   async function saveContract() {
+    if (saving) return;
+
     if (!branchId || !contract) {
       alert("تعذر تحميل العقد");
       return;
@@ -125,99 +127,98 @@ export default function EditContractPage() {
     }
 
     try {
-  setSaving(true);
+      setSaving(true);
 
-  const organizationSettings = await getOrganizationSettings();
+      const organizationSettings = await getOrganizationSettings();
 
-  const printPartyName =
-    printPartyType === "organization"
-      ? organizationSettings.name
-      : selectedInvestor.investor_name;
+      const printPartyName =
+        printPartyType === "organization"
+          ? organizationSettings.name
+          : selectedInvestor.investor_name;
 
-  const printPartyIdentifier =
-    printPartyType === "organization"
-      ? organizationSettings.commercialRecord
-      : selectedInvestor.national_id;
+      const printPartyIdentifier =
+        printPartyType === "organization"
+          ? organizationSettings.commercialRecord
+          : selectedInvestor.national_id;
 
-  const investorChanged = contract.investor_id !== investorId;
-  const productChanged = contract.product_id !== productId;
-  const quantityChanged = oldQty !== newQty;
+      const investorChanged = contract.investor_id !== investorId;
+      const productChanged = contract.product_id !== productId;
+      const quantityChanged = oldQty !== newQty;
 
-  if (investorChanged || productChanged || quantityChanged) {
-    await adjustInventory({
-      oldInvestorId: contract.investor_id,
-      oldProductId: contract.product_id,
-      oldQty,
-      newInvestorId: investorId,
-      newProductId: productId,
-      newQty,
-      customerId: contract.customer_id,
-      customerName: contract.finance_customers?.full_name || "",
-    });
-  }
+      if (investorChanged || productChanged || quantityChanged) {
+        await adjustInventory({
+          oldInvestorId: contract.investor_id,
+          oldProductId: contract.product_id,
+          oldQty,
+          newInvestorId: investorId,
+          newProductId: productId,
+          newQty,
+          customerId: contract.customer_id,
+          customerName: contract.finance_customers?.full_name || "",
+        });
+      }
 
-  const debt = toNumber(debtAmount);
-  const payment = toNumber(paymentAmount);
-  const paid = Number(contract.paid_amount || 0);
-  const remaining = Math.max(payment - paid, 0);
+      const debt = toNumber(debtAmount);
+      const payment = toNumber(paymentAmount);
+      const paid = Number(contract.paid_amount || 0);
+      const remaining = Math.max(payment - paid, 0);
 
-  const { error } = await supabase
-    .from("finance_contracts")
-    .update({
-      investor_id: selectedInvestor.id,
-      investor_name: selectedInvestor.investor_name,
-      product_id: selectedProduct.id,
-      product_name: selectedProduct.product_name,
-      product_quantity: newQty,
+      const { error } = await supabase
+        .from("finance_contracts")
+        .update({
+          investor_id: selectedInvestor.id,
+          investor_name: selectedInvestor.investor_name,
+          product_id: selectedProduct.id,
+          product_name: selectedProduct.product_name,
+          product_quantity: newQty,
 
-      print_party_type: printPartyType,
-      print_party_name: printPartyName,
-      print_party_identifier: printPartyIdentifier || null,
+          print_party_type: printPartyType,
+          print_party_name: printPartyName,
+          print_party_identifier: printPartyIdentifier || null,
 
-      first_party_type: printPartyType,
-      first_party_name: printPartyName,
-      first_party_identifier: printPartyIdentifier || null,
+          first_party_type: printPartyType,
+          first_party_name: printPartyName,
+          first_party_identifier: printPartyIdentifier || null,
 
-      debt_amount: debt,
-      payment_amount: payment,
-      installment_amount: toNumber(installmentAmount),
-      payment_type: paymentType,
-      payment_due_date: paymentDueDate,
-      legal_city: legalCity,
-      notes,
-      remaining_amount: remaining,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", contractId)
-    .eq("branch_id", branchId);
+          debt_amount: debt,
+          payment_amount: payment,
+          installment_amount: toNumber(installmentAmount),
+          payment_type: paymentType,
+          payment_due_date: paymentDueDate,
+          legal_city: legalCity,
+          notes,
+          remaining_amount: remaining,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", contractId)
+        .eq("branch_id", branchId);
 
-  if (error) {
-    alert(error.message);
-    return;
-  }
+      if (error) {
+        throw new Error(error.message);
+      }
 
-  await supabase.from("finance_activity_logs").insert([
-    {
-      branch_id: branchId,
-      activity_type: "تعديل عقد",
-      description: `تم تعديل عقد العميل ${
-        contract.finance_customers?.full_name || ""
-      }`,
-      customer_id: contract.customer_id,
-      contract_id: contractId,
-      customer_name: contract.finance_customers?.full_name || "",
-      employee_name: "المدير",
-      status: contract.contract_status || "نشط",
-    },
-  ]);
+      await supabase.from("finance_activity_logs").insert([
+        {
+          branch_id: branchId,
+          activity_type: "تعديل عقد",
+          description: `تم تعديل عقد العميل ${
+            contract.finance_customers?.full_name || ""
+          }`,
+          customer_id: contract.customer_id,
+          contract_id: contractId,
+          customer_name: contract.finance_customers?.full_name || "",
+          employee_name: "المدير",
+          status: contract.contract_status || "نشط",
+        },
+      ]);
 
-  alert("تم حفظ تعديل العقد بنجاح");
-  window.location.href = `/finance/${branch}/contracts/${contractId}`;
-} catch (error: any) {
-  alert(error.message || "حدث خطأ أثناء تعديل العقد");
-} finally {
-  setSaving(false);
-}
+      alert("تم حفظ تعديل العقد بنجاح");
+      window.location.href = `/finance/${branch}/contracts/${contractId}`;
+    } catch (error: any) {
+      alert(error.message || "حدث خطأ أثناء تعديل العقد");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function adjustInventory({
@@ -230,48 +231,14 @@ export default function EditContractPage() {
     customerId,
     customerName,
   }: any) {
-    if (!branchId) return;
-
-    if (oldInvestorId && oldProductId && oldQty > 0) {
-      const { data: oldStock } = await supabase
-        .from("finance_inventory")
-        .select("*")
-        .eq("branch_id", branchId)
-        .eq("investor_id", oldInvestorId)
-        .eq("product_id", oldProductId)
-        .maybeSingle();
-
-      if (oldStock) {
-        const before = Number(oldStock.quantity || 0);
-        const after = before + oldQty;
-
-        await supabase
-          .from("finance_inventory")
-          .update({
-            quantity: after,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", oldStock.id);
-
-        await supabase.from("finance_inventory_movements").insert([
-          {
-            branch_id: branchId,
-            investor_id: oldInvestorId,
-            product_id: oldProductId,
-            contract_id: contractId,
-            customer_id: customerId,
-            movement_type: "إرجاع",
-            quantity: oldQty,
-            before_quantity: before,
-            after_quantity: after,
-            notes: `إرجاع كمية بسبب تعديل عقد العميل ${customerName}`,
-            created_by: "المدير",
-          },
-        ]);
-      }
+    if (!branchId) {
+      throw new Error("تعذر تحديد الفرع");
     }
 
-    const { data: newStock } = await supabase
+    const isSameStock =
+      oldInvestorId === newInvestorId && oldProductId === newProductId;
+
+    const { data: newStock, error: newStockError } = await supabase
       .from("finance_inventory")
       .select("*")
       .eq("branch_id", branchId)
@@ -279,25 +246,132 @@ export default function EditContractPage() {
       .eq("product_id", newProductId)
       .maybeSingle();
 
+    if (newStockError) {
+      throw new Error(newStockError.message);
+    }
+
     if (!newStock) {
       throw new Error("لا يوجد مخزون للمستثمر والمنتج الجديد");
     }
 
-    const beforeNew = Number(newStock.quantity || 0);
+    const currentNewStockQty = Number(newStock.quantity || 0);
 
-    if (beforeNew < newQty) {
+    if (isSameStock) {
+      const difference = newQty - oldQty;
+
+      if (difference === 0) return;
+
+      if (difference > 0 && currentNewStockQty < difference) {
+        throw new Error("الكمية الجديدة أكبر من المخزون المتاح");
+      }
+
+      const afterQty =
+        difference > 0
+          ? currentNewStockQty - difference
+          : currentNewStockQty + Math.abs(difference);
+
+      const { error: updateError } = await supabase
+        .from("finance_inventory")
+        .update({
+          quantity: afterQty,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", newStock.id);
+
+      if (updateError) {
+        throw new Error(updateError.message);
+      }
+
+      const movementType = difference > 0 ? "خصم" : "إرجاع";
+      const movementQty = Math.abs(difference);
+
+      await supabase.from("finance_inventory_movements").insert([
+        {
+          branch_id: branchId,
+          investor_id: newInvestorId,
+          product_id: newProductId,
+          contract_id: contractId,
+          customer_id: customerId,
+          movement_type: movementType,
+          quantity: movementQty,
+          before_quantity: currentNewStockQty,
+          after_quantity: afterQty,
+          notes: `${movementType} فرق الكمية بسبب تعديل عقد العميل ${customerName}`,
+          created_by: "المدير",
+        },
+      ]);
+
+      return;
+    }
+
+    if (currentNewStockQty < newQty) {
       throw new Error("الكمية الجديدة أكبر من المخزون المتاح");
     }
 
-    const afterNew = beforeNew - newQty;
+    let oldStock: any = null;
 
-    await supabase
+    if (oldInvestorId && oldProductId && oldQty > 0) {
+      const { data: oldStockData, error: oldStockError } = await supabase
+        .from("finance_inventory")
+        .select("*")
+        .eq("branch_id", branchId)
+        .eq("investor_id", oldInvestorId)
+        .eq("product_id", oldProductId)
+        .maybeSingle();
+
+      if (oldStockError) {
+        throw new Error(oldStockError.message);
+      }
+
+      oldStock = oldStockData;
+    }
+
+    if (oldInvestorId && oldProductId && oldQty > 0 && oldStock) {
+      const beforeOld = Number(oldStock.quantity || 0);
+      const afterOld = beforeOld + oldQty;
+
+      const { error: returnError } = await supabase
+        .from("finance_inventory")
+        .update({
+          quantity: afterOld,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", oldStock.id);
+
+      if (returnError) {
+        throw new Error(returnError.message);
+      }
+
+      await supabase.from("finance_inventory_movements").insert([
+        {
+          branch_id: branchId,
+          investor_id: oldInvestorId,
+          product_id: oldProductId,
+          contract_id: contractId,
+          customer_id: customerId,
+          movement_type: "إرجاع",
+          quantity: oldQty,
+          before_quantity: beforeOld,
+          after_quantity: afterOld,
+          notes: `إرجاع كمية بسبب تعديل عقد العميل ${customerName}`,
+          created_by: "المدير",
+        },
+      ]);
+    }
+
+    const afterNew = currentNewStockQty - newQty;
+
+    const { error: deductError } = await supabase
       .from("finance_inventory")
       .update({
         quantity: afterNew,
         updated_at: new Date().toISOString(),
       })
       .eq("id", newStock.id);
+
+    if (deductError) {
+      throw new Error(deductError.message);
+    }
 
     await supabase.from("finance_inventory_movements").insert([
       {
@@ -308,7 +382,7 @@ export default function EditContractPage() {
         customer_id: customerId,
         movement_type: "خصم",
         quantity: newQty,
-        before_quantity: beforeNew,
+        before_quantity: currentNewStockQty,
         after_quantity: afterNew,
         notes: `خصم كمية جديدة بسبب تعديل عقد العميل ${customerName}`,
         created_by: "المدير",
