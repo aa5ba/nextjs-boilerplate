@@ -15,11 +15,11 @@ export default function PrintNewRequestPage() {
   const [contract, setContract] = useState<any>(null);
   const [note, setNote] = useState<any>(null);
   const [organizationSettings, setOrganizationSettings] = useState({
-  name: "احتساب",
-  phone: "",
-  city: "",
-  commercialRecord: "",
-});
+    name: "احتساب",
+    phone: "",
+    city: "",
+    commercialRecord: "",
+  });
 
   useEffect(() => {
     loadData();
@@ -77,7 +77,7 @@ export default function PrintNewRequestPage() {
 
     const orgSettings = await getOrganizationSettings();
 
-setOrganizationSettings(orgSettings);
+    setOrganizationSettings(orgSettings);
     setContract(contractData);
     setNote(noteData);
   }
@@ -103,7 +103,7 @@ setOrganizationSettings(orgSettings);
   const firstPartyName =
     contract?.first_party_name ||
     contract?.investor_name ||
-    organizationName ||
+    organizationSettings.name ||
     "................";
 
   return (
@@ -111,11 +111,21 @@ setOrganizationSettings(orgSettings);
       <section style={printArea}>
         <div style={topLine}>
           <span>المملكة العربية السعودية</span>
-          <span>بيع * شراء</span>
+          <span>{organizationSettings.city || "بيع * شراء"}</span>
         </div>
 
         <div style={logoBox}>
-          <div style={organizationLogoText}>{organizationName}</div>
+          <div style={organizationLogoText}>{organizationSettings.name}</div>
+        </div>
+
+        <div style={organizationInfo}>
+          {organizationSettings.phone && (
+            <span>جوال: {organizationSettings.phone}</span>
+          )}
+
+          {organizationSettings.commercialRecord && (
+            <span>سجل تجاري: {organizationSettings.commercialRecord}</span>
+          )}
         </div>
 
         <h1 style={title}>النموذج 1 للعقد</h1>
@@ -202,11 +212,21 @@ setOrganizationSettings(orgSettings);
       <section style={secondPrintArea}>
         <div style={topLine}>
           <span>المملكة العربية السعودية</span>
-          <span>بيع * شراء</span>
+          <span>{organizationSettings.city || "بيع * شراء"}</span>
         </div>
 
         <div style={logoBox}>
-          <div style={organizationLogoText}>{organizationName}</div>
+          <div style={organizationLogoText}>{organizationSettings.name}</div>
+        </div>
+
+        <div style={organizationInfo}>
+          {organizationSettings.phone && (
+            <span>جوال: {organizationSettings.phone}</span>
+          )}
+
+          {organizationSettings.commercialRecord && (
+            <span>سجل تجاري: {organizationSettings.commercialRecord}</span>
+          )}
         </div>
 
         <h1 style={title}>النموذج 1 للسند</h1>
@@ -224,8 +244,8 @@ setOrganizationSettings(orgSettings);
 
         <p style={paragraph}>
           حرر هذا السند في مدينة{" "}
-          <strong>{note?.city || "................"}</strong>، وبموجب هذا السند
-          أتعهد أنا الموقع أدناه بأن أدفع لأمر الطرف المستفيد /
+          <strong>{note?.city || organizationSettings.city || "................"}</strong>،
+          وبموجب هذا السند أتعهد أنا الموقع أدناه بأن أدفع لأمر الطرف المستفيد /
           <strong> {firstPartyName}</strong> مبلغًا وقدره{" "}
           <strong>{note?.amount || 0}</strong> ريال سعودي.
         </p>
@@ -336,6 +356,15 @@ const organizationLogoText = {
   color: "#0f172a",
   lineHeight: 1.5,
   padding: 4,
+};
+
+const organizationInfo = {
+  display: "flex",
+  justifyContent: "center",
+  gap: 12,
+  fontSize: 10.5,
+  color: "#475569",
+  marginBottom: 6,
 };
 
 const title = {
