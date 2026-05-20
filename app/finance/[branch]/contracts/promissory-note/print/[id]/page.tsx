@@ -352,14 +352,28 @@ const signatureBox = {
 const printButton = {
   width: "100%",
   maxWidth: 850,
-  display: "block",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 10,
+
   margin: "20px auto 0",
   padding: 16,
-  background: "#0d47a1",
+
+  background: "linear-gradient(135deg,#0d47a1,#1976d2)",
   color: "white",
+
   border: "none",
-  borderRadius: 14,
+  borderRadius: 16,
+
   fontSize: 17,
+  fontWeight: "bold",
+
+  cursor: "pointer",
+
+  boxShadow: "0 10px 25px rgba(13,71,161,0.18)",
+
+  transition: "0.2s",
 };
 
 const backButton = {
