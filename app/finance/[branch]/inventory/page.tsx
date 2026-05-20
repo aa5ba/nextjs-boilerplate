@@ -320,10 +320,11 @@ const emptyBox = {
 const backButton = {
   width: "100%",
   padding: 16,
-  background: "#6b7280",
-  color: "#111827",
-  border: "none",
+  background: "#e5e7eb",
+  color: "#0d47a1",
+  border: "1px solid #cbd5e1",
   borderRadius: 14,
   fontSize: 17,
+  fontWeight: "bold",
   marginTop: 18,
 };
