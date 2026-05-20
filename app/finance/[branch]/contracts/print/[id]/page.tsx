@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
+import { getOrganizationSettings } from "@/lib/getOrganizationSettings";
 
 export default function PrintContractPage() {
   const params = useParams();
@@ -12,9 +13,35 @@ export default function PrintContractPage() {
   const contractId = params.id as string;
 
   const [contract, setContract] = useState<any>(null);
+  const [organizationSettings, setOrganizationSettings] = useState({
+    name: "احتساب",
+    phone: "",
+    city: "",
+    commercialRecord: "",
+  });
 
   useEffect(() => {
     loadContract();
+
+    const style = document.createElement("style");
+    style.innerHTML = `
+      @media print {
+        button { display: none !important; }
+        body { background: white !important; }
+        main { padding: 0 !important; background: white !important; }
+      }
+
+      @page {
+        size: A4;
+        margin: 8mm;
+      }
+    `;
+
+    document.head.appendChild(style);
+
+    return () => {
+      document.head.removeChild(style);
+    };
   }, [branch, contractId]);
 
   async function loadContract() {
@@ -34,26 +61,62 @@ export default function PrintContractPage() {
       .eq("branch_id", branchId)
       .single();
 
+    const orgSettings = await getOrganizationSettings();
+
+    setOrganizationSettings(orgSettings);
     setContract(data);
   }
 
   const customerName =
     contract?.finance_customers?.full_name || "................";
+
   const nationalId =
     contract?.finance_customers?.national_id || "................";
+
   const phone = contract?.finance_customers?.phone || "................";
+
   const birthHijri =
     contract?.finance_customers?.birth_hijri || "................";
 
+  const firstPartyName =
+    contract?.print_party_name ||
+    contract?.first_party_name ||
+    contract?.investor_name ||
+    organizationSettings.name ||
+    "................";
+
+  const firstPartyIdentifier =
+    contract?.print_party_identifier ||
+    contract?.first_party_identifier ||
+    "";
+
+  const firstPartyIdentifierLabel =
+    contract?.print_party_type === "investor" ||
+    contract?.first_party_type === "investor"
+      ? "رقم الهوية"
+      : "السجل التجاري";
+
   return (
     <main dir="rtl" style={page}>
-      <div style={printArea}>
+      <section style={printArea}>
         <div style={topLine}>
           <span>المملكة العربية السعودية</span>
-          <span>بيع * شراء</span>
+          <span>{organizationSettings.city || "بيع * شراء"}</span>
         </div>
 
-        <div style={logoBox}>الشعار</div>
+        <div style={logoBox}>
+          <div style={organizationLogoText}>{organizationSettings.name}</div>
+        </div>
+
+        <div style={organizationInfo}>
+          {organizationSettings.phone && (
+            <span>جوال: {organizationSettings.phone}</span>
+          )}
+
+          {organizationSettings.commercialRecord && (
+            <span>سجل تجاري: {organizationSettings.commercialRecord}</span>
+          )}
+        </div>
 
         <h1 style={title}>النموذج 1 للعقد</h1>
         <h2 style={subtitle}>عقد اتفاق بيع</h2>
@@ -79,7 +142,14 @@ export default function PrintContractPage() {
           رقم الهوية / <strong>{nationalId}</strong>، تاريخ الميلاد /
           <strong> {birthHijri}</strong>، رقم الجوال /
           <strong> {phone}</strong>، بأني اشتريت من الطرف الأول /
-          <strong> {contract?.investor_name || "................"}</strong>.
+          <strong> {firstPartyName}</strong>
+          {firstPartyIdentifier ? (
+            <>
+              ، {firstPartyIdentifierLabel} /{" "}
+              <strong>{firstPartyIdentifier}</strong>
+            </>
+          ) : null}
+          .
         </p>
 
         <p style={paragraph}>
@@ -103,8 +173,8 @@ export default function PrintContractPage() {
 
         <p style={paragraph}>
           كما يقر الطرف الثاني بأنه اطلع على كامل بنود هذا العقد، وأنه ملتزم
-          بالسداد في المواعيد المتفق عليها، وفي حال التأخر يحق للطرف الأول
-          اتخاذ الإجراءات النظامية اللازمة للمطالبة بكامل المبلغ المتبقي.
+          بالسداد في المواعيد المتفق عليها، وفي حال التأخر يحق للطرف الأول اتخاذ
+          الإجراءات النظامية اللازمة للمطالبة بكامل المبلغ المتبقي.
         </p>
 
         <p style={paragraph}>
@@ -114,7 +184,11 @@ export default function PrintContractPage() {
         <div style={signatures}>
           <div style={signatureBox}>
             <strong>الطرف الأول البائع</strong>
-            <div>الاسم / {contract?.investor_name || "................"}</div>
+            <div>الاسم / {firstPartyName}</div>
+            <div>
+              {firstPartyIdentifierLabel} /{" "}
+              {firstPartyIdentifier || "................"}
+            </div>
             <div>التوقيع / ................</div>
           </div>
 
@@ -134,7 +208,7 @@ export default function PrintContractPage() {
           <div>الجوال / ................</div>
           <div>التوقيع / ................</div>
         </div>
-      </div>
+      </section>
 
       <button style={printButton} onClick={() => window.print()}>
         🖨️ طباعة العقد
@@ -161,84 +235,107 @@ const page = {
 
 const printArea = {
   background: "white",
-  maxWidth: 850,
-  margin: "auto",
-  padding: 38,
-  borderRadius: 18,
-  lineHeight: 2,
+  width: "190mm",
+  minHeight: "257mm",
+  margin: "0 auto",
+  overflow: "hidden" as const,
+  padding: "7mm",
+  borderRadius: 0,
+  lineHeight: 1.45,
   color: "#111827",
+  boxSizing: "border-box" as const,
 };
 
 const topLine = {
   display: "flex",
   justifyContent: "space-between",
-  fontSize: 15,
+  fontSize: 12,
   fontWeight: "bold",
-  marginBottom: 16,
+  marginBottom: 8,
 };
 
 const logoBox = {
-  width: 90,
-  height: 90,
-  margin: "0 auto 14px",
+  width: 55,
+  height: 55,
+  margin: "0 auto 6px",
   border: "1px dashed #94a3b8",
-  borderRadius: 18,
+  borderRadius: 10,
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
   color: "#64748b",
-  fontSize: 14,
+  fontSize: 11,
+};
+
+const organizationLogoText = {
+  textAlign: "center" as const,
+  fontSize: 11,
+  fontWeight: "bold",
+  color: "#0f172a",
+  lineHeight: 1.5,
+  padding: 4,
+};
+
+const organizationInfo = {
+  display: "flex",
+  justifyContent: "center",
+  gap: 12,
+  fontSize: 10.5,
+  color: "#475569",
+  marginBottom: 6,
 };
 
 const title = {
   textAlign: "center" as const,
   color: "#0d47a1",
-  fontSize: 22,
-  margin: "0 0 4px",
+  fontSize: 16,
+  margin: "0 0 2px",
 };
 
 const subtitle = {
   textAlign: "center" as const,
   color: "#111827",
-  fontSize: 24,
-  margin: "0 0 20px",
+  fontSize: 20,
+  margin: "0 0 10px",
   textDecoration: "underline",
 };
 
 const metaRow = {
   display: "flex",
   justifyContent: "space-between",
-  gap: 20,
+  gap: 14,
   borderBottom: "1px solid #e5e7eb",
-  paddingBottom: 8,
-  marginBottom: 8,
-  fontSize: 15,
+  paddingBottom: 4,
+  marginBottom: 5,
+  fontSize: 12,
 };
 
 const paragraph = {
-  fontSize: 16,
-  margin: "12px 0",
+  fontSize: 12.5,
+  margin: "5px 0",
   textAlign: "justify" as const,
 };
 
 const signatures = {
   display: "grid",
   gridTemplateColumns: "1fr 1fr",
-  gap: 24,
-  marginTop: 40,
+  gap: 16,
+  marginTop: 16,
 };
 
 const signatureBox = {
   borderTop: "1px solid #111827",
-  paddingTop: 12,
-  lineHeight: 2,
+  paddingTop: 8,
+  lineHeight: 1.7,
+  fontSize: 12.5,
 };
 
 const guarantorBox = {
-  marginTop: 30,
+  marginTop: 16,
   borderTop: "1px solid #111827",
-  paddingTop: 12,
-  lineHeight: 2,
+  paddingTop: 8,
+  lineHeight: 1.7,
+  fontSize: 12.5,
 };
 
 const printButton = {
@@ -260,32 +357,10 @@ const backButton = {
   display: "block",
   margin: "12px auto 0",
   padding: 16,
-  background: "#111827",
-  color: "white",
-  border: "none",
+  background: "#e5e7eb",
+  color: "#0d47a1",
+  border: "1px solid #cbd5e1",
   borderRadius: 14,
   fontSize: 17,
+  fontWeight: "bold",
 };
-
-if (typeof window !== "undefined") {
-  const style = document.createElement("style");
-
-  style.innerHTML = `
-    @media print {
-      button {
-        display: none !important;
-      }
-
-      body {
-        background: white !important;
-      }
-    }
-
-    @page {
-      size: A4;
-      margin: 12mm;
-    }
-  `;
-
-  document.head.appendChild(style);
-}
