@@ -24,9 +24,13 @@ export default function FinanceSettingsPage() {
   async function loadSettings() {
     setLoading(true);
 
-    const { data } = await supabase
-      .from("finance_settings")
-      .select("*");
+    const { data, error } = await supabase.from("finance_settings").select("*");
+
+    if (error) {
+      alert(error.message);
+      setLoading(false);
+      return;
+    }
 
     if (data) {
       const getValue = (key: string) =>
@@ -35,22 +39,22 @@ export default function FinanceSettingsPage() {
       setOrganizationName(getValue("organization_name"));
       setOrganizationPhone(getValue("organization_phone"));
       setOrganizationCity(getValue("organization_city"));
-      setOrganizationCommercialRecord(
-        getValue("organization_commercial_record")
-      );
+      setOrganizationCommercialRecord(getValue("organization_commercial_record"));
     }
 
     setLoading(false);
   }
 
   async function saveSetting(key: string, value: string) {
-    await supabase
+    const { error } = await supabase
       .from("finance_settings")
       .update({
-        setting_value: value,
+        setting_value: value.trim(),
         updated_at: new Date().toISOString(),
       })
       .eq("setting_key", key);
+
+    if (error) throw error;
   }
 
   async function saveSettings() {
@@ -58,20 +62,16 @@ export default function FinanceSettingsPage() {
       setSaving(true);
 
       await saveSetting("organization_name", organizationName);
-
       await saveSetting("organization_phone", organizationPhone);
-
       await saveSetting("organization_city", organizationCity);
-
       await saveSetting(
         "organization_commercial_record",
         organizationCommercialRecord
       );
 
       alert("تم حفظ الإعدادات بنجاح");
-    } catch (error) {
-      console.error(error);
-      alert("حدث خطأ أثناء الحفظ");
+    } catch (error: any) {
+      alert(error?.message || "حدث خطأ أثناء الحفظ");
     } finally {
       setSaving(false);
     }
@@ -89,66 +89,79 @@ export default function FinanceSettingsPage() {
     <main dir="rtl" style={page}>
       <div style={container}>
         <div style={header}>
-          <h1 style={{ margin: 0 }}>إعدادات النظام</h1>
+          <h1 style={{ margin: 0 }}>⚙️ إعدادات النظام</h1>
+          <p style={headerText}>
+            بيانات المنظمة تظهر في العقود والسندات والطباعة الرسمية.
+          </p>
         </div>
 
         <section style={card}>
           <h2 style={sectionTitle}>بيانات المنظمة</h2>
 
-          <input
-            style={input}
-            type="text"
-            placeholder="اسم المنظمة"
-            value={organizationName}
-            onChange={(e) => setOrganizationName(e.target.value)}
-          />
+          <Field label="اسم المنظمة">
+            <input
+              style={input}
+              type="text"
+              placeholder="مثال: مؤسسة احتساب للتقسيط"
+              value={organizationName}
+              onChange={(e) => setOrganizationName(e.target.value)}
+            />
+          </Field>
 
-          <input
-            style={input}
-            type="text"
-            inputMode="numeric"
-            placeholder="رقم الجوال"
-            value={organizationPhone}
-            onChange={(e) => setOrganizationPhone(e.target.value)}
-          />
+          <Field label="رقم الجوال">
+            <input
+              style={input}
+              type="text"
+              inputMode="numeric"
+              placeholder="05xxxxxxxx"
+              value={organizationPhone}
+              onChange={(e) => setOrganizationPhone(e.target.value)}
+            />
+          </Field>
 
-          <input
-            style={input}
-            type="text"
-            placeholder="المدينة"
-            value={organizationCity}
-            onChange={(e) => setOrganizationCity(e.target.value)}
-          />
+          <Field label="المدينة">
+            <input
+              style={input}
+              type="text"
+              placeholder="مثال: المدينة المنورة"
+              value={organizationCity}
+              onChange={(e) => setOrganizationCity(e.target.value)}
+            />
+          </Field>
 
-          <input
-            style={input}
-            type="text"
-            placeholder="رقم السجل التجاري"
-            value={organizationCommercialRecord}
-            onChange={(e) =>
-              setOrganizationCommercialRecord(e.target.value)
-            }
-          />
+          <Field label="رقم السجل التجاري">
+            <input
+              style={input}
+              type="text"
+              inputMode="numeric"
+              placeholder="أدخل رقم السجل التجاري"
+              value={organizationCommercialRecord}
+              onChange={(e) => setOrganizationCommercialRecord(e.target.value)}
+            />
+          </Field>
 
-          <button
-            style={saveButton}
-            onClick={saveSettings}
-            disabled={saving}
-          >
+          <button style={saveButton} onClick={saveSettings} disabled={saving}>
             {saving ? "جاري الحفظ..." : "حفظ الإعدادات"}
           </button>
         </section>
 
         <button
           style={backButton}
-          onClick={() =>
-            (window.location.href = `/finance/${branch}`)
-          }
+          onClick={() => (window.location.href = `/finance/${branch}`)}
         >
           الرجوع لمحطة العمل الرئيسية
         </button>
       </div>
     </main>
+  );
+}
+
+function Field({ label, children }: any) {
+  return (
+    <div style={fieldBox}>
+      <label style={labelStyle}>{label}</label>
+      {children}
+    </div>
   );
 }
 
@@ -173,6 +186,12 @@ const header = {
   marginBottom: 18,
 };
 
+const headerText = {
+  margin: "10px 0 0",
+  opacity: 0.9,
+  fontSize: 15,
+};
+
 const card = {
   background: "white",
   border: "1px solid #d9e3f5",
@@ -186,13 +205,25 @@ const sectionTitle = {
   color: "#0d47a1",
 };
 
+const fieldBox = {
+  marginBottom: 12,
+};
+
+const labelStyle = {
+  display: "block",
+  marginBottom: 7,
+  color: "#0f172a",
+  fontWeight: "bold",
+  fontSize: 14,
+};
+
 const input = {
   width: "100%",
   padding: 14,
   borderRadius: 14,
   border: "1px solid #d9e3f5",
   fontSize: 16,
-  marginBottom: 12,
+  boxSizing: "border-box" as const,
 };
 
 const saveButton = {
@@ -204,16 +235,18 @@ const saveButton = {
   borderRadius: 14,
   fontSize: 17,
   marginTop: 8,
+  fontWeight: "bold",
 };
 
 const backButton = {
   width: "100%",
   padding: 16,
-  background: "#111827",
-  color: "white",
-  border: "none",
+  background: "#e5e7eb",
+  color: "#0d47a1",
+  border: "1px solid #cbd5e1",
   borderRadius: 14,
   fontSize: 17,
+  fontWeight: "bold",
   marginTop: 18,
 };
 
