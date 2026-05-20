@@ -186,9 +186,34 @@ export default function FinanceContractDetailsPage() {
           />
           <Row label="رقم الجوال" value={contract?.finance_customers?.phone} />
           <Row label="نوع التمويل" value={contract?.finance_type} />
-          <Row label="المستثمر" value={contract?.investor_name || "-"} />
-          <Row label="المنتج" value={contract?.product_name || "-"} />
-          <Row label="كمية المنتجات" value={contract?.product_quantity} />
+          <Row
+  label="المستثمر المرتبط بالمخزون"
+  value={contract?.investor_name || "-"}
+/>
+
+<Row
+  label="المنتج"
+  value={contract?.product_name || "-"}
+/>
+
+<Row
+  label="كمية المنتجات"
+  value={contract?.product_quantity || "-"}
+/>
+
+<Row
+  label="الطرف الأول في الطباعة"
+  value={contract?.print_party_name || "-"}
+/>
+
+<Row
+  label={
+    contract?.print_party_type === "investor"
+      ? "هوية الطرف الأول"
+      : "السجل التجاري للطرف الأول"
+  }
+  value={contract?.print_party_identifier || "-"}
+/>
           <Row label="مبلغ الدين" value={`${contract?.debt_amount || 0} ر.س`} />
           <Row
             label="مبلغ السداد"
