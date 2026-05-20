@@ -150,6 +150,19 @@ export default function NewFinanceContractPage() {
 
       const payment = toNumber(paymentAmount);
 
+      const { data: contractSequenceData } = await supabase.rpc(
+  "nextval",
+  {
+    seq_name: "finance_contract_number_seq",
+  }
+);
+
+const contractSequence =
+  Number(contractSequenceData || 1);
+
+const contractNumber = `CTR-${String(
+  contractSequence
+).padStart(6, "0")}`;
       const { data: contractData, error } = await supabase
         .from("finance_contracts")
         .insert([
@@ -157,6 +170,7 @@ export default function NewFinanceContractPage() {
             branch_id: branchId,
             customer_id: customerId,
             finance_type: financeType,
+            contract_number: contractNumber,
 
             investor_id: selectedInvestor.id,
             investor_name: selectedInvestor.investor_name,
