@@ -125,97 +125,99 @@ export default function EditContractPage() {
     }
 
     try {
-      setSaving(true);
+  setSaving(true);
 
-      const organizationSettings = await getOrganizationSettings();
+  const organizationSettings = await getOrganizationSettings();
 
-      const printPartyName =
-        printPartyType === "organization"
-          ? organizationSettings.name
-          : selectedInvestor.investor_name;
+  const printPartyName =
+    printPartyType === "organization"
+      ? organizationSettings.name
+      : selectedInvestor.investor_name;
 
-      const printPartyIdentifier =
-        printPartyType === "organization"
-          ? organizationSettings.commercialRecord
-          : selectedInvestor.national_id;
+  const printPartyIdentifier =
+    printPartyType === "organization"
+      ? organizationSettings.commercialRecord
+      : selectedInvestor.national_id;
 
-      const investorChanged = contract.investor_id !== investorId;
-      const productChanged = contract.product_id !== productId;
-      const quantityChanged = oldQty !== newQty;
+  const investorChanged = contract.investor_id !== investorId;
+  const productChanged = contract.product_id !== productId;
+  const quantityChanged = oldQty !== newQty;
 
-      if (investorChanged || productChanged || quantityChanged) {
-        await adjustInventory({
-          oldInvestorId: contract.investor_id,
-          oldProductId: contract.product_id,
-          oldQty,
-          newInvestorId: investorId,
-          newProductId: productId,
-          newQty,
-          customerId: contract.customer_id,
-          customerName: contract.finance_customers?.full_name || "",
-        });
-      }
+  if (investorChanged || productChanged || quantityChanged) {
+    await adjustInventory({
+      oldInvestorId: contract.investor_id,
+      oldProductId: contract.product_id,
+      oldQty,
+      newInvestorId: investorId,
+      newProductId: productId,
+      newQty,
+      customerId: contract.customer_id,
+      customerName: contract.finance_customers?.full_name || "",
+    });
+  }
 
-      const debt = toNumber(debtAmount);
-      const payment = toNumber(paymentAmount);
-      const paid = Number(contract.paid_amount || 0);
-      const remaining = Math.max(payment - paid, 0);
+  const debt = toNumber(debtAmount);
+  const payment = toNumber(paymentAmount);
+  const paid = Number(contract.paid_amount || 0);
+  const remaining = Math.max(payment - paid, 0);
 
-      const { error } = await supabase
-        .from("finance_contracts")
-        .update({
-          investor_id: selectedInvestor.id,
-          investor_name: selectedInvestor.investor_name,
-          product_id: selectedProduct.id,
-          product_name: selectedProduct.product_name,
-          product_quantity: newQty,
+  const { error } = await supabase
+    .from("finance_contracts")
+    .update({
+      investor_id: selectedInvestor.id,
+      investor_name: selectedInvestor.investor_name,
+      product_id: selectedProduct.id,
+      product_name: selectedProduct.product_name,
+      product_quantity: newQty,
 
-          print_party_type: printPartyType,
-          print_party_name: printPartyName,
-          print_party_identifier: printPartyIdentifier || null,
+      print_party_type: printPartyType,
+      print_party_name: printPartyName,
+      print_party_identifier: printPartyIdentifier || null,
 
-          first_party_type: printPartyType,
-          first_party_name: printPartyName,
-          first_party_identifier: printPartyIdentifier || null,
+      first_party_type: printPartyType,
+      first_party_name: printPartyName,
+      first_party_identifier: printPartyIdentifier || null,
 
-          debt_amount: debt,
-          payment_amount: payment,
-          installment_amount: toNumber(installmentAmount),
-          payment_type: paymentType,
-          payment_due_date: paymentDueDate,
-          legal_city: legalCity,
-          notes,
-          remaining_amount: remaining,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", contractId)
-        .eq("branch_id", branchId);
+      debt_amount: debt,
+      payment_amount: payment,
+      installment_amount: toNumber(installmentAmount),
+      payment_type: paymentType,
+      payment_due_date: paymentDueDate,
+      legal_city: legalCity,
+      notes,
+      remaining_amount: remaining,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", contractId)
+    .eq("branch_id", branchId);
 
-      if (error) {
-        alert(error.message);
-        return;
-      }
+  if (error) {
+    alert(error.message);
+    return;
+  }
 
-      await supabase.from("finance_activity_logs").insert([
-        {
-          branch_id: branchId,
-          activity_type: "تعديل عقد",
-          description: `تم تعديل عقد العميل ${
-            contract.finance_customers?.full_name || ""
-          }`,
-          customer_id: contract.customer_id,
-          contract_id: contractId,
-          customer_name: contract.finance_customers?.full_name || "",
-          employee_name: "المدير",
-          status: contract.contract_status || "نشط",
-        },
-      ]);
+  await supabase.from("finance_activity_logs").insert([
+    {
+      branch_id: branchId,
+      activity_type: "تعديل عقد",
+      description: `تم تعديل عقد العميل ${
+        contract.finance_customers?.full_name || ""
+      }`,
+      customer_id: contract.customer_id,
+      contract_id: contractId,
+      customer_name: contract.finance_customers?.full_name || "",
+      employee_name: "المدير",
+      status: contract.contract_status || "نشط",
+    },
+  ]);
 
-      alert("تم حفظ تعديل العقد بنجاح");
-      window.location.href = `/finance/${branch}/contracts/${contractId}`;
-    } finally {
-      setSaving(false);
-    }
+  alert("تم حفظ تعديل العقد بنجاح");
+  window.location.href = `/finance/${branch}/contracts/${contractId}`;
+} catch (error: any) {
+  alert(error.message || "حدث خطأ أثناء تعديل العقد");
+} finally {
+  setSaving(false);
+}
   }
 
   async function adjustInventory({
