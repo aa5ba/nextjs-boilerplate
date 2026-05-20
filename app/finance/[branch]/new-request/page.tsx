@@ -97,7 +97,14 @@ export default function NewRequestPage() {
       return;
     }
 
-    if (!fullName || !nationalId || !birthDay || !birthMonth || !birthYear || !phone) {
+    if (
+      !fullName ||
+      !nationalId ||
+      !birthDay ||
+      !birthMonth ||
+      !birthYear ||
+      !phone
+    ) {
       alert("أكمل بيانات العميل");
       return;
     }
@@ -144,7 +151,7 @@ export default function NewRequestPage() {
 
       const { data: stockData, error: stockError } = await supabase
         .from("finance_inventory")
-        .select("*")
+        .select("quantity")
         .eq("branch_id", branchId)
         .eq("investor_id", investorId)
         .eq("product_id", productId)
@@ -171,8 +178,6 @@ export default function NewRequestPage() {
         }
       }
 
-      const afterQty = beforeQty - qty;
-
       const organizationSettings = await getOrganizationSettings();
 
       const printPartyName =
@@ -189,139 +194,53 @@ export default function NewRequestPage() {
       const debt = toNumber(debtAmount);
       const totalPayment = toNumber(paymentAmount);
 
-      const { data: customerData, error: customerError } = await supabase
-        .from("finance_customers")
-        .insert([
-          {
-            branch_id: branchId,
-            full_name: fullName,
-            national_id: cleanNationalId,
-            birth_hijri: birthHijri,
-            phone: cleanPhone,
-          },
-        ])
-        .select()
-        .single();
-
-      if (customerError) {
-        throw new Error("تعذر إنشاء العميل");
-      }
-
-      const { data: contractData, error: contractError } = await supabase
-        .from("finance_contracts")
-        .insert([
-          {
-            branch_id: branchId,
-            customer_id: customerData.id,
-            finance_type: financeType,
-
-            investor_id: selectedInvestor.id,
-            investor_name: selectedInvestor.investor_name,
-            product_id: selectedProduct.id,
-            product_name: selectedProduct.product_name,
-            product_quantity: qty,
-
-            print_party_type: printPartyType,
-            print_party_name: printPartyName,
-            print_party_identifier: printPartyIdentifier || null,
-
-            first_party_type: printPartyType,
-            first_party_name: printPartyName,
-            first_party_identifier: printPartyIdentifier || null,
-
-            debt_amount: debt,
-            payment_amount: totalPayment,
-            installment_amount: toNumber(installmentAmount),
-            payment_type: paymentType,
-            payment_due_date: paymentDueDate,
-            legal_city: legalCity,
-            notes,
-            contract_status: "نشط",
-            paid_amount: 0,
-            remaining_amount: totalPayment,
-            created_by: "المدير",
-          },
-        ])
-        .select()
-        .single();
-
-      if (contractError) {
-        throw new Error("تم إنشاء العميل، لكن تعذر إنشاء العقد");
-      }
-
-      const { error: inventoryError } = await supabase
-        .from("finance_inventory")
-        .update({
-          quantity: afterQty,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", stockData.id);
-
-      if (inventoryError) {
-        throw new Error(inventoryError.message);
-      }
-
-      await supabase.from("finance_inventory_movements").insert([
+      const { data: requestData, error: rpcError } = await supabase.rpc(
+        "create_new_request_atomic",
         {
-          branch_id: branchId,
-          investor_id: selectedInvestor.id,
-          product_id: selectedProduct.id,
-          contract_id: contractData.id,
-          customer_id: customerData.id,
-          movement_type: "خصم",
-          quantity: qty,
-          before_quantity: beforeQty,
-          after_quantity: afterQty,
-          notes:
-            afterQty < 0
-              ? `خصم بسبب إنشاء عقد للعميل ${fullName} مع تجاوز المخزون المتاح`
-              : `خصم بسبب إنشاء عقد للعميل ${fullName}`,
-          created_by: "المدير",
-        },
-      ]);
+          p_branch_id: branchId,
 
-      const { data: noteData, error: noteError } = await supabase
-        .from("finance_promissory_notes")
-        .insert([
-          {
-            branch_id: branchId,
-            contract_id: contractData.id,
-            customer_id: customerData.id,
-            debtor_name: fullName,
-            debtor_national_id: cleanNationalId,
-            debtor_phone: cleanPhone,
-            amount: debt,
-            due_date: paymentDueDate,
-            city: legalCity,
-            notes,
-            status: "نشط",
-            created_by: "المدير",
-          },
-        ])
-        .select()
-        .single();
+          p_full_name: fullName,
+          p_national_id: cleanNationalId,
+          p_birth_hijri: birthHijri,
+          p_phone: cleanPhone,
 
-      if (noteError) {
-        throw new Error("تم إنشاء العميل والعقد، لكن تعذر إنشاء السند");
+          p_finance_type: financeType,
+
+          p_investor_id: selectedInvestor.id,
+          p_investor_name: selectedInvestor.investor_name,
+
+          p_product_id: selectedProduct.id,
+          p_product_name: selectedProduct.product_name,
+          p_product_quantity: qty,
+
+          p_print_party_type: printPartyType,
+          p_print_party_name: printPartyName,
+          p_print_party_identifier: printPartyIdentifier || "",
+
+          p_debt_amount: debt,
+          p_payment_amount: totalPayment,
+          p_installment_amount: toNumber(installmentAmount),
+          p_payment_type: paymentType,
+          p_payment_due_date: paymentDueDate || null,
+
+          p_legal_city: legalCity,
+          p_notes: notes,
+        }
+      );
+
+      if (rpcError) {
+        throw new Error(rpcError.message);
       }
 
-      await supabase.from("finance_activity_logs").insert([
-        {
-          branch_id: branchId,
-          activity_type: "طلب جديد",
-          description: `تم إنشاء طلب جديد للعميل ${fullName} وخصم ${qty} من ${selectedProduct.product_name}`,
-          customer_id: customerData.id,
-          contract_id: contractData.id,
-          payment_id: null,
-          customer_name: fullName,
-          employee_name: "المدير",
-          status: afterQty < 0 ? "مخزون بالسالب" : "نشط",
-        },
-      ]);
+      const created = requestData?.[0];
+
+      if (!created?.contract_id || !created?.note_id) {
+        throw new Error("تم إنشاء الطلب لكن لم يتم إرجاع بيانات الطباعة");
+      }
 
       alert("تم إنشاء الطلب وخصم المخزون بنجاح");
 
-      window.location.href = `/finance/${branch}/new-request/print/${contractData.id}/${noteData.id}`;
+      window.location.href = `/finance/${branch}/new-request/print/${created.contract_id}/${created.note_id}`;
     } catch (error: any) {
       alert(error.message || "حدث خطأ أثناء إنشاء الطلب");
     } finally {
@@ -339,25 +258,66 @@ export default function NewRequestPage() {
         <section style={card}>
           <h2 style={sectionTitle}>بيانات العميل</h2>
 
-          <input style={input} placeholder="اسم العميل" value={fullName} onChange={(e) => setFullName(e.target.value)} />
+          <input
+            style={input}
+            placeholder="اسم العميل"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+          />
 
-          <input style={input} inputMode="numeric" maxLength={10} placeholder="رقم الهوية" value={nationalId} onChange={(e) => setNationalId(normalizeNumber(e.target.value))} />
+          <input
+            style={input}
+            inputMode="numeric"
+            maxLength={10}
+            placeholder="رقم الهوية"
+            value={nationalId}
+            onChange={(e) => setNationalId(normalizeNumber(e.target.value))}
+          />
 
           <div style={dateLabel}>تاريخ الميلاد بالهجري</div>
 
           <div style={dateGrid}>
-            <input style={input} inputMode="numeric" placeholder="اليوم" value={birthDay} onChange={(e) => setBirthDay(normalizeNumber(e.target.value))} />
-            <input style={input} inputMode="numeric" placeholder="الشهر" value={birthMonth} onChange={(e) => setBirthMonth(normalizeNumber(e.target.value))} />
-            <input style={input} inputMode="numeric" placeholder="السنة" value={birthYear} onChange={(e) => setBirthYear(normalizeNumber(e.target.value))} />
+            <input
+              style={input}
+              inputMode="numeric"
+              placeholder="اليوم"
+              value={birthDay}
+              onChange={(e) => setBirthDay(normalizeNumber(e.target.value))}
+            />
+            <input
+              style={input}
+              inputMode="numeric"
+              placeholder="الشهر"
+              value={birthMonth}
+              onChange={(e) => setBirthMonth(normalizeNumber(e.target.value))}
+            />
+            <input
+              style={input}
+              inputMode="numeric"
+              placeholder="السنة"
+              value={birthYear}
+              onChange={(e) => setBirthYear(normalizeNumber(e.target.value))}
+            />
           </div>
 
-          <input style={input} inputMode="numeric" maxLength={10} placeholder="رقم الجوال" value={phone} onChange={(e) => setPhone(normalizeNumber(e.target.value))} />
+          <input
+            style={input}
+            inputMode="numeric"
+            maxLength={10}
+            placeholder="رقم الجوال"
+            value={phone}
+            onChange={(e) => setPhone(normalizeNumber(e.target.value))}
+          />
         </section>
 
         <section style={card}>
           <h2 style={sectionTitle}>المخزون والطرف الأول</h2>
 
-          <select style={input} value={investorId} onChange={(e) => setInvestorId(e.target.value)}>
+          <select
+            style={input}
+            value={investorId}
+            onChange={(e) => setInvestorId(e.target.value)}
+          >
             <option value="">المستثمر المرتبط بالمخزون</option>
             {investors.map((investor) => (
               <option key={investor.id} value={investor.id}>
@@ -366,7 +326,11 @@ export default function NewRequestPage() {
             ))}
           </select>
 
-          <select style={input} value={productId} onChange={(e) => setProductId(e.target.value)}>
+          <select
+            style={input}
+            value={productId}
+            onChange={(e) => setProductId(e.target.value)}
+          >
             <option value="">اختر المنتج</option>
             {products.map((product) => (
               <option key={product.id} value={product.id}>
@@ -402,25 +366,70 @@ export default function NewRequestPage() {
         <section style={card}>
           <h2 style={sectionTitle}>بيانات العقد والسند</h2>
 
-          <input style={input} placeholder="نوع التمويل" value={financeType} onChange={(e) => setFinanceType(e.target.value)} />
+          <input
+            style={input}
+            placeholder="نوع التمويل"
+            value={financeType}
+            onChange={(e) => setFinanceType(e.target.value)}
+          />
 
-          <input style={input} inputMode="numeric" placeholder="مبلغ الدين / مبلغ السند" value={debtAmount} onChange={(e) => setDebtAmount(normalizeNumber(e.target.value))} />
+          <input
+            style={input}
+            inputMode="numeric"
+            placeholder="مبلغ الدين / مبلغ السند"
+            value={debtAmount}
+            onChange={(e) => setDebtAmount(normalizeNumber(e.target.value))}
+          />
 
-          <input style={input} inputMode="numeric" placeholder="مبلغ السداد" value={paymentAmount} onChange={(e) => setPaymentAmount(normalizeNumber(e.target.value))} />
+          <input
+            style={input}
+            inputMode="numeric"
+            placeholder="مبلغ السداد"
+            value={paymentAmount}
+            onChange={(e) => setPaymentAmount(normalizeNumber(e.target.value))}
+          />
 
-          <input style={input} inputMode="numeric" placeholder="القسط" value={installmentAmount} onChange={(e) => setInstallmentAmount(normalizeNumber(e.target.value))} />
+          <input
+            style={input}
+            inputMode="numeric"
+            placeholder="القسط"
+            value={installmentAmount}
+            onChange={(e) =>
+              setInstallmentAmount(normalizeNumber(e.target.value))
+            }
+          />
 
-          <select style={input} value={paymentType} onChange={(e) => setPaymentType(e.target.value)}>
+          <select
+            style={input}
+            value={paymentType}
+            onChange={(e) => setPaymentType(e.target.value)}
+          >
             <option value="">نوع السداد</option>
             <option value="موعد محدد">موعد محدد</option>
             <option value="شهري مجدول">شهري مجدول</option>
           </select>
 
-          <input style={input} type="date" placeholder="موعد السداد بالميلادي" value={paymentDueDate} onChange={(e) => setPaymentDueDate(e.target.value)} />
+          <input
+            style={input}
+            type="date"
+            placeholder="موعد السداد بالميلادي"
+            value={paymentDueDate}
+            onChange={(e) => setPaymentDueDate(e.target.value)}
+          />
 
-          <input style={input} placeholder="مدينة التقاضي" value={legalCity} onChange={(e) => setLegalCity(e.target.value)} />
+          <input
+            style={input}
+            placeholder="مدينة التقاضي"
+            value={legalCity}
+            onChange={(e) => setLegalCity(e.target.value)}
+          />
 
-          <textarea style={textarea} placeholder="ملاحظات" value={notes} onChange={(e) => setNotes(e.target.value)} />
+          <textarea
+            style={textarea}
+            placeholder="ملاحظات"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
 
           <button style={primaryButton} onClick={createRequest} disabled={saving}>
             {saving ? "جاري إنشاء الطلب..." : "إنشاء الطلب وطباعة العقد"}
