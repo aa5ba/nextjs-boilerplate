@@ -11,6 +11,8 @@ export default function NewRequestPage() {
   const params = useParams();
   const branch = params.branch as string;
 
+  const [branchId, setBranchId] = useState<string | null>(null);
+
   const [investors, setInvestors] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
 
@@ -25,6 +27,7 @@ export default function NewRequestPage() {
   const [investorId, setInvestorId] = useState("");
   const [productId, setProductId] = useState("");
   const [productQuantity, setProductQuantity] = useState("");
+  const [availableStock, setAvailableStock] = useState<number | null>(null);
   const [printPartyType, setPrintPartyType] = useState("organization");
 
   const [debtAmount, setDebtAmount] = useState("");
@@ -35,25 +38,33 @@ export default function NewRequestPage() {
   const [legalCity, setLegalCity] = useState("");
   const [notes, setNotes] = useState("");
 
+  const [saving, setSaving] = useState(false);
+
   useEffect(() => {
     loadLists();
   }, [branch]);
 
+  useEffect(() => {
+    loadAvailableStock();
+  }, [branchId, investorId, productId]);
+
   async function loadLists() {
-    const branchId = await getBranchId(branch);
-    if (!branchId) return;
+    const currentBranchId = await getBranchId(branch);
+    setBranchId(currentBranchId);
+
+    if (!currentBranchId) return;
 
     const { data: investorsData } = await supabase
       .from("finance_investors")
       .select("*")
-      .eq("branch_id", branchId)
+      .eq("branch_id", currentBranchId)
       .eq("is_active", true)
       .order("created_at", { ascending: false });
 
     const { data: productsData } = await supabase
       .from("finance_products")
       .select("*")
-      .eq("branch_id", branchId)
+      .eq("branch_id", currentBranchId)
       .eq("is_active", true)
       .order("created_at", { ascending: false });
 
@@ -61,8 +72,25 @@ export default function NewRequestPage() {
     setProducts(productsData || []);
   }
 
+  async function loadAvailableStock() {
+    if (!branchId || !investorId || !productId) {
+      setAvailableStock(null);
+      return;
+    }
+
+    const { data } = await supabase
+      .from("finance_inventory")
+      .select("quantity")
+      .eq("branch_id", branchId)
+      .eq("investor_id", investorId)
+      .eq("product_id", productId)
+      .maybeSingle();
+
+    setAvailableStock(data ? Number(data.quantity || 0) : 0);
+  }
+
   async function createRequest() {
-    const branchId = await getBranchId(branch);
+    if (saving) return;
 
     if (!branchId) {
       alert("تعذر تحديد الفرع");
@@ -111,173 +139,194 @@ export default function NewRequestPage() {
       return;
     }
 
-    const { data: stockData } = await supabase
-      .from("finance_inventory")
-      .select("*")
-      .eq("branch_id", branchId)
-      .eq("investor_id", investorId)
-      .eq("product_id", productId)
-      .single();
+    try {
+      setSaving(true);
 
-    if (!stockData) {
-      alert("لا يوجد مخزون لهذا المستثمر والمنتج");
-      return;
-    }
+      const { data: stockData, error: stockError } = await supabase
+        .from("finance_inventory")
+        .select("*")
+        .eq("branch_id", branchId)
+        .eq("investor_id", investorId)
+        .eq("product_id", productId)
+        .maybeSingle();
 
-    const beforeQty = Number(stockData.quantity || 0);
+      if (stockError) {
+        throw new Error(stockError.message);
+      }
 
-    if (beforeQty < qty) {
-      alert("الكمية المطلوبة أكبر من المخزون المتاح");
-      return;
-    }
+      if (!stockData) {
+        alert("لا يوجد مخزون لهذا المستثمر والمنتج");
+        return;
+      }
 
-    const afterQty = beforeQty - qty;
+      const beforeQty = Number(stockData.quantity || 0);
 
-    const organizationSettings = await getOrganizationSettings();
+      if (beforeQty < qty) {
+        const confirmContinue = window.confirm(
+          "الكمية في الطلب أكثر من المتاحة في المخزون، هل تريد الاستمرار؟"
+        );
 
-    const printPartyName =
-      printPartyType === "organization"
-        ? organizationSettings.name
-        : selectedInvestor.investor_name;
+        if (!confirmContinue) {
+          return;
+        }
+      }
 
-    const printPartyIdentifier =
-      printPartyType === "organization"
-        ? organizationSettings.commercialRecord
-        : selectedInvestor.national_id;
+      const afterQty = beforeQty - qty;
 
-    const birthHijri = `${birthDay}/${birthMonth}/${birthYear}`;
-    const debt = toNumber(debtAmount);
-    const totalPayment = toNumber(paymentAmount);
+      const organizationSettings = await getOrganizationSettings();
 
-    const { data: customerData, error: customerError } = await supabase
-      .from("finance_customers")
-      .insert([
+      const printPartyName =
+        printPartyType === "organization"
+          ? organizationSettings.name
+          : selectedInvestor.investor_name;
+
+      const printPartyIdentifier =
+        printPartyType === "organization"
+          ? organizationSettings.commercialRecord
+          : selectedInvestor.national_id;
+
+      const birthHijri = `${birthDay}/${birthMonth}/${birthYear}`;
+      const debt = toNumber(debtAmount);
+      const totalPayment = toNumber(paymentAmount);
+
+      const { data: customerData, error: customerError } = await supabase
+        .from("finance_customers")
+        .insert([
+          {
+            branch_id: branchId,
+            full_name: fullName,
+            national_id: cleanNationalId,
+            birth_hijri: birthHijri,
+            phone: cleanPhone,
+          },
+        ])
+        .select()
+        .single();
+
+      if (customerError) {
+        throw new Error("تعذر إنشاء العميل");
+      }
+
+      const { data: contractData, error: contractError } = await supabase
+        .from("finance_contracts")
+        .insert([
+          {
+            branch_id: branchId,
+            customer_id: customerData.id,
+            finance_type: financeType,
+
+            investor_id: selectedInvestor.id,
+            investor_name: selectedInvestor.investor_name,
+            product_id: selectedProduct.id,
+            product_name: selectedProduct.product_name,
+            product_quantity: qty,
+
+            print_party_type: printPartyType,
+            print_party_name: printPartyName,
+            print_party_identifier: printPartyIdentifier || null,
+
+            first_party_type: printPartyType,
+            first_party_name: printPartyName,
+            first_party_identifier: printPartyIdentifier || null,
+
+            debt_amount: debt,
+            payment_amount: totalPayment,
+            installment_amount: toNumber(installmentAmount),
+            payment_type: paymentType,
+            payment_due_date: paymentDueDate,
+            legal_city: legalCity,
+            notes,
+            contract_status: "نشط",
+            paid_amount: 0,
+            remaining_amount: totalPayment,
+            created_by: "المدير",
+          },
+        ])
+        .select()
+        .single();
+
+      if (contractError) {
+        throw new Error("تم إنشاء العميل، لكن تعذر إنشاء العقد");
+      }
+
+      const { error: inventoryError } = await supabase
+        .from("finance_inventory")
+        .update({
+          quantity: afterQty,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", stockData.id);
+
+      if (inventoryError) {
+        throw new Error(inventoryError.message);
+      }
+
+      await supabase.from("finance_inventory_movements").insert([
         {
           branch_id: branchId,
-          full_name: fullName,
-          national_id: cleanNationalId,
-          birth_hijri: birthHijri,
-          phone: cleanPhone,
-        },
-      ])
-      .select()
-      .single();
-
-    if (customerError) {
-      alert("تعذر إنشاء العميل");
-      return;
-    }
-
-    const { data: contractData, error: contractError } = await supabase
-      .from("finance_contracts")
-      .insert([
-        {
-          branch_id: branchId,
-          customer_id: customerData.id,
-          finance_type: financeType,
-
           investor_id: selectedInvestor.id,
-          investor_name: selectedInvestor.investor_name,
           product_id: selectedProduct.id,
-          product_name: selectedProduct.product_name,
-          product_quantity: qty,
-
-          print_party_type: printPartyType,
-          print_party_name: printPartyName,
-          print_party_identifier: printPartyIdentifier || null,
-
-          first_party_type: printPartyType,
-          first_party_name: printPartyName,
-          first_party_identifier: printPartyIdentifier || null,
-
-          debt_amount: debt,
-          payment_amount: totalPayment,
-          installment_amount: toNumber(installmentAmount),
-          payment_type: paymentType,
-          payment_due_date: paymentDueDate,
-          legal_city: legalCity,
-          notes,
-          contract_status: "نشط",
-          paid_amount: 0,
-          remaining_amount: totalPayment,
-          created_by: "المدير",
-        },
-      ])
-      .select()
-      .single();
-
-    if (contractError) {
-      alert("تم إنشاء العميل، لكن تعذر إنشاء العقد");
-      return;
-    }
-
-    await supabase
-      .from("finance_inventory")
-      .update({
-        quantity: afterQty,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", stockData.id);
-
-    await supabase.from("finance_inventory_movements").insert([
-      {
-        branch_id: branchId,
-        investor_id: selectedInvestor.id,
-        product_id: selectedProduct.id,
-        contract_id: contractData.id,
-        customer_id: customerData.id,
-        movement_type: "خصم",
-        quantity: qty,
-        before_quantity: beforeQty,
-        after_quantity: afterQty,
-        notes: `خصم بسبب إنشاء عقد للعميل ${fullName}`,
-        created_by: "المدير",
-      },
-    ]);
-
-    const { data: noteData, error: noteError } = await supabase
-      .from("finance_promissory_notes")
-      .insert([
-        {
-          branch_id: branchId,
           contract_id: contractData.id,
           customer_id: customerData.id,
-          debtor_name: fullName,
-          debtor_national_id: cleanNationalId,
-          debtor_phone: cleanPhone,
-          amount: debt,
-          due_date: paymentDueDate,
-          city: legalCity,
-          notes,
-          status: "نشط",
+          movement_type: "خصم",
+          quantity: qty,
+          before_quantity: beforeQty,
+          after_quantity: afterQty,
+          notes:
+            afterQty < 0
+              ? `خصم بسبب إنشاء عقد للعميل ${fullName} مع تجاوز المخزون المتاح`
+              : `خصم بسبب إنشاء عقد للعميل ${fullName}`,
           created_by: "المدير",
         },
-      ])
-      .select()
-      .single();
+      ]);
 
-    if (noteError) {
-      alert("تم إنشاء العميل والعقد، لكن تعذر إنشاء السند");
-      return;
+      const { data: noteData, error: noteError } = await supabase
+        .from("finance_promissory_notes")
+        .insert([
+          {
+            branch_id: branchId,
+            contract_id: contractData.id,
+            customer_id: customerData.id,
+            debtor_name: fullName,
+            debtor_national_id: cleanNationalId,
+            debtor_phone: cleanPhone,
+            amount: debt,
+            due_date: paymentDueDate,
+            city: legalCity,
+            notes,
+            status: "نشط",
+            created_by: "المدير",
+          },
+        ])
+        .select()
+        .single();
+
+      if (noteError) {
+        throw new Error("تم إنشاء العميل والعقد، لكن تعذر إنشاء السند");
+      }
+
+      await supabase.from("finance_activity_logs").insert([
+        {
+          branch_id: branchId,
+          activity_type: "طلب جديد",
+          description: `تم إنشاء طلب جديد للعميل ${fullName} وخصم ${qty} من ${selectedProduct.product_name}`,
+          customer_id: customerData.id,
+          contract_id: contractData.id,
+          payment_id: null,
+          customer_name: fullName,
+          employee_name: "المدير",
+          status: afterQty < 0 ? "مخزون بالسالب" : "نشط",
+        },
+      ]);
+
+      alert("تم إنشاء الطلب وخصم المخزون بنجاح");
+
+      window.location.href = `/finance/${branch}/new-request/print/${contractData.id}/${noteData.id}`;
+    } catch (error: any) {
+      alert(error.message || "حدث خطأ أثناء إنشاء الطلب");
+    } finally {
+      setSaving(false);
     }
-
-    await supabase.from("finance_activity_logs").insert([
-      {
-        branch_id: branchId,
-        activity_type: "طلب جديد",
-        description: `تم إنشاء طلب جديد للعميل ${fullName} وخصم ${qty} من ${selectedProduct.product_name}`,
-        customer_id: customerData.id,
-        contract_id: contractData.id,
-        payment_id: null,
-        customer_name: fullName,
-        employee_name: "المدير",
-        status: "نشط",
-      },
-    ]);
-
-    alert("تم إنشاء الطلب وخصم المخزون بنجاح");
-
-    window.location.href = `/finance/${branch}/new-request/print/${contractData.id}/${noteData.id}`;
   }
 
   return (
@@ -326,6 +375,12 @@ export default function NewRequestPage() {
             ))}
           </select>
 
+          {availableStock !== null && (
+            <div style={availableStock < 0 ? stockDanger : stockInfo}>
+              المتوفر في المخزون: {availableStock}
+            </div>
+          )}
+
           <input
             style={input}
             inputMode="numeric"
@@ -367,8 +422,8 @@ export default function NewRequestPage() {
 
           <textarea style={textarea} placeholder="ملاحظات" value={notes} onChange={(e) => setNotes(e.target.value)} />
 
-          <button style={primaryButton} onClick={createRequest}>
-            إنشاء الطلب وطباعة العقد
+          <button style={primaryButton} onClick={createRequest} disabled={saving}>
+            {saving ? "جاري إنشاء الطلب..." : "إنشاء الطلب وطباعة العقد"}
           </button>
         </section>
 
@@ -447,6 +502,28 @@ const dateGrid = {
   display: "grid",
   gridTemplateColumns: "1fr 1fr 1fr",
   gap: 10,
+};
+
+const stockInfo = {
+  background: "#f0fdf4",
+  color: "#166534",
+  border: "1px solid #bbf7d0",
+  padding: 12,
+  borderRadius: 12,
+  fontSize: 15,
+  fontWeight: "bold",
+  marginBottom: 12,
+};
+
+const stockDanger = {
+  background: "#fef2f2",
+  color: "#991b1b",
+  border: "1px solid #fecaca",
+  padding: 12,
+  borderRadius: 12,
+  fontSize: 15,
+  fontWeight: "bold",
+  marginBottom: 12,
 };
 
 const primaryButton = {
