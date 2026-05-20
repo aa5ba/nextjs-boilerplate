@@ -137,19 +137,13 @@ export default function PrintNewRequestPage() {
 
   {contract?.print_party_type !== "investor" &&
     organizationSettings.commercialRecord && (
-      <span>
-        سجل تجاري: {organizationSettings.commercialRecord}
-      </span>
+      <span>سجل تجاري: {organizationSettings.commercialRecord}</span>
     )}
 
-  {contract?.print_party_type === "investor" &&
-    firstPartyIdentifier && (
-      <span>
-        رقم هوية المستثمر: {firstPartyIdentifier}
-      </span>
-    )}
+  {contract?.print_party_type === "investor" && firstPartyIdentifier && (
+    <span>رقم هوية المستثمر: {firstPartyIdentifier}</span>
+  )}
 </div>
-        </div>
 
         <h1 style={title}>النموذج 1 للعقد</h1>
         <h2 style={subtitle}>عقد اتفاق بيع</h2>
