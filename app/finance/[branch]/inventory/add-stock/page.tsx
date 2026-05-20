@@ -22,11 +22,10 @@ export default function AddStockPage() {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [branch]);
 
   async function loadData() {
     const branchId = await getBranchId(branch);
-
     if (!branchId) return;
 
     const { data: investorsData } = await supabase
@@ -53,6 +52,13 @@ export default function AddStockPage() {
       return;
     }
 
+    const qty = toNumber(quantity);
+
+    if (qty <= 0) {
+      alert("أدخل كمية صحيحة");
+      return;
+    }
+
     const branchId = await getBranchId(branch);
 
     if (!branchId) {
@@ -63,21 +69,24 @@ export default function AddStockPage() {
     try {
       setSaving(true);
 
-      const qty = toNumber(quantity);
-
-      const { data: existingStock } = await supabase
+      const { data: existingStock, error: stockFetchError } = await supabase
         .from("finance_inventory")
         .select("*")
         .eq("branch_id", branchId)
         .eq("investor_id", investorId)
         .eq("product_id", productId)
-        .single();
+        .maybeSingle();
+
+      if (stockFetchError) {
+        alert(stockFetchError.message);
+        return;
+      }
 
       if (existingStock) {
-        const beforeQty = existingStock.quantity || 0;
+        const beforeQty = Number(existingStock.quantity || 0);
         const afterQty = beforeQty + qty;
 
-        await supabase
+        const { error: updateError } = await supabase
           .from("finance_inventory")
           .update({
             quantity: afterQty,
@@ -85,44 +94,71 @@ export default function AddStockPage() {
           })
           .eq("id", existingStock.id);
 
-        await supabase.from("finance_inventory_movements").insert([
-          {
-            branch_id: branchId,
-            investor_id: investorId,
-            product_id: productId,
-            movement_type: "إضافة",
-            quantity: qty,
-            before_quantity: beforeQty,
-            after_quantity: afterQty,
-            notes,
-          },
-        ]);
-      } else {
-        await supabase.from("finance_inventory").insert([
-          {
-            branch_id: branchId,
-            investor_id: investorId,
-            product_id: productId,
-            quantity: qty,
-          },
-        ]);
+        if (updateError) {
+          alert(updateError.message);
+          return;
+        }
 
-        await supabase.from("finance_inventory_movements").insert([
-          {
-            branch_id: branchId,
-            investor_id: investorId,
-            product_id: productId,
-            movement_type: "إضافة",
-            quantity: qty,
-            before_quantity: 0,
-            after_quantity: qty,
-            notes,
-          },
-        ]);
+        const { error: movementError } = await supabase
+          .from("finance_inventory_movements")
+          .insert([
+            {
+              branch_id: branchId,
+              investor_id: investorId,
+              product_id: productId,
+              movement_type: "إضافة",
+              quantity: qty,
+              before_quantity: beforeQty,
+              after_quantity: afterQty,
+              notes: notes.trim() || null,
+              created_by: "المدير",
+            },
+          ]);
+
+        if (movementError) {
+          alert(movementError.message);
+          return;
+        }
+      } else {
+        const { error: insertError } = await supabase
+          .from("finance_inventory")
+          .insert([
+            {
+              branch_id: branchId,
+              investor_id: investorId,
+              product_id: productId,
+              quantity: qty,
+            },
+          ]);
+
+        if (insertError) {
+          alert(insertError.message);
+          return;
+        }
+
+        const { error: movementError } = await supabase
+          .from("finance_inventory_movements")
+          .insert([
+            {
+              branch_id: branchId,
+              investor_id: investorId,
+              product_id: productId,
+              movement_type: "إضافة",
+              quantity: qty,
+              before_quantity: 0,
+              after_quantity: qty,
+              notes: notes.trim() || null,
+              created_by: "المدير",
+            },
+          ]);
+
+        if (movementError) {
+          alert(movementError.message);
+          return;
+        }
       }
 
       alert("تمت إضافة الكمية بنجاح");
-
       window.location.href = `/finance/${branch}/inventory`;
     } finally {
       setSaving(false);
@@ -143,7 +179,6 @@ export default function AddStockPage() {
             onChange={(e) => setInvestorId(e.target.value)}
           >
             <option value="">اختر المستثمر</option>
-
             {investors.map((investor) => (
               <option key={investor.id} value={investor.id}>
                 {investor.investor_name}
@@ -157,7 +192,6 @@ export default function AddStockPage() {
             onChange={(e) => setProductId(e.target.value)}
           >
             <option value="">اختر المنتج</option>
-
             {products.map((product) => (
               <option key={product.id} value={product.id}>
                 {product.product_name}
@@ -180,16 +214,14 @@ export default function AddStockPage() {
             onChange={(e) => setNotes(e.target.value)}
           />
 
-          <button style={primaryButton} onClick={saveStock}>
+          <button style={primaryButton} onClick={saveStock} disabled={saving}>
             {saving ? "جاري الحفظ..." : "حفظ الكمية"}
           </button>
         </section>
 
         <button
           style={backButton}
-          onClick={() =>
-            (window.location.href = `/finance/${branch}/inventory`)
-          }
+          onClick={() => (window.location.href = `/finance/${branch}/inventory`)}
         >
           الرجوع للمخزون
         </button>
@@ -258,10 +290,11 @@ const primaryButton = {
 const backButton = {
   width: "100%",
   padding: 16,
-  background: "#6b7280",
-  color: "#111827",
-  border: "none",
+  background: "#e5e7eb",
+  color: "#0d47a1",
+  border: "1px solid #cbd5e1",
   borderRadius: 14,
   fontSize: 17,
+  fontWeight: "bold",
   marginTop: 18,
 };
