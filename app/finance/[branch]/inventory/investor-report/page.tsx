@@ -96,7 +96,7 @@ export default function InvestorReportPage() {
   const selectedInvestor = investors.find((x) => x.id === investorId);
 
   const totalOut = items
-    .filter((x) => x.movement_type === "خصم")
+    .filter((x) => x.movement_type === "خصم من كمية غير متوفرة")
     .reduce((sum, x) => sum + Number(x.quantity || 0), 0);
 
   const totalReturn = items
@@ -185,7 +185,7 @@ export default function InvestorReportPage() {
             </button>
 
             <button style={printButton} onClick={() => window.print()}>
-              طباعة A4
+              طباعة 
             </button>
           </div>
         </section>
@@ -212,7 +212,7 @@ export default function InvestorReportPage() {
 
           <div style={summaryGrid}>
             <Summary title="عدد الحركات" value={items.length} />
-            <Summary title="إجمالي الخصم" value={totalOut} />
+            <Summary title="إجمالي الخصم من كمية غير متوفرة" value={totalOut} />
             <Summary title="إجمالي الإرجاع" value={totalReturn} />
           </div>
 
@@ -247,7 +247,7 @@ export default function InvestorReportPage() {
           )}
 
           <div style={footer}>
-            <div>تم إنشاء هذا الكشف من النظام عبر {organizationName}</div>
+            <div>تم إنشاء هذا الكشف من النظام آلياً عبر  {organizationName}</div>
           </div>
 
           <div style={signatureRow} className="print-only">
