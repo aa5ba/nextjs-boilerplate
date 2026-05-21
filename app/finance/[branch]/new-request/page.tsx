@@ -195,6 +195,7 @@ export default function NewRequestPage() {
           p_national_id: cleanNationalId,
           p_birth_hijri: birthHijri,
           p_phone: cleanPhone,
+          p_work_name: workName,
 
           p_finance_type: financeType,
 
