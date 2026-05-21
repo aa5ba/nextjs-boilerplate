@@ -35,6 +35,9 @@ export default function NewRequestPage() {
   const [installmentAmount, setInstallmentAmount] = useState("");
   const [paymentType, setPaymentType] = useState("");
   const [paymentDueDate, setPaymentDueDate] = useState("");
+  const today = new Date().toISOString().split("T")[0];
+
+const [contractIssueDate, setContractIssueDate] = useState(today);
   const [draftPaymentDueDate, setDraftPaymentDueDate] = useState("");
   const [legalCity, setLegalCity] = useState("");
   const [notes, setNotes] = useState("");
@@ -215,7 +218,8 @@ export default function NewRequestPage() {
           p_installment_amount: toNumber(installmentAmount),
           p_payment_type: paymentType,
           p_payment_due_date: paymentDueDate || null,
-
+p_contract_issue_date_gregorian: contractIssueDate,
+p_contract_issue_date_hijri: "",    
           p_legal_city: legalCity,
           p_notes: notes,
         }
@@ -467,6 +471,14 @@ export default function NewRequestPage() {
             />
           </Field>
 
+          <Field label="تاريخ تحرير العقد">
+  <input
+    style={input}
+    type="date"
+    value={contractIssueDate}
+    onChange={(e) => setContractIssueDate(e.target.value)}
+  />
+</Field>
           <button style={primaryButton} onClick={createRequest} disabled={saving}>
             {saving ? "جاري إنشاء الطلب..." : "إنشاء الطلب وطباعة العقد"}
           </button>
