@@ -212,7 +212,7 @@ export default function InvestorReportPage() {
 
           <div style={summaryGrid}>
             <Summary title="عدد الحركات" value={items.length} />
-            <Summary title="إجمالي الخصم من كمية غير متوفرة" value={totalOut} />
+            <Summary title="إجمالي الخصم " value={totalOut} />
             <Summary title="إجمالي الإرجاع" value={totalReturn} />
           </div>
 
