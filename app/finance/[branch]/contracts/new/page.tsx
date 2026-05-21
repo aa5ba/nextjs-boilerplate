@@ -150,12 +150,8 @@ export default function NewFinanceContractPage() {
         throw new Error(stockError.message);
       }
 
-      if (!stockData) {
-        alert("لا يوجد مخزون لهذا المستثمر والمنتج");
-        return;
-      }
 
-      const beforeQty = Number(stockData.quantity || 0);
+      const beforeQty = Number(stockData?.quantity || 0);
 
       if (beforeQty < qty) {
         const confirmContinue = window.confirm(
