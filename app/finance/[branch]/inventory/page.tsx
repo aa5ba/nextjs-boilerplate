@@ -5,6 +5,8 @@ import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
 
+const LOW_STOCK_LIMIT = 5;
+
 export default function FinanceInventoryPage() {
   const params = useParams();
   const branch = params.branch as string;
@@ -13,6 +15,10 @@ export default function FinanceInventoryPage() {
   const [productsCount, setProductsCount] = useState(0);
   const [investorsCount, setInvestorsCount] = useState(0);
   const [totalQuantity, setTotalQuantity] = useState(0);
+  const [negativeCount, setNegativeCount] = useState(0);
+  const [lowCount, setLowCount] = useState(0);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -50,18 +56,51 @@ export default function FinanceInventoryPage() {
       .eq("branch_id", branchId)
       .order("updated_at", { ascending: false });
 
+    const list = inventory || [];
+
     setProductsCount(products?.length || 0);
     setInvestorsCount(investors?.length || 0);
-    setItems(inventory || []);
+    setItems(list);
 
-    const quantitySum = (inventory || []).reduce(
-      (sum, item) => sum + Number(item.quantity || 0),
-      0
+    setTotalQuantity(
+      list.reduce((sum, item) => sum + Number(item.quantity || 0), 0)
     );
 
-    setTotalQuantity(quantitySum);
+    setNegativeCount(
+      list.filter((item) => Number(item.quantity || 0) < 0).length
+    );
+
+    setLowCount(
+      list.filter((item) => {
+        const qty = Number(item.quantity || 0);
+        return qty >= 0 && qty <= LOW_STOCK_LIMIT;
+      }).length
+    );
+
     setLoading(false);
   }
+
+  const filteredItems = items
+    .filter((item) => {
+      const productName = item.finance_products?.product_name || "";
+      const investorName = item.finance_investors?.investor_name || "";
+      const qty = Number(item.quantity || 0);
+      const status = getStockStatus(qty);
+
+      const matchesSearch =
+        productName.includes(searchTerm) || investorName.includes(searchTerm);
+
+      const matchesStatus =
+        statusFilter === "all" || status.key === statusFilter;
+
+      return matchesSearch && matchesStatus;
+    })
+    .sort((a, b) => {
+      const aStatus = getStockStatus(Number(a.quantity || 0)).priority;
+      const bStatus = getStockStatus(Number(b.quantity || 0)).priority;
+
+      return aStatus - bStatus;
+    });
 
   return (
     <main dir="rtl" style={page}>
@@ -72,10 +111,10 @@ export default function FinanceInventoryPage() {
 
         <section style={summaryGrid}>
           <SummaryCard icon="🧩" title="عدد المنتجات" value={productsCount} />
-
           <SummaryCard icon="📦" title="إجمالي الكمية" value={totalQuantity} />
-
           <SummaryCard icon="👤" title="عدد المستثمرين" value={investorsCount} />
+          <SummaryCard icon="🔴" title="منتجات بالسالب" value={negativeCount} />
+          <SummaryCard icon="🟠" title="منتجات منخفضة" value={lowCount} />
         </section>
 
         <section style={actionsSection}>
@@ -129,28 +168,59 @@ export default function FinanceInventoryPage() {
         </section>
 
         <section style={tableCard}>
-          <h2 style={sectionTitle}>المخزون الحالي</h2>
+          <div style={tableTop}>
+            <h2 style={sectionTitle}>المخزون الحالي</h2>
+
+            <div style={filters}>
+              <input
+                style={searchInput}
+                placeholder="بحث باسم المنتج أو المستثمر"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+
+              <select
+                style={filterSelect}
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <option value="all">كل الحالات</option>
+                <option value="negative">بالسالب</option>
+                <option value="low">منخفض</option>
+                <option value="normal">طبيعي</option>
+              </select>
+            </div>
+          </div>
 
           <div style={tableHeader}>
             <span>المنتج</span>
             <span>المستثمر</span>
             <span>الكمية</span>
+            <span>الحالة</span>
             <span>آخر تحديث</span>
           </div>
 
           {loading ? (
             <div style={emptyBox}>جاري تحميل المخزون...</div>
-          ) : items.length === 0 ? (
-            <div style={emptyBox}>لا يوجد مخزون حتى الآن</div>
+          ) : filteredItems.length === 0 ? (
+            <div style={emptyBox}>لا توجد نتائج مطابقة</div>
           ) : (
-            items.map((item) => (
-              <div key={item.id} style={tableRow}>
-                <span>{item.finance_products?.product_name || "-"}</span>
-                <span>{item.finance_investors?.investor_name || "-"}</span>
-                <strong>{item.quantity || 0}</strong>
-                <span>{formatDate(item.updated_at)}</span>
-              </div>
-            ))
+            filteredItems.map((item) => {
+              const qty = Number(item.quantity || 0);
+              const status = getStockStatus(qty);
+
+              return (
+                <div key={item.id} style={getTableRowStyle(status.key)}>
+                  <span>{item.finance_products?.product_name || "-"}</span>
+                  <span>{item.finance_investors?.investor_name || "-"}</span>
+                  <strong>{qty}</strong>
+                  <span style={getStatusBadgeStyle(status.key)}>
+                    {status.label}
+                  </span>
+                  <span>{formatDate(item.updated_at)}</span>
+                </div>
+              );
+            })
           )}
         </section>
 
@@ -163,6 +233,30 @@ export default function FinanceInventoryPage() {
       </div>
     </main>
   );
+}
+
+function getStockStatus(quantity: number) {
+  if (quantity < 0) {
+    return {
+      key: "negative",
+      label: "🔴 بالسالب",
+      priority: 1,
+    };
+  }
+
+  if (quantity <= LOW_STOCK_LIMIT) {
+    return {
+      key: "low",
+      label: "🟠 منخفض",
+      priority: 2,
+    };
+  }
+
+  return {
+    key: "normal",
+    label: "🟢 طبيعي",
+    priority: 3,
+  };
 }
 
 function SummaryCard({ icon, title, value }: any) {
@@ -197,6 +291,18 @@ function formatDate(date: string) {
   });
 }
 
+function getTableRowStyle(status: string) {
+  if (status === "negative") return { ...tableRow, ...negativeRow };
+  if (status === "low") return { ...tableRow, ...lowRow };
+  return tableRow;
+}
+
+function getStatusBadgeStyle(status: string) {
+  if (status === "negative") return statusNegative;
+  if (status === "low") return statusLow;
+  return statusNormal;
+}
+
 const page = {
   minHeight: "100vh",
   background: "#eef5ff",
@@ -220,7 +326,7 @@ const header = {
 
 const summaryGrid = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
+  gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))",
   gap: 14,
   marginBottom: 18,
 };
@@ -280,16 +386,46 @@ const tableCard = {
   overflowX: "auto" as const,
 };
 
+const tableTop = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  alignItems: "center",
+  flexWrap: "wrap" as const,
+  marginBottom: 12,
+};
+
 const sectionTitle = {
-  marginTop: 0,
+  margin: 0,
   color: "#0d47a1",
+};
+
+const filters = {
+  display: "flex",
+  gap: 10,
+  flexWrap: "wrap" as const,
+};
+
+const searchInput = {
+  minWidth: 240,
+  padding: 12,
+  borderRadius: 12,
+  border: "1px solid #d9e3f5",
+  fontSize: 15,
+};
+
+const filterSelect = {
+  padding: 12,
+  borderRadius: 12,
+  border: "1px solid #d9e3f5",
+  fontSize: 15,
 };
 
 const tableHeader = {
   display: "grid",
-  gridTemplateColumns: "2fr 2fr 1fr 1.5fr",
+  gridTemplateColumns: "2fr 2fr 1fr 1.2fr 1.5fr",
   gap: 12,
-  minWidth: 760,
+  minWidth: 860,
   background: "#f4f8ff",
   color: "#0d47a1",
   fontWeight: "bold",
@@ -300,11 +436,50 @@ const tableHeader = {
 
 const tableRow = {
   display: "grid",
-  gridTemplateColumns: "2fr 2fr 1fr 1.5fr",
+  gridTemplateColumns: "2fr 2fr 1fr 1.2fr 1.5fr",
   gap: 12,
-  minWidth: 760,
+  minWidth: 860,
   padding: 14,
   borderBottom: "1px solid #eef2f7",
+  alignItems: "center",
+};
+
+const negativeRow = {
+  background: "#fef2f2",
+};
+
+const lowRow = {
+  background: "#fffbeb",
+};
+
+const statusNegative = {
+  background: "#fee2e2",
+  color: "#991b1b",
+  border: "1px solid #fecaca",
+  padding: "6px 10px",
+  borderRadius: 999,
+  fontWeight: "bold",
+  textAlign: "center" as const,
+};
+
+const statusLow = {
+  background: "#fef3c7",
+  color: "#92400e",
+  border: "1px solid #fde68a",
+  padding: "6px 10px",
+  borderRadius: 999,
+  fontWeight: "bold",
+  textAlign: "center" as const,
+};
+
+const statusNormal = {
+  background: "#dcfce7",
+  color: "#166534",
+  border: "1px solid #bbf7d0",
+  padding: "6px 10px",
+  borderRadius: 999,
+  fontWeight: "bold",
+  textAlign: "center" as const,
 };
 
 const emptyBox = {
