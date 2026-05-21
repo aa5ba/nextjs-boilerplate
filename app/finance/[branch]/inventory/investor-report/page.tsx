@@ -96,7 +96,7 @@ export default function InvestorReportPage() {
   const selectedInvestor = investors.find((x) => x.id === investorId);
 
   const totalOut = items
-    .filter((x) => x.movement_type === "خصم من كمية غير متوفرة")
+    .filter((x) => x.movement_type === "خصم")
     .reduce((sum, x) => sum + Number(x.quantity || 0), 0);
 
   const totalReturn = items
