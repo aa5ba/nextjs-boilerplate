@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { getBranchId } from "@/lib/getBranchId";
 import { getOrganizationSettings } from "@/lib/getOrganizationSettings";
 
 export default function InvestorReportPage() {
@@ -27,19 +26,33 @@ export default function InvestorReportPage() {
   }, [branch]);
 
   async function loadInitial() {
-    const currentBranchId = await getBranchId(branch);
+    const { data: branchData, error: branchError } = await supabase
+      .from("finance_branches")
+      .select("id")
+      .eq("branch_slug", branch)
+      .single();
+
+    if (branchError || !branchData) {
+      alert("تعذر تحديد الفرع");
+      return;
+    }
+
+    const currentBranchId = branchData.id;
     setBranchId(currentBranchId);
 
     const settings = await getOrganizationSettings();
     setOrganizationName(settings.name || "احتساب");
 
-    if (!currentBranchId) return;
-
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("finance_investors")
       .select("*")
       .eq("branch_id", currentBranchId)
       .order("created_at", { ascending: false });
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
 
     setInvestors(data || []);
   }
@@ -99,19 +112,9 @@ export default function InvestorReportPage() {
     <main dir="rtl" style={page}>
       <style>{`
         @media print {
-          body {
-            background: white !important;
-          }
-
-          .no-print {
-            display: none !important;
-          }
-
-          main {
-            background: white !important;
-            padding: 0 !important;
-          }
-
+          body { background: white !important; }
+          .no-print { display: none !important; }
+          main { background: white !important; padding: 0 !important; }
           .print-area {
             width: 190mm !important;
             min-height: 277mm !important;
@@ -120,11 +123,7 @@ export default function InvestorReportPage() {
             box-shadow: none !important;
             border: none !important;
           }
-
-          @page {
-            size: A4;
-            margin: 8mm;
-          }
+          @page { size: A4; margin: 8mm; }
         }
       `}</style>
 
@@ -146,29 +145,13 @@ export default function InvestorReportPage() {
           </select>
 
           <div style={filtersGrid}>
-            <input
-              type="date"
-              style={input}
-              value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
-            />
-
-            <input
-              type="date"
-              style={input}
-              value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
-            />
+            <input type="date" style={input} value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+            <input type="date" style={input} value={toDate} onChange={(e) => setToDate(e.target.value)} />
           </div>
 
           <div style={buttonsRow}>
-            <button style={primaryButton} onClick={loadReport}>
-              عرض الكشف
-            </button>
-
-            <button style={printButton} onClick={() => window.print()}>
-              طباعة A4
-            </button>
+            <button style={primaryButton} onClick={loadReport}>عرض الكشف</button>
+            <button style={printButton} onClick={() => window.print()}>طباعة A4</button>
           </div>
         </section>
 
@@ -181,9 +164,7 @@ export default function InvestorReportPage() {
 
             <div style={reportMeta}>
               <div>تاريخ الطباعة: {new Date().toLocaleDateString("ar-SA")}</div>
-              <div>
-                الفترة: {fromDate || "البداية"} إلى {toDate || "اليوم"}
-              </div>
+              <div>الفترة: {fromDate || "البداية"} إلى {toDate || "اليوم"}</div>
             </div>
           </div>
 
@@ -257,7 +238,6 @@ function Summary({ title, value }: any) {
 
 function formatDate(date: string) {
   if (!date) return "-";
-
   return new Date(date).toLocaleDateString("ar-SA", {
     year: "numeric",
     month: "short",
@@ -265,172 +245,24 @@ function formatDate(date: string) {
   });
 }
 
-const page = {
-  minHeight: "100vh",
-  background: "#eef5ff",
-  padding: 20,
-  fontFamily: "var(--font-almarai), sans-serif",
-};
-
-const container = {
-  width: "100%",
-  maxWidth: 1200,
-  margin: "auto",
-};
-
-const controlsCard = {
-  background: "white",
-  border: "1px solid #d9e3f5",
-  borderRadius: 18,
-  padding: 20,
-  marginBottom: 18,
-};
-
-const pageTitle = {
-  marginTop: 0,
-  color: "#0d47a1",
-};
-
-const filtersGrid = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
-  gap: 12,
-  marginTop: 12,
-};
-
-const input = {
-  width: "100%",
-  padding: 14,
-  borderRadius: 14,
-  border: "1px solid #d9e3f5",
-  fontSize: 16,
-  boxSizing: "border-box" as const,
-};
-
-const buttonsRow = {
-  display: "flex",
-  gap: 12,
-  marginTop: 16,
-  flexWrap: "wrap" as const,
-};
-
-const primaryButton = {
-  padding: "14px 24px",
-  background: "#0d47a1",
-  color: "white",
-  border: "none",
-  borderRadius: 14,
-  fontSize: 16,
-  fontWeight: "bold",
-};
-
-const printButton = {
-  padding: "14px 24px",
-  background: "#166534",
-  color: "white",
-  border: "none",
-  borderRadius: 14,
-  fontSize: 16,
-  fontWeight: "bold",
-};
-
-const printArea = {
-  background: "white",
-  border: "1px solid #d9e3f5",
-  borderRadius: 18,
-  padding: 24,
-};
-
-const reportHeader = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 20,
-  borderBottom: "2px solid #0d47a1",
-  paddingBottom: 14,
-  marginBottom: 16,
-};
-
-const reportMeta = {
-  textAlign: "left" as const,
-  fontSize: 13,
-  lineHeight: 1.8,
-};
-
-const smallText = {
-  color: "#64748b",
-  marginTop: 6,
-};
-
-const investorBox = {
-  background: "#f8fbff",
-  border: "1px solid #d9e3f5",
-  borderRadius: 12,
-  padding: 14,
-  marginBottom: 14,
-};
-
-const summaryGrid = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))",
-  gap: 12,
-  marginBottom: 16,
-};
-
-const summaryBox = {
-  border: "1px solid #d9e3f5",
-  borderRadius: 12,
-  padding: 14,
-  display: "flex",
-  justifyContent: "space-between",
-  background: "#f8fbff",
-};
-
-const tableHeader = {
-  display: "grid",
-  gridTemplateColumns: "1.2fr 1fr 1.7fr 1.6fr 1fr .8fr .8fr .8fr",
-  gap: 8,
-  background: "#0d47a1",
-  color: "white",
-  padding: 10,
-  fontSize: 12,
-  fontWeight: "bold",
-};
-
-const tableRow = {
-  display: "grid",
-  gridTemplateColumns: "1.2fr 1fr 1.7fr 1.6fr 1fr .8fr .8fr .8fr",
-  gap: 8,
-  padding: 10,
-  borderBottom: "1px solid #e5e7eb",
-  fontSize: 12,
-};
-
-const emptyBox = {
-  padding: 22,
-  textAlign: "center" as const,
-  color: "#6b7280",
-  border: "1px dashed #cbd5e1",
-  marginTop: 10,
-  borderRadius: 12,
-};
-
-const footer = {
-  display: "flex",
-  justifyContent: "space-between",
-  marginTop: 24,
-  paddingTop: 12,
-  borderTop: "1px solid #cbd5e1",
-  fontSize: 12,
-};
-
-const backButton = {
-  width: "100%",
-  padding: 16,
-  background: "#e5e7eb",
-  color: "#0d47a1",
-  border: "1px solid #cbd5e1",
-  borderRadius: 14,
-  fontSize: 17,
-  fontWeight: "bold",
-  marginTop: 18,
-};
+const page = { minHeight: "100vh", background: "#eef5ff", padding: 20, fontFamily: "var(--font-almarai), sans-serif" };
+const container = { width: "100%", maxWidth: 1200, margin: "auto" };
+const controlsCard = { background: "white", border: "1px solid #d9e3f5", borderRadius: 18, padding: 20, marginBottom: 18 };
+const pageTitle = { marginTop: 0, color: "#0d47a1" };
+const filtersGrid = { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 12, marginTop: 12 };
+const input = { width: "100%", padding: 14, borderRadius: 14, border: "1px solid #d9e3f5", fontSize: 16, boxSizing: "border-box" as const };
+const buttonsRow = { display: "flex", gap: 12, marginTop: 16, flexWrap: "wrap" as const };
+const primaryButton = { padding: "14px 24px", background: "#0d47a1", color: "white", border: "none", borderRadius: 14, fontSize: 16, fontWeight: "bold" };
+const printButton = { padding: "14px 24px", background: "#166534", color: "white", border: "none", borderRadius: 14, fontSize: 16, fontWeight: "bold" };
+const printArea = { background: "white", border: "1px solid #d9e3f5", borderRadius: 18, padding: 24 };
+const reportHeader = { display: "flex", justifyContent: "space-between", gap: 20, borderBottom: "2px solid #0d47a1", paddingBottom: 14, marginBottom: 16 };
+const reportMeta = { textAlign: "left" as const, fontSize: 13, lineHeight: 1.8 };
+const smallText = { color: "#64748b", marginTop: 6 };
+const investorBox = { background: "#f8fbff", border: "1px solid #d9e3f5", borderRadius: 12, padding: 14, marginBottom: 14 };
+const summaryGrid = { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12, marginBottom: 16 };
+const summaryBox = { border: "1px solid #d9e3f5", borderRadius: 12, padding: 14, display: "flex", justifyContent: "space-between", background: "#f8fbff" };
+const tableHeader = { display: "grid", gridTemplateColumns: "1.2fr 1fr 1.7fr 1.6fr 1fr .8fr .8fr .8fr", gap: 8, background: "#0d47a1", color: "white", padding: 10, fontSize: 12, fontWeight: "bold" };
+const tableRow = { display: "grid", gridTemplateColumns: "1.2fr 1fr 1.7fr 1.6fr 1fr .8fr .8fr .8fr", gap: 8, padding: 10, borderBottom: "1px solid #e5e7eb", fontSize: 12 };
+const emptyBox = { padding: 22, textAlign: "center" as const, color: "#6b7280", border: "1px dashed #cbd5e1", marginTop: 10, borderRadius: 12 };
+const footer = { display: "flex", justifyContent: "space-between", marginTop: 24, paddingTop: 12, borderTop: "1px solid #cbd5e1", fontSize: 12 };
+const backButton = { width: "100%", padding: 16, background: "#e5e7eb", color: "#0d47a1", border: "1px solid #cbd5e1", borderRadius: 14, fontSize: 17, fontWeight: "bold", marginTop: 18 };
