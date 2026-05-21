@@ -39,7 +39,6 @@ export default function InvestorReportPage() {
       .from("finance_investors")
       .select("*")
       .eq("branch_id", currentBranchId)
-      .eq("is_active", true)
       .order("created_at", { ascending: false });
 
     setInvestors(data || []);
