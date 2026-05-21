@@ -22,6 +22,7 @@ export default function NewRequestPage() {
   const [birthMonth, setBirthMonth] = useState("");
   const [birthYear, setBirthYear] = useState("");
   const [phone, setPhone] = useState("");
+  const [workName, setWorkName] = useState("");
 
   const [financeType, setFinanceType] = useState("");
   const [investorId, setInvestorId] = useState("");
@@ -31,10 +32,10 @@ export default function NewRequestPage() {
   const [printPartyType, setPrintPartyType] = useState("organization");
 
   const [debtAmount, setDebtAmount] = useState("");
-  const [paymentAmount, setPaymentAmount] = useState("");
   const [installmentAmount, setInstallmentAmount] = useState("");
   const [paymentType, setPaymentType] = useState("");
   const [paymentDueDate, setPaymentDueDate] = useState("");
+  const [draftPaymentDueDate, setDraftPaymentDueDate] = useState("");
   const [legalCity, setLegalCity] = useState("");
   const [notes, setNotes] = useState("");
 
@@ -89,33 +90,32 @@ export default function NewRequestPage() {
     setAvailableStock(data ? Number(data.quantity || 0) : 0);
   }
 
+  function validateRequest() {
+    if (!branchId) return "تعذر تحديد الفرع";
+    if (!fullName) return "يرجى إدخال اسم العميل";
+    if (!nationalId) return "يرجى إدخال رقم الهوية";
+    if (!birthDay) return "يرجى إدخال يوم الميلاد";
+    if (!birthMonth) return "يرجى إدخال شهر الميلاد";
+    if (!birthYear) return "يرجى إدخال سنة الميلاد";
+    if (!phone) return "يرجى إدخال رقم الجوال";
+    if (!financeType) return "يرجى إدخال نوع التمويل";
+    if (!investorId) return "يرجى اختيار المستثمر المرتبط بالمخزون";
+    if (!productId) return "يرجى اختيار المنتج";
+    if (!productQuantity) return "يرجى إدخال الكمية";
+    if (!debtAmount) return "يرجى إدخال مبلغ الدين / مبلغ السند";
+    if (!paymentType) return "يرجى اختيار نوع السداد";
+    if (!paymentDueDate) return "يرجى اختيار موعد السداد ثم الضغط على زر تم";
+    if (!legalCity) return "يرجى إدخال مدينة التقاضي";
+    return "";
+  }
+
   async function createRequest() {
     if (saving) return;
 
-    if (!branchId) {
-      alert("تعذر تحديد الفرع");
-      return;
-    }
+    const validationMessage = validateRequest();
 
-    if (
-      !fullName ||
-      !nationalId ||
-      !birthDay ||
-      !birthMonth ||
-      !birthYear ||
-      !phone
-    ) {
-      alert("أكمل بيانات العميل");
-      return;
-    }
-
-    if (!financeType || !debtAmount || !paymentAmount) {
-      alert("أكمل بيانات العقد");
-      return;
-    }
-
-    if (!investorId || !productId || !productQuantity) {
-      alert("اختر المستثمر والمنتج والكمية");
+    if (validationMessage) {
+      alert(validationMessage);
       return;
     }
 
@@ -161,21 +161,14 @@ export default function NewRequestPage() {
         throw new Error(stockError.message);
       }
 
-      if (!stockData) {
-        alert("لا يوجد مخزون لهذا المستثمر والمنتج");
-        return;
-      }
-
-      const beforeQty = Number(stockData.quantity || 0);
+      const beforeQty = Number(stockData?.quantity || 0);
 
       if (beforeQty < qty) {
         const confirmContinue = window.confirm(
           "الكمية في الطلب أكثر من المتاحة في المخزون، هل تريد الاستمرار؟"
         );
 
-        if (!confirmContinue) {
-          return;
-        }
+        if (!confirmContinue) return;
       }
 
       const organizationSettings = await getOrganizationSettings();
@@ -192,7 +185,6 @@ export default function NewRequestPage() {
 
       const birthHijri = `${birthDay}/${birthMonth}/${birthYear}`;
       const debt = toNumber(debtAmount);
-      const totalPayment = toNumber(paymentAmount);
 
       const { data: requestData, error: rpcError } = await supabase.rpc(
         "create_new_request_atomic",
@@ -218,7 +210,7 @@ export default function NewRequestPage() {
           p_print_party_identifier: printPartyIdentifier || "",
 
           p_debt_amount: debt,
-          p_payment_amount: totalPayment,
+          p_payment_amount: debt,
           p_installment_amount: toNumber(installmentAmount),
           p_payment_type: paymentType,
           p_payment_due_date: paymentDueDate || null,
@@ -258,86 +250,108 @@ export default function NewRequestPage() {
         <section style={card}>
           <h2 style={sectionTitle}>بيانات العميل</h2>
 
-          <input
-            style={input}
-            placeholder="اسم العميل"
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-          />
+          <Field label="اسم العميل">
+            <input
+              style={input}
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+            />
+          </Field>
 
-          <input
-            style={input}
-            inputMode="numeric"
-            maxLength={10}
-            placeholder="رقم الهوية"
-            value={nationalId}
-            onChange={(e) => setNationalId(normalizeNumber(e.target.value))}
-          />
+          <Field label="رقم الهوية">
+            <input
+              style={input}
+              inputMode="numeric"
+              maxLength={10}
+              value={nationalId}
+              onChange={(e) => setNationalId(normalizeNumber(e.target.value))}
+            />
+          </Field>
 
           <div style={dateLabel}>تاريخ الميلاد بالهجري</div>
 
           <div style={dateGrid}>
-            <input
-              style={input}
-              inputMode="numeric"
-              placeholder="اليوم"
-              value={birthDay}
-              onChange={(e) => setBirthDay(normalizeNumber(e.target.value))}
-            />
-            <input
-              style={input}
-              inputMode="numeric"
-              placeholder="الشهر"
-              value={birthMonth}
-              onChange={(e) => setBirthMonth(normalizeNumber(e.target.value))}
-            />
-            <input
-              style={input}
-              inputMode="numeric"
-              placeholder="السنة"
-              value={birthYear}
-              onChange={(e) => setBirthYear(normalizeNumber(e.target.value))}
-            />
+            <Field label="اليوم">
+              <input
+                style={input}
+                inputMode="numeric"
+                value={birthDay}
+                onChange={(e) => setBirthDay(normalizeNumber(e.target.value))}
+              />
+            </Field>
+
+            <Field label="الشهر">
+              <input
+                style={input}
+                inputMode="numeric"
+                value={birthMonth}
+                onChange={(e) => setBirthMonth(normalizeNumber(e.target.value))}
+              />
+            </Field>
+
+            <Field label="السنة">
+              <input
+                style={input}
+                inputMode="numeric"
+                value={birthYear}
+                onChange={(e) => setBirthYear(normalizeNumber(e.target.value))}
+              />
+            </Field>
           </div>
 
-          <input
-            style={input}
-            inputMode="numeric"
-            maxLength={10}
-            placeholder="رقم الجوال"
-            value={phone}
-            onChange={(e) => setPhone(normalizeNumber(e.target.value))}
-          />
+          <div style={twoColumns}>
+            <Field label="رقم الجوال">
+              <input
+                style={input}
+                inputMode="numeric"
+                maxLength={10}
+                value={phone}
+                onChange={(e) => setPhone(normalizeNumber(e.target.value))}
+              />
+            </Field>
+
+            <Field label="العمل - اختياري">
+              <input
+                style={input}
+                value={workName}
+                onChange={(e) => setWorkName(e.target.value)}
+              />
+            </Field>
+          </div>
         </section>
 
         <section style={card}>
           <h2 style={sectionTitle}>المخزون والطرف الأول</h2>
 
-          <select
-            style={input}
-            value={investorId}
-            onChange={(e) => setInvestorId(e.target.value)}
-          >
-            <option value="">المستثمر المرتبط بالمخزون</option>
-            {investors.map((investor) => (
-              <option key={investor.id} value={investor.id}>
-                {investor.investor_name}
-              </option>
-            ))}
-          </select>
+          <Field label="المستثمر المرتبط بالمخزون">
+            <select
+              style={input}
+              value={investorId}
+              onChange={(e) => setInvestorId(e.target.value)}
+            >
+              <option value="">اختر المستثمر</option>
+              {investors.map((investor) => (
+                <option key={investor.id} value={investor.id}>
+                  {investor.investor_name}
+                </option>
+              ))}
+            </select>
+          </Field>
 
-          <select
-            style={input}
-            value={productId}
-            onChange={(e) => setProductId(e.target.value)}
-          >
-            <option value="">اختر المنتج</option>
-            {products.map((product) => (
-              <option key={product.id} value={product.id}>
-                {product.product_name}
-              </option>
-            ))}
-          </select>
+          <Field label="اختر المنتج">
+            <select
+              style={input}
+              value={productId}
+              onChange={(e) => setProductId(e.target.value)}
+            >
+              <option value="">اختر المنتج</option>
+              {products.map((product) => (
+                <option key={product.id} value={product.id}>
+                  {product.product_name}
+                </option>
+              ))}
+            </select>
+          </Field>
 
           {availableStock !== null && (
             <div style={availableStock < 0 ? stockDanger : stockInfo}>
@@ -345,91 +359,112 @@ export default function NewRequestPage() {
             </div>
           )}
 
-          <input
-            style={input}
-            inputMode="numeric"
-            placeholder="الكمية"
-            value={productQuantity}
-            onChange={(e) => setProductQuantity(normalizeNumber(e.target.value))}
-          />
+          <Field label="الكمية">
+            <input
+              style={input}
+              inputMode="numeric"
+              value={productQuantity}
+              onChange={(e) =>
+                setProductQuantity(normalizeNumber(e.target.value))
+              }
+            />
+          </Field>
 
-          <select
-            style={input}
-            value={printPartyType}
-            onChange={(e) => setPrintPartyType(e.target.value)}
-          >
-            <option value="organization">الطرف الأول في الطباعة: المنظمة</option>
-            <option value="investor">الطرف الأول في الطباعة: المستثمر</option>
-          </select>
+          <Field label="الطرف الأول في الطباعة">
+            <select
+              style={input}
+              value={printPartyType}
+              onChange={(e) => setPrintPartyType(e.target.value)}
+            >
+              <option value="organization">المنظمة</option>
+              <option value="investor">المستثمر</option>
+            </select>
+          </Field>
         </section>
 
         <section style={card}>
           <h2 style={sectionTitle}>بيانات العقد والسند</h2>
 
-          <input
-            style={input}
-            placeholder="نوع التمويل"
-            value={financeType}
-            onChange={(e) => setFinanceType(e.target.value)}
-          />
+          <Field label="نوع التمويل">
+            <input
+              style={input}
+              value={financeType}
+              onChange={(e) => setFinanceType(e.target.value)}
+            />
+          </Field>
 
-          <input
-            style={input}
-            inputMode="numeric"
-            placeholder="مبلغ الدين / مبلغ السند"
-            value={debtAmount}
-            onChange={(e) => setDebtAmount(normalizeNumber(e.target.value))}
-          />
+          <Field label="مبلغ الدين / مبلغ السند">
+            <input
+              style={input}
+              inputMode="numeric"
+              value={debtAmount}
+              onChange={(e) => setDebtAmount(normalizeNumber(e.target.value))}
+            />
+          </Field>
 
-          <input
-            style={input}
-            inputMode="numeric"
-            placeholder="مبلغ السداد"
-            value={paymentAmount}
-            onChange={(e) => setPaymentAmount(normalizeNumber(e.target.value))}
-          />
+          <Field label="القسط">
+            <input
+              style={input}
+              inputMode="numeric"
+              value={installmentAmount}
+              onChange={(e) =>
+                setInstallmentAmount(normalizeNumber(e.target.value))
+              }
+            />
+          </Field>
 
-          <input
-            style={input}
-            inputMode="numeric"
-            placeholder="القسط"
-            value={installmentAmount}
-            onChange={(e) =>
-              setInstallmentAmount(normalizeNumber(e.target.value))
-            }
-          />
+          <Field label="نوع السداد">
+            <select
+              style={input}
+              value={paymentType}
+              onChange={(e) => setPaymentType(e.target.value)}
+            >
+              <option value="">اختر نوع السداد</option>
+              <option value="موعد محدد">موعد محدد</option>
+              <option value="شهري مجدول">شهري مجدول</option>
+            </select>
+          </Field>
 
-          <select
-            style={input}
-            value={paymentType}
-            onChange={(e) => setPaymentType(e.target.value)}
-          >
-            <option value="">نوع السداد</option>
-            <option value="موعد محدد">موعد محدد</option>
-            <option value="شهري مجدول">شهري مجدول</option>
-          </select>
+          <Field label="موعد السداد بالميلادي">
+            <div style={dateConfirmRow}>
+              <input
+                style={{ ...input, marginBottom: 0 }}
+                type="date"
+                value={draftPaymentDueDate}
+                onChange={(e) => setDraftPaymentDueDate(e.target.value)}
+              />
 
-          <input
-            style={input}
-            type="date"
-            placeholder="موعد السداد بالميلادي"
-            value={paymentDueDate}
-            onChange={(e) => setPaymentDueDate(e.target.value)}
-          />
+              <button
+                type="button"
+                style={doneButton}
+                onClick={() => setPaymentDueDate(draftPaymentDueDate)}
+              >
+                تم
+              </button>
+            </div>
 
-          <input
-            style={input}
-            placeholder="مدينة التقاضي"
-            value={legalCity}
-            onChange={(e) => setLegalCity(e.target.value)}
-          />
+            {paymentDueDate && (
+              <div style={confirmedDate}>
+                التاريخ المعتمد: {paymentDueDate}
+              </div>
+            )}
+          </Field>
 
-          <textarea
-            style={textarea}
-            placeholder="ملاحظات"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-          />
+          <Field label="مدينة التقاضي">
+            <input
+              style={input}
+              value={legalCity}
+              onChange={(e) => setLegalCity(e.target.value)}
+            />
+          </Field>
+
+          <Field label="ملاحظات">
+            <textarea
+              style={textarea}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </Field>
 
           <button style={primaryButton} onClick={createRequest} disabled={saving}>
             {saving ? "جاري إنشاء الطلب..." : "إنشاء الطلب وطباعة العقد"}
@@ -444,6 +479,15 @@ export default function NewRequestPage() {
         </button>
       </div>
     </main>
+  );
+}
+
+function Field({ label, children }: any) {
+  return (
+    <div style={fieldBox}>
+      <label style={fieldLabel}>{label}</label>
+      {children}
+    </div>
   );
 }
 
@@ -481,13 +525,27 @@ const sectionTitle = {
   color: "#0d47a1",
 };
 
+const fieldBox = {
+  marginBottom: 14,
+};
+
+const fieldLabel = {
+  display: "block",
+  marginBottom: 8,
+  color: "#0d47a1",
+  fontWeight: "bold",
+  fontSize: 15,
+};
+
 const input = {
   width: "100%",
-  padding: 14,
+  height: 50,
+  padding: "0 14px",
   borderRadius: 14,
   border: "1px solid #d9e3f5",
   fontSize: 16,
-  marginBottom: 12,
+  boxSizing: "border-box" as const,
+  background: "white",
 };
 
 const textarea = {
@@ -497,7 +555,7 @@ const textarea = {
   borderRadius: 14,
   border: "1px solid #d9e3f5",
   fontSize: 16,
-  marginBottom: 12,
+  boxSizing: "border-box" as const,
 };
 
 const dateLabel = {
@@ -511,6 +569,37 @@ const dateGrid = {
   display: "grid",
   gridTemplateColumns: "1fr 1fr 1fr",
   gap: 10,
+};
+
+const twoColumns = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
+  gap: 12,
+};
+
+const dateConfirmRow = {
+  display: "grid",
+  gridTemplateColumns: "1fr auto",
+  gap: 10,
+  alignItems: "center",
+};
+
+const doneButton = {
+  height: 50,
+  padding: "0 18px",
+  background: "#166534",
+  color: "white",
+  border: "none",
+  borderRadius: 14,
+  fontSize: 16,
+  fontWeight: "bold",
+};
+
+const confirmedDate = {
+  marginTop: 8,
+  color: "#166534",
+  fontWeight: "bold",
+  fontSize: 14,
 };
 
 const stockInfo = {
