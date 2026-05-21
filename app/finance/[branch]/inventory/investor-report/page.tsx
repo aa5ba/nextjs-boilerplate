@@ -70,9 +70,7 @@ export default function InvestorReportPage() {
       .select(`
         *,
         finance_products(product_name),
-        finance_investors(investor_name),
-        finance_contracts(contract_number),
-        finance_customers(full_name, national_id)
+        finance_investors(investor_name)
       `)
       .eq("branch_id", branchId)
       .eq("investor_id", investorId)
@@ -106,10 +104,20 @@ export default function InvestorReportPage() {
   return (
     <main dir="rtl" style={page}>
       <style>{`
+        .print-only {
+          display: none;
+        }
+
         @media print {
           body { background: white !important; }
           .no-print { display: none !important; }
-          main { background: white !important; padding: 0 !important; }
+          .print-only { display: flex !important; }
+
+          main {
+            background: white !important;
+            padding: 0 !important;
+          }
+
           .print-area {
             width: 190mm !important;
             min-height: 277mm !important;
@@ -117,8 +125,13 @@ export default function InvestorReportPage() {
             padding: 8mm !important;
             box-shadow: none !important;
             border: none !important;
+            overflow: visible !important;
           }
-          @page { size: A4; margin: 8mm; }
+
+          @page {
+            size: A4;
+            margin: 8mm;
+          }
         }
       `}</style>
 
@@ -168,6 +181,7 @@ export default function InvestorReportPage() {
             <button style={primaryButton} onClick={loadReport}>
               عرض الكشف
             </button>
+
             <button style={printButton} onClick={() => window.print()}>
               طباعة A4
             </button>
@@ -182,7 +196,7 @@ export default function InvestorReportPage() {
             </div>
 
             <div style={reportMeta}>
-              <div>تاريخ الطباعة: {new Date().toLocaleDateString("ar-SA")}</div>
+              <div>تاريخ الطباعة: {formatGregorianDate(new Date())}</div>
               <div>
                 الفترة: {fromDate || "البداية"} إلى {toDate || "اليوم"}
               </div>
@@ -218,9 +232,9 @@ export default function InvestorReportPage() {
           ) : (
             items.map((item) => (
               <div key={item.id} style={tableRow}>
-                <span>{formatDate(item.created_at)}</span>
-                <span>{item.finance_contracts?.contract_number || "-"}</span>
-                <span>{item.finance_customers?.full_name || "-"}</span>
+                <span>{formatGregorianDate(item.created_at)}</span>
+                <span>{item.contract_id ? String(item.contract_id).slice(0, 8) : "-"}</span>
+                <span>{item.customer_id ? String(item.customer_id).slice(0, 8) : "-"}</span>
                 <span>{item.finance_products?.product_name || "-"}</span>
                 <span>{item.movement_type || "-"}</span>
                 <strong>{item.quantity || 0}</strong>
@@ -231,7 +245,10 @@ export default function InvestorReportPage() {
           )}
 
           <div style={footer}>
-            <div>تم إنشاء هذا الكشف آليًا من نظام احتساب</div>
+            <div>تم إنشاء هذا الكشف من النظام عبر {organizationName}</div>
+          </div>
+
+          <div style={signatureRow} className="print-only">
             <div>التوقيع: .........................</div>
           </div>
         </section>
@@ -257,12 +274,13 @@ function Summary({ title, value }: any) {
   );
 }
 
-function formatDate(date: string) {
+function formatGregorianDate(date: any) {
   if (!date) return "-";
-  return new Date(date).toLocaleDateString("ar-SA", {
+
+  return new Date(date).toLocaleDateString("en-CA", {
     year: "numeric",
-    month: "short",
-    day: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   });
 }
 
@@ -428,11 +446,15 @@ const emptyBox = {
 };
 
 const footer = {
-  display: "flex",
-  justifyContent: "space-between",
   marginTop: 24,
   paddingTop: 12,
   borderTop: "1px solid #cbd5e1",
+  fontSize: 12,
+};
+
+const signatureRow = {
+  justifyContent: "flex-end",
+  marginTop: 24,
   fontSize: 12,
 };
 
