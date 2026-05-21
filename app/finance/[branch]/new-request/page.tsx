@@ -322,7 +322,7 @@ export default function NewRequestPage() {
         </section>
 
         <section style={card}>
-          <h2 style={sectionTitle}>المخزون والطرف الأول</h2>
+          <h2 style={sectionTitle}>الطرف الأول</h2>
 
           <Field label="المستثمر المرتبط بالمخزون">
             <select
@@ -371,13 +371,13 @@ export default function NewRequestPage() {
             />
           </Field>
 
-          <Field label="الطرف الأول في الطباعة">
+          <Field label="الطرف الأول المسجّل في العقد والسند">
             <select
               style={input}
               value={printPartyType}
               onChange={(e) => setPrintPartyType(e.target.value)}
             >
-              <option value="organization">المنظمة</option>
+              <option value="organization">المستثمر الرئيسي - المؤسسة</option>
               <option value="investor">المستثمر</option>
             </select>
           </Field>
@@ -394,7 +394,7 @@ export default function NewRequestPage() {
             />
           </Field>
 
-          <Field label="مبلغ الدين / مبلغ السند">
+          <Field label="مبلغ الاستحقاق / مبلغ السند">
             <input
               style={input}
               inputMode="numeric"
