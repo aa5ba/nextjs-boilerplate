@@ -66,15 +66,17 @@ export default function InvestorReportPage() {
     setLoading(true);
 
     let query = supabase
-      .from("finance_inventory_movements")
-      .select(`
-        *,
-        finance_products(product_name),
-        finance_investors(investor_name)
-      `)
-      .eq("branch_id", branchId)
-      .eq("investor_id", investorId)
-      .order("created_at", { ascending: false });
+  .from("finance_inventory_movements")
+  .select(`
+    *,
+    finance_products(product_name),
+    finance_investors(investor_name),
+    finance_contracts(contract_number),
+    finance_customers(full_name, national_id)
+  `)
+  .eq("branch_id", branchId)
+  .eq("investor_id", investorId)
+  .order("created_at", { ascending: false });
 
     if (fromDate) query = query.gte("created_at", fromDate);
     if (toDate) query = query.lte("created_at", `${toDate}T23:59:59`);
@@ -233,8 +235,8 @@ export default function InvestorReportPage() {
             items.map((item) => (
               <div key={item.id} style={tableRow}>
                 <span>{formatGregorianDate(item.created_at)}</span>
-                <span>{item.contract_id ? String(item.contract_id).slice(0, 8) : "-"}</span>
-                <span>{item.customer_id ? String(item.customer_id).slice(0, 8) : "-"}</span>
+                <span>{item.finance_contracts?.contract_number || "-"}</span>
+<span>{item.finance_customers?.full_name || "-"}</span>
                 <span>{item.finance_products?.product_name || "-"}</span>
                 <span>{item.movement_type || "-"}</span>
                 <strong>{item.quantity || 0}</strong>
