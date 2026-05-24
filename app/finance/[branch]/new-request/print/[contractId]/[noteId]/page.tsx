@@ -202,13 +202,23 @@ export default function PrintNewRequestPage() {
         </p>
 
         <p style={paragraph}>
-          ويلتزم الطرف الثاني بسداد مبلغ وقدره /
-          <strong> {contract?.payment_amount || 0}</strong> ريال سعودي، وذلك حسب
-          نوع السداد / <strong>{contract?.payment_type || "-"}</strong>، وموعد
-          السداد / <strong>{contract?.payment_due_date || "-"}</strong>، وبقسط
-          قدره / <strong>{contract?.installment_amount || 0}</strong> ريال
-          سعودي.
-        </p>
+  ويلتزم الطرف الثاني بسداد مبلغ وقدره /
+  <strong> {contract?.payment_amount || 0}</strong> ريال سعودي
+  {Number(contract?.installment_amount || 0) > 0 ? (
+    <>
+      ، وذلك حسب نوع السداد كدفعات آجلة قيمة كل دفعة /
+      <strong> {contract?.installment_amount || 0}</strong> ريال سعودي
+      {contract?.deferred_payments_count ? (
+        <>
+          {" "}وعددها / <strong>{contract.deferred_payments_count}</strong> دفعات
+        </>
+      ) : null}
+      .
+    </>
+  ) : (
+    <>.</>
+  )}
+</p>
 
         <p style={paragraph}>
           وتكون مدينة التقاضي / <strong>{contract?.legal_city || "-"}</strong>.
