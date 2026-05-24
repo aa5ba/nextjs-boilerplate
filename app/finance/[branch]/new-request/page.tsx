@@ -35,6 +35,8 @@ export default function NewRequestPage() {
 
   const [debtAmount, setDebtAmount] = useState("");
   const [installmentAmount, setInstallmentAmount] = useState("");
+  const [deferredPaymentsCount, setDeferredPaymentsCount] = useState("");
+
   const [paymentType, setPaymentType] = useState("");
   const [paymentDueDate, setPaymentDueDate] = useState("");
   const [draftPaymentDueDate, setDraftPaymentDueDate] = useState("");
@@ -99,29 +101,52 @@ export default function NewRequestPage() {
     setAvailableStock(data ? Number(data.quantity || 0) : 0);
   }
 
+  function resetGuarantorFields() {
+    setGuarantorName("");
+    setGuarantorNationalId("");
+    setGuarantorPhone("");
+    setGuarantorWorkName("");
+  }
+
   function validateRequest() {
+    const qty = toNumber(productQuantity);
+    const debt = toNumber(debtAmount);
+    const deferredPayment = toNumber(installmentAmount);
+    const deferredCount = toNumber(deferredPaymentsCount);
+
     if (!branchId) return "تعذر تحديد الفرع";
-    if (!fullName) return "يرجى إدخال اسم العميل";
+    if (!fullName.trim()) return "يرجى إدخال اسم العميل";
     if (!nationalId) return "يرجى إدخال رقم الهوية";
     if (!birthDay) return "يرجى إدخال يوم الميلاد";
     if (!birthMonth) return "يرجى إدخال شهر الميلاد";
     if (!birthYear) return "يرجى إدخال سنة الميلاد";
     if (!phone) return "يرجى إدخال رقم الجوال";
-    if (!financeType) return "يرجى إدخال نوع التمويل";
+    if (!financeType.trim()) return "يرجى إدخال نوع التمويل";
     if (!investorId) return "يرجى اختيار المستثمر المرتبط بالمخزون";
     if (!productId) return "يرجى اختيار المنتج";
     if (!productQuantity) return "يرجى إدخال الكمية";
+    if (qty <= 0) return "يرجى إدخال كمية صحيحة";
     if (!debtAmount) return "يرجى إدخال مبلغ الاستحقاق / مبلغ السند";
+    if (debt <= 0) return "يرجى إدخال مبلغ استحقاق صحيح";
+
+    if (deferredPayment > 0 && !deferredPaymentsCount) {
+      return "يرجى إدخال عدد الدفعات الآجلة";
+    }
+
+    if (deferredPayment > 0 && deferredCount <= 0) {
+      return "يرجى إدخال عدد دفعات آجلة صحيح";
+    }
+
     if (!paymentType) return "يرجى اختيار نوع السداد";
     if (!paymentDueDate) return "يرجى اختيار موعد السداد ثم الضغط على زر تم";
     if (!contractIssueDate) return "يرجى اختيار تاريخ تحرير العقد";
-    if (!legalCity) return "يرجى إدخال مدينة التقاضي";
+    if (!legalCity.trim()) return "يرجى إدخال مدينة التقاضي";
 
     if (hasGuarantor) {
-      if (!guarantorName) return "يرجى إدخال اسم الكفيل";
+      if (!guarantorName.trim()) return "يرجى إدخال اسم الكفيل";
       if (!guarantorNationalId) return "يرجى إدخال رقم هوية الكفيل";
       if (!guarantorPhone) return "يرجى إدخال رقم جوال الكفيل";
-      if (!guarantorWorkName) return "يرجى إدخال عمل الكفيل";
+      if (!guarantorWorkName.trim()) return "يرجى إدخال عمل الكفيل";
     }
 
     return "";
@@ -149,7 +174,12 @@ export default function NewRequestPage() {
     const cleanPhone = normalizeNumber(phone);
     const cleanGuarantorNationalId = normalizeNumber(guarantorNationalId);
     const cleanGuarantorPhone = normalizeNumber(guarantorPhone);
+
     const qty = toNumber(productQuantity);
+    const debt = toNumber(debtAmount);
+    const deferredPayment = toNumber(installmentAmount);
+    const deferredCount =
+      deferredPayment > 0 ? toNumber(deferredPaymentsCount) : 0;
 
     if (cleanNationalId.length !== 10) {
       alert("رقم الهوية يجب أن يكون 10 أرقام");
@@ -168,11 +198,6 @@ export default function NewRequestPage() {
 
     if (hasGuarantor && !/^05\d{8}$/.test(cleanGuarantorPhone)) {
       alert("رقم جوال الكفيل يجب أن يكون 10 أرقام ويبدأ بـ 05");
-      return;
-    }
-
-    if (qty <= 0) {
-      alert("أدخل كمية صحيحة");
       return;
     }
 
@@ -212,20 +237,19 @@ export default function NewRequestPage() {
           : selectedInvestor.national_id;
 
       const birthHijri = `${birthDay}/${birthMonth}/${birthYear}`;
-      const debt = toNumber(debtAmount);
 
       const { data: requestData, error: rpcError } = await supabase.rpc(
         "create_new_request_atomic",
         {
           p_branch_id: branchId,
 
-          p_full_name: fullName,
+          p_full_name: fullName.trim(),
           p_national_id: cleanNationalId,
           p_birth_hijri: birthHijri,
           p_phone: cleanPhone,
-          p_work_name: workName,
+          p_work_name: workName.trim(),
 
-          p_finance_type: financeType,
+          p_finance_type: financeType.trim(),
 
           p_investor_id: selectedInvestor.id,
           p_investor_name: selectedInvestor.investor_name,
@@ -240,21 +264,26 @@ export default function NewRequestPage() {
 
           p_debt_amount: debt,
           p_payment_amount: debt,
-          p_installment_amount: toNumber(installmentAmount),
+          p_installment_amount: deferredPayment,
+          p_deferred_payments_count: deferredCount,
           p_payment_type: paymentType,
           p_payment_due_date: paymentDueDate || null,
 
           p_contract_issue_date_gregorian: contractIssueDate,
           p_contract_issue_date_hijri: "",
 
-          p_legal_city: legalCity,
-          p_notes: notes,
+          p_legal_city: legalCity.trim(),
+          p_notes: notes.trim(),
 
           p_has_guarantor: hasGuarantor,
-          p_guarantor_name: hasGuarantor ? guarantorName : "",
-          p_guarantor_national_id: hasGuarantor ? cleanGuarantorNationalId : "",
+          p_guarantor_name: hasGuarantor ? guarantorName.trim() : "",
+          p_guarantor_national_id: hasGuarantor
+            ? cleanGuarantorNationalId
+            : "",
           p_guarantor_phone: hasGuarantor ? cleanGuarantorPhone : "",
-          p_guarantor_work_name: hasGuarantor ? guarantorWorkName : "",
+          p_guarantor_work_name: hasGuarantor
+            ? guarantorWorkName.trim()
+            : "",
         }
       );
 
@@ -287,36 +316,71 @@ export default function NewRequestPage() {
           <h2 style={sectionTitle}>بيانات العميل</h2>
 
           <Field label="اسم العميل">
-            <input style={input} value={fullName} onChange={(e) => setFullName(e.target.value)} />
+            <input
+              style={input}
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+            />
           </Field>
 
           <Field label="رقم الهوية">
-            <input style={input} inputMode="numeric" maxLength={10} value={nationalId} onChange={(e) => setNationalId(normalizeNumber(e.target.value))} />
+            <input
+              style={input}
+              inputMode="numeric"
+              maxLength={10}
+              value={nationalId}
+              onChange={(e) => setNationalId(normalizeNumber(e.target.value))}
+            />
           </Field>
 
           <div style={dateLabel}>تاريخ الميلاد بالهجري</div>
 
           <div style={dateGrid}>
             <Field label="اليوم">
-              <input style={input} inputMode="numeric" value={birthDay} onChange={(e) => setBirthDay(normalizeNumber(e.target.value))} />
+              <input
+                style={input}
+                inputMode="numeric"
+                value={birthDay}
+                onChange={(e) => setBirthDay(normalizeNumber(e.target.value))}
+              />
             </Field>
 
             <Field label="الشهر">
-              <input style={input} inputMode="numeric" value={birthMonth} onChange={(e) => setBirthMonth(normalizeNumber(e.target.value))} />
+              <input
+                style={input}
+                inputMode="numeric"
+                value={birthMonth}
+                onChange={(e) => setBirthMonth(normalizeNumber(e.target.value))}
+              />
             </Field>
 
             <Field label="السنة">
-              <input style={input} inputMode="numeric" value={birthYear} onChange={(e) => setBirthYear(normalizeNumber(e.target.value))} />
+              <input
+                style={input}
+                inputMode="numeric"
+                value={birthYear}
+                onChange={(e) => setBirthYear(normalizeNumber(e.target.value))}
+              />
             </Field>
           </div>
 
           <div style={twoColumns}>
             <Field label="رقم الجوال">
-              <input style={input} inputMode="numeric" maxLength={10} value={phone} onChange={(e) => setPhone(normalizeNumber(e.target.value))} />
+              <input
+                style={input}
+                inputMode="numeric"
+                maxLength={10}
+                value={phone}
+                onChange={(e) => setPhone(normalizeNumber(e.target.value))}
+              />
             </Field>
 
             <Field label="العمل - اختياري">
-              <input style={input} value={workName} onChange={(e) => setWorkName(e.target.value)} />
+              <input
+                style={input}
+                value={workName}
+                onChange={(e) => setWorkName(e.target.value)}
+              />
             </Field>
           </div>
         </section>
@@ -325,7 +389,11 @@ export default function NewRequestPage() {
           <h2 style={sectionTitle}>الطرف الأول</h2>
 
           <Field label="المستثمر المرتبط بالمخزون">
-            <select style={input} value={investorId} onChange={(e) => setInvestorId(e.target.value)}>
+            <select
+              style={input}
+              value={investorId}
+              onChange={(e) => setInvestorId(e.target.value)}
+            >
               <option value="">اختر المستثمر</option>
               {investors.map((investor) => (
                 <option key={investor.id} value={investor.id}>
@@ -336,7 +404,11 @@ export default function NewRequestPage() {
           </Field>
 
           <Field label="اختر المنتج">
-            <select style={input} value={productId} onChange={(e) => setProductId(e.target.value)}>
+            <select
+              style={input}
+              value={productId}
+              onChange={(e) => setProductId(e.target.value)}
+            >
               <option value="">اختر المنتج</option>
               {products.map((product) => (
                 <option key={product.id} value={product.id}>
@@ -353,11 +425,22 @@ export default function NewRequestPage() {
           )}
 
           <Field label="الكمية">
-            <input style={input} inputMode="numeric" value={productQuantity} onChange={(e) => setProductQuantity(normalizeNumber(e.target.value))} />
+            <input
+              style={input}
+              inputMode="numeric"
+              value={productQuantity}
+              onChange={(e) =>
+                setProductQuantity(normalizeNumber(e.target.value))
+              }
+            />
           </Field>
 
           <Field label="الطرف الأول المسجّل في العقد والسند">
-            <select style={input} value={printPartyType} onChange={(e) => setPrintPartyType(e.target.value)}>
+            <select
+              style={input}
+              value={printPartyType}
+              onChange={(e) => setPrintPartyType(e.target.value)}
+            >
               <option value="organization">المستثمر الرئيسي - المؤسسة</option>
               <option value="investor">المستثمر</option>
             </select>
@@ -368,19 +451,57 @@ export default function NewRequestPage() {
           <h2 style={sectionTitle}>بيانات العقد والسند</h2>
 
           <Field label="نوع التمويل">
-            <input style={input} value={financeType} onChange={(e) => setFinanceType(e.target.value)} />
+            <input
+              style={input}
+              value={financeType}
+              onChange={(e) => setFinanceType(e.target.value)}
+            />
           </Field>
 
           <Field label="مبلغ الاستحقاق / مبلغ السند">
-            <input style={input} inputMode="numeric" value={debtAmount} onChange={(e) => setDebtAmount(normalizeNumber(e.target.value))} />
+            <input
+              style={input}
+              inputMode="numeric"
+              value={debtAmount}
+              onChange={(e) => setDebtAmount(normalizeNumber(e.target.value))}
+            />
           </Field>
 
-          <Field label="القسط">
-            <input style={input} inputMode="numeric" value={installmentAmount} onChange={(e) => setInstallmentAmount(normalizeNumber(e.target.value))} />
+          <Field label="قيمة الدفعة الآجلة - اختياري">
+            <input
+              style={input}
+              inputMode="numeric"
+              value={installmentAmount}
+              onChange={(e) => {
+                const value = normalizeNumber(e.target.value);
+                setInstallmentAmount(value);
+
+                if (toNumber(value) <= 0) {
+                  setDeferredPaymentsCount("");
+                }
+              }}
+            />
           </Field>
+
+          {toNumber(installmentAmount) > 0 && (
+            <Field label="عدد الدفعات الآجلة">
+              <input
+                style={input}
+                inputMode="numeric"
+                value={deferredPaymentsCount}
+                onChange={(e) =>
+                  setDeferredPaymentsCount(normalizeNumber(e.target.value))
+                }
+              />
+            </Field>
+          )}
 
           <Field label="نوع السداد">
-            <select style={input} value={paymentType} onChange={(e) => setPaymentType(e.target.value)}>
+            <select
+              style={input}
+              value={paymentType}
+              onChange={(e) => setPaymentType(e.target.value)}
+            >
               <option value="">اختر نوع السداد</option>
               <option value="موعد محدد">موعد محدد</option>
               <option value="شهري مجدول">شهري مجدول</option>
@@ -389,25 +510,56 @@ export default function NewRequestPage() {
 
           <Field label="موعد السداد بالميلادي">
             <div style={dateConfirmRow}>
-              <input style={{ ...input, marginBottom: 0 }} type="date" value={draftPaymentDueDate} onChange={(e) => setDraftPaymentDueDate(e.target.value)} />
+              <input
+                style={{ ...input, marginBottom: 0 }}
+                type="date"
+                value={draftPaymentDueDate}
+                onChange={(e) => setDraftPaymentDueDate(e.target.value)}
+              />
 
-              <button type="button" style={doneButton} onClick={() => setPaymentDueDate(draftPaymentDueDate)}>
+              <button
+                type="button"
+                style={doneButton}
+                onClick={() => {
+                  if (!draftPaymentDueDate) {
+                    alert("اختر موعد السداد أولاً");
+                    return;
+                  }
+
+                  setPaymentDueDate(draftPaymentDueDate);
+                }}
+              >
                 تم
               </button>
             </div>
 
-            {paymentDueDate && <div style={confirmedDate}>التاريخ المعتمد: {paymentDueDate}</div>}
+            {paymentDueDate && (
+              <div style={confirmedDate}>
+                التاريخ المعتمد: {paymentDueDate}
+              </div>
+            )}
           </Field>
 
           <Field label="مدينة التقاضي">
-            <input style={input} value={legalCity} onChange={(e) => setLegalCity(e.target.value)} />
+            <input
+              style={input}
+              value={legalCity}
+              onChange={(e) => setLegalCity(e.target.value)}
+            />
           </Field>
 
           <Field label="هل يوجد كفيل؟">
             <select
               style={input}
               value={hasGuarantor ? "yes" : "no"}
-              onChange={(e) => setHasGuarantor(e.target.value === "yes")}
+              onChange={(e) => {
+                const value = e.target.value === "yes";
+                setHasGuarantor(value);
+
+                if (!value) {
+                  resetGuarantorFields();
+                }
+              }}
             >
               <option value="no">بدون كفيل</option>
               <option value="yes">يوجد كفيل</option>
@@ -417,29 +569,62 @@ export default function NewRequestPage() {
           {hasGuarantor && (
             <>
               <Field label="اسم الكفيل">
-                <input style={input} value={guarantorName} onChange={(e) => setGuarantorName(e.target.value)} />
+                <input
+                  style={input}
+                  value={guarantorName}
+                  onChange={(e) => setGuarantorName(e.target.value)}
+                />
               </Field>
 
               <Field label="رقم هوية الكفيل">
-                <input style={input} inputMode="numeric" maxLength={10} value={guarantorNationalId} onChange={(e) => setGuarantorNationalId(normalizeNumber(e.target.value))} />
+                <input
+                  style={input}
+                  inputMode="numeric"
+                  maxLength={10}
+                  value={guarantorNationalId}
+                  onChange={(e) =>
+                    setGuarantorNationalId(normalizeNumber(e.target.value))
+                  }
+                />
               </Field>
 
               <Field label="رقم جوال الكفيل">
-                <input style={input} inputMode="numeric" maxLength={10} value={guarantorPhone} onChange={(e) => setGuarantorPhone(normalizeNumber(e.target.value))} />
+                <input
+                  style={input}
+                  inputMode="numeric"
+                  maxLength={10}
+                  value={guarantorPhone}
+                  onChange={(e) =>
+                    setGuarantorPhone(normalizeNumber(e.target.value))
+                  }
+                />
               </Field>
 
               <Field label="عمل الكفيل">
-                <input style={input} value={guarantorWorkName} onChange={(e) => setGuarantorWorkName(e.target.value)} />
+                <input
+                  style={input}
+                  value={guarantorWorkName}
+                  onChange={(e) => setGuarantorWorkName(e.target.value)}
+                />
               </Field>
             </>
           )}
 
           <Field label="ملاحظات">
-            <textarea style={textarea} value={notes} onChange={(e) => setNotes(e.target.value)} />
+            <textarea
+              style={textarea}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
           </Field>
 
           <Field label="تاريخ تحرير العقد">
-            <input style={input} type="date" value={contractIssueDate} onChange={(e) => setContractIssueDate(e.target.value)} />
+            <input
+              style={input}
+              type="date"
+              value={contractIssueDate}
+              onChange={(e) => setContractIssueDate(e.target.value)}
+            />
           </Field>
 
           <button style={primaryButton} onClick={createRequest} disabled={saving}>
@@ -447,7 +632,10 @@ export default function NewRequestPage() {
           </button>
         </section>
 
-        <button style={backButton} onClick={() => (window.location.href = `/finance/${branch}`)}>
+        <button
+          style={backButton}
+          onClick={() => (window.location.href = `/finance/${branch}`)}
+        >
           الرجوع لمحطة العمل الرئيسية
         </button>
       </div>
