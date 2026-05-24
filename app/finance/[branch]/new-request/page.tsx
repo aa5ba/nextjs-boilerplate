@@ -11,6 +11,8 @@ export default function NewRequestPage() {
   const params = useParams();
   const branch = params.branch as string;
 
+  const today = new Date().toLocaleDateString("en-CA");
+
   const [branchId, setBranchId] = useState<string | null>(null);
 
   const [investors, setInvestors] = useState<any[]>([]);
@@ -35,13 +37,17 @@ export default function NewRequestPage() {
   const [installmentAmount, setInstallmentAmount] = useState("");
   const [paymentType, setPaymentType] = useState("");
   const [paymentDueDate, setPaymentDueDate] = useState("");
-  const today = new Date().toISOString().split("T")[0];
-
-const [contractIssueDate, setContractIssueDate] = useState(today);
   const [draftPaymentDueDate, setDraftPaymentDueDate] = useState("");
+  const [contractIssueDate, setContractIssueDate] = useState(today);
+
+  const [hasGuarantor, setHasGuarantor] = useState(false);
+  const [guarantorName, setGuarantorName] = useState("");
+  const [guarantorNationalId, setGuarantorNationalId] = useState("");
+  const [guarantorPhone, setGuarantorPhone] = useState("");
+  const [guarantorWorkName, setGuarantorWorkName] = useState("");
+
   const [legalCity, setLegalCity] = useState("");
   const [notes, setNotes] = useState("");
-
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -105,10 +111,19 @@ const [contractIssueDate, setContractIssueDate] = useState(today);
     if (!investorId) return "يرجى اختيار المستثمر المرتبط بالمخزون";
     if (!productId) return "يرجى اختيار المنتج";
     if (!productQuantity) return "يرجى إدخال الكمية";
-    if (!debtAmount) return "يرجى إدخال مبلغ الدين / مبلغ السند";
+    if (!debtAmount) return "يرجى إدخال مبلغ الاستحقاق / مبلغ السند";
     if (!paymentType) return "يرجى اختيار نوع السداد";
     if (!paymentDueDate) return "يرجى اختيار موعد السداد ثم الضغط على زر تم";
+    if (!contractIssueDate) return "يرجى اختيار تاريخ تحرير العقد";
     if (!legalCity) return "يرجى إدخال مدينة التقاضي";
+
+    if (hasGuarantor) {
+      if (!guarantorName) return "يرجى إدخال اسم الكفيل";
+      if (!guarantorNationalId) return "يرجى إدخال رقم هوية الكفيل";
+      if (!guarantorPhone) return "يرجى إدخال رقم جوال الكفيل";
+      if (!guarantorWorkName) return "يرجى إدخال عمل الكفيل";
+    }
+
     return "";
   }
 
@@ -132,6 +147,8 @@ const [contractIssueDate, setContractIssueDate] = useState(today);
 
     const cleanNationalId = normalizeNumber(nationalId);
     const cleanPhone = normalizeNumber(phone);
+    const cleanGuarantorNationalId = normalizeNumber(guarantorNationalId);
+    const cleanGuarantorPhone = normalizeNumber(guarantorPhone);
     const qty = toNumber(productQuantity);
 
     if (cleanNationalId.length !== 10) {
@@ -141,6 +158,16 @@ const [contractIssueDate, setContractIssueDate] = useState(today);
 
     if (!/^05\d{8}$/.test(cleanPhone)) {
       alert("رقم الجوال يجب أن يكون 10 أرقام ويبدأ بـ 05");
+      return;
+    }
+
+    if (hasGuarantor && cleanGuarantorNationalId.length !== 10) {
+      alert("رقم هوية الكفيل يجب أن يكون 10 أرقام");
+      return;
+    }
+
+    if (hasGuarantor && !/^05\d{8}$/.test(cleanGuarantorPhone)) {
+      alert("رقم جوال الكفيل يجب أن يكون 10 أرقام ويبدأ بـ 05");
       return;
     }
 
@@ -160,9 +187,7 @@ const [contractIssueDate, setContractIssueDate] = useState(today);
         .eq("product_id", productId)
         .maybeSingle();
 
-      if (stockError) {
-        throw new Error(stockError.message);
-      }
+      if (stockError) throw new Error(stockError.message);
 
       const beforeQty = Number(stockData?.quantity || 0);
 
@@ -218,16 +243,22 @@ const [contractIssueDate, setContractIssueDate] = useState(today);
           p_installment_amount: toNumber(installmentAmount),
           p_payment_type: paymentType,
           p_payment_due_date: paymentDueDate || null,
-p_contract_issue_date_gregorian: contractIssueDate,
-p_contract_issue_date_hijri: "",    
+
+          p_contract_issue_date_gregorian: contractIssueDate,
+          p_contract_issue_date_hijri: "",
+
           p_legal_city: legalCity,
           p_notes: notes,
+
+          p_has_guarantor: hasGuarantor,
+          p_guarantor_name: hasGuarantor ? guarantorName : "",
+          p_guarantor_national_id: hasGuarantor ? cleanGuarantorNationalId : "",
+          p_guarantor_phone: hasGuarantor ? cleanGuarantorPhone : "",
+          p_guarantor_work_name: hasGuarantor ? guarantorWorkName : "",
         }
       );
 
-      if (rpcError) {
-        throw new Error(rpcError.message);
-      }
+      if (rpcError) throw new Error(rpcError.message);
 
       const created = requestData?.[0];
 
@@ -256,71 +287,36 @@ p_contract_issue_date_hijri: "",
           <h2 style={sectionTitle}>بيانات العميل</h2>
 
           <Field label="اسم العميل">
-            <input
-              style={input}
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-            />
+            <input style={input} value={fullName} onChange={(e) => setFullName(e.target.value)} />
           </Field>
 
           <Field label="رقم الهوية">
-            <input
-              style={input}
-              inputMode="numeric"
-              maxLength={10}
-              value={nationalId}
-              onChange={(e) => setNationalId(normalizeNumber(e.target.value))}
-            />
+            <input style={input} inputMode="numeric" maxLength={10} value={nationalId} onChange={(e) => setNationalId(normalizeNumber(e.target.value))} />
           </Field>
 
           <div style={dateLabel}>تاريخ الميلاد بالهجري</div>
 
           <div style={dateGrid}>
             <Field label="اليوم">
-              <input
-                style={input}
-                inputMode="numeric"
-                value={birthDay}
-                onChange={(e) => setBirthDay(normalizeNumber(e.target.value))}
-              />
+              <input style={input} inputMode="numeric" value={birthDay} onChange={(e) => setBirthDay(normalizeNumber(e.target.value))} />
             </Field>
 
             <Field label="الشهر">
-              <input
-                style={input}
-                inputMode="numeric"
-                value={birthMonth}
-                onChange={(e) => setBirthMonth(normalizeNumber(e.target.value))}
-              />
+              <input style={input} inputMode="numeric" value={birthMonth} onChange={(e) => setBirthMonth(normalizeNumber(e.target.value))} />
             </Field>
 
             <Field label="السنة">
-              <input
-                style={input}
-                inputMode="numeric"
-                value={birthYear}
-                onChange={(e) => setBirthYear(normalizeNumber(e.target.value))}
-              />
+              <input style={input} inputMode="numeric" value={birthYear} onChange={(e) => setBirthYear(normalizeNumber(e.target.value))} />
             </Field>
           </div>
 
           <div style={twoColumns}>
             <Field label="رقم الجوال">
-              <input
-                style={input}
-                inputMode="numeric"
-                maxLength={10}
-                value={phone}
-                onChange={(e) => setPhone(normalizeNumber(e.target.value))}
-              />
+              <input style={input} inputMode="numeric" maxLength={10} value={phone} onChange={(e) => setPhone(normalizeNumber(e.target.value))} />
             </Field>
 
             <Field label="العمل - اختياري">
-              <input
-                style={input}
-                value={workName}
-                onChange={(e) => setWorkName(e.target.value)}
-              />
+              <input style={input} value={workName} onChange={(e) => setWorkName(e.target.value)} />
             </Field>
           </div>
         </section>
@@ -329,11 +325,7 @@ p_contract_issue_date_hijri: "",
           <h2 style={sectionTitle}>الطرف الأول</h2>
 
           <Field label="المستثمر المرتبط بالمخزون">
-            <select
-              style={input}
-              value={investorId}
-              onChange={(e) => setInvestorId(e.target.value)}
-            >
+            <select style={input} value={investorId} onChange={(e) => setInvestorId(e.target.value)}>
               <option value="">اختر المستثمر</option>
               {investors.map((investor) => (
                 <option key={investor.id} value={investor.id}>
@@ -344,11 +336,7 @@ p_contract_issue_date_hijri: "",
           </Field>
 
           <Field label="اختر المنتج">
-            <select
-              style={input}
-              value={productId}
-              onChange={(e) => setProductId(e.target.value)}
-            >
+            <select style={input} value={productId} onChange={(e) => setProductId(e.target.value)}>
               <option value="">اختر المنتج</option>
               {products.map((product) => (
                 <option key={product.id} value={product.id}>
@@ -365,22 +353,11 @@ p_contract_issue_date_hijri: "",
           )}
 
           <Field label="الكمية">
-            <input
-              style={input}
-              inputMode="numeric"
-              value={productQuantity}
-              onChange={(e) =>
-                setProductQuantity(normalizeNumber(e.target.value))
-              }
-            />
+            <input style={input} inputMode="numeric" value={productQuantity} onChange={(e) => setProductQuantity(normalizeNumber(e.target.value))} />
           </Field>
 
           <Field label="الطرف الأول المسجّل في العقد والسند">
-            <select
-              style={input}
-              value={printPartyType}
-              onChange={(e) => setPrintPartyType(e.target.value)}
-            >
+            <select style={input} value={printPartyType} onChange={(e) => setPrintPartyType(e.target.value)}>
               <option value="organization">المستثمر الرئيسي - المؤسسة</option>
               <option value="investor">المستثمر</option>
             </select>
@@ -391,39 +368,19 @@ p_contract_issue_date_hijri: "",
           <h2 style={sectionTitle}>بيانات العقد والسند</h2>
 
           <Field label="نوع التمويل">
-            <input
-              style={input}
-              value={financeType}
-              onChange={(e) => setFinanceType(e.target.value)}
-            />
+            <input style={input} value={financeType} onChange={(e) => setFinanceType(e.target.value)} />
           </Field>
 
           <Field label="مبلغ الاستحقاق / مبلغ السند">
-            <input
-              style={input}
-              inputMode="numeric"
-              value={debtAmount}
-              onChange={(e) => setDebtAmount(normalizeNumber(e.target.value))}
-            />
+            <input style={input} inputMode="numeric" value={debtAmount} onChange={(e) => setDebtAmount(normalizeNumber(e.target.value))} />
           </Field>
 
           <Field label="القسط">
-            <input
-              style={input}
-              inputMode="numeric"
-              value={installmentAmount}
-              onChange={(e) =>
-                setInstallmentAmount(normalizeNumber(e.target.value))
-              }
-            />
+            <input style={input} inputMode="numeric" value={installmentAmount} onChange={(e) => setInstallmentAmount(normalizeNumber(e.target.value))} />
           </Field>
 
           <Field label="نوع السداد">
-            <select
-              style={input}
-              value={paymentType}
-              onChange={(e) => setPaymentType(e.target.value)}
-            >
+            <select style={input} value={paymentType} onChange={(e) => setPaymentType(e.target.value)}>
               <option value="">اختر نوع السداد</option>
               <option value="موعد محدد">موعد محدد</option>
               <option value="شهري مجدول">شهري مجدول</option>
@@ -432,62 +389,65 @@ p_contract_issue_date_hijri: "",
 
           <Field label="موعد السداد بالميلادي">
             <div style={dateConfirmRow}>
-              <input
-                style={{ ...input, marginBottom: 0 }}
-                type="date"
-                value={draftPaymentDueDate}
-                onChange={(e) => setDraftPaymentDueDate(e.target.value)}
-              />
+              <input style={{ ...input, marginBottom: 0 }} type="date" value={draftPaymentDueDate} onChange={(e) => setDraftPaymentDueDate(e.target.value)} />
 
-              <button
-                type="button"
-                style={doneButton}
-                onClick={() => setPaymentDueDate(draftPaymentDueDate)}
-              >
+              <button type="button" style={doneButton} onClick={() => setPaymentDueDate(draftPaymentDueDate)}>
                 تم
               </button>
             </div>
 
-            {paymentDueDate && (
-              <div style={confirmedDate}>
-                التاريخ المعتمد: {paymentDueDate}
-              </div>
-            )}
+            {paymentDueDate && <div style={confirmedDate}>التاريخ المعتمد: {paymentDueDate}</div>}
           </Field>
 
           <Field label="مدينة التقاضي">
-            <input
-              style={input}
-              value={legalCity}
-              onChange={(e) => setLegalCity(e.target.value)}
-            />
+            <input style={input} value={legalCity} onChange={(e) => setLegalCity(e.target.value)} />
           </Field>
 
+          <Field label="هل يوجد كفيل؟">
+            <select
+              style={input}
+              value={hasGuarantor ? "yes" : "no"}
+              onChange={(e) => setHasGuarantor(e.target.value === "yes")}
+            >
+              <option value="no">بدون كفيل</option>
+              <option value="yes">يوجد كفيل</option>
+            </select>
+          </Field>
+
+          {hasGuarantor && (
+            <>
+              <Field label="اسم الكفيل">
+                <input style={input} value={guarantorName} onChange={(e) => setGuarantorName(e.target.value)} />
+              </Field>
+
+              <Field label="رقم هوية الكفيل">
+                <input style={input} inputMode="numeric" maxLength={10} value={guarantorNationalId} onChange={(e) => setGuarantorNationalId(normalizeNumber(e.target.value))} />
+              </Field>
+
+              <Field label="رقم جوال الكفيل">
+                <input style={input} inputMode="numeric" maxLength={10} value={guarantorPhone} onChange={(e) => setGuarantorPhone(normalizeNumber(e.target.value))} />
+              </Field>
+
+              <Field label="عمل الكفيل">
+                <input style={input} value={guarantorWorkName} onChange={(e) => setGuarantorWorkName(e.target.value)} />
+              </Field>
+            </>
+          )}
+
           <Field label="ملاحظات">
-            <textarea
-              style={textarea}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-            />
+            <textarea style={textarea} value={notes} onChange={(e) => setNotes(e.target.value)} />
           </Field>
 
           <Field label="تاريخ تحرير العقد">
-  <input
-    style={input}
-    type="date"
-    value={contractIssueDate}
-    onChange={(e) => setContractIssueDate(e.target.value)}
-  />
-</Field>
+            <input style={input} type="date" value={contractIssueDate} onChange={(e) => setContractIssueDate(e.target.value)} />
+          </Field>
+
           <button style={primaryButton} onClick={createRequest} disabled={saving}>
             {saving ? "جاري إنشاء الطلب..." : "إنشاء الطلب وطباعة العقد"}
           </button>
         </section>
 
-        <button
-          style={backButton}
-          onClick={() => (window.location.href = `/finance/${branch}`)}
-        >
+        <button style={backButton} onClick={() => (window.location.href = `/finance/${branch}`)}>
           الرجوع لمحطة العمل الرئيسية
         </button>
       </div>
