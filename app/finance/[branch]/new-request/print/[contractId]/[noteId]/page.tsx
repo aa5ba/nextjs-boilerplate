@@ -84,21 +84,26 @@ export default function PrintNewRequestPage() {
 
   const customerName =
     contract?.finance_customers?.full_name ||
+    contract?.customer_name ||
     note?.debtor_name ||
     "................";
 
   const nationalId =
     contract?.finance_customers?.national_id ||
+    contract?.customer_national_id ||
     note?.debtor_national_id ||
     "................";
 
   const phone =
     contract?.finance_customers?.phone ||
+    contract?.customer_phone ||
     note?.debtor_phone ||
     "................";
 
   const birthHijri =
-    contract?.finance_customers?.birth_hijri || "................";
+    contract?.finance_customers?.birth_hijri ||
+    contract?.customer_birth_hijri ||
+    "................";
 
   const firstPartyName =
     contract?.print_party_name ||
@@ -110,6 +115,7 @@ export default function PrintNewRequestPage() {
   const firstPartyIdentifier =
     contract?.print_party_identifier ||
     contract?.first_party_identifier ||
+    organizationSettings.commercialRecord ||
     "";
 
   const firstPartyIdentifierLabel =
@@ -118,46 +124,55 @@ export default function PrintNewRequestPage() {
       ? "رقم الهوية"
       : "السجل التجاري";
 
+  const contractIssueDate =
+    contract?.contract_issue_date_gregorian ||
+    contract?.contract_date_gregorian ||
+    "-";
+
+  const noteIssueDate =
+    note?.note_issue_date_gregorian ||
+    note?.note_date_gregorian ||
+    contractIssueDate ||
+    "-";
+
+  const hasGuarantor =
+    Boolean(contract?.has_guarantor) || Boolean(note?.has_guarantor);
+
+  const guarantorName =
+    contract?.guarantor_name || note?.guarantor_name || "................";
+
+  const guarantorNationalId =
+    contract?.guarantor_national_id ||
+    note?.guarantor_national_id ||
+    "................";
+
+  const guarantorPhone =
+    contract?.guarantor_phone || note?.guarantor_phone || "................";
+
+  const guarantorWorkName =
+    contract?.guarantor_work_name ||
+    note?.guarantor_work_name ||
+    "................";
+
   return (
     <main dir="rtl" style={page}>
       <section style={printArea}>
-        <div style={topLine}>
-          <span>المملكة العربية السعودية</span>
-          <span>{organizationSettings.city || "بيع * شراء"}</span>
-        </div>
+        <div style={header}>
+          <div style={headerRight}>
+            <div>المملكة العربية السعودية</div>
+            <div>{organizationSettings.name || "................"}</div>
+            <div>
+              سجل تجاري:{" "}
+              {organizationSettings.commercialRecord || "................"}
+            </div>
+          </div>
 
-        <div style={logoBox}>
-          <div style={organizationLogoText}>{organizationSettings.name}</div>
-        </div>
+          <div style={documentTitle}>عقد اتفاق بيع</div>
 
-        <div style={organizationInfo}>
-  {organizationSettings.phone && (
-    <span>جوال: {organizationSettings.phone}</span>
-  )}
-
-  {contract?.print_party_type !== "investor" &&
-    organizationSettings.commercialRecord && (
-      <span>سجل تجاري: {organizationSettings.commercialRecord}</span>
-    )}
-
-  {contract?.print_party_type === "investor" && firstPartyIdentifier && (
-    <span>رقم هوية المستثمر: {firstPartyIdentifier}</span>
-  )}
-</div>
-
-        <h1 style={title}>النموذج 1 للعقد</h1>
-        <h2 style={subtitle}>عقد اتفاق بيع</h2>
-
-        <div style={metaRow}>
-          <span>رقم العقد: {contract?.contract_number || "-"}</span>
-          <span>
-            التاريخ الميلادي: {contract?.contract_date_gregorian || "-"}
-          </span>
-        </div>
-
-        <div style={metaRow}>
-          <span>التاريخ الهجري: {contract?.contract_date_hijri || "-"}</span>
-          <span>موعد السداد: {contract?.payment_due_date || "-"}</span>
+          <div style={headerLeft}>
+            <div>رقم العقد: {contract?.contract_number || "-"}</div>
+            <div>تاريخ تحرير العقد: {contractIssueDate}</div>
+          </div>
         </div>
 
         <p style={paragraph}>
@@ -180,17 +195,18 @@ export default function PrintNewRequestPage() {
         </p>
 
         <p style={paragraph}>
-          وذلك مقابل منتج /{" "}
+          وذلك مقابل /{" "}
           <strong>{contract?.product_name || "................"}</strong>،
           وعددها / <strong>{contract?.product_quantity || "-"}</strong>، بمبلغ
-          دين وقدره / <strong> {contract?.debt_amount || 0}</strong> ريال سعودي.
+          دين وقدره / <strong>{contract?.debt_amount || 0}</strong> ريال سعودي.
         </p>
 
         <p style={paragraph}>
           ويلتزم الطرف الثاني بسداد مبلغ وقدره /
           <strong> {contract?.payment_amount || 0}</strong> ريال سعودي، وذلك حسب
-          نوع السداد / <strong> {contract?.payment_type || "-"}</strong>، وبقسط
-          قدره / <strong> {contract?.installment_amount || 0}</strong> ريال
+          نوع السداد / <strong>{contract?.payment_type || "-"}</strong>، وموعد
+          السداد / <strong>{contract?.payment_due_date || "-"}</strong>، وبقسط
+          قدره / <strong>{contract?.installment_amount || 0}</strong> ريال
           سعودي.
         </p>
 
@@ -228,55 +244,40 @@ export default function PrintNewRequestPage() {
           </div>
         </div>
 
-        <div style={guarantorBox}>
-          <strong>الكفيل الغارم</strong>
-          <div>الاسم / {contract?.guarantor_name || "................"}</div>
-          <div>رقم الهوية / ................</div>
-          <div>الجوال / ................</div>
-          <div>التوقيع / ................</div>
-        </div>
+        {hasGuarantor && (
+          <div style={guarantorBox}>
+            <strong>الكفيل الغارم</strong>
+            <div>الاسم / {guarantorName}</div>
+            <div>رقم الهوية / {guarantorNationalId}</div>
+            <div>الجوال / {guarantorPhone}</div>
+            <div>العمل / {guarantorWorkName}</div>
+            <div>التوقيع / ................</div>
+          </div>
+        )}
       </section>
 
       <section style={secondPrintArea}>
-        <div style={topLine}>
-          <span>المملكة العربية السعودية</span>
-          <span>{organizationSettings.city || "بيع * شراء"}</span>
-        </div>
+        <div style={header}>
+          <div style={headerRight}>
+            <div>المملكة العربية السعودية</div>
+            <div>{organizationSettings.name || "................"}</div>
+            <div>
+              سجل تجاري:{" "}
+              {organizationSettings.commercialRecord || "................"}
+            </div>
+          </div>
 
-        <div style={logoBox}>
-          <div style={organizationLogoText}>{organizationSettings.name}</div>
-        </div>
+          <div style={documentTitle}>سند لأمر</div>
 
-        <div style={organizationInfo}>
-          {organizationSettings.phone && (
-            <span>جوال: {organizationSettings.phone}</span>
-          )}
-
-          {organizationSettings.commercialRecord && (
-            <span>سجل تجاري: {organizationSettings.commercialRecord}</span>
-          )}
-        </div>
-
-        <h1 style={title}>النموذج 1 للسند</h1>
-        <h2 style={subtitle}>سند لأمر</h2>
-
-        <div style={metaRow}>
-          <span>رقم السند: {note?.note_number || "-"}</span>
-          <span>تاريخ التحرير: {note?.note_date_gregorian || "-"}</span>
-        </div>
-
-        <div style={metaRow}>
-          <span>تاريخ التحرير هجري: {note?.note_date_hijri || "-"}</span>
-          <span>تاريخ الاستحقاق: {note?.due_date || "-"}</span>
+          <div style={headerLeft}>
+            <div>رقم السند: {note?.note_number || "-"}</div>
+            <div>تاريخ تحرير السند: {noteIssueDate}</div>
+          </div>
         </div>
 
         <p style={paragraph}>
-          حرر هذا السند في مدينة{" "}
-          <strong>
-            {note?.city || organizationSettings.city || "................"}
-          </strong>
-          ، وبموجب هذا السند أتعهد أنا الموقع أدناه بأن أدفع لأمر الطرف
-          المستفيد / <strong>{firstPartyName}</strong>
+          بموجب هذا السند أتعهد أنا الموقع أدناه بأن أدفع لأمر الطرف المستفيد /
+          <strong> {firstPartyName}</strong>
           {firstPartyIdentifier ? (
             <>
               ، {firstPartyIdentifierLabel} /{" "}
@@ -296,7 +297,7 @@ export default function PrintNewRequestPage() {
           <div>اسم المدين / {note?.debtor_name || customerName}</div>
           <div>رقم الهوية / {note?.debtor_national_id || nationalId}</div>
           <div>رقم الجوال / {note?.debtor_phone || phone}</div>
-          <div>العنوان / {note?.city || "................"}</div>
+          <div>العنوان / {note?.city || contract?.legal_city || "................"}</div>
           <div>حالة السند / {note?.status || "-"}</div>
         </div>
 
@@ -308,16 +309,37 @@ export default function PrintNewRequestPage() {
           <div style={signatureBox}>
             <strong>المدين</strong>
             <div>الاسم / {note?.debtor_name || customerName}</div>
+            <div>رقم الهوية / {note?.debtor_national_id || nationalId}</div>
+            <div>الجوال / {note?.debtor_phone || phone}</div>
             <div>التوقيع / ................</div>
             <div>البصمة / ................</div>
           </div>
 
-          <div style={signatureBox}>
-            <strong>الكفيل</strong>
-            <div>الاسم / ................</div>
-            <div>رقم الهوية / ................</div>
-            <div>التوقيع / ................</div>
-            <div>البصمة / ................</div>
+          {hasGuarantor && (
+            <div style={signatureBox}>
+              <strong>الكفيل</strong>
+              <div>الاسم / {guarantorName}</div>
+              <div>رقم الهوية / {guarantorNationalId}</div>
+              <div>الجوال / {guarantorPhone}</div>
+              <div>العمل / {guarantorWorkName}</div>
+              <div>التوقيع / ................</div>
+              <div>البصمة / ................</div>
+            </div>
+          )}
+        </div>
+
+        <div style={legalBoxes}>
+          <div style={legalBox}>
+            هذا السند واجب الدفع بدون تعامل بموجب قرار مجلس الوزراء الموقر رقم
+            692 بتاريخ 1383/9/26 هـ والمتوج بالمرسوم الملكي الكريم رقم 37
+            بتاريخ 1383/10/11 هـ نظام الأوراق التجارية.
+          </div>
+
+          <div style={legalBox}>
+            بموجب هذا السند يحق لطالب الدين والكفيل الغارم حقوق التقدم
+            والمطالبة والاحتجاج والإخطار بالامتناع عن الوفاء والمتعلقة بهذا
+            السند كما يجوز لمدعي موجب هذا السند الرجوع للمدين أو الكفيل الغارم
+            منفردين أو مجتمعين ودون مراعاة أو ترتيب.
           </div>
         </div>
       </section>
@@ -364,68 +386,34 @@ const secondPrintArea = {
   pageBreakBefore: "always" as const,
 };
 
-const topLine = {
-  display: "flex",
-  justifyContent: "space-between",
-  fontSize: 12,
+const header = {
+  display: "grid",
+  gridTemplateColumns: "1.2fr 1fr 1.2fr",
+  alignItems: "start",
+  gap: 10,
+  marginBottom: 14,
+  borderBottom: "1px solid #111827",
+  paddingBottom: 8,
+};
+
+const headerRight = {
+  fontSize: 11.5,
+  lineHeight: 1.7,
   fontWeight: "bold",
-  marginBottom: 8,
 };
 
-const logoBox = {
-  width: 55,
-  height: 55,
-  margin: "0 auto 6px",
-  border: "1px dashed #94a3b8",
-  borderRadius: 10,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  color: "#64748b",
-  fontSize: 11,
+const headerLeft = {
+  fontSize: 11.5,
+  lineHeight: 1.7,
+  textAlign: "left" as const,
 };
 
-const organizationLogoText = {
-  textAlign: "center" as const,
-  fontSize: 11,
-  fontWeight: "bold",
-  color: "#0f172a",
-  lineHeight: 1.5,
-  padding: 4,
-};
-
-const organizationInfo = {
-  display: "flex",
-  justifyContent: "center",
-  gap: 12,
-  fontSize: 10.5,
-  color: "#475569",
-  marginBottom: 6,
-};
-
-const title = {
-  textAlign: "center" as const,
-  color: "#0d47a1",
-  fontSize: 16,
-  margin: "0 0 2px",
-};
-
-const subtitle = {
+const documentTitle = {
   textAlign: "center" as const,
   color: "#111827",
-  fontSize: 20,
-  margin: "0 0 10px",
-  textDecoration: "underline",
-};
-
-const metaRow = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 14,
-  borderBottom: "1px solid #e5e7eb",
-  paddingBottom: 4,
-  marginBottom: 5,
-  fontSize: 12,
+  fontSize: 22,
+  fontWeight: "bold",
+  marginTop: 12,
 };
 
 const paragraph = {
@@ -463,6 +451,23 @@ const guarantorBox = {
   paddingTop: 8,
   lineHeight: 1.7,
   fontSize: 12.5,
+};
+
+const legalBoxes = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: 12,
+  marginTop: 22,
+};
+
+const legalBox = {
+  border: "1px solid #111827",
+  borderRadius: 14,
+  padding: 10,
+  fontSize: 11,
+  lineHeight: 1.7,
+  textAlign: "center" as const,
+  fontWeight: "bold",
 };
 
 const printButton = {
