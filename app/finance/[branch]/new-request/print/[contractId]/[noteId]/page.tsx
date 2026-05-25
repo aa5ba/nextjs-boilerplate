@@ -3,370 +3,536 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { getBranchId } from "@/lib/getBranchId";
+import { normalizeNumber, toNumber } from "@/lib/numberUtils";
 import { getOrganizationSettings } from "@/lib/getOrganizationSettings";
 
-export default function PrintNewRequestPage() {
+export default function NewRequestPage() {
   const params = useParams();
-
   const branch = params.branch as string;
-  const contractId = params.contractId as string;
-  const noteId = params.noteId as string;
 
-  const [contract, setContract] = useState<any>(null);
-  const [note, setNote] = useState<any>(null);
-  const [organizationSettings, setOrganizationSettings] = useState({
-    name: "احتساب",
-    phone: "",
-    city: "",
-    commercialRecord: "",
-  });
+  const today = new Date().toLocaleDateString("en-CA");
+
+  const [branchId, setBranchId] = useState<string | null>(null);
+
+  const [investors, setInvestors] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
+
+  const [fullName, setFullName] = useState("");
+  const [nationalId, setNationalId] = useState("");
+  const [birthDay, setBirthDay] = useState("");
+  const [birthMonth, setBirthMonth] = useState("");
+  const [birthYear, setBirthYear] = useState("");
+  const [phone, setPhone] = useState("");
+  const [workName, setWorkName] = useState("");
+  const [address, setAddress] = useState("");
+
+  const [financeType, setFinanceType] = useState("");
+  const [investorId, setInvestorId] = useState("");
+  const [productId, setProductId] = useState("");
+  const [productQuantity, setProductQuantity] = useState("");
+  const [availableStock, setAvailableStock] = useState<number | null>(null);
+  const [printPartyType, setPrintPartyType] = useState("organization");
+
+  const [debtAmount, setDebtAmount] = useState("");
+  const [hasDeferredPayments, setHasDeferredPayments] = useState(false);
+  const [installmentAmount, setInstallmentAmount] = useState("");
+  const [deferredPaymentsCount, setDeferredPaymentsCount] = useState("");
+
+  const [paymentDueDate, setPaymentDueDate] = useState("");
+  const [draftPaymentDueDate, setDraftPaymentDueDate] = useState("");
+  const [contractIssueDate, setContractIssueDate] = useState(today);
+
+  const [hasGuarantor, setHasGuarantor] = useState(false);
+  const [guarantorName, setGuarantorName] = useState("");
+  const [guarantorNationalId, setGuarantorNationalId] = useState("");
+  const [guarantorPhone, setGuarantorPhone] = useState("");
+  const [guarantorBirthHijri, setGuarantorBirthHijri] = useState("");
+
+  const [legalCity, setLegalCity] = useState("");
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    loadData();
+    loadLists();
+  }, [branch]);
 
-    const style = document.createElement("style");
+  useEffect(() => {
+    loadAvailableStock();
+  }, [branchId, investorId, productId]);
 
-    style.innerHTML = `
-      @media print {
-        button {
-          display: none !important;
-        }
+  async function loadLists() {
+    const currentBranchId = await getBranchId(branch);
+    setBranchId(currentBranchId);
 
-        body {
-          background: white !important;
-        }
+    if (!currentBranchId) return;
 
-        main {
-          padding: 0 !important;
-          background: white !important;
-        }
-
-        section {
-          break-inside: avoid !important;
-          page-break-inside: avoid !important;
-        }
-      }
-
-      @page {
-        size: A4;
-        margin: 8mm;
-      }
-    `;
-
-    document.head.appendChild(style);
-
-    return () => {
-      document.head.removeChild(style);
-    };
-  }, []);
-
-  async function loadData() {
-    const { data: contractData } = await supabase
-      .from("finance_contracts")
-      .select(
-        "*, finance_customers(full_name, national_id, phone, birth_hijri)"
-      )
-      .eq("id", contractId)
-      .single();
-
-    const { data: noteData } = await supabase
-      .from("finance_promissory_notes")
+    const { data: investorsData } = await supabase
+      .from("finance_investors")
       .select("*")
-      .eq("id", noteId)
-      .single();
+      .eq("branch_id", currentBranchId)
+      .eq("is_active", true)
+      .order("created_at", { ascending: false });
 
-    const orgSettings = await getOrganizationSettings();
+    const { data: productsData } = await supabase
+      .from("finance_products")
+      .select("*")
+      .eq("branch_id", currentBranchId)
+      .eq("is_active", true)
+      .order("created_at", { ascending: false });
 
-    setOrganizationSettings(orgSettings);
-    setContract(contractData);
-    setNote(noteData);
+    setInvestors(investorsData || []);
+    setProducts(productsData || []);
   }
 
-  const customerName =
-    contract?.finance_customers?.full_name ||
-    contract?.customer_name ||
-    note?.debtor_name ||
-    "................";
+  async function loadAvailableStock() {
+    if (!branchId || !investorId || !productId) {
+      setAvailableStock(null);
+      return;
+    }
 
-  const nationalId =
-    contract?.finance_customers?.national_id ||
-    contract?.customer_national_id ||
-    note?.debtor_national_id ||
-    "................";
+    const { data } = await supabase
+      .from("finance_inventory")
+      .select("quantity")
+      .eq("branch_id", branchId)
+      .eq("investor_id", investorId)
+      .eq("product_id", productId)
+      .maybeSingle();
 
-  const phone =
-    contract?.finance_customers?.phone ||
-    contract?.customer_phone ||
-    note?.debtor_phone ||
-    "................";
+    setAvailableStock(data ? Number(data.quantity || 0) : 0);
+  }
 
-  const birthHijri =
-    contract?.finance_customers?.birth_hijri ||
-    contract?.customer_birth_hijri ||
-    "................";
+  function resetDeferredPaymentsFields() {
+    setInstallmentAmount("");
+    setDeferredPaymentsCount("");
+  }
 
-  const firstPartyName =
-    contract?.print_party_name ||
-    contract?.first_party_name ||
-    contract?.investor_name ||
-    organizationSettings.name ||
-    "................";
+  function resetGuarantorFields() {
+    setGuarantorName("");
+    setGuarantorNationalId("");
+    setGuarantorPhone("");
+    setGuarantorBirthHijri("");
+  }
 
-  const firstPartyIdentifier =
-    contract?.print_party_identifier ||
-    contract?.first_party_identifier ||
-    organizationSettings.commercialRecord ||
-    "";
+  function validateRequest() {
+    const qty = toNumber(productQuantity);
+    const debt = toNumber(debtAmount);
+    const deferredPayment = toNumber(installmentAmount);
+    const deferredCount = toNumber(deferredPaymentsCount);
 
-  const firstPartyIdentifierLabel =
-    contract?.print_party_type === "investor" ||
-    contract?.first_party_type === "investor"
-      ? "رقم الهوية"
-      : "السجل التجاري";
+    if (!branchId) return "تعذر تحديد الفرع";
+    if (!fullName.trim()) return "يرجى إدخال اسم العميل";
+    if (!nationalId) return "يرجى إدخال رقم الهوية";
+    if (!birthDay) return "يرجى إدخال يوم الميلاد";
+    if (!birthMonth) return "يرجى إدخال شهر الميلاد";
+    if (!birthYear) return "يرجى إدخال سنة الميلاد";
+    if (!phone) return "يرجى إدخال رقم الجوال";
+    if (!financeType.trim()) return "يرجى إدخال نوع التمويل";
+    if (!investorId) return "يرجى اختيار المستثمر المرتبط بالمخزون";
+    if (!productId) return "يرجى اختيار المنتج";
+    if (!productQuantity) return "يرجى إدخال الكمية";
+    if (qty <= 0) return "يرجى إدخال كمية صحيحة";
+    if (!debtAmount) return "يرجى إدخال مبلغ الاستحقاق / مبلغ السند";
+    if (debt <= 0) return "يرجى إدخال مبلغ استحقاق صحيح";
 
-  const contractIssueDate =
-    contract?.contract_issue_date_gregorian ||
-    contract?.contract_date_gregorian ||
-    "-";
+    if (hasDeferredPayments) {
+      if (!installmentAmount) return "يرجى إدخال قيمة الدفعة الآجلة";
+      if (deferredPayment <= 0) return "يرجى إدخال قيمة دفعة آجلة صحيحة";
+      if (!deferredPaymentsCount) return "يرجى إدخال عدد الدفعات الآجلة";
+      if (deferredCount <= 0) return "يرجى إدخال عدد دفعات آجلة صحيح";
+    }
 
-  const noteIssueDate =
-    note?.note_issue_date_gregorian ||
-    note?.note_date_gregorian ||
-    contractIssueDate ||
-    "-";
+    if (!paymentDueDate) return "يرجى اختيار تاريخ الاستحقاق ثم الضغط على زر تم";
+    if (!contractIssueDate) return "يرجى اختيار تاريخ تحرير العقد";
+    if (!legalCity.trim()) return "يرجى إدخال مدينة التقاضي";
 
-  const hasGuarantor =
-    Boolean(contract?.has_guarantor) || Boolean(note?.has_guarantor);
+    if (hasGuarantor) {
+      if (!guarantorName.trim()) return "يرجى إدخال اسم الكفيل";
+      if (!guarantorNationalId) return "يرجى إدخال رقم هوية الكفيل";
+      if (!guarantorPhone) return "يرجى إدخال رقم جوال الكفيل";
+      if (!guarantorBirthHijri.trim()) return "يرجى إدخال تاريخ ميلاد الكفيل";
+    }
 
-  const guarantorName =
-    contract?.guarantor_name || note?.guarantor_name || "................";
+    return "";
+  }
 
-  const guarantorNationalId =
-    contract?.guarantor_national_id ||
-    note?.guarantor_national_id ||
-    "................";
+  async function createRequest() {
+    if (saving) return;
 
-  const guarantorPhone =
-    contract?.guarantor_phone || note?.guarantor_phone || "................";
+    const validationMessage = validateRequest();
 
-  const guarantorWorkName =
-    contract?.guarantor_work_name ||
-    note?.guarantor_work_name ||
-    "................";
+    if (validationMessage) {
+      alert(validationMessage);
+      return;
+    }
+
+    const selectedInvestor = investors.find((item) => item.id === investorId);
+    const selectedProduct = products.find((item) => item.id === productId);
+
+    if (!selectedInvestor || !selectedProduct) {
+      alert("تعذر تحديد المستثمر أو المنتج");
+      return;
+    }
+
+    const cleanNationalId = normalizeNumber(nationalId);
+    const cleanPhone = normalizeNumber(phone);
+    const cleanGuarantorNationalId = normalizeNumber(guarantorNationalId);
+    const cleanGuarantorPhone = normalizeNumber(guarantorPhone);
+
+    const qty = toNumber(productQuantity);
+    const debt = toNumber(debtAmount);
+    const deferredPayment = hasDeferredPayments ? toNumber(installmentAmount) : 0;
+    const deferredCount = hasDeferredPayments ? toNumber(deferredPaymentsCount) : 0;
+
+    if (cleanNationalId.length !== 10) {
+      alert("رقم الهوية يجب أن يكون 10 أرقام");
+      return;
+    }
+
+    if (!/^05\d{8}$/.test(cleanPhone)) {
+      alert("رقم الجوال يجب أن يكون 10 أرقام ويبدأ بـ 05");
+      return;
+    }
+
+    if (hasGuarantor && cleanGuarantorNationalId.length !== 10) {
+      alert("رقم هوية الكفيل يجب أن يكون 10 أرقام");
+      return;
+    }
+
+    if (hasGuarantor && !/^05\d{8}$/.test(cleanGuarantorPhone)) {
+      alert("رقم جوال الكفيل يجب أن يكون 10 أرقام ويبدأ بـ 05");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const { data: stockData, error: stockError } = await supabase
+        .from("finance_inventory")
+        .select("quantity")
+        .eq("branch_id", branchId)
+        .eq("investor_id", investorId)
+        .eq("product_id", productId)
+        .maybeSingle();
+
+      if (stockError) throw new Error(stockError.message);
+
+      const beforeQty = Number(stockData?.quantity || 0);
+
+      if (beforeQty < qty) {
+        const confirmContinue = window.confirm(
+          "الكمية في الطلب أكثر من المتاحة في المخزون، هل تريد الاستمرار؟"
+        );
+
+        if (!confirmContinue) return;
+      }
+
+      const organizationSettings = await getOrganizationSettings();
+
+      const printPartyName =
+        printPartyType === "organization"
+          ? organizationSettings.name
+          : selectedInvestor.investor_name;
+
+      const printPartyIdentifier =
+        printPartyType === "organization"
+          ? organizationSettings.commercialRecord
+          : selectedInvestor.national_id;
+
+      const birthHijri = `${birthDay}/${birthMonth}/${birthYear}`;
+
+      const { data: requestData, error: rpcError } = await supabase.rpc(
+        "create_new_request_atomic",
+        {
+          p_branch_id: branchId,
+
+          p_full_name: fullName.trim(),
+          p_national_id: cleanNationalId,
+          p_birth_hijri: birthHijri,
+          p_phone: cleanPhone,
+          p_work_name: workName.trim(),
+          p_address: address.trim(),
+
+          p_finance_type: financeType.trim(),
+
+          p_investor_id: selectedInvestor.id,
+          p_investor_name: selectedInvestor.investor_name,
+
+          p_product_id: selectedProduct.id,
+          p_product_name: selectedProduct.product_name,
+          p_product_quantity: qty,
+
+          p_print_party_type: printPartyType,
+          p_print_party_name: printPartyName,
+          p_print_party_identifier: printPartyIdentifier || "",
+
+          p_debt_amount: debt,
+          p_payment_amount: debt,
+
+          p_has_deferred_payments: hasDeferredPayments,
+          p_installment_amount: deferredPayment,
+          p_deferred_payments_count: deferredCount,
+
+          p_payment_type: "تاريخ استحقاق",
+          p_payment_due_date: paymentDueDate || null,
+
+          p_contract_issue_date_gregorian: contractIssueDate,
+          p_contract_issue_date_hijri: "",
+
+          p_legal_city: legalCity.trim(),
+          p_notes: notes.trim(),
+
+          p_has_guarantor: hasGuarantor,
+          p_guarantor_name: hasGuarantor ? guarantorName.trim() : "",
+          p_guarantor_national_id: hasGuarantor ? cleanGuarantorNationalId : "",
+          p_guarantor_phone: hasGuarantor ? cleanGuarantorPhone : "",
+          p_guarantor_birth_hijri: hasGuarantor ? guarantorBirthHijri.trim() : "",
+        }
+      );
+
+      if (rpcError) throw new Error(rpcError.message);
+
+      const created = requestData?.[0];
+
+      if (!created?.contract_id || !created?.note_id) {
+        throw new Error("تم إنشاء الطلب لكن لم يتم إرجاع بيانات الطباعة");
+      }
+
+      alert("تم إنشاء الطلب وخصم المخزون بنجاح");
+
+      window.location.href = `/finance/${branch}/new-request/print/${created.contract_id}/${created.note_id}`;
+    } catch (error: any) {
+      alert(error.message || "حدث خطأ أثناء إنشاء الطلب");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <main dir="rtl" style={page}>
-      <section style={printArea}>
+      <div style={container}>
         <div style={header}>
-          <div style={headerRight}>
-            <div>المملكة العربية السعودية</div>
-            <div>{organizationSettings.name || "................"}</div>
-            <div>
-              سجل تجاري:{" "}
-              {organizationSettings.commercialRecord || "................"}
-            </div>
-          </div>
-
-          <div style={documentTitle}>عقد اتفاق بيع</div>
-
-          <div style={headerLeft}>
-            <div>رقم العقد: {contract?.contract_number || "-"}</div>
-            <div>تاريخ تحرير العقد: {contractIssueDate}</div>
-          </div>
+          <h1 style={{ margin: 0 }}>طلب جديد</h1>
         </div>
 
-        <p style={paragraph}>
-          الحمد لله والصلاة والسلام على من لا نبي بعده، وبعد:
-        </p>
+        <section style={card}>
+          <h2 style={sectionTitle}>بيانات العميل</h2>
 
-        <p style={paragraph}>
-          أقر أنا الموقع أدناه الطرف الثاني / <strong>{customerName}</strong>،
-          رقم الهوية / <strong>{nationalId}</strong>، تاريخ الميلاد /
-          <strong> {birthHijri}</strong>، رقم الجوال /
-          <strong> {phone}</strong>، بأني اشتريت من الطرف الأول /
-          <strong> {firstPartyName}</strong>
-          {firstPartyIdentifier ? (
-            <>
-              ، {firstPartyIdentifierLabel} /{" "}
-              <strong>{firstPartyIdentifier}</strong>
-            </>
-          ) : null}
-          .
-        </p>
+          <Field label="اسم العميل">
+            <input style={input} value={fullName} onChange={(e) => setFullName(e.target.value)} />
+          </Field>
 
-        <p style={paragraph}>
-          وذلك مقابل /{" "}
-          <strong>{contract?.product_name || "................"}</strong>،
-          وعددها / <strong>{contract?.product_quantity || "-"}</strong>، بمبلغ
-          دين وقدره / <strong>{contract?.debt_amount || 0}</strong> ريال سعودي.
-        </p>
+          <Field label="رقم الهوية">
+            <input style={input} inputMode="numeric" maxLength={10} value={nationalId} onChange={(e) => setNationalId(normalizeNumber(e.target.value))} />
+          </Field>
 
-        <p style={paragraph}>
-  ويلتزم الطرف الثاني بسداد مبلغ وقدره /
-  <strong> {contract?.payment_amount || 0}</strong> ريال سعودي
-  {Number(contract?.installment_amount || 0) > 0 ? (
-    <>
-      ، وذلك حسب نوع السداد كدفعات آجلة قيمة كل دفعة /
-      <strong> {contract?.installment_amount || 0}</strong> ريال سعودي
-      {contract?.deferred_payments_count ? (
-        <>
-          {" "}وعددها / <strong>{contract.deferred_payments_count}</strong> دفعات
-        </>
-      ) : null}
-      .
-    </>
-  ) : (
-    <>.</>
-  )}
-</p>
+          <div style={dateLabel}>تاريخ الميلاد بالهجري</div>
 
-        <p style={paragraph}>
-          وتكون مدينة التقاضي / <strong>{contract?.legal_city || "-"}</strong>.
-        </p>
+          <div style={dateGrid}>
+            <Field label="اليوم">
+              <input style={input} inputMode="numeric" value={birthDay} onChange={(e) => setBirthDay(normalizeNumber(e.target.value))} />
+            </Field>
 
-        <p style={paragraph}>
-          كما يقر الطرف الثاني بأنه اطلع على كامل بنود هذا العقد، وأنه ملتزم
-          بالسداد في المواعيد المتفق عليها، وفي حال التأخر يحق للطرف الأول اتخاذ
-          الإجراءات النظامية اللازمة للمطالبة بكامل المبلغ المتبقي.
-        </p>
+            <Field label="الشهر">
+              <input style={input} inputMode="numeric" value={birthMonth} onChange={(e) => setBirthMonth(normalizeNumber(e.target.value))} />
+            </Field>
 
-        <p style={paragraph}>
-          ملاحظات: <strong>{contract?.notes || "-"}</strong>
-        </p>
-
-        <div style={signatures}>
-          <div style={signatureBox}>
-            <strong>الطرف الأول البائع</strong>
-            <div>الاسم / {firstPartyName}</div>
-            <div>
-              {firstPartyIdentifierLabel} /{" "}
-              {firstPartyIdentifier || "................"}
-            </div>
-            <div>التوقيع / ................</div>
+            <Field label="السنة">
+              <input style={input} inputMode="numeric" value={birthYear} onChange={(e) => setBirthYear(normalizeNumber(e.target.value))} />
+            </Field>
           </div>
 
-          <div style={signatureBox}>
-            <strong>الطرف الثاني المشتري</strong>
-            <div>الاسم / {customerName}</div>
-            <div>رقم الهوية / {nationalId}</div>
-            <div>الجوال / {phone}</div>
-            <div>التوقيع / ................</div>
-          </div>
-        </div>
+          <div style={twoColumns}>
+            <Field label="رقم الجوال">
+              <input style={input} inputMode="numeric" maxLength={10} value={phone} onChange={(e) => setPhone(normalizeNumber(e.target.value))} />
+            </Field>
 
-        {hasGuarantor && (
-          <div style={guarantorBox}>
-            <strong>الكفيل الغارم</strong>
-            <div>الاسم / {guarantorName}</div>
-            <div>رقم الهوية / {guarantorNationalId}</div>
-            <div>الجوال / {guarantorPhone}</div>
-            <div>العمل / {guarantorWorkName}</div>
-            <div>التوقيع / ................</div>
-          </div>
-        )}
-      </section>
-
-      <section style={secondPrintArea}>
-        <div style={header}>
-          <div style={headerRight}>
-            <div>المملكة العربية السعودية</div>
-            <div>{organizationSettings.name || "................"}</div>
-            <div>
-              سجل تجاري:{" "}
-              {organizationSettings.commercialRecord || "................"}
-            </div>
+            <Field label="العمل - اختياري">
+              <input style={input} value={workName} onChange={(e) => setWorkName(e.target.value)} />
+            </Field>
           </div>
 
-          <div style={documentTitle}>سند لأمر</div>
+          <Field label="العنوان - اختياري">
+            <input style={input} value={address} onChange={(e) => setAddress(e.target.value)} />
+          </Field>
+        </section>
 
-          <div style={headerLeft}>
-            <div>رقم السند: {note?.note_number || "-"}</div>
-            <div>تاريخ تحرير السند: {noteIssueDate}</div>
-          </div>
-        </div>
+        <section style={card}>
+          <h2 style={sectionTitle}>الطرف الأول</h2>
 
-        <p style={paragraph}>
-          بموجب هذا السند أتعهد أنا الموقع أدناه بأن أدفع لأمر الطرف المستفيد /
-          <strong> {firstPartyName}</strong>
-          {firstPartyIdentifier ? (
-            <>
-              ، {firstPartyIdentifierLabel} /{" "}
-              <strong>{firstPartyIdentifier}</strong>
-            </>
-          ) : null}{" "}
-          مبلغًا وقدره <strong>{note?.amount || 0}</strong> ريال سعودي.
-        </p>
+          <Field label="المستثمر المرتبط بالمخزون">
+            <select style={input} value={investorId} onChange={(e) => setInvestorId(e.target.value)}>
+              <option value="">اختر المستثمر</option>
+              {investors.map((investor) => (
+                <option key={investor.id} value={investor.id}>
+                  {investor.investor_name}
+                </option>
+              ))}
+            </select>
+          </Field>
 
-        <p style={paragraph}>
-          ويستحق هذا المبلغ في تاريخ{" "}
-          <strong>{note?.due_date || "................"}</strong>، دون مماطلة أو
-          تأخير، ويعد هذا السند التزامًا واجب الوفاء حسب الأنظمة المعمول بها.
-        </p>
+          <Field label="اختر المنتج">
+            <select style={input} value={productId} onChange={(e) => setProductId(e.target.value)}>
+              <option value="">اختر المنتج</option>
+              {products.map((product) => (
+                <option key={product.id} value={product.id}>
+                  {product.product_name}
+                </option>
+              ))}
+            </select>
+          </Field>
 
-        <div style={infoBox}>
-          <div>اسم المدين / {note?.debtor_name || customerName}</div>
-          <div>رقم الهوية / {note?.debtor_national_id || nationalId}</div>
-          <div>رقم الجوال / {note?.debtor_phone || phone}</div>
-          <div>العنوان / {note?.city || contract?.legal_city || "................"}</div>
-          <div>حالة السند / {note?.status || "-"}</div>
-        </div>
-
-        <p style={paragraph}>
-          ملاحظات: <strong>{note?.notes || "-"}</strong>
-        </p>
-
-        <div style={signatures}>
-          <div style={signatureBox}>
-            <strong>المدين</strong>
-            <div>الاسم / {note?.debtor_name || customerName}</div>
-            <div>رقم الهوية / {note?.debtor_national_id || nationalId}</div>
-            <div>الجوال / {note?.debtor_phone || phone}</div>
-            <div>التوقيع / ................</div>
-            <div>البصمة / ................</div>
-          </div>
-
-          {hasGuarantor && (
-            <div style={signatureBox}>
-              <strong>الكفيل</strong>
-              <div>الاسم / {guarantorName}</div>
-              <div>رقم الهوية / {guarantorNationalId}</div>
-              <div>الجوال / {guarantorPhone}</div>
-              <div>العمل / {guarantorWorkName}</div>
-              <div>التوقيع / ................</div>
-              <div>البصمة / ................</div>
+          {availableStock !== null && (
+            <div style={availableStock < 0 ? stockDanger : stockInfo}>
+              المتوفر في المخزون: {availableStock}
             </div>
           )}
-        </div>
 
-        <div style={legalBoxes}>
-          <div style={legalBox}>
-            هذا السند واجب الدفع بدون تعامل بموجب قرار مجلس الوزراء الموقر رقم
-            692 بتاريخ 1383/9/26 هـ والمتوج بالمرسوم الملكي الكريم رقم 37
-            بتاريخ 1383/10/11 هـ نظام الأوراق التجارية.
-          </div>
+          <Field label="الكمية">
+            <input style={input} inputMode="numeric" value={productQuantity} onChange={(e) => setProductQuantity(normalizeNumber(e.target.value))} />
+          </Field>
 
-          <div style={legalBox}>
-            بموجب هذا السند يحق لطالب الدين والكفيل الغارم حقوق التقدم
-            والمطالبة والاحتجاج والإخطار بالامتناع عن الوفاء والمتعلقة بهذا
-            السند كما يجوز لمدعي موجب هذا السند الرجوع للمدين أو الكفيل الغارم
-            منفردين أو مجتمعين ودون مراعاة أو ترتيب.
-          </div>
-        </div>
-      </section>
+          <Field label="الطرف الأول المسجّل في العقد والسند">
+            <select style={input} value={printPartyType} onChange={(e) => setPrintPartyType(e.target.value)}>
+              <option value="organization">المستثمر الرئيسي - المؤسسة</option>
+              <option value="investor">المستثمر</option>
+            </select>
+          </Field>
+        </section>
 
-      <button style={printButton} onClick={() => window.print()}>
-        🖨️ طباعة العقد والسند
-      </button>
+        <section style={card}>
+          <h2 style={sectionTitle}>بيانات العقد والسند</h2>
 
-      <button
-        style={backButton}
-        onClick={() =>
-          (window.location.href = `/finance/${branch}/contracts/${contractId}`)
-        }
-      >
-        الرجوع للعقد
-      </button>
+          <Field label="نوع التمويل">
+            <input style={input} value={financeType} onChange={(e) => setFinanceType(e.target.value)} />
+          </Field>
+
+          <Field label="مبلغ الاستحقاق / مبلغ السند">
+            <input style={input} inputMode="numeric" value={debtAmount} onChange={(e) => setDebtAmount(normalizeNumber(e.target.value))} />
+          </Field>
+
+          <Field label="هل يوجد دفعات آجلة؟">
+            <select
+              style={input}
+              value={hasDeferredPayments ? "yes" : "no"}
+              onChange={(e) => {
+                const value = e.target.value === "yes";
+                setHasDeferredPayments(value);
+
+                if (!value) resetDeferredPaymentsFields();
+              }}
+            >
+              <option value="no">بدون دفعات</option>
+              <option value="yes">يوجد دفعات</option>
+            </select>
+          </Field>
+
+          {hasDeferredPayments && (
+            <>
+              <Field label="قيمة الدفعة الآجلة">
+                <input style={input} inputMode="numeric" value={installmentAmount} onChange={(e) => setInstallmentAmount(normalizeNumber(e.target.value))} />
+              </Field>
+
+              <Field label="عدد الدفعات الآجلة">
+                <input style={input} inputMode="numeric" value={deferredPaymentsCount} onChange={(e) => setDeferredPaymentsCount(normalizeNumber(e.target.value))} />
+              </Field>
+            </>
+          )}
+
+          <Field label="تاريخ الاستحقاق بالميلادي">
+            <div style={dateConfirmRow}>
+              <input style={{ ...input, marginBottom: 0 }} type="date" value={draftPaymentDueDate} onChange={(e) => setDraftPaymentDueDate(e.target.value)} />
+
+              <button
+                type="button"
+                style={doneButton}
+                onClick={() => {
+                  if (!draftPaymentDueDate) {
+                    alert("اختر تاريخ الاستحقاق أولاً");
+                    return;
+                  }
+
+                  setPaymentDueDate(draftPaymentDueDate);
+                }}
+              >
+                تم
+              </button>
+            </div>
+
+            {paymentDueDate && (
+              <div style={confirmedDate}>
+                التاريخ المعتمد: {paymentDueDate}
+              </div>
+            )}
+          </Field>
+
+          <Field label="مدينة التقاضي">
+            <input style={input} value={legalCity} onChange={(e) => setLegalCity(e.target.value)} />
+          </Field>
+
+          <Field label="هل يوجد كفيل؟">
+            <select
+              style={input}
+              value={hasGuarantor ? "yes" : "no"}
+              onChange={(e) => {
+                const value = e.target.value === "yes";
+                setHasGuarantor(value);
+
+                if (!value) resetGuarantorFields();
+              }}
+            >
+              <option value="no">بدون كفيل</option>
+              <option value="yes">يوجد كفيل</option>
+            </select>
+          </Field>
+
+          {hasGuarantor && (
+            <>
+              <Field label="اسم الكفيل">
+                <input style={input} value={guarantorName} onChange={(e) => setGuarantorName(e.target.value)} />
+              </Field>
+
+              <Field label="رقم هوية الكفيل">
+                <input style={input} inputMode="numeric" maxLength={10} value={guarantorNationalId} onChange={(e) => setGuarantorNationalId(normalizeNumber(e.target.value))} />
+              </Field>
+
+              <Field label="رقم جوال الكفيل">
+                <input style={input} inputMode="numeric" maxLength={10} value={guarantorPhone} onChange={(e) => setGuarantorPhone(normalizeNumber(e.target.value))} />
+              </Field>
+
+              <Field label="تاريخ ميلاد الكفيل">
+                <input style={input} value={guarantorBirthHijri} onChange={(e) => setGuarantorBirthHijri(e.target.value)} />
+              </Field>
+            </>
+          )}
+
+          <Field label="ملاحظات">
+            <textarea style={textarea} value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </Field>
+
+          <Field label="تاريخ تحرير العقد">
+            <input style={input} type="date" value={contractIssueDate} onChange={(e) => setContractIssueDate(e.target.value)} />
+          </Field>
+
+          <button style={primaryButton} onClick={createRequest} disabled={saving}>
+            {saving ? "جاري إنشاء الطلب..." : "إنشاء الطلب وطباعة العقد"}
+          </button>
+        </section>
+
+        <button style={backButton} onClick={() => (window.location.href = `/finance/${branch}`)}>
+          الرجوع لمحطة العمل الرئيسية
+        </button>
+      </div>
     </main>
+  );
+}
+
+function Field({ label, children }: any) {
+  return (
+    <div style={fieldBox}>
+      <label style={fieldLabel}>{label}</label>
+      {children}
+    </div>
   );
 }
 
@@ -377,114 +543,134 @@ const page = {
   fontFamily: "var(--font-almarai), sans-serif",
 };
 
-const printArea = {
-  background: "white",
-  width: "190mm",
-  height: "257mm",
-  margin: "0 auto",
-  overflow: "hidden" as const,
-  padding: "7mm",
-  borderRadius: 0,
-  lineHeight: 1.45,
-  color: "#111827",
-  boxSizing: "border-box" as const,
-  pageBreakInside: "avoid" as const,
-};
-
-const secondPrintArea = {
-  ...printArea,
-  pageBreakBefore: "always" as const,
+const container = {
+  width: "100%",
+  maxWidth: 900,
+  margin: "auto",
 };
 
 const header = {
-  display: "grid",
-  gridTemplateColumns: "1.2fr 1fr 1.2fr",
-  alignItems: "start",
-  gap: 10,
+  background: "linear-gradient(135deg,#0d47a1,#1976d2)",
+  color: "white",
+  padding: 28,
+  borderRadius: 24,
+  marginBottom: 18,
+};
+
+const card = {
+  background: "white",
+  border: "1px solid #d9e3f5",
+  borderRadius: 18,
+  padding: 20,
+  marginBottom: 16,
+};
+
+const sectionTitle = {
+  marginTop: 0,
+  color: "#0d47a1",
+};
+
+const fieldBox = {
   marginBottom: 14,
-  borderBottom: "1px solid #111827",
-  paddingBottom: 8,
 };
 
-const headerRight = {
-  fontSize: 11.5,
-  lineHeight: 1.7,
-  fontWeight: "bold",
-};
-
-const headerLeft = {
-  fontSize: 11.5,
-  lineHeight: 1.7,
-  textAlign: "left" as const,
-};
-
-const documentTitle = {
-  textAlign: "center" as const,
-  color: "#111827",
-  fontSize: 22,
-  fontWeight: "bold",
-  marginTop: 12,
-};
-
-const paragraph = {
-  fontSize: 12.5,
-  margin: "5px 0",
-  textAlign: "justify" as const,
-};
-
-const infoBox = {
-  border: "1px solid #e5e7eb",
-  borderRadius: 8,
-  padding: 10,
-  marginTop: 10,
-  lineHeight: 1.7,
-  fontSize: 12.5,
-};
-
-const signatures = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: 16,
-  marginTop: 16,
-};
-
-const signatureBox = {
-  borderTop: "1px solid #111827",
-  paddingTop: 8,
-  lineHeight: 1.7,
-  fontSize: 12.5,
-};
-
-const guarantorBox = {
-  marginTop: 16,
-  borderTop: "1px solid #111827",
-  paddingTop: 8,
-  lineHeight: 1.7,
-  fontSize: 12.5,
-};
-
-const legalBoxes = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: 12,
-  marginTop: 22,
-};
-
-const legalBox = {
-  border: "1px solid #111827",
-  borderRadius: 14,
-  padding: 10,
-  fontSize: 11,
-  lineHeight: 1.7,
-  textAlign: "center" as const,
-  fontWeight: "bold",
-};
-
-const printButton = {
-  width: "100%",
-  maxWidth: 850,
+const fieldLabel = {
   display: "block",
-  margin: "20px auto 0",
+  marginBottom: 8,
+  color: "#0d47a1",
+  fontWeight: "bold",
+  fontSize: 15,
+};
+
+const input = {
+  width: "100%",
+  height: 50,
+  padding: "0 14px",
+  borderRadius: 14,
+  border: "1px solid #d9e3f5",
+  fontSize: 16,
+  boxSizing: "border-box" as const,
+  background: "white",
+};
+
+const textarea = {
+  width: "100%",
+  minHeight: 100,
+  padding: 14,
+  borderRadius: 14,
+  border: "1px solid #d9e3f5",
+  fontSize: 16,
+  boxSizing: "border-box" as const,
+};
+
+const dateLabel = {
+  fontSize: 15,
+  fontWeight: "bold",
+  marginBottom: 8,
+  color: "#374151",
+};
+
+const dateGrid = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr 1fr",
+  gap: 10,
+};
+
+const twoColumns = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
+  gap: 12,
+};
+
+const dateConfirmRow = {
+  display: "grid",
+  gridTemplateColumns: "1fr auto",
+  gap: 10,
+  alignItems: "center",
+};
+
+const doneButton = {
+  height: 50,
+  padding: "0 18px",
+  background: "#166534",
+  color: "white",
+  border: "none",
+  borderRadius: 14,
+  fontSize: 16,
+  fontWeight: "bold",
+};
+
+const confirmedDate = {
+  marginTop: 8,
+  color: "#166534",
+  fontWeight: "bold",
+  fontSize: 14,
+};
+
+const stockInfo = {
+  background: "#f0fdf4",
+  color: "#166534",
+  border: "1px solid #bbf7d0",
+  padding: 12,
+  borderRadius: 12,
+  fontSize: 15,
+  fontWeight: "bold",
+  marginBottom: 12,
+};
+
+const stockDanger = {
+  background: "#fef2f2",
+  color: "#991b1b",
+  border: "1px solid #fecaca",
+  padding: 12,
+  borderRadius: 12,
+  fontSize: 15,
+  fontWeight: "bold",
+  marginBottom: 12,
+};
+
+const primaryButton = {
+  width: "100%",
   padding: 16,
   background: "#0d47a1",
   color: "white",
@@ -495,9 +681,6 @@ const printButton = {
 
 const backButton = {
   width: "100%",
-  maxWidth: 850,
-  display: "block",
-  margin: "12px auto 0",
   padding: 16,
   background: "#e5e7eb",
   color: "#0d47a1",
@@ -505,4 +688,5 @@ const backButton = {
   borderRadius: 14,
   fontSize: 17,
   fontWeight: "bold",
+  marginTop: 18,
 };
