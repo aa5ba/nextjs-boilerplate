@@ -17,19 +17,35 @@ export default function FinanceCustomerProfilePage() {
   const [notes, setNotes] = useState<any[]>([]);
   const [activities, setActivities] = useState<any[]>([]);
 
+  const [branchId, setBranchId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const [fullName, setFullName] = useState("");
+  const [nationalId, setNationalId] = useState("");
+  const [birthHijri, setBirthHijri] = useState("");
+  const [phone, setPhone] = useState("");
+  const [workName, setWorkName] = useState("");
+  const [address, setAddress] = useState("");
+
   useEffect(() => {
     loadData();
   }, [branch, customerId]);
 
   async function loadData() {
-    const branchId = await getBranchId(branch);
+    setLoading(true);
 
-    if (!branchId) {
+    const currentBranchId = await getBranchId(branch);
+    setBranchId(currentBranchId);
+
+    if (!currentBranchId) {
       setCustomer(null);
       setActiveContracts([]);
       setClosedContracts([]);
       setNotes([]);
       setActivities([]);
+      setLoading(false);
       return;
     }
 
@@ -37,14 +53,14 @@ export default function FinanceCustomerProfilePage() {
       .from("finance_customers")
       .select("*, finance_customer_groups(name)")
       .eq("id", customerId)
-      .eq("branch_id", branchId)
+      .eq("branch_id", currentBranchId)
       .single();
 
     const { data: activeData } = await supabase
       .from("finance_contracts")
       .select("*")
       .eq("customer_id", customerId)
-      .eq("branch_id", branchId)
+      .eq("branch_id", currentBranchId)
       .in("contract_status", ["نشط", "متأخر"])
       .order("created_at", { ascending: false });
 
@@ -52,7 +68,7 @@ export default function FinanceCustomerProfilePage() {
       .from("finance_contracts")
       .select("*")
       .eq("customer_id", customerId)
-      .eq("branch_id", branchId)
+      .eq("branch_id", currentBranchId)
       .in("contract_status", ["تم السداد", "ملغي"])
       .order("created_at", { ascending: false });
 
@@ -60,14 +76,14 @@ export default function FinanceCustomerProfilePage() {
       .from("finance_promissory_notes")
       .select("*")
       .eq("customer_id", customerId)
-      .eq("branch_id", branchId)
+      .eq("branch_id", currentBranchId)
       .order("created_at", { ascending: false });
 
     const { data: activitiesData } = await supabase
       .from("finance_activity_logs")
       .select("*")
       .eq("customer_id", customerId)
-      .eq("branch_id", branchId)
+      .eq("branch_id", currentBranchId)
       .order("created_at", { ascending: false })
       .limit(20);
 
@@ -76,6 +92,125 @@ export default function FinanceCustomerProfilePage() {
     setClosedContracts(closedData || []);
     setNotes(notesData || []);
     setActivities(activitiesData || []);
+
+    setFullName(customerData?.full_name || "");
+    setNationalId(customerData?.national_id || "");
+    setBirthHijri(customerData?.birth_hijri || "");
+    setPhone(customerData?.phone || "");
+    setWorkName(customerData?.work_name || customerData?.work || "");
+    setAddress(customerData?.address || "");
+
+    setLoading(false);
+  }
+
+  function normalizeDigits(value: string) {
+    return value
+      .replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d).toString())
+      .replace(/[۰-۹]/g, (d) => "۰۱۲۳۴۵۶۷۸۹".indexOf(d).toString());
+  }
+
+  async function saveCustomer() {
+    if (saving) return;
+
+    if (!branchId) {
+      alert("تعذر تحديد الفرع");
+      return;
+    }
+
+    const cleanNationalId = normalizeDigits(nationalId);
+    const cleanPhone = normalizeDigits(phone);
+
+    if (!fullName.trim()) {
+      alert("يرجى إدخال اسم العميل");
+      return;
+    }
+
+    if (cleanNationalId.length !== 10) {
+      alert("رقم الهوية يجب أن يكون 10 أرقام");
+      return;
+    }
+
+    if (!/^05\d{8}$/.test(cleanPhone)) {
+      alert("رقم الجوال يجب أن يكون 10 أرقام ويبدأ بـ 05");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const { error: customerError } = await supabase
+        .from("finance_customers")
+        .update({
+          full_name: fullName.trim(),
+          national_id: cleanNationalId,
+          birth_hijri: birthHijri.trim(),
+          phone: cleanPhone,
+          work_name: workName.trim(),
+          work: workName.trim(),
+          address: address.trim(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", customerId)
+        .eq("branch_id", branchId);
+
+      if (customerError) {
+        throw new Error(customerError.message);
+      }
+
+      await supabase
+        .from("finance_contracts")
+        .update({
+          customer_name: fullName.trim(),
+          customer_national_id: cleanNationalId,
+          customer_birth_hijri: birthHijri.trim(),
+          customer_phone: cleanPhone,
+          customer_work_name: workName.trim(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("customer_id", customerId)
+        .eq("branch_id", branchId);
+
+      await supabase
+        .from("finance_promissory_notes")
+        .update({
+          debtor_name: fullName.trim(),
+          debtor_national_id: cleanNationalId,
+          debtor_phone: cleanPhone,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("customer_id", customerId)
+        .eq("branch_id", branchId);
+
+      await supabase.from("finance_activity_logs").insert([
+        {
+          branch_id: branchId,
+          activity_type: "تعديل عميل",
+          description: `تم تعديل بيانات العميل ${fullName.trim()}`,
+          customer_id: customerId,
+          customer_name: fullName.trim(),
+          employee_name: "المدير",
+          status: "تم التعديل",
+        },
+      ]);
+
+      alert("تم حفظ بيانات العميل بنجاح");
+      setEditing(false);
+      await loadData();
+    } catch (error: any) {
+      alert(error.message || "تعذر حفظ بيانات العميل");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function cancelEditing() {
+    setFullName(customer?.full_name || "");
+    setNationalId(customer?.national_id || "");
+    setBirthHijri(customer?.birth_hijri || "");
+    setPhone(customer?.phone || "");
+    setWorkName(customer?.work_name || customer?.work || "");
+    setAddress(customer?.address || "");
+    setEditing(false);
   }
 
   function formatDate(date: string) {
@@ -87,6 +222,14 @@ export default function FinanceCustomerProfilePage() {
     });
   }
 
+  if (loading) {
+    return (
+      <main dir="rtl" style={page}>
+        <div style={loadingBox}>جاري تحميل ملف العميل...</div>
+      </main>
+    );
+  }
+
   return (
     <main dir="rtl" style={page}>
       <div style={container}>
@@ -95,11 +238,54 @@ export default function FinanceCustomerProfilePage() {
         </div>
 
         <section style={card}>
-          <Row label="الاسم كاملاً" value={customer?.full_name} />
-          <Row label="رقم الهوية" value={customer?.national_id} />
-          <Row label="تاريخ الميلاد بالهجري" value={customer?.birth_hijri} />
-          <Row label="رقم الجوال" value={customer?.phone} />
-          <Row label="العمل" value={customer?.work || "-"} />
+          <h2 style={sectionTitle}>بيانات العميل</h2>
+
+          <EditableRow
+            label="الاسم كاملاً"
+            value={fullName}
+            editing={editing}
+            onChange={setFullName}
+          />
+
+          <EditableRow
+            label="رقم الهوية"
+            value={nationalId}
+            editing={editing}
+            onChange={(value: string) => setNationalId(normalizeDigits(value))}
+            inputMode="numeric"
+            maxLength={10}
+          />
+
+          <EditableRow
+            label="تاريخ الميلاد بالهجري"
+            value={birthHijri}
+            editing={editing}
+            onChange={setBirthHijri}
+          />
+
+          <EditableRow
+            label="رقم الجوال"
+            value={phone}
+            editing={editing}
+            onChange={(value: string) => setPhone(normalizeDigits(value))}
+            inputMode="numeric"
+            maxLength={10}
+          />
+
+          <EditableRow
+            label="العمل"
+            value={workName}
+            editing={editing}
+            onChange={setWorkName}
+          />
+
+          <EditableRow
+            label="العنوان"
+            value={address}
+            editing={editing}
+            onChange={setAddress}
+          />
+
           <Row label="الراتب" value={customer?.salary || "-"} />
           <Row label="البنك" value={customer?.bank || "-"} />
           <Row label="الوسيط" value={customer?.broker || "-"} />
@@ -107,6 +293,24 @@ export default function FinanceCustomerProfilePage() {
             label="مجموعة العملاء"
             value={customer?.finance_customer_groups?.name || "-"}
           />
+
+          <div style={editActions}>
+            {editing ? (
+              <>
+                <button style={saveButton} onClick={saveCustomer} disabled={saving}>
+                  {saving ? "جاري الحفظ..." : "حفظ التعديلات"}
+                </button>
+
+                <button style={cancelEditButton} onClick={cancelEditing} disabled={saving}>
+                  إلغاء التعديل
+                </button>
+              </>
+            ) : (
+              <button style={editButton} onClick={() => setEditing(true)}>
+                تعديل بيانات العميل
+              </button>
+            )}
+          </div>
         </section>
 
         <section style={card}>
@@ -190,10 +394,7 @@ export default function FinanceCustomerProfilePage() {
           )}
         </section>
 
-        <button
-          style={backButton}
-          onClick={() => window.history.back()}
-        >
+        <button style={backButton} onClick={() => window.history.back()}>
           الرجوع للعملاء
         </button>
       </div>
@@ -206,6 +407,33 @@ function Row({ label, value }: any) {
     <div style={row}>
       <span>{label}</span>
       <strong>{value || "-"}</strong>
+    </div>
+  );
+}
+
+function EditableRow({
+  label,
+  value,
+  editing,
+  onChange,
+  inputMode,
+  maxLength,
+}: any) {
+  return (
+    <div style={row}>
+      <span>{label}</span>
+
+      {editing ? (
+        <input
+          style={editInput}
+          value={value || ""}
+          inputMode={inputMode}
+          maxLength={maxLength}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      ) : (
+        <strong>{value || "-"}</strong>
+      )}
     </div>
   );
 }
@@ -242,6 +470,7 @@ const card = {
 const row = {
   display: "flex",
   justifyContent: "space-between",
+  alignItems: "center",
   gap: 12,
   padding: "12px 0",
   borderBottom: "1px solid #eef2f7",
@@ -251,6 +480,60 @@ const sectionTitle = {
   marginTop: 0,
   fontSize: 20,
   color: "#0d47a1",
+};
+
+const editInput = {
+  width: "55%",
+  minWidth: 180,
+  height: 42,
+  borderRadius: 10,
+  border: "1px solid #d9e3f5",
+  padding: "0 12px",
+  fontSize: 15,
+  boxSizing: "border-box" as const,
+};
+
+const editActions = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))",
+  gap: 10,
+  marginTop: 18,
+};
+
+const editButton = {
+  width: "100%",
+  padding: 14,
+  background: "#0d47a1",
+  color: "white",
+  border: "none",
+  borderRadius: 14,
+  fontSize: 16,
+  fontWeight: "bold",
+  cursor: "pointer",
+};
+
+const saveButton = {
+  width: "100%",
+  padding: 14,
+  background: "#166534",
+  color: "white",
+  border: "none",
+  borderRadius: 14,
+  fontSize: 16,
+  fontWeight: "bold",
+  cursor: "pointer",
+};
+
+const cancelEditButton = {
+  width: "100%",
+  padding: 14,
+  background: "#e5e7eb",
+  color: "#0d47a1",
+  border: "1px solid #cbd5e1",
+  borderRadius: 14,
+  fontSize: 16,
+  fontWeight: "bold",
+  cursor: "pointer",
 };
 
 const emptyBox = {
@@ -285,9 +568,17 @@ const activityRow = {
 const backButton = {
   width: "100%",
   padding: 16,
-  background: "#111827",
-  color: "white",
-  border: "none",
+  background: "#e5e7eb",
+  color: "#0d47a1",
+  border: "1px solid #cbd5e1",
   borderRadius: 14,
   fontSize: 17,
+  fontWeight: "bold",
+  marginTop: 18,
+};
+
+const loadingBox = {
+  textAlign: "center" as const,
+  paddingTop: 80,
+  fontSize: 18,
 };
