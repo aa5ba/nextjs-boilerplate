@@ -292,20 +292,29 @@ export default function NewRequestPage() {
 
       if (rpcError) throw new Error(rpcError.message);
 
-      const created = Array.isArray(requestData) ? requestData[0] : requestData;
+      console.log("RPC RESULT:", requestData);
 
-      console.log("requestData:", requestData);
-      console.log("created:", created);
+const created = Array.isArray(requestData)
+  ? requestData[0]
+  : requestData;
 
-      if (!created?.contract_id || !created?.note_id) {
-        throw new Error("تم إنشاء الطلب لكن لم يتم إرجاع بيانات الطباعة");
-      }
+if (!created) {
+  throw new Error("لم يتم إرجاع بيانات من الدالة");
+}
 
-      alert("تم إنشاء الطلب وخصم المخزون بنجاح");
+if (!created.contract_id) {
+  throw new Error("لم يتم إرجاع contract_id");
+}
 
-      const printUrl = `/finance/${branch}/new-request/print/${created.contract_id}/${created.note_id}`;
+if (!created.note_id) {
+  throw new Error("لم يتم إرجاع note_id");
+}
 
-      window.location.assign(printUrl);
+const printUrl = `/finance/${branch}/new-request/print/${created.contract_id}/${created.note_id}`;
+
+console.log("PRINT URL:", printUrl);
+
+window.location.href = printUrl;
     } catch (error: any) {
       console.error(error);
       alert(error.message || "حدث خطأ أثناء إنشاء الطلب");
