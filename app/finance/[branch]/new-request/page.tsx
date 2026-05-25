@@ -39,7 +39,6 @@ export default function NewRequestPage() {
   const [installmentAmount, setInstallmentAmount] = useState("");
   const [deferredPaymentsCount, setDeferredPaymentsCount] = useState("");
 
-  const [paymentType, setPaymentType] = useState("");
   const [paymentDueDate, setPaymentDueDate] = useState("");
   const [draftPaymentDueDate, setDraftPaymentDueDate] = useState("");
   const [contractIssueDate, setContractIssueDate] = useState(today);
@@ -143,8 +142,7 @@ export default function NewRequestPage() {
       if (deferredCount <= 0) return "يرجى إدخال عدد دفعات آجلة صحيح";
     }
 
-    if (!paymentType) return "يرجى اختيار نوع السداد";
-    if (!paymentDueDate) return "يرجى اختيار موعد السداد ثم الضغط على زر تم";
+    if (!paymentDueDate) return "يرجى اختيار تاريخ الاستحقاق ثم الضغط على زر تم";
     if (!contractIssueDate) return "يرجى اختيار تاريخ تحرير العقد";
     if (!legalCity.trim()) return "يرجى إدخال مدينة التقاضي";
 
@@ -275,7 +273,7 @@ export default function NewRequestPage() {
           p_installment_amount: deferredPayment,
           p_deferred_payments_count: deferredCount,
 
-          p_payment_type: paymentType,
+          p_payment_type: "تاريخ استحقاق",
           p_payment_due_date: paymentDueDate || null,
 
           p_contract_issue_date_gregorian: contractIssueDate,
@@ -296,19 +294,20 @@ export default function NewRequestPage() {
 
       const created = Array.isArray(requestData) ? requestData[0] : requestData;
 
-console.log("requestData:", requestData);
-console.log("created:", created);
+      console.log("requestData:", requestData);
+      console.log("created:", created);
 
-if (!created?.contract_id || !created?.note_id) {
-  throw new Error("تم إنشاء الطلب لكن لم يتم إرجاع بيانات الطباعة");
-}
+      if (!created?.contract_id || !created?.note_id) {
+        throw new Error("تم إنشاء الطلب لكن لم يتم إرجاع بيانات الطباعة");
+      }
 
-alert("تم إنشاء الطلب وخصم المخزون بنجاح");
+      alert("تم إنشاء الطلب وخصم المخزون بنجاح");
 
-const printUrl = `/finance/${branch}/new-request/print/${created.contract_id}/${created.note_id}`;
+      const printUrl = `/finance/${branch}/new-request/print/${created.contract_id}/${created.note_id}`;
 
-window.location.assign(printUrl);
+      window.location.assign(printUrl);
     } catch (error: any) {
+      console.error(error);
       alert(error.message || "حدث خطأ أثناء إنشاء الطلب");
     } finally {
       setSaving(false);
@@ -529,19 +528,7 @@ window.location.assign(printUrl);
             </>
           )}
 
-          <Field label="نوع السداد">
-            <select
-              style={input}
-              value={paymentType}
-              onChange={(e) => setPaymentType(e.target.value)}
-            >
-              <option value="">اختر نوع السداد</option>
-              <option value="موعد محدد">موعد محدد</option>
-              <option value="شهري مجدول">شهري مجدول</option>
-            </select>
-          </Field>
-
-          <Field label="موعد السداد بالميلادي">
+          <Field label="تاريخ الاستحقاق بالميلادي">
             <div style={dateConfirmRow}>
               <input
                 style={{ ...input, marginBottom: 0 }}
@@ -555,7 +542,7 @@ window.location.assign(printUrl);
                 style={doneButton}
                 onClick={() => {
                   if (!draftPaymentDueDate) {
-                    alert("اختر موعد السداد أولاً");
+                    alert("اختر تاريخ الاستحقاق أولاً");
                     return;
                   }
 
