@@ -25,6 +25,7 @@ export default function NewRequestPage() {
   const [birthYear, setBirthYear] = useState("");
   const [phone, setPhone] = useState("");
   const [workName, setWorkName] = useState("");
+  const [address, setAddress] = useState("");
 
   const [financeType, setFinanceType] = useState("");
   const [investorId, setInvestorId] = useState("");
@@ -34,6 +35,7 @@ export default function NewRequestPage() {
   const [printPartyType, setPrintPartyType] = useState("organization");
 
   const [debtAmount, setDebtAmount] = useState("");
+  const [hasDeferredPayments, setHasDeferredPayments] = useState(false);
   const [installmentAmount, setInstallmentAmount] = useState("");
   const [deferredPaymentsCount, setDeferredPaymentsCount] = useState("");
 
@@ -46,7 +48,7 @@ export default function NewRequestPage() {
   const [guarantorName, setGuarantorName] = useState("");
   const [guarantorNationalId, setGuarantorNationalId] = useState("");
   const [guarantorPhone, setGuarantorPhone] = useState("");
-  const [guarantorWorkName, setGuarantorWorkName] = useState("");
+  const [guarantorBirthHijri, setGuarantorBirthHijri] = useState("");
 
   const [legalCity, setLegalCity] = useState("");
   const [notes, setNotes] = useState("");
@@ -101,11 +103,16 @@ export default function NewRequestPage() {
     setAvailableStock(data ? Number(data.quantity || 0) : 0);
   }
 
+  function resetDeferredPaymentsFields() {
+    setInstallmentAmount("");
+    setDeferredPaymentsCount("");
+  }
+
   function resetGuarantorFields() {
     setGuarantorName("");
     setGuarantorNationalId("");
     setGuarantorPhone("");
-    setGuarantorWorkName("");
+    setGuarantorBirthHijri("");
   }
 
   function validateRequest() {
@@ -129,12 +136,11 @@ export default function NewRequestPage() {
     if (!debtAmount) return "يرجى إدخال مبلغ الاستحقاق / مبلغ السند";
     if (debt <= 0) return "يرجى إدخال مبلغ استحقاق صحيح";
 
-    if (deferredPayment > 0 && !deferredPaymentsCount) {
-      return "يرجى إدخال عدد الدفعات الآجلة";
-    }
-
-    if (deferredPayment > 0 && deferredCount <= 0) {
-      return "يرجى إدخال عدد دفعات آجلة صحيح";
+    if (hasDeferredPayments) {
+      if (!installmentAmount) return "يرجى إدخال قيمة الدفعة الآجلة";
+      if (deferredPayment <= 0) return "يرجى إدخال قيمة دفعة آجلة صحيحة";
+      if (!deferredPaymentsCount) return "يرجى إدخال عدد الدفعات الآجلة";
+      if (deferredCount <= 0) return "يرجى إدخال عدد دفعات آجلة صحيح";
     }
 
     if (!paymentType) return "يرجى اختيار نوع السداد";
@@ -146,7 +152,7 @@ export default function NewRequestPage() {
       if (!guarantorName.trim()) return "يرجى إدخال اسم الكفيل";
       if (!guarantorNationalId) return "يرجى إدخال رقم هوية الكفيل";
       if (!guarantorPhone) return "يرجى إدخال رقم جوال الكفيل";
-      if (!guarantorWorkName.trim()) return "يرجى إدخال عمل الكفيل";
+      if (!guarantorBirthHijri.trim()) return "يرجى إدخال تاريخ ميلاد الكفيل";
     }
 
     return "";
@@ -177,9 +183,8 @@ export default function NewRequestPage() {
 
     const qty = toNumber(productQuantity);
     const debt = toNumber(debtAmount);
-    const deferredPayment = toNumber(installmentAmount);
-    const deferredCount =
-      deferredPayment > 0 ? toNumber(deferredPaymentsCount) : 0;
+    const deferredPayment = hasDeferredPayments ? toNumber(installmentAmount) : 0;
+    const deferredCount = hasDeferredPayments ? toNumber(deferredPaymentsCount) : 0;
 
     if (cleanNationalId.length !== 10) {
       alert("رقم الهوية يجب أن يكون 10 أرقام");
@@ -248,6 +253,7 @@ export default function NewRequestPage() {
           p_birth_hijri: birthHijri,
           p_phone: cleanPhone,
           p_work_name: workName.trim(),
+          p_address: address.trim(),
 
           p_finance_type: financeType.trim(),
 
@@ -264,8 +270,11 @@ export default function NewRequestPage() {
 
           p_debt_amount: debt,
           p_payment_amount: debt,
+
+          p_has_deferred_payments: hasDeferredPayments,
           p_installment_amount: deferredPayment,
           p_deferred_payments_count: deferredCount,
+
           p_payment_type: paymentType,
           p_payment_due_date: paymentDueDate || null,
 
@@ -277,13 +286,9 @@ export default function NewRequestPage() {
 
           p_has_guarantor: hasGuarantor,
           p_guarantor_name: hasGuarantor ? guarantorName.trim() : "",
-          p_guarantor_national_id: hasGuarantor
-            ? cleanGuarantorNationalId
-            : "",
+          p_guarantor_national_id: hasGuarantor ? cleanGuarantorNationalId : "",
           p_guarantor_phone: hasGuarantor ? cleanGuarantorPhone : "",
-          p_guarantor_work_name: hasGuarantor
-            ? guarantorWorkName.trim()
-            : "",
+          p_guarantor_birth_hijri: hasGuarantor ? guarantorBirthHijri.trim() : "",
         }
       );
 
@@ -383,6 +388,14 @@ export default function NewRequestPage() {
               />
             </Field>
           </div>
+
+          <Field label="العنوان - اختياري">
+            <input
+              style={input}
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+            />
+          </Field>
         </section>
 
         <section style={card}>
@@ -467,33 +480,48 @@ export default function NewRequestPage() {
             />
           </Field>
 
-          <Field label="قيمة الدفعة الآجلة - اختياري">
-            <input
+          <Field label="هل يوجد دفعات آجلة؟">
+            <select
               style={input}
-              inputMode="numeric"
-              value={installmentAmount}
+              value={hasDeferredPayments ? "yes" : "no"}
               onChange={(e) => {
-                const value = normalizeNumber(e.target.value);
-                setInstallmentAmount(value);
+                const value = e.target.value === "yes";
+                setHasDeferredPayments(value);
 
-                if (toNumber(value) <= 0) {
-                  setDeferredPaymentsCount("");
+                if (!value) {
+                  resetDeferredPaymentsFields();
                 }
               }}
-            />
+            >
+              <option value="no">بدون دفعات</option>
+              <option value="yes">يوجد دفعات</option>
+            </select>
           </Field>
 
-          {toNumber(installmentAmount) > 0 && (
-            <Field label="عدد الدفعات الآجلة">
-              <input
-                style={input}
-                inputMode="numeric"
-                value={deferredPaymentsCount}
-                onChange={(e) =>
-                  setDeferredPaymentsCount(normalizeNumber(e.target.value))
-                }
-              />
-            </Field>
+          {hasDeferredPayments && (
+            <>
+              <Field label="قيمة الدفعة الآجلة">
+                <input
+                  style={input}
+                  inputMode="numeric"
+                  value={installmentAmount}
+                  onChange={(e) =>
+                    setInstallmentAmount(normalizeNumber(e.target.value))
+                  }
+                />
+              </Field>
+
+              <Field label="عدد الدفعات الآجلة">
+                <input
+                  style={input}
+                  inputMode="numeric"
+                  value={deferredPaymentsCount}
+                  onChange={(e) =>
+                    setDeferredPaymentsCount(normalizeNumber(e.target.value))
+                  }
+                />
+              </Field>
+            </>
           )}
 
           <Field label="نوع السداد">
@@ -600,11 +628,11 @@ export default function NewRequestPage() {
                 />
               </Field>
 
-              <Field label="عمل الكفيل">
+              <Field label="تاريخ ميلاد الكفيل">
                 <input
                   style={input}
-                  value={guarantorWorkName}
-                  onChange={(e) => setGuarantorWorkName(e.target.value)}
+                  value={guarantorBirthHijri}
+                  onChange={(e) => setGuarantorBirthHijri(e.target.value)}
                 />
               </Field>
             </>
