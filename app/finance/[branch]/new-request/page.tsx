@@ -294,15 +294,20 @@ export default function NewRequestPage() {
 
       if (rpcError) throw new Error(rpcError.message);
 
-      const created = requestData?.[0];
+      const created = Array.isArray(requestData) ? requestData[0] : requestData;
 
-      if (!created?.contract_id || !created?.note_id) {
-        throw new Error("تم إنشاء الطلب لكن لم يتم إرجاع بيانات الطباعة");
-      }
+console.log("requestData:", requestData);
+console.log("created:", created);
 
-      alert("تم إنشاء الطلب وخصم المخزون بنجاح");
+if (!created?.contract_id || !created?.note_id) {
+  throw new Error("تم إنشاء الطلب لكن لم يتم إرجاع بيانات الطباعة");
+}
 
-      window.location.href = `/finance/${branch}/new-request/print/${created.contract_id}/${created.note_id}`;
+alert("تم إنشاء الطلب وخصم المخزون بنجاح");
+
+const printUrl = `/finance/${branch}/new-request/print/${created.contract_id}/${created.note_id}`;
+
+window.location.assign(printUrl);
     } catch (error: any) {
       alert(error.message || "حدث خطأ أثناء إنشاء الطلب");
     } finally {
