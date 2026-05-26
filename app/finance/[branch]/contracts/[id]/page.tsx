@@ -12,6 +12,7 @@ export default function FinanceContractDetailsPage() {
   const contractId = params.id as string;
 
   const [contract, setContract] = useState<any>(null);
+  const [note, setNote] = useState<any>(null);
   const [payments, setPayments] = useState<any[]>([]);
   const [branchId, setBranchId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -28,6 +29,7 @@ export default function FinanceContractDetailsPage() {
 
     if (!currentBranchId) {
       setContract(null);
+      setNote(null);
       setPayments([]);
       setLoading(false);
       return;
@@ -35,10 +37,30 @@ export default function FinanceContractDetailsPage() {
 
     const { data: contractData } = await supabase
       .from("finance_contracts")
-      .select("*, finance_customers(full_name, national_id, phone)")
+      .select(
+        `
+        *,
+        finance_customers(
+          full_name,
+          national_id,
+          phone,
+          birth_hijri,
+          work,
+          work_name,
+          address
+        )
+      `
+      )
       .eq("id", contractId)
       .eq("branch_id", currentBranchId)
       .single();
+
+    const { data: noteData } = await supabase
+      .from("finance_promissory_notes")
+      .select("*")
+      .eq("contract_id", contractId)
+      .eq("branch_id", currentBranchId)
+      .maybeSingle();
 
     const { data: paymentsData } = await supabase
       .from("finance_payments")
@@ -48,6 +70,7 @@ export default function FinanceContractDetailsPage() {
       .order("created_at", { ascending: false });
 
     setContract(contractData);
+    setNote(noteData);
     setPayments(paymentsData || []);
     setLoading(false);
   }
@@ -109,13 +132,11 @@ export default function FinanceContractDetailsPage() {
       {
         branch_id: branchId,
         activity_type: "إلغاء دفعة",
-        description: `تم إلغاء دفعة للعميل ${
-          contract?.finance_customers?.full_name || ""
-        } بمبلغ ${paymentAmount} ر.س`,
+        description: `تم إلغاء دفعة للعميل ${getCustomerName()} بمبلغ ${paymentAmount} ر.س`,
         customer_id: contract?.customer_id,
         contract_id: contractId,
         payment_id: payment.id,
-        customer_name: contract?.finance_customers?.full_name || "",
+        customer_name: getCustomerName(),
         employee_name: "المدير",
         status: newStatus,
       },
@@ -156,12 +177,10 @@ export default function FinanceContractDetailsPage() {
       {
         branch_id: branchId,
         activity_type: "إغلاق عقد",
-        description: `تم إغلاق عقد العميل ${
-          contract?.finance_customers?.full_name || ""
-        } كسداد كامل`,
+        description: `تم إغلاق عقد العميل ${getCustomerName()} كسداد كامل`,
         customer_id: contract?.customer_id,
         contract_id: contractId,
-        customer_name: contract?.finance_customers?.full_name || "",
+        customer_name: getCustomerName(),
         employee_name: "المدير",
         status: "تم السداد",
       },
@@ -169,6 +188,67 @@ export default function FinanceContractDetailsPage() {
 
     await loadData();
     alert("تم إغلاق العقد كسداد كامل");
+  }
+
+  function getCustomerName() {
+    return (
+      contract?.finance_customers?.full_name ||
+      contract?.customer_name ||
+      "-"
+    );
+  }
+
+  function getCustomerNationalId() {
+    return (
+      contract?.finance_customers?.national_id ||
+      contract?.customer_national_id ||
+      "-"
+    );
+  }
+
+  function getCustomerPhone() {
+    return (
+      contract?.finance_customers?.phone ||
+      contract?.customer_phone ||
+      "-"
+    );
+  }
+
+  function getCustomerBirthHijri() {
+    return (
+      contract?.finance_customers?.birth_hijri ||
+      contract?.customer_birth_hijri ||
+      "-"
+    );
+  }
+
+  function getCustomerWorkName() {
+    return (
+      contract?.finance_customers?.work_name ||
+      contract?.finance_customers?.work ||
+      contract?.customer_work_name ||
+      "-"
+    );
+  }
+
+  function getCustomerAddress() {
+    return contract?.finance_customers?.address || "-";
+  }
+
+  function formatDate(date: string) {
+    if (!date) return "-";
+
+    return new Date(date).toLocaleString("ar-SA", {
+      dateStyle: "short",
+      timeStyle: "short",
+    });
+  }
+
+  function statusStyle(status: string) {
+    if (status === "تم السداد") return paidStatus;
+    if (status === "متأخر") return lateStatus;
+    if (status === "ملغي") return cancelledStatus;
+    return activeStatus;
   }
 
   if (loading) {
@@ -179,46 +259,141 @@ export default function FinanceContractDetailsPage() {
     );
   }
 
+  if (!contract) {
+    return (
+      <main dir="rtl" style={page}>
+        <div style={loadingBox}>لم يتم العثور على العقد</div>
+      </main>
+    );
+  }
+
   const isFullyPaid =
     Number(contract?.remaining_amount || 0) <= 0 ||
     contract?.contract_status === "تم السداد";
+
+  const hasDeferredPayments =
+    Boolean(contract?.has_deferred_payments) ||
+    Number(contract?.installment_amount || 0) > 0;
+
+  const hasGuarantor = Boolean(contract?.has_guarantor);
 
   return (
     <main dir="rtl" style={page}>
       <div style={container}>
         <div style={header}>
-          <h1 style={{ margin: 0 }}>
-            عقد رقم {contract?.contract_number || "-"}
-          </h1>
+          <div>
+            <h1 style={{ margin: 0 }}>
+              عقد رقم {contract?.contract_number || "-"}
+            </h1>
+            <div style={headerSubText}>تفاصيل العقد وسجل الدفعات</div>
+          </div>
+
+          <span style={statusStyle(contract?.contract_status)}>
+            {contract?.contract_status || "نشط"}
+          </span>
         </div>
+
+        <section style={summaryGrid}>
+          <SummaryBox
+            title="مبلغ الاستحقاق"
+            value={`${contract?.payment_amount || 0} ر.س`}
+          />
+          <SummaryBox
+            title="المسدد"
+            value={`${contract?.paid_amount || 0} ر.س`}
+          />
+          <SummaryBox
+            title="المتبقي"
+            value={`${contract?.remaining_amount || 0} ر.س`}
+          />
+        </section>
+
+        <section style={card}>
+          <h2 style={sectionTitle}>بيانات العميل</h2>
+
+          <Row label="العميل" value={getCustomerName()} />
+          <Row label="رقم الهوية" value={getCustomerNationalId()} />
+          <Row label="تاريخ الميلاد بالهجري" value={getCustomerBirthHijri()} />
+          <Row label="رقم الجوال" value={getCustomerPhone()} />
+          <Row label="العمل" value={getCustomerWorkName()} />
+          <Row label="العنوان" value={getCustomerAddress()} />
+        </section>
 
         <section style={card}>
           <h2 style={sectionTitle}>بيانات العقد</h2>
 
-          <Row label="العميل" value={contract?.finance_customers?.full_name} />
-          <Row label="رقم الهوية" value={contract?.finance_customers?.national_id} />
-          <Row label="رقم الجوال" value={contract?.finance_customers?.phone} />
-          <Row label="نوع التمويل" value={contract?.finance_type} />
+          <Row label="نوع التمويل" value={contract?.finance_type || "-"} />
           <Row label="المستثمر المرتبط بالمخزون" value={contract?.investor_name || "-"} />
           <Row label="المنتج" value={contract?.product_name || "-"} />
           <Row label="كمية المنتجات" value={contract?.product_quantity || "-"} />
           <Row label="الطرف الأول في الطباعة" value={contract?.print_party_name || "-"} />
+
           <Row
             label={
               contract?.print_party_type === "investor"
-                ? "هوية الطرف الأول"
+                ? "رقم هوية الطرف الأول"
                 : "السجل التجاري للطرف الأول"
             }
             value={contract?.print_party_identifier || "-"}
           />
+
           <Row label="مبلغ الدين" value={`${contract?.debt_amount || 0} ر.س`} />
           <Row label="مبلغ السداد" value={`${contract?.payment_amount || 0} ر.س`} />
-          <Row label="القسط" value={`${contract?.installment_amount || 0} ر.س`} />
-          <Row label="نوع السداد" value={contract?.payment_type || "-"} />
-          <Row label="موعد السداد" value={contract?.payment_due_date || "-"} />
-          <Row label="المسدد" value={`${contract?.paid_amount || 0} ر.س`} />
-          <Row label="المتبقي" value={`${contract?.remaining_amount || 0} ر.س`} />
-          <Row label="الحالة" value={contract?.contract_status || "-"} />
+          <Row label="تاريخ الاستحقاق" value={contract?.payment_due_date || "-"} />
+          <Row label="مدينة التقاضي" value={contract?.legal_city || "-"} />
+          <Row label="تاريخ تحرير العقد" value={contract?.contract_issue_date_gregorian || contract?.contract_date_gregorian || "-"} />
+          <Row label="الموظف المنشئ" value={contract?.created_by || "-"} />
+          <Row label="تاريخ الإنشاء" value={formatDate(contract?.created_at)} />
+          <Row label="آخر تحديث" value={formatDate(contract?.updated_at)} />
+        </section>
+
+        <section style={card}>
+          <h2 style={sectionTitle}>الدفعات الآجلة</h2>
+
+          {hasDeferredPayments ? (
+            <>
+              <Row
+                label="قيمة الدفعة الآجلة"
+                value={`${contract?.installment_amount || 0} ر.س`}
+              />
+              <Row
+                label="عدد الدفعات الآجلة"
+                value={`${contract?.deferred_payments_count || 0} دفعات`}
+              />
+            </>
+          ) : (
+            <div style={emptyBox}>لا توجد دفعات آجلة لهذا العقد</div>
+          )}
+        </section>
+
+        <section style={card}>
+          <h2 style={sectionTitle}>بيانات الكفيل</h2>
+
+          {hasGuarantor ? (
+            <>
+              <Row label="اسم الكفيل" value={contract?.guarantor_name || "-"} />
+              <Row label="رقم هوية الكفيل" value={contract?.guarantor_national_id || "-"} />
+              <Row label="رقم جوال الكفيل" value={contract?.guarantor_phone || "-"} />
+              <Row label="تاريخ ميلاد الكفيل" value={contract?.guarantor_birth_hijri || "-"} />
+            </>
+          ) : (
+            <div style={emptyBox}>لا يوجد كفيل لهذا العقد</div>
+          )}
+        </section>
+
+        <section style={card}>
+          <h2 style={sectionTitle}>السند المرتبط</h2>
+
+          {note ? (
+            <>
+              <Row label="رقم السند" value={note?.note_number || "-"} />
+              <Row label="مبلغ السند" value={`${note?.amount || 0} ر.س`} />
+              <Row label="تاريخ الاستحقاق" value={note?.due_date || "-"} />
+              <Row label="حالة السند" value={note?.status || "-"} />
+            </>
+          ) : (
+            <div style={emptyBox}>لا يوجد سند مرتبط بهذا العقد</div>
+          )}
         </section>
 
         <section style={card}>
@@ -275,13 +450,15 @@ export default function FinanceContractDetailsPage() {
         </section>
 
         <section style={actionsSection}>
-          <ActionButton
-            icon="💳"
-            title="تسجيل سداد"
-            onClick={() =>
-              (window.location.href = `/finance/${branch}/payments/new?contract=${contractId}`)
-            }
-          />
+          {!isFullyPaid && (
+            <ActionButton
+              icon="💳"
+              title="تسجيل سداد"
+              onClick={() =>
+                (window.location.href = `/finance/${branch}/payments/new?contract=${contractId}`)
+              }
+            />
+          )}
 
           <ActionButton
             icon="✏️"
@@ -298,6 +475,26 @@ export default function FinanceContractDetailsPage() {
               (window.location.href = `/finance/${branch}/contracts/print/${contractId}`)
             }
           />
+
+          {note && (
+            <ActionButton
+              icon="🧾"
+              title="طباعة العقد والسند"
+              onClick={() =>
+                (window.location.href = `/finance/${branch}/new-request/print/${contractId}/${note.id}`)
+              }
+            />
+          )}
+
+          {note && (
+            <ActionButton
+              icon="📑"
+              title="طباعة السند"
+              onClick={() =>
+                (window.location.href = `/finance/${branch}/contracts/promissory-note/print/${note.id}`)
+              }
+            />
+          )}
 
           {isFullyPaid && (
             <ActionButton
@@ -334,6 +531,15 @@ function Row({ label, value }: any) {
   );
 }
 
+function SummaryBox({ title, value }: any) {
+  return (
+    <div style={summaryBox}>
+      <span>{title}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
 function ActionButton({ icon, title, onClick }: any) {
   return (
     <button style={actionButton} onClick={onClick}>
@@ -364,6 +570,35 @@ const header = {
   padding: 28,
   borderRadius: 24,
   marginBottom: 18,
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 14,
+};
+
+const headerSubText = {
+  marginTop: 8,
+  fontSize: 14,
+  opacity: 0.9,
+};
+
+const summaryGrid = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
+  gap: 14,
+  marginBottom: 16,
+};
+
+const summaryBox = {
+  background: "white",
+  border: "1px solid #d9e3f5",
+  borderRadius: 18,
+  padding: 18,
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  color: "#0d47a1",
+  fontWeight: "bold",
 };
 
 const card = {
@@ -383,6 +618,7 @@ const sectionTitle = {
 const row = {
   display: "flex",
   justifyContent: "space-between",
+  alignItems: "center",
   gap: 12,
   padding: "12px 0",
   borderBottom: "1px solid #eef2f7",
@@ -459,6 +695,42 @@ const buttonContent = {
 
 const buttonIcon = {
   fontSize: 20,
+};
+
+const activeStatus = {
+  background: "#dcfce7",
+  color: "#166534",
+  borderRadius: 999,
+  padding: "8px 14px",
+  fontWeight: "bold",
+  whiteSpace: "nowrap" as const,
+};
+
+const lateStatus = {
+  background: "#ffedd5",
+  color: "#9a3412",
+  borderRadius: 999,
+  padding: "8px 14px",
+  fontWeight: "bold",
+  whiteSpace: "nowrap" as const,
+};
+
+const paidStatus = {
+  background: "#dbeafe",
+  color: "#1d4ed8",
+  borderRadius: 999,
+  padding: "8px 14px",
+  fontWeight: "bold",
+  whiteSpace: "nowrap" as const,
+};
+
+const cancelledStatus = {
+  background: "#fee2e2",
+  color: "#991b1b",
+  borderRadius: 999,
+  padding: "8px 14px",
+  fontWeight: "bold",
+  whiteSpace: "nowrap" as const,
 };
 
 const backButton = {
