@@ -34,6 +34,8 @@ export default function PrintNewRequestPage() {
 
         body {
           background: white !important;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
         }
 
         main {
@@ -164,90 +166,81 @@ export default function PrintNewRequestPage() {
   return (
     <main dir="rtl" style={page}>
       <section style={printArea}>
-        <div style={header}>
-          <div style={headerRight}>
-            <div>المملكة العربية السعودية</div>
-            <div>{organizationSettings.city || "................"}</div>
-            <div>{organizationSettings.name || "................"}</div>
-            <div>
-              سجل تجاري رقم /{" "}
-              {organizationSettings.commercialRecord || "................"}
-            </div>
-          </div>
+        <PrintHeader
+          title="عقد اتفاق بيع"
+          rightInfo={organizationSettings}
+          leftItems={[
+            `رقم العقد: ${contract?.contract_number || "-"}`,
+            `تاريخ تحرير العقد: ${contractIssueDate}`,
+          ]}
+        />
 
-          <div style={documentTitle}>عقد اتفاق بيع</div>
+        <div style={contentBox}>
+          <p style={paragraph}>الحمد لله والصلاة والسلام على من لا نبي بعده، وبعد:</p>
 
-          <div style={headerLeft}>
-            <div>رقم العقد: {contract?.contract_number || "-"}</div>
-            <div>تاريخ تحرير العقد: {contractIssueDate}</div>
-          </div>
-        </div>
+          <p style={paragraph}>
+            أقر أنا الموقع أدناه الطرف الثاني / <strong>{customerName}</strong>،
+            رقم الهوية / <strong>{nationalId}</strong>، تاريخ الميلاد /
+            <strong> {birthHijri}</strong>، رقم الجوال /
+            <strong> {phone}</strong>، بأني اشتريت من الطرف الأول /
+            <strong> {firstPartyName}</strong>
+            {firstPartyIdentifier ? (
+              <>
+                ، {firstPartyIdentifierLabel} /{" "}
+                <strong>{firstPartyIdentifier}</strong>
+              </>
+            ) : null}
+            .
+          </p>
 
-        <p style={paragraph}>
-          الحمد لله والصلاة والسلام على من لا نبي بعده، وبعد:
-        </p>
+          <p style={paragraph}>
+            وذلك مقابل /{" "}
+            <strong>{contract?.product_name || "................"}</strong>،
+            وعددها / <strong>{contract?.product_quantity || "-"}</strong>، بمبلغ
+            دين وقدره / <strong>{contract?.debt_amount || 0}</strong> ريال سعودي.
+          </p>
 
-        <p style={paragraph}>
-          أقر أنا الموقع أدناه الطرف الثاني / <strong>{customerName}</strong>،
-          رقم الهوية / <strong>{nationalId}</strong>، تاريخ الميلاد /
-          <strong> {birthHijri}</strong>، رقم الجوال /
-          <strong> {phone}</strong>، بأني اشتريت من الطرف الأول /
-          <strong> {firstPartyName}</strong>
-          {firstPartyIdentifier ? (
-            <>
-              ، {firstPartyIdentifierLabel} /{" "}
-              <strong>{firstPartyIdentifier}</strong>
-            </>
-          ) : null}
-          .
-        </p>
+          <p style={paragraph}>
+            ويلتزم الطرف الثاني بسداد مبلغ وقدره /
+            <strong> {contract?.payment_amount || 0}</strong> ريال سعودي
+            {hasDeferredPayments ? (
+              <>
+                ، على دفعات آجلة قيمة كل دفعة /
+                <strong> {contract?.installment_amount || 0}</strong> ريال سعودي،
+                وعددها /{" "}
+                <strong>{contract?.deferred_payments_count || 0}</strong> دفعات،
+                ويكون تاريخ الاستحقاق بتاريخ / <strong>{dueDate}</strong>.
+              </>
+            ) : (
+              <>
+                ، ويكون تاريخ الاستحقاق بتاريخ / <strong>{dueDate}</strong>.
+              </>
+            )}
+          </p>
 
-        <p style={paragraph}>
-          وذلك مقابل /{" "}
-          <strong>{contract?.product_name || "................"}</strong>،
-          وعددها / <strong>{contract?.product_quantity || "-"}</strong>، بمبلغ
-          دين وقدره / <strong>{contract?.debt_amount || 0}</strong> ريال سعودي.
-        </p>
+          <p style={paragraph}>
+            وتكون مدينة التقاضي / <strong>{contract?.legal_city || "-"}</strong>.
+          </p>
 
-        <p style={paragraph}>
-          ويلتزم الطرف الثاني بسداد مبلغ وقدره /
-          <strong> {contract?.payment_amount || 0}</strong> ريال سعودي
-          {hasDeferredPayments ? (
-            <>
-              ، على دفعات آجلة قيمة كل دفعة /
-              <strong> {contract?.installment_amount || 0}</strong> ريال سعودي،
-              وعددها /{" "}
-              <strong>{contract?.deferred_payments_count || 0}</strong> دفعات،
-              ويكون تاريخ الاستحقاق بتاريخ / <strong>{dueDate}</strong>.
-            </>
-          ) : (
-            <>
-              ، ويكون تاريخ الاستحقاق بتاريخ / <strong>{dueDate}</strong>.
-            </>
+          <p style={paragraph}>
+            كما يقر الطرف الثاني بأنه اطلع على كامل بنود هذا العقد، وأنه ملتزم
+            بالسداد في المواعيد المتفق عليها، وفي حال التأخر يحق للطرف الأول
+            اتخاذ الإجراءات النظامية اللازمة للمطالبة بكامل المبلغ المتبقي.
+          </p>
+
+          {contract?.notes && (
+            <p style={paragraph}>
+              ملاحظات: <strong>{contract.notes}</strong>
+            </p>
           )}
-        </p>
-
-        <p style={paragraph}>
-          وتكون مدينة التقاضي / <strong>{contract?.legal_city || "-"}</strong>.
-        </p>
-
-        <p style={paragraph}>
-          كما يقر الطرف الثاني بأنه اطلع على كامل بنود هذا العقد، وأنه ملتزم
-          بالسداد في المواعيد المتفق عليها، وفي حال التأخر يحق للطرف الأول اتخاذ
-          الإجراءات النظامية اللازمة للمطالبة بكامل المبلغ المتبقي.
-        </p>
-
-        <p style={paragraph}>
-          ملاحظات: <strong>{contract?.notes || "-"}</strong>
-        </p>
+        </div>
 
         <div style={signatures}>
           <div style={signatureBox}>
             <strong>الطرف الأول البائع</strong>
             <div>الاسم / {firstPartyName}</div>
             <div>
-              {firstPartyIdentifierLabel} /{" "}
-              {firstPartyIdentifier || "................"}
+              {firstPartyIdentifierLabel} / {firstPartyIdentifier || "................"}
             </div>
             <div>التوقيع / ................</div>
           </div>
@@ -264,63 +257,59 @@ export default function PrintNewRequestPage() {
         {hasGuarantor && (
           <div style={guarantorBox}>
             <strong>الكفيل الغارم</strong>
-            <div>الاسم / {guarantorName}</div>
-            <div>رقم الهوية / {guarantorNationalId}</div>
-            <div>الجوال / {guarantorPhone}</div>
-            <div>تاريخ الميلاد / {guarantorBirthHijri}</div>
+            <div style={guarantorGrid}>
+              <div>الاسم / {guarantorName}</div>
+              <div>رقم الهوية / {guarantorNationalId}</div>
+              <div>الجوال / {guarantorPhone}</div>
+              <div>تاريخ الميلاد / {guarantorBirthHijri}</div>
+            </div>
             <div>التوقيع / ................</div>
           </div>
         )}
       </section>
 
       <section style={secondPrintArea}>
-        <div style={header}>
-          <div style={headerRight}>
-            <div>المملكة العربية السعودية</div>
-            <div>{organizationSettings.city || "................"}</div>
-            <div>{organizationSettings.name || "................"}</div>
-            <div>
-              سجل تجاري رقم /{" "}
-              {organizationSettings.commercialRecord || "................"}
-            </div>
+        <PrintHeader
+          title="سند لأمر"
+          rightInfo={organizationSettings}
+          leftItems={[
+            `رقم السند: ${note?.note_number || "-"}`,
+            `تاريخ تحرير السند: ${noteIssueDate}`,
+          ]}
+        />
+
+        <div style={contentBox}>
+          <p style={paragraph}>
+            بموجب هذا السند أتعهد أنا الموقع أدناه بأن أدفع لأمر الطرف المستفيد /
+            <strong> {firstPartyName}</strong>
+            {firstPartyIdentifier ? (
+              <>
+                ، {firstPartyIdentifierLabel} /{" "}
+                <strong>{firstPartyIdentifier}</strong>
+              </>
+            ) : null}{" "}
+            مبلغًا وقدره <strong>{note?.amount || 0}</strong> ريال سعودي.
+          </p>
+
+          <p style={paragraph}>
+            ويستحق هذا المبلغ في تاريخ{" "}
+            <strong>{note?.due_date || dueDate}</strong>، دون مماطلة أو تأخير،
+            ويعد هذا السند التزامًا واجب الوفاء حسب الأنظمة المعمول بها.
+          </p>
+
+          <div style={infoBox}>
+            <div>اسم المدين / {note?.debtor_name || customerName}</div>
+            <div>رقم الهوية / {note?.debtor_national_id || nationalId}</div>
+            <div>رقم الجوال / {note?.debtor_phone || phone}</div>
+            <div>العنوان / {note?.city || contract?.legal_city || "................"}</div>
           </div>
 
-          <div style={documentTitle}>سند لأمر</div>
-
-          <div style={headerLeft}>
-            <div>رقم السند: {note?.note_number || "-"}</div>
-            <div>تاريخ تحرير السند: {noteIssueDate}</div>
-          </div>
+          {note?.notes && (
+            <p style={paragraph}>
+              ملاحظات: <strong>{note.notes}</strong>
+            </p>
+          )}
         </div>
-
-        <p style={paragraph}>
-          بموجب هذا السند أتعهد أنا الموقع أدناه بأن أدفع لأمر الطرف المستفيد /
-          <strong> {firstPartyName}</strong>
-          {firstPartyIdentifier ? (
-            <>
-              ، {firstPartyIdentifierLabel} /{" "}
-              <strong>{firstPartyIdentifier}</strong>
-            </>
-          ) : null}{" "}
-          مبلغًا وقدره <strong>{note?.amount || 0}</strong> ريال سعودي.
-        </p>
-
-        <p style={paragraph}>
-          ويستحق هذا المبلغ في تاريخ{" "}
-          <strong>{note?.due_date || dueDate}</strong>، دون مماطلة أو تأخير،
-          ويعد هذا السند التزامًا واجب الوفاء حسب الأنظمة المعمول بها.
-        </p>
-
-        <div style={infoBox}>
-          <div>اسم المدين / {note?.debtor_name || customerName}</div>
-          <div>رقم الهوية / {note?.debtor_national_id || nationalId}</div>
-          <div>رقم الجوال / {note?.debtor_phone || phone}</div>
-          <div>العنوان / {note?.city || contract?.legal_city || "................"}</div>
-        </div>
-
-        <p style={paragraph}>
-          ملاحظات: <strong>{note?.notes || "-"}</strong>
-        </p>
 
         <div style={signatures}>
           <div style={signatureBox}>
@@ -355,7 +344,7 @@ export default function PrintNewRequestPage() {
           <div style={legalBox}>
             بموجب هذا السند يحق لطالب الدين والكفيل الغارم حقوق التقدم
             والمطالبة والاحتجاج والإخطار بالامتناع عن الوفاء والمتعلقة بهذا
-            السند كما يجوز لمدعي موجب هذا السند الرجوع للمدين أو الكفيل الغارم
+            السند، كما يجوز لمدعي موجب هذا السند الرجوع للمدين أو الكفيل الغارم
             منفردين أو مجتمعين ودون مراعاة أو ترتيب.
           </div>
         </div>
@@ -374,6 +363,27 @@ export default function PrintNewRequestPage() {
         الرجوع للعقد
       </button>
     </main>
+  );
+}
+
+function PrintHeader({ title, rightInfo, leftItems }: any) {
+  return (
+    <div style={header}>
+      <div style={headerRight}>
+        <div>المملكة العربية السعودية</div>
+        <div>{rightInfo.city || "................"}</div>
+        <div>{rightInfo.name || "................"}</div>
+        <div>سجل تجاري رقم / {rightInfo.commercialRecord || "................"}</div>
+      </div>
+
+      <div style={documentTitle}>{title}</div>
+
+      <div style={headerLeft}>
+        {leftItems.map((item: string, index: number) => (
+          <div key={index}>{item}</div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -405,84 +415,98 @@ const secondPrintArea = {
 
 const header = {
   display: "grid",
-  gridTemplateColumns: "1.2fr 1fr 1.2fr",
+  gridTemplateColumns: "1.25fr 1fr 1.25fr",
   alignItems: "start",
   gap: 10,
-  marginBottom: 14,
-  borderBottom: "1px solid #111827",
+  marginBottom: 12,
+  borderBottom: "1.5px solid #111827",
   paddingBottom: 8,
 };
 
 const headerRight = {
-  fontSize: 11.5,
-  lineHeight: 1.7,
+  fontSize: 11,
+  lineHeight: 1.65,
   fontWeight: "bold",
 };
 
 const headerLeft = {
-  fontSize: 11.5,
-  lineHeight: 1.7,
+  fontSize: 11,
+  lineHeight: 1.65,
   textAlign: "left" as const,
+  fontWeight: "bold",
 };
 
 const documentTitle = {
   textAlign: "center" as const,
   color: "#111827",
-  fontSize: 22,
+  fontSize: 21,
   fontWeight: "bold",
-  marginTop: 12,
+  marginTop: 13,
+  whiteSpace: "nowrap" as const,
+};
+
+const contentBox = {
+  marginTop: 10,
 };
 
 const paragraph = {
-  fontSize: 12.5,
-  margin: "5px 0",
+  fontSize: 12.3,
+  margin: "6px 0",
   textAlign: "justify" as const,
 };
 
 const infoBox = {
-  border: "1px solid #e5e7eb",
+  border: "1px solid #d1d5db",
   borderRadius: 8,
-  padding: 10,
+  padding: 9,
   marginTop: 10,
-  lineHeight: 1.7,
-  fontSize: 12.5,
+  lineHeight: 1.65,
+  fontSize: 12.2,
 };
 
 const signatures = {
   display: "grid",
   gridTemplateColumns: "1fr 1fr",
   gap: 16,
-  marginTop: 16,
+  marginTop: 17,
 };
 
 const signatureBox = {
-  borderTop: "1px solid #111827",
+  borderTop: "1.5px solid #111827",
   paddingTop: 8,
-  lineHeight: 1.7,
-  fontSize: 12.5,
+  lineHeight: 1.65,
+  fontSize: 12.2,
+  minHeight: 84,
 };
 
 const guarantorBox = {
-  marginTop: 16,
-  borderTop: "1px solid #111827",
+  marginTop: 14,
+  borderTop: "1.5px solid #111827",
   paddingTop: 8,
-  lineHeight: 1.7,
-  fontSize: 12.5,
+  lineHeight: 1.65,
+  fontSize: 12.2,
+};
+
+const guarantorGrid = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: "2px 14px",
+  marginTop: 4,
 };
 
 const legalBoxes = {
   display: "grid",
   gridTemplateColumns: "1fr 1fr",
   gap: 12,
-  marginTop: 22,
+  marginTop: 20,
 };
 
 const legalBox = {
-  border: "1px solid #111827",
-  borderRadius: 14,
-  padding: 10,
-  fontSize: 11,
-  lineHeight: 1.7,
+  border: "1.5px solid #111827",
+  borderRadius: 12,
+  padding: 9,
+  fontSize: 10.5,
+  lineHeight: 1.65,
   textAlign: "center" as const,
   fontWeight: "bold",
 };
