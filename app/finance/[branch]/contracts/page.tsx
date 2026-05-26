@@ -632,4 +632,3 @@ const backButton = {
   fontWeight: "bold",
   marginTop: 18,
 };
-.
