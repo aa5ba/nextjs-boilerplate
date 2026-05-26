@@ -625,3 +625,12 @@ const backButton = {
   fontWeight: "bold",
   marginTop: 18,
 };
+const loadingBox = {
+  background: "white",
+  border: "1px solid #d9e3f5",
+  borderRadius: 18,
+  padding: 20,
+  textAlign: "center" as const,
+  color: "#0d47a1",
+  fontWeight: "bold",
+};
