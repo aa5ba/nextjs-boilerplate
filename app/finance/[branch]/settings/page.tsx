@@ -14,12 +14,23 @@ export default function FinanceSettingsPage() {
   const [organizationCommercialRecord, setOrganizationCommercialRecord] =
     useState("");
 
+  const [organizationLogoUrl, setOrganizationLogoUrl] = useState("");
+  const [organizationStampUrl, setOrganizationStampUrl] = useState("");
+  const [printFooterText, setPrintFooterText] = useState("");
+  const [printMargin, setPrintMargin] = useState("8mm");
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     loadSettings();
   }, []);
+
+  function normalizeDigits(value: string) {
+    return value
+      .replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d).toString())
+      .replace(/[۰-۹]/g, (d) => "۰۱۲۳۴۵۶۷۸۹".indexOf(d).toString());
+  }
 
   async function loadSettings() {
     setLoading(true);
@@ -32,44 +43,75 @@ export default function FinanceSettingsPage() {
       return;
     }
 
-    if (data) {
-      const getValue = (key: string) =>
-        data.find((x) => x.setting_key === key)?.setting_value || "";
+    const getValue = (key: string) =>
+      data?.find((x) => x.setting_key === key)?.setting_value || "";
 
-      setOrganizationName(getValue("organization_name"));
-      setOrganizationPhone(getValue("organization_phone"));
-      setOrganizationCity(getValue("organization_city"));
-      setOrganizationCommercialRecord(getValue("organization_commercial_record"));
-    }
+    setOrganizationName(getValue("organization_name"));
+    setOrganizationPhone(getValue("organization_phone"));
+    setOrganizationCity(getValue("organization_city"));
+    setOrganizationCommercialRecord(getValue("organization_commercial_record"));
+    setOrganizationLogoUrl(getValue("organization_logo_url"));
+    setOrganizationStampUrl(getValue("organization_stamp_url"));
+    setPrintFooterText(getValue("print_footer_text"));
+    setPrintMargin(getValue("print_margin") || "8mm");
 
     setLoading(false);
   }
 
   async function saveSetting(key: string, value: string) {
-    const { error } = await supabase
-      .from("finance_settings")
-      .update({
-        setting_value: value.trim(),
+    const cleanValue = value.trim();
+
+    const { error } = await supabase.from("finance_settings").upsert(
+      {
+        setting_key: key,
+        setting_value: cleanValue,
         updated_at: new Date().toISOString(),
-      })
-      .eq("setting_key", key);
+      },
+      {
+        onConflict: "setting_key",
+      }
+    );
 
     if (error) throw error;
   }
 
   async function saveSettings() {
+    const cleanPhone = normalizeDigits(organizationPhone);
+    const cleanCommercialRecord = normalizeDigits(organizationCommercialRecord);
+
+    if (!organizationName.trim()) {
+      alert("يرجى إدخال اسم المنظمة");
+      return;
+    }
+
+    if (!organizationCity.trim()) {
+      alert("يرجى إدخال المدينة");
+      return;
+    }
+
+    if (!cleanCommercialRecord.trim()) {
+      alert("يرجى إدخال رقم السجل التجاري");
+      return;
+    }
+
     try {
       setSaving(true);
 
       await saveSetting("organization_name", organizationName);
-      await saveSetting("organization_phone", organizationPhone);
+      await saveSetting("organization_phone", cleanPhone);
       await saveSetting("organization_city", organizationCity);
       await saveSetting(
         "organization_commercial_record",
-        organizationCommercialRecord
+        cleanCommercialRecord
       );
 
+      await saveSetting("organization_logo_url", organizationLogoUrl);
+      await saveSetting("organization_stamp_url", organizationStampUrl);
+      await saveSetting("print_footer_text", printFooterText);
+      await saveSetting("print_margin", printMargin);
+
       alert("تم حفظ الإعدادات بنجاح");
+      await loadSettings();
     } catch (error: any) {
       alert(error?.message || "حدث خطأ أثناء الحفظ");
     } finally {
@@ -108,17 +150,6 @@ export default function FinanceSettingsPage() {
             />
           </Field>
 
-          <Field label="رقم الجوال">
-            <input
-              style={input}
-              type="text"
-              inputMode="numeric"
-              placeholder="05xxxxxxxx"
-              value={organizationPhone}
-              onChange={(e) => setOrganizationPhone(e.target.value)}
-            />
-          </Field>
-
           <Field label="المدينة">
             <input
               style={input}
@@ -136,8 +167,69 @@ export default function FinanceSettingsPage() {
               inputMode="numeric"
               placeholder="أدخل رقم السجل التجاري"
               value={organizationCommercialRecord}
-              onChange={(e) => setOrganizationCommercialRecord(e.target.value)}
+              onChange={(e) =>
+                setOrganizationCommercialRecord(normalizeDigits(e.target.value))
+              }
             />
+          </Field>
+
+          <Field label="رقم الجوال - اختياري">
+            <input
+              style={input}
+              type="text"
+              inputMode="numeric"
+              placeholder="05xxxxxxxx"
+              value={organizationPhone}
+              onChange={(e) =>
+                setOrganizationPhone(normalizeDigits(e.target.value))
+              }
+            />
+          </Field>
+        </section>
+
+        <section style={card}>
+          <h2 style={sectionTitle}>إعدادات الطباعة</h2>
+
+          <Field label="رابط الشعار - اختياري">
+            <input
+              style={input}
+              type="text"
+              placeholder="رابط صورة الشعار إن وجد"
+              value={organizationLogoUrl}
+              onChange={(e) => setOrganizationLogoUrl(e.target.value)}
+            />
+          </Field>
+
+          <Field label="رابط الختم - اختياري">
+            <input
+              style={input}
+              type="text"
+              placeholder="رابط صورة الختم إن وجد"
+              value={organizationStampUrl}
+              onChange={(e) => setOrganizationStampUrl(e.target.value)}
+            />
+          </Field>
+
+          <Field label="نص التذييل في الطباعة - اختياري">
+            <textarea
+              style={textarea}
+              placeholder="مثال: للاستفسار يرجى التواصل مع الإدارة"
+              value={printFooterText}
+              onChange={(e) => setPrintFooterText(e.target.value)}
+            />
+          </Field>
+
+          <Field label="هامش الطباعة">
+            <select
+              style={input}
+              value={printMargin}
+              onChange={(e) => setPrintMargin(e.target.value)}
+            >
+              <option value="6mm">6mm</option>
+              <option value="8mm">8mm - المعتمد</option>
+              <option value="10mm">10mm</option>
+              <option value="12mm">12mm</option>
+            </select>
           </Field>
 
           <button style={saveButton} onClick={saveSettings} disabled={saving}>
@@ -197,6 +289,7 @@ const card = {
   border: "1px solid #d9e3f5",
   borderRadius: 18,
   padding: 20,
+  marginBottom: 16,
 };
 
 const sectionTitle = {
@@ -224,6 +317,18 @@ const input = {
   border: "1px solid #d9e3f5",
   fontSize: 16,
   boxSizing: "border-box" as const,
+  background: "white",
+};
+
+const textarea = {
+  width: "100%",
+  minHeight: 90,
+  padding: 14,
+  borderRadius: 14,
+  border: "1px solid #d9e3f5",
+  fontSize: 16,
+  boxSizing: "border-box" as const,
+  background: "white",
 };
 
 const saveButton = {
