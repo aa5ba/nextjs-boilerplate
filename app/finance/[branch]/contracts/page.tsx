@@ -9,7 +9,6 @@ export default function FinanceContractsPage() {
   const params = useParams();
   const branch = params.branch as string;
 
-  const [branchId, setBranchId] = useState<string | null>(null);
   const [contracts, setContracts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -28,7 +27,6 @@ export default function FinanceContractsPage() {
     setLoading(true);
 
     const currentBranchId = await getBranchId(branch);
-    setBranchId(currentBranchId);
 
     if (!currentBranchId) {
       setContracts([]);
