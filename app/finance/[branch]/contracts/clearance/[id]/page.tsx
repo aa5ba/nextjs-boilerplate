@@ -72,9 +72,10 @@ export default function ContractClearancePage() {
   }
 
   function formatDate(date?: string) {
-    const targetDate = date ? new Date(date) : new Date();
-    return targetDate.toLocaleDateString("ar-SA");
-  }
+  const targetDate = date ? new Date(date) : new Date();
+
+  return targetDate.toLocaleDateString("ar-SA-u-ca-gregory");
+}
 
   if (loading) {
     return (
