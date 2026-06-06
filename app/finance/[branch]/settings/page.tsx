@@ -10,9 +10,9 @@ export default function FinanceSettingsPage() {
 
   const [organizationName, setOrganizationName] = useState("");
   const [organizationPhone, setOrganizationPhone] = useState("");
-  const [organizationCity, setOrganizationCity] = useState("");
-  const [organizationCommercialRecord, setOrganizationCommercialRecord] =
-    useState("");
+  const [organizationEmail, setOrganizationEmail] = useState("");
+  const [organizationAddress, setOrganizationAddress] = useState("");
+  const [commercialRecord, setCommercialRecord] = useState("");
 
   const [organizationLogoUrl, setOrganizationLogoUrl] = useState("");
   const [organizationStampUrl, setOrganizationStampUrl] = useState("");
@@ -23,8 +23,8 @@ export default function FinanceSettingsPage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    loadSettings();
-  }, []);
+    if (branch) loadSettings();
+  }, [branch]);
 
   function normalizeDigits(value: string) {
     return value
@@ -35,21 +35,33 @@ export default function FinanceSettingsPage() {
   async function loadSettings() {
     setLoading(true);
 
-    const { data, error } = await supabase.from("finance_settings").select("*");
+    const { data: branchData, error: branchError } = await supabase
+      .from("finance_branches")
+      .select(
+        "organization_name, commercial_record, organization_phone, organization_email, organization_address"
+      )
+      .eq("branch_slug", branch)
+      .single();
 
-    if (error) {
-      alert(error.message);
+    if (branchError) {
+      alert(branchError.message);
       setLoading(false);
       return;
     }
 
-    const getValue = (key: string) =>
-      data?.find((x) => x.setting_key === key)?.setting_value || "";
+    setOrganizationName(branchData?.organization_name || "");
+    setCommercialRecord(branchData?.commercial_record || "");
+    setOrganizationPhone(branchData?.organization_phone || "");
+    setOrganizationEmail(branchData?.organization_email || "");
+    setOrganizationAddress(branchData?.organization_address || "");
 
-    setOrganizationName(getValue("organization_name"));
-    setOrganizationPhone(getValue("organization_phone"));
-    setOrganizationCity(getValue("organization_city"));
-    setOrganizationCommercialRecord(getValue("organization_commercial_record"));
+    const { data: settingsData } = await supabase
+      .from("finance_settings")
+      .select("*");
+
+    const getValue = (key: string) =>
+      settingsData?.find((x) => x.setting_key === key)?.setting_value || "";
+
     setOrganizationLogoUrl(getValue("organization_logo_url"));
     setOrganizationStampUrl(getValue("organization_stamp_url"));
     setPrintFooterText(getValue("print_footer_text"));
@@ -59,17 +71,13 @@ export default function FinanceSettingsPage() {
   }
 
   async function saveSetting(key: string, value: string) {
-    const cleanValue = value.trim();
-
     const { error } = await supabase.from("finance_settings").upsert(
       {
         setting_key: key,
-        setting_value: cleanValue,
+        setting_value: value.trim(),
         updated_at: new Date().toISOString(),
       },
-      {
-        onConflict: "setting_key",
-      }
+      { onConflict: "setting_key" }
     );
 
     if (error) throw error;
@@ -77,15 +85,10 @@ export default function FinanceSettingsPage() {
 
   async function saveSettings() {
     const cleanPhone = normalizeDigits(organizationPhone);
-    const cleanCommercialRecord = normalizeDigits(organizationCommercialRecord);
+    const cleanCommercialRecord = normalizeDigits(commercialRecord);
 
     if (!organizationName.trim()) {
       alert("يرجى إدخال اسم المنظمة");
-      return;
-    }
-
-    if (!organizationCity.trim()) {
-      alert("يرجى إدخال المدينة");
       return;
     }
 
@@ -97,13 +100,19 @@ export default function FinanceSettingsPage() {
     try {
       setSaving(true);
 
-      await saveSetting("organization_name", organizationName);
-      await saveSetting("organization_phone", cleanPhone);
-      await saveSetting("organization_city", organizationCity);
-      await saveSetting(
-        "organization_commercial_record",
-        cleanCommercialRecord
-      );
+      const { error } = await supabase
+        .from("finance_branches")
+        .update({
+          organization_name: organizationName.trim(),
+          commercial_record: cleanCommercialRecord.trim(),
+          organization_phone: cleanPhone.trim(),
+          organization_email: organizationEmail.trim(),
+          organization_address: organizationAddress.trim(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("branch_slug", branch);
+
+      if (error) throw error;
 
       await saveSetting("organization_logo_url", organizationLogoUrl);
       await saveSetting("organization_stamp_url", organizationStampUrl);
@@ -133,7 +142,7 @@ export default function FinanceSettingsPage() {
         <div style={header}>
           <h1 style={{ margin: 0 }}>⚙️ إعدادات النظام</h1>
           <p style={headerText}>
-            بيانات المنظمة تظهر في العقود والسندات والطباعة الرسمية.
+            بيانات المنظمة خاصة بهذا الفرع فقط وتظهر في العقود والسندات والمخالصة.
           </p>
         </div>
 
@@ -144,19 +153,8 @@ export default function FinanceSettingsPage() {
             <input
               style={input}
               type="text"
-              placeholder="مثال: مؤسسة احتساب للتقسيط"
               value={organizationName}
               onChange={(e) => setOrganizationName(e.target.value)}
-            />
-          </Field>
-
-          <Field label="المدينة">
-            <input
-              style={input}
-              type="text"
-              placeholder="مثال: المدينة المنورة"
-              value={organizationCity}
-              onChange={(e) => setOrganizationCity(e.target.value)}
             />
           </Field>
 
@@ -165,10 +163,9 @@ export default function FinanceSettingsPage() {
               style={input}
               type="text"
               inputMode="numeric"
-              placeholder="أدخل رقم السجل التجاري"
-              value={organizationCommercialRecord}
+              value={commercialRecord}
               onChange={(e) =>
-                setOrganizationCommercialRecord(normalizeDigits(e.target.value))
+                setCommercialRecord(normalizeDigits(e.target.value))
               }
             />
           </Field>
@@ -178,11 +175,28 @@ export default function FinanceSettingsPage() {
               style={input}
               type="text"
               inputMode="numeric"
-              placeholder="05xxxxxxxx"
               value={organizationPhone}
               onChange={(e) =>
                 setOrganizationPhone(normalizeDigits(e.target.value))
               }
+            />
+          </Field>
+
+          <Field label="البريد الإلكتروني - اختياري">
+            <input
+              style={input}
+              type="email"
+              value={organizationEmail}
+              onChange={(e) => setOrganizationEmail(e.target.value)}
+            />
+          </Field>
+
+          <Field label="العنوان - اختياري">
+            <input
+              style={input}
+              type="text"
+              value={organizationAddress}
+              onChange={(e) => setOrganizationAddress(e.target.value)}
             />
           </Field>
         </section>
@@ -194,7 +208,6 @@ export default function FinanceSettingsPage() {
             <input
               style={input}
               type="text"
-              placeholder="رابط صورة الشعار إن وجد"
               value={organizationLogoUrl}
               onChange={(e) => setOrganizationLogoUrl(e.target.value)}
             />
@@ -204,7 +217,6 @@ export default function FinanceSettingsPage() {
             <input
               style={input}
               type="text"
-              placeholder="رابط صورة الختم إن وجد"
               value={organizationStampUrl}
               onChange={(e) => setOrganizationStampUrl(e.target.value)}
             />
@@ -213,7 +225,6 @@ export default function FinanceSettingsPage() {
           <Field label="نص التذييل في الطباعة - اختياري">
             <textarea
               style={textarea}
-              placeholder="مثال: للاستفسار يرجى التواصل مع الإدارة"
               value={printFooterText}
               onChange={(e) => setPrintFooterText(e.target.value)}
             />
