@@ -1,19 +1,29 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
+
+const ITEMS_PER_PAGE = 25;
 
 export default function FinancePaymentsPage() {
   const params = useParams();
   const branch = params.branch as string;
 
   const [payments, setPayments] = useState<any[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     loadPayments();
   }, [branch]);
+
+  const totalPages = Math.max(1, Math.ceil(payments.length / ITEMS_PER_PAGE));
+
+  const paginatedPayments = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return payments.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [payments, currentPage]);
 
   async function loadPayments() {
     const branchId = await getBranchId(branch);
@@ -25,14 +35,14 @@ export default function FinancePaymentsPage() {
 
     const { data } = await supabase
       .from("finance_payments")
-     .select(
-  "*, finance_contracts(id, customer_id, contract_number, finance_customers(full_name, national_id))"
-)
+      .select(
+        "*, finance_contracts(id, customer_id, contract_number, finance_customers(full_name, national_id))"
+      )
       .eq("branch_id", branchId)
-      .order("created_at", { ascending: false })
-      .limit(10);
+      .order("created_at", { ascending: false });
 
     setPayments(data || []);
+    setCurrentPage(1);
   }
 
   return (
@@ -56,7 +66,16 @@ export default function FinancePaymentsPage() {
         </section>
 
         <section style={card}>
-          <h2 style={sectionTitle}>آخر 10 عمليات سداد</h2>
+          <div style={listHeader}>
+            <h2 style={sectionTitle}>عمليات السداد</h2>
+
+            {payments.length > 0 && (
+              <span style={pageInfo}>
+                صفحة {currentPage} من {totalPages} - عرض{" "}
+                {paginatedPayments.length} من {payments.length}
+              </span>
+            )}
+          </div>
 
           <div style={tableHeader}>
             <span>العميل</span>
@@ -69,7 +88,7 @@ export default function FinancePaymentsPage() {
           {payments.length === 0 ? (
             <div style={emptyBox}>لا توجد عمليات سداد حتى الآن</div>
           ) : (
-            payments.map((payment) => (
+            paginatedPayments.map((payment) => (
               <div
                 key={payment.id}
                 style={{
@@ -82,16 +101,20 @@ export default function FinancePaymentsPage() {
                 }
               >
                 <span
-  style={{ cursor: "pointer", color: "#0d47a1", fontWeight: "bold" }}
-  onClick={(e) => {
-    e.stopPropagation();
+                  style={{
+                    cursor: "pointer",
+                    color: "#0d47a1",
+                    fontWeight: "bold",
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
 
-    window.location.href =
-      `/finance/${branch}/customers/${payment.finance_contracts?.customer_id}`;
-  }}
->
-  {payment.finance_contracts?.finance_customers?.full_name || "-"}
-</span>
+                    window.location.href = `/finance/${branch}/customers/${payment.finance_contracts?.customer_id}`;
+                  }}
+                >
+                  {payment.finance_contracts?.finance_customers?.full_name ||
+                    "-"}
+                </span>
 
                 <span>{payment.finance_contracts?.contract_number || "-"}</span>
 
@@ -106,6 +129,38 @@ export default function FinancePaymentsPage() {
                 </span>
               </div>
             ))
+          )}
+
+          {payments.length > ITEMS_PER_PAGE && (
+            <div style={paginationBox}>
+              <button
+                style={{
+                  ...paginationButton,
+                  opacity: currentPage === 1 ? 0.5 : 1,
+                }}
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage((page) => Math.max(page - 1, 1))}
+              >
+                السابق
+              </button>
+
+              <span style={paginationText}>
+                صفحة {currentPage} من {totalPages}
+              </span>
+
+              <button
+                style={{
+                  ...paginationButton,
+                  opacity: currentPage === totalPages ? 0.5 : 1,
+                }}
+                disabled={currentPage === totalPages}
+                onClick={() =>
+                  setCurrentPage((page) => Math.min(page + 1, totalPages))
+                }
+              >
+                التالي
+              </button>
+            </div>
           )}
         </section>
 
@@ -167,10 +222,25 @@ const card = {
   overflowX: "auto" as const,
 };
 
+const listHeader = {
+  minWidth: 850,
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+  marginBottom: 12,
+};
+
 const sectionTitle = {
-  marginTop: 0,
+  margin: 0,
   fontSize: 22,
   color: "#0d47a1",
+};
+
+const pageInfo = {
+  color: "#64748b",
+  fontSize: 14,
+  fontWeight: "bold",
 };
 
 const tableHeader = {
@@ -206,13 +276,41 @@ const emptyBox = {
   color: "#6b7280",
 };
 
+const paginationBox = {
+  minWidth: 850,
+  marginTop: 18,
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "center",
+  gap: 12,
+};
+
+const paginationButton = {
+  padding: "11px 18px",
+  background: "#0d47a1",
+  color: "white",
+  border: "none",
+  borderRadius: 12,
+  fontSize: 15,
+  fontWeight: "bold",
+  cursor: "pointer",
+};
+
+const paginationText = {
+  color: "#0f172a",
+  fontWeight: "bold",
+};
+
 const backButton = {
   width: "100%",
   padding: 16,
-  background: "#111827",
-  color: "white",
+  background: "#16a34a",
+  color: "#ffffff",
   border: "none",
   borderRadius: 14,
   fontSize: 17,
+  fontWeight: "bold",
   marginTop: 18,
+  cursor: "pointer",
+  boxShadow: "0 4px 12px rgba(22,163,74,0.25)",
 };
