@@ -1,19 +1,29 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
+
+const ITEMS_PER_PAGE = 25;
 
 export default function CustomersListPage() {
   const params = useParams();
   const branch = params.branch as string;
 
   const [customers, setCustomers] = useState<any[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     loadCustomers();
   }, [branch]);
+
+  const totalPages = Math.max(1, Math.ceil(customers.length / ITEMS_PER_PAGE));
+
+  const paginatedCustomers = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return customers.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [customers, currentPage]);
 
   async function loadCustomers() {
     const branchId = await getBranchId(branch);
@@ -30,6 +40,7 @@ export default function CustomersListPage() {
       .order("created_at", { ascending: false });
 
     setCustomers(data || []);
+    setCurrentPage(1);
   }
 
   return (
@@ -40,6 +51,17 @@ export default function CustomersListPage() {
         </div>
 
         <section style={card}>
+          <div style={listHeader}>
+            <h2 style={sectionTitle}>العملاء</h2>
+
+            {customers.length > 0 && (
+              <span style={pageInfo}>
+                صفحة {currentPage} من {totalPages} - عرض{" "}
+                {paginatedCustomers.length} من {customers.length}
+              </span>
+            )}
+          </div>
+
           <div style={tableHeader}>
             <span>👤 العميل</span>
             <span>🪪 الهوية</span>
@@ -50,7 +72,7 @@ export default function CustomersListPage() {
           {customers.length === 0 ? (
             <div style={emptyBox}>لا يوجد عملاء حتى الآن</div>
           ) : (
-            customers.map((customer) => (
+            paginatedCustomers.map((customer) => (
               <div
                 key={customer.id}
                 style={tableRow}
@@ -64,6 +86,38 @@ export default function CustomersListPage() {
                 <span>👥 {customer.finance_customer_groups?.name || "-"}</span>
               </div>
             ))
+          )}
+
+          {customers.length > ITEMS_PER_PAGE && (
+            <div style={paginationBox}>
+              <button
+                style={{
+                  ...paginationButton,
+                  opacity: currentPage === 1 ? 0.5 : 1,
+                }}
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage((page) => Math.max(page - 1, 1))}
+              >
+                السابق
+              </button>
+
+              <span style={paginationText}>
+                صفحة {currentPage} من {totalPages}
+              </span>
+
+              <button
+                style={{
+                  ...paginationButton,
+                  opacity: currentPage === totalPages ? 0.5 : 1,
+                }}
+                disabled={currentPage === totalPages}
+                onClick={() =>
+                  setCurrentPage((page) => Math.min(page + 1, totalPages))
+                }
+              >
+                التالي
+              </button>
+            </div>
           )}
         </section>
 
@@ -107,6 +161,26 @@ const card = {
   overflowX: "auto" as const,
 };
 
+const listHeader = {
+  minWidth: 850,
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+  marginBottom: 12,
+};
+
+const sectionTitle = {
+  margin: 0,
+  color: "#0d47a1",
+};
+
+const pageInfo = {
+  color: "#64748b",
+  fontSize: 14,
+  fontWeight: "bold",
+};
+
 const tableHeader = {
   display: "grid",
   gridTemplateColumns: "2fr 1.5fr 1.5fr 1.5fr",
@@ -140,13 +214,41 @@ const emptyBox = {
   color: "#6b7280",
 };
 
+const paginationBox = {
+  minWidth: 850,
+  marginTop: 18,
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "center",
+  gap: 12,
+};
+
+const paginationButton = {
+  padding: "11px 18px",
+  background: "#0d47a1",
+  color: "white",
+  border: "none",
+  borderRadius: 12,
+  fontSize: 15,
+  fontWeight: "bold",
+  cursor: "pointer",
+};
+
+const paginationText = {
+  color: "#0f172a",
+  fontWeight: "bold",
+};
+
 const backButton = {
   width: "100%",
   padding: 16,
-  background: "#111827",
-  color: "white",
+  background: "#16a34a",
+  color: "#ffffff",
   border: "none",
   borderRadius: 14,
   fontSize: 17,
+  fontWeight: "bold",
   marginTop: 18,
+  cursor: "pointer",
+  boxShadow: "0 4px 12px rgba(22,163,74,0.25)",
 };
