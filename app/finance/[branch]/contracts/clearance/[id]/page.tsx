@@ -12,6 +12,7 @@ export default function ContractClearancePage() {
 
   const [contract, setContract] = useState<any>(null);
   const [organizationName, setOrganizationName] = useState("مؤسسة سداد وأرقام");
+  const [commercialRecord, setCommercialRecord] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -31,12 +32,16 @@ export default function ContractClearancePage() {
 
     const { data: branchData } = await supabase
       .from("finance_branches")
-      .select("organization_name")
+      .select("organization_name, commercial_record")
       .eq("id", currentBranchId)
       .maybeSingle();
 
     if (branchData?.organization_name) {
       setOrganizationName(branchData.organization_name);
+    }
+
+    if (branchData?.commercial_record) {
+      setCommercialRecord(branchData.commercial_record);
     }
 
     const { data } = await supabase
@@ -72,10 +77,9 @@ export default function ContractClearancePage() {
   }
 
   function formatDate(date?: string) {
-  const targetDate = date ? new Date(date) : new Date();
-
-  return targetDate.toLocaleDateString("ar-SA-u-ca-gregory");
-}
+    const targetDate = date ? new Date(date) : new Date();
+    return targetDate.toLocaleDateString("ar-SA-u-ca-gregory");
+  }
 
   if (loading) {
     return (
@@ -121,10 +125,16 @@ export default function ContractClearancePage() {
         <div style={divider} />
 
         <p style={paragraph}>
-          تشهد <strong>{organizationName}</strong> بأن العميل الموضحة بياناته أدناه
-          قد قام بسداد كامل الالتزامات المالية المترتبة عليه بموجب العقد المشار إليه،
-          ولا يترتب عليه أي مبالغ أو مطالبات مالية تجاه المؤسسة حتى تاريخ إصدار هذه
-          المخالصة.
+          تشهد <strong>{organizationName}</strong>
+          {commercialRecord && (
+            <>
+              {" "}
+              سجل تجاري رقم <strong>{commercialRecord}</strong>
+            </>
+          )}
+          {" "}بأن العميل الموضحة بياناته أدناه قد قام بسداد كامل الالتزامات
+          المالية المترتبة عليه بموجب العقد المشار إليه، ولا يترتب عليه أي مبالغ
+          أو مطالبات مالية تجاه المؤسسة حتى تاريخ إصدار هذه المخالصة.
         </p>
 
         <div style={infoGrid}>
