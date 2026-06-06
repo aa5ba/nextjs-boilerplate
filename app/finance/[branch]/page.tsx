@@ -22,7 +22,12 @@ export default function FinancePage() {
   const branch = params.branch as string;
 
   const [organizationName, setOrganizationName] = useState("احتساب");
+  const [branchId, setBranchId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const [searchText, setSearchText] = useState("");
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchResults, setSearchResults] = useState<any[]>([]);
 
   useEffect(() => {
     if (branch) {
@@ -30,21 +35,117 @@ export default function FinancePage() {
     }
   }, [branch]);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      runSmartSearch();
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [searchText, branchId]);
+
   async function loadBranch() {
     const { data, error } = await supabase
       .from("finance_branches")
-      .select("organization_name, branch_name, is_active")
+      .select("id, organization_name, branch_name, is_active")
       .eq("branch_slug", branch)
       .single();
 
     if (error || !data || !data.is_active) {
       setOrganizationName("فرع غير موجود");
+      setBranchId(null);
       setLoading(false);
       return;
     }
 
     setOrganizationName(data.organization_name || "احتساب");
+    setBranchId(data.id);
     setLoading(false);
+  }
+
+  function normalizeDigits(value: string) {
+    return value
+      .replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d).toString())
+      .replace(/[۰-۹]/g, (d) => "۰۱۲۳۴۵۶۷۸۹".indexOf(d).toString());
+  }
+
+  async function runSmartSearch() {
+    const query = normalizeDigits(searchText.trim());
+
+    if (!branchId || query.length < 2) {
+      setSearchResults([]);
+      return;
+    }
+
+    setSearchLoading(true);
+
+    const safeQuery = query.replace(/,/g, " ");
+
+    const [customersResult, contractsResult, investorsResult] =
+      await Promise.all([
+        supabase
+          .from("finance_customers")
+          .select("id, full_name, national_id, phone")
+          .eq("branch_id", branchId)
+          .or(
+            `full_name.ilike.%${safeQuery}%,national_id.ilike.%${safeQuery}%,phone.ilike.%${safeQuery}%`
+          )
+          .limit(5),
+
+        supabase
+          .from("finance_contracts")
+          .select(
+            "id, contract_number, customer_name, customer_national_id, customer_phone, investor_name"
+          )
+          .eq("branch_id", branchId)
+          .or(
+            `contract_number.ilike.%${safeQuery}%,customer_name.ilike.%${safeQuery}%,customer_national_id.ilike.%${safeQuery}%,customer_phone.ilike.%${safeQuery}%,investor_name.ilike.%${safeQuery}%`
+          )
+          .limit(5),
+
+        supabase
+          .from("finance_investors")
+          .select("id, investor_name, national_id, commercial_record")
+          .eq("branch_id", branchId)
+          .or(
+            `investor_name.ilike.%${safeQuery}%,national_id.ilike.%${safeQuery}%,commercial_record.ilike.%${safeQuery}%`
+          )
+          .limit(5),
+      ]);
+
+    const customers =
+      customersResult.data?.map((item) => ({
+        id: item.id,
+        type: "عميل",
+        icon: "👤",
+        title: item.full_name || "-",
+        subtitle: `${item.phone || "-"} | ${item.national_id || "-"}`,
+        href: `/finance/${branch}/customers/${item.id}`,
+      })) || [];
+
+    const contracts =
+      contractsResult.data?.map((item) => ({
+        id: item.id,
+        type: "عقد",
+        icon: "📄",
+        title: `عقد رقم ${item.contract_number || "-"}`,
+        subtitle: `${item.customer_name || "-"} | ${item.customer_phone || "-"} | ${
+          item.investor_name || "-"
+        }`,
+        href: `/finance/${branch}/contracts/${item.id}`,
+      })) || [];
+
+    const investors =
+      investorsResult.data?.map((item) => ({
+        id: item.id,
+        type: "مستثمر",
+        icon: "🏦",
+        title: item.investor_name || "-",
+        subtitle: item.national_id || item.commercial_record || "-",
+        href: `/finance/${branch}/inventory`,
+      })) || [];
+
+    setSearchResults([...customers, ...contracts, ...investors]);
+    setSearchLoading(false);
   }
 
   if (loading) {
@@ -83,9 +184,55 @@ export default function FinancePage() {
             ))}
           </div>
 
-          <button style={backButton} onClick={() => (window.location.href = "/")}>
-            الرجوع للرئيسية
-          </button>
+          <section style={smartSearchBox}>
+            <div style={searchInputWrap}>
+              <span style={searchIcon}>🔎</span>
+              <input
+                style={searchInput}
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                placeholder="بحث ذكي: اسم عميل، جوال، رقم عقد، أو مستثمر..."
+              />
+              {searchText && (
+                <button
+                  style={clearSearchButton}
+                  onClick={() => {
+                    setSearchText("");
+                    setSearchResults([]);
+                  }}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+
+            {searchText.trim().length >= 2 && (
+              <div style={resultsBox}>
+                {searchLoading ? (
+                  <div style={emptyResult}>جاري البحث...</div>
+                ) : searchResults.length === 0 ? (
+                  <div style={emptyResult}>لا توجد نتائج مطابقة</div>
+                ) : (
+                  searchResults.map((item) => (
+                    <button
+                      key={`${item.type}-${item.id}`}
+                      style={resultItem}
+                      onClick={() => (window.location.href = item.href)}
+                    >
+                      <span style={resultIcon}>{item.icon}</span>
+
+                      <span style={resultContent}>
+                        <strong>{item.title}</strong>
+                        <small>{item.subtitle}</small>
+                      </span>
+
+                      <span style={resultType}>{item.type}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </section>
         </div>
       </div>
     </main>
@@ -142,7 +289,8 @@ const container = {
 };
 
 const header = {
-  background: "linear-gradient(135deg,rgba(13,71,161,.96),rgba(25,118,210,.94))",
+  background:
+    "linear-gradient(135deg,rgba(13,71,161,.96),rgba(25,118,210,.94))",
   color: "white",
   padding: "30px 20px",
   borderRadius: 22,
@@ -222,13 +370,104 @@ const arrow = {
   fontSize: 28,
 };
 
-const backButton = {
-  width: "100%",
-  padding: 16,
-  background: "#111827",
-  color: "white",
-  border: "none",
-  borderRadius: 14,
-  fontSize: 17,
+const smartSearchBox = {
   marginTop: 18,
+  background: "rgba(255,255,255,0.92)",
+  border: "1px solid rgba(217,227,245,.95)",
+  borderRadius: 18,
+  padding: 14,
+  boxShadow: "0 14px 35px rgba(15,23,42,.07)",
+  backdropFilter: "blur(6px)",
+};
+
+const searchInputWrap = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  background: "#ffffff",
+  border: "1px solid #d9e3f5",
+  borderRadius: 16,
+  padding: "0 14px",
+  minHeight: 58,
+};
+
+const searchIcon = {
+  fontSize: 22,
+  color: "#64748b",
+};
+
+const searchInput = {
+  width: "100%",
+  border: "none",
+  outline: "none",
+  fontSize: 17,
+  color: "#0f172a",
+  background: "transparent",
+  fontFamily: "var(--font-almarai), sans-serif",
+};
+
+const clearSearchButton = {
+  width: 34,
+  height: 34,
+  borderRadius: 999,
+  border: "none",
+  background: "#eef2f7",
+  color: "#64748b",
+  fontSize: 22,
+  cursor: "pointer",
+};
+
+const resultsBox = {
+  marginTop: 12,
+  display: "grid",
+  gap: 10,
+};
+
+const resultItem = {
+  width: "100%",
+  border: "1px solid #e2e8f0",
+  background: "#f8fbff",
+  borderRadius: 14,
+  padding: 12,
+  display: "grid",
+  gridTemplateColumns: "44px 1fr auto",
+  gap: 12,
+  alignItems: "center",
+  cursor: "pointer",
+  textAlign: "right" as const,
+};
+
+const resultIcon = {
+  width: 44,
+  height: 44,
+  borderRadius: 14,
+  background: "#eef5ff",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: 22,
+};
+
+const resultContent = {
+  display: "flex",
+  flexDirection: "column" as const,
+  gap: 5,
+  color: "#0f172a",
+};
+
+const resultType = {
+  background: "#e0f2fe",
+  color: "#075985",
+  borderRadius: 999,
+  padding: "7px 12px",
+  fontWeight: "bold",
+  fontSize: 13,
+};
+
+const emptyResult = {
+  padding: 14,
+  textAlign: "center" as const,
+  color: "#64748b",
+  background: "#f8fbff",
+  borderRadius: 14,
 };
