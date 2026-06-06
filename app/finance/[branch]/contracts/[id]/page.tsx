@@ -238,10 +238,16 @@ export default function FinanceContractDetailsPage() {
   function formatDate(date: string) {
     if (!date) return "-";
 
-    return new Date(date).toLocaleString("ar-SA", {
+    return new Date(date).toLocaleString("ar-SA-u-ca-gregory", {
       dateStyle: "short",
       timeStyle: "short",
     });
+  }
+
+  function formatDateOnly(date: string) {
+    if (!date) return "-";
+
+    return new Date(date).toLocaleDateString("ar-SA-u-ca-gregory");
   }
 
   function statusStyle(status: string) {
@@ -418,12 +424,7 @@ export default function FinanceContractDetailsPage() {
                     : `💳 ${payment.payment_type || "-"}`}
                 </span>
 
-                <span>
-                  📅{" "}
-                  {payment.created_at
-                    ? new Date(payment.created_at).toLocaleDateString("ar-SA")
-                    : "-"}
-                </span>
+                <span>📅 {formatDateOnly(payment.created_at)}</span>
 
                 <div style={paymentActions}>
                   <button
@@ -736,13 +737,15 @@ const cancelledStatus = {
 const backButton = {
   width: "100%",
   padding: 16,
-  background: "#e5e7eb",
-  color: "#0d47a1",
-  border: "1px solid #cbd5e1",
+  background: "#16a34a",
+  color: "#ffffff",
+  border: "none",
   borderRadius: 14,
   fontSize: 17,
   fontWeight: "bold",
   marginTop: 18,
+  cursor: "pointer",
+  boxShadow: "0 4px 12px rgba(22,163,74,0.25)",
 };
 
 const loadingBox = {
