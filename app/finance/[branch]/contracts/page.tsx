@@ -5,6 +5,8 @@ import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
 
+const ITEMS_PER_PAGE = 25;
+
 export default function FinanceContractsPage() {
   const params = useParams();
   const branch = params.branch as string;
@@ -19,9 +21,22 @@ export default function FinanceContractsPage() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
 
+  const [currentPage, setCurrentPage] = useState(1);
+
   useEffect(() => {
     loadContracts();
   }, [branch]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [
+    searchText,
+    statusFilter,
+    investorFilter,
+    productFilter,
+    fromDate,
+    toDate,
+  ]);
 
   async function loadContracts() {
     setLoading(true);
@@ -168,6 +183,17 @@ export default function FinanceContractsPage() {
     toDate,
   ]);
 
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredContracts.length / ITEMS_PER_PAGE)
+  );
+
+  const paginatedContracts = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    return filteredContracts.slice(startIndex, endIndex);
+  }, [filteredContracts, currentPage]);
+
   function resetFilters() {
     setSearchText("");
     setStatusFilter("");
@@ -175,6 +201,7 @@ export default function FinanceContractsPage() {
     setProductFilter("");
     setFromDate("");
     setToDate("");
+    setCurrentPage(1);
   }
 
   function statusStyle(status: string) {
@@ -344,41 +371,81 @@ export default function FinanceContractsPage() {
         </section>
 
         <section style={card}>
-          <h2 style={sectionTitle}>نتائج العقود</h2>
+          <div style={resultsHeader}>
+            <h2 style={sectionTitle}>نتائج العقود</h2>
+            {!loading && filteredContracts.length > 0 && (
+              <span style={pageInfo}>
+                صفحة {currentPage} من {totalPages} - عرض {paginatedContracts.length} من{" "}
+                {filteredContracts.length}
+              </span>
+            )}
+          </div>
 
           {loading ? (
             <div style={emptyBox}>جاري تحميل العقود...</div>
           ) : filteredContracts.length === 0 ? (
             <div style={emptyBox}>لا توجد عقود مطابقة للبحث</div>
           ) : (
-            filteredContracts.map((contract) => (
-              <button
-                key={contract.id}
-                style={contractCard}
-                onClick={() =>
-                  (window.location.href = `/finance/${branch}/contracts/${contract.id}`)
-                }
-              >
-                <div style={contractTop}>
-                  <strong>عقد رقم {contract.contract_number || "-"}</strong>
-                  <span style={statusStyle(contract.contract_status)}>
-                    {contract.contract_status || "نشط"}
-                  </span>
-                </div>
+            <>
+              {paginatedContracts.map((contract) => (
+                <button
+                  key={contract.id}
+                  style={contractCard}
+                  onClick={() =>
+                    (window.location.href = `/finance/${branch}/contracts/${contract.id}`)
+                  }
+                >
+                  <div style={contractTop}>
+                    <strong>عقد رقم {contract.contract_number || "-"}</strong>
+                    <span style={statusStyle(contract.contract_status)}>
+                      {contract.contract_status || "نشط"}
+                    </span>
+                  </div>
 
-                <div style={contractGrid}>
-                  <span>👤 {getCustomerName(contract)}</span>
-                  <span>🪪 {getCustomerNationalId(contract)}</span>
-                  <span>📱 {getCustomerPhone(contract)}</span>
-                  <span>🏦 {contract.investor_name || "-"}</span>
-                  <span>📦 {contract.product_name || "-"}</span>
-                  <span>💰 {contract.payment_amount || 0} ر.س</span>
-                  <span>✅ المسدد: {contract.paid_amount || 0} ر.س</span>
-                  <span>⏳ المتبقي: {contract.remaining_amount || 0} ر.س</span>
-                  <span>📅 {formatDate(contract.created_at)}</span>
-                </div>
-              </button>
-            ))
+                  <div style={contractGrid}>
+                    <span>👤 {getCustomerName(contract)}</span>
+                    <span>🪪 {getCustomerNationalId(contract)}</span>
+                    <span>📱 {getCustomerPhone(contract)}</span>
+                    <span>🏦 {contract.investor_name || "-"}</span>
+                    <span>📦 {contract.product_name || "-"}</span>
+                    <span>💰 {contract.payment_amount || 0} ر.س</span>
+                    <span>✅ المسدد: {contract.paid_amount || 0} ر.س</span>
+                    <span>⏳ المتبقي: {contract.remaining_amount || 0} ر.س</span>
+                    <span>📅 {formatDate(contract.created_at)}</span>
+                  </div>
+                </button>
+              ))}
+
+              <div style={paginationBox}>
+                <button
+                  style={{
+                    ...paginationButton,
+                    opacity: currentPage === 1 ? 0.5 : 1,
+                  }}
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage((page) => Math.max(page - 1, 1))}
+                >
+                  السابق
+                </button>
+
+                <span style={paginationText}>
+                  صفحة {currentPage} من {totalPages}
+                </span>
+
+                <button
+                  style={{
+                    ...paginationButton,
+                    opacity: currentPage === totalPages ? 0.5 : 1,
+                  }}
+                  disabled={currentPage === totalPages}
+                  onClick={() =>
+                    setCurrentPage((page) => Math.min(page + 1, totalPages))
+                  }
+                >
+                  التالي
+                </button>
+              </div>
+            </>
           )}
         </section>
 
@@ -491,6 +558,20 @@ const sectionTitle = {
   color: "#0d47a1",
 };
 
+const resultsHeader = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  alignItems: "center",
+  marginBottom: 10,
+};
+
+const pageInfo = {
+  color: "#64748b",
+  fontSize: 14,
+  fontWeight: "bold",
+};
+
 const filtersGrid = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
@@ -574,6 +655,30 @@ const contractGrid = {
   gap: 10,
   color: "#334155",
   fontSize: 14,
+};
+
+const paginationBox = {
+  marginTop: 18,
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "center",
+  gap: 12,
+};
+
+const paginationButton = {
+  padding: "11px 18px",
+  background: "#0d47a1",
+  color: "white",
+  border: "none",
+  borderRadius: 12,
+  fontSize: 15,
+  fontWeight: "bold",
+  cursor: "pointer",
+};
+
+const paginationText = {
+  color: "#0f172a",
+  fontWeight: "bold",
 };
 
 const activeStatus = {
