@@ -71,13 +71,19 @@ export default function FinanceWorkflowPage() {
   }
 
   function formatDate(date: string) {
-    if (!date) return "-";
+  if (!date) return "-";
 
-    return new Date(date).toLocaleString("ar-SA", {
-      dateStyle: "short",
-      timeStyle: "short",
-    });
-  }
+  return new Date(date).toLocaleString(
+    "en-GB",
+    {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }
+  );
+}
 
   return (
     <main dir="rtl" style={page}>
