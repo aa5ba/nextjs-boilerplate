@@ -207,13 +207,14 @@ const printButton = {
 const backButton = {
   flex: 1,
   padding: 14,
-  background: "#e5e7eb",
-  color: "#0d47a1",
-  border: "1px solid #cbd5e1",
+  background: "#16a34a",
+  color: "#ffffff",
+  border: "none",
   borderRadius: 12,
   fontSize: 16,
   fontWeight: "bold",
   cursor: "pointer",
+  boxShadow: "0 4px 12px rgba(22,163,74,0.25)",
 };
 
 const paper = {
