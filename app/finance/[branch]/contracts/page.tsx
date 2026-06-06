@@ -624,11 +624,13 @@ const emptyBox = {
 const backButton = {
   width: "100%",
   padding: 16,
-  background: "#e5e7eb",
-  color: "#0d47a1",
-  border: "1px solid #cbd5e1",
+  background: "#16a34a",
+  color: "#ffffff",
+  border: "none",
   borderRadius: 14,
   fontSize: 17,
   fontWeight: "bold",
   marginTop: 18,
+  cursor: "pointer",
+  boxShadow: "0 4px 12px rgba(22,163,74,0.25)",
 };
