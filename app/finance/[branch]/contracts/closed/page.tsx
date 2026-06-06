@@ -1,19 +1,29 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
+
+const ITEMS_PER_PAGE = 25;
 
 export default function ClosedContractsPage() {
   const params = useParams();
   const branch = params.branch as string;
 
   const [contracts, setContracts] = useState<any[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     loadContracts();
   }, [branch]);
+
+  const totalPages = Math.max(1, Math.ceil(contracts.length / ITEMS_PER_PAGE));
+
+  const paginatedContracts = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return contracts.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [contracts, currentPage]);
 
   async function loadContracts() {
     const branchId = await getBranchId(branch);
@@ -31,6 +41,7 @@ export default function ClosedContractsPage() {
       .order("updated_at", { ascending: false });
 
     setContracts(data || []);
+    setCurrentPage(1);
   }
 
   return (
@@ -41,6 +52,17 @@ export default function ClosedContractsPage() {
         </div>
 
         <section style={card}>
+          <div style={listHeader}>
+            <h2 style={sectionTitle}>قائمة العقود المنتهية</h2>
+
+            {contracts.length > 0 && (
+              <span style={pageInfo}>
+                صفحة {currentPage} من {totalPages} - عرض{" "}
+                {paginatedContracts.length} من {contracts.length}
+              </span>
+            )}
+          </div>
+
           <div style={tableHeader}>
             <span>📄 رقم العقد</span>
             <span>👤 العميل</span>
@@ -52,7 +74,7 @@ export default function ClosedContractsPage() {
           {contracts.length === 0 ? (
             <div style={emptyBox}>لا توجد عقود منتهية</div>
           ) : (
-            contracts.map((contract) => (
+            paginatedContracts.map((contract) => (
               <div
                 key={contract.id}
                 style={tableRow}
@@ -63,16 +85,19 @@ export default function ClosedContractsPage() {
                 <span>📄 {contract.contract_number}</span>
 
                 <span
-  style={{ cursor: "pointer", color: "#0d47a1", fontWeight: "bold" }}
-  onClick={(e) => {
-    e.stopPropagation();
+                  style={{
+                    cursor: "pointer",
+                    color: "#0d47a1",
+                    fontWeight: "bold",
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
 
-    window.location.href =
-      `/finance/${branch}/customers/${contract.customer_id}`;
-  }}
->
-  👤 {contract.finance_customers?.full_name || "-"}
-</span>
+                    window.location.href = `/finance/${branch}/customers/${contract.customer_id}`;
+                  }}
+                >
+                  👤 {contract.finance_customers?.full_name || "-"}
+                </span>
 
                 <span>📌 {contract.finance_type}</span>
 
@@ -81,6 +106,38 @@ export default function ClosedContractsPage() {
                 <span>✅ {contract.contract_status || "-"}</span>
               </div>
             ))
+          )}
+
+          {contracts.length > ITEMS_PER_PAGE && (
+            <div style={paginationBox}>
+              <button
+                style={{
+                  ...paginationButton,
+                  opacity: currentPage === 1 ? 0.5 : 1,
+                }}
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage((page) => Math.max(page - 1, 1))}
+              >
+                السابق
+              </button>
+
+              <span style={paginationText}>
+                صفحة {currentPage} من {totalPages}
+              </span>
+
+              <button
+                style={{
+                  ...paginationButton,
+                  opacity: currentPage === totalPages ? 0.5 : 1,
+                }}
+                disabled={currentPage === totalPages}
+                onClick={() =>
+                  setCurrentPage((page) => Math.min(page + 1, totalPages))
+                }
+              >
+                التالي
+              </button>
+            </div>
           )}
         </section>
 
@@ -124,6 +181,27 @@ const card = {
   overflowX: "auto" as const,
 };
 
+const listHeader = {
+  minWidth: 850,
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+  marginBottom: 12,
+};
+
+const sectionTitle = {
+  margin: 0,
+  color: "#0d47a1",
+  fontSize: 22,
+};
+
+const pageInfo = {
+  color: "#64748b",
+  fontSize: 14,
+  fontWeight: "bold",
+};
+
 const tableHeader = {
   display: "grid",
   gridTemplateColumns: "1fr 2fr 1.5fr 1fr 1fr",
@@ -157,13 +235,41 @@ const emptyBox = {
   color: "#6b7280",
 };
 
+const paginationBox = {
+  minWidth: 850,
+  marginTop: 18,
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "center",
+  gap: 12,
+};
+
+const paginationButton = {
+  padding: "11px 18px",
+  background: "#0d47a1",
+  color: "white",
+  border: "none",
+  borderRadius: 12,
+  fontSize: 15,
+  fontWeight: "bold",
+  cursor: "pointer",
+};
+
+const paginationText = {
+  color: "#0f172a",
+  fontWeight: "bold",
+};
+
 const backButton = {
   width: "100%",
   padding: 16,
-  background: "#111827",
-  color: "white",
+  background: "#16a34a",
+  color: "#ffffff",
   border: "none",
   borderRadius: 14,
   fontSize: 17,
+  fontWeight: "bold",
   marginTop: 18,
+  cursor: "pointer",
+  boxShadow: "0 4px 12px rgba(22,163,74,0.25)",
 };
