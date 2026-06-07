@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
+import { normalizeNumber } from "@/lib/numberUtils";
 
 const ITEMS_PER_PAGE = 25;
 
@@ -88,15 +89,17 @@ export default function InvestorsPage() {
   }
 
   const filteredInvestors = useMemo(() => {
+    const normalizedSearch = normalizeNumber(search.trim());
+
     return investors.filter((investor) => {
       const name = investor.investor_name || "";
       const nationalId = investor.national_id || "";
       const phone = investor.phone || "";
 
       return (
-        name.includes(search) ||
-        nationalId.includes(search) ||
-        phone.includes(search)
+        name.includes(search.trim()) ||
+        nationalId.includes(normalizedSearch) ||
+        phone.includes(normalizedSearch)
       );
     });
   }, [investors, search]);
@@ -171,7 +174,7 @@ export default function InvestorsPage() {
                   <button
                     style={smallButton}
                     onClick={() =>
-                      (window.location.href = `/finance/${branch}/inventory/investor-report`)
+                      (window.location.href = `/finance/${branch}/inventory/investor-report?investor=${investor.id}`)
                     }
                   >
                     كشف
@@ -179,7 +182,9 @@ export default function InvestorsPage() {
 
                   <button
                     style={smallGrayButton}
-                    onClick={() => alert("تعديل المستثمر سيُضاف لاحقًا")}
+                    onClick={() =>
+                      (window.location.href = `/finance/${branch}/inventory/investors/${investor.id}/edit`)
+                    }
                   >
                     تعديل
                   </button>
