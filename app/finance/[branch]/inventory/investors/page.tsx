@@ -76,9 +76,7 @@ export default function InvestorsPage() {
       .from("finance_investors")
       .update({
         is_active: !investor.is_active,
-        .update({
-  is_active: !investor.is_active,
-})
+      })
       .eq("id", investor.id);
 
     if (error) {
@@ -162,17 +160,18 @@ export default function InvestorsPage() {
             paginatedInvestors.map((investor) => (
               <div key={investor.id} style={tableRow}>
                 <span
-  style={{
-    cursor: "pointer",
-    color: "#0d47a1",
-    fontWeight: "bold",
-  }}
-  onClick={() =>
-    (window.location.href = `/finance/${branch}/inventory/investors/${investor.id}`)
-  }
->
-  {investor.investor_name || "-"}
-</span>
+                  style={{
+                    cursor: "pointer",
+                    color: "#0d47a1",
+                    fontWeight: "bold",
+                  }}
+                  onClick={() =>
+                    (window.location.href = `/finance/${branch}/inventory/investors/${investor.id}`)
+                  }
+                >
+                  {investor.investor_name || "-"}
+                </span>
+
                 <span>{investor.national_id || "-"}</span>
                 <span>{investor.phone || "-"}</span>
                 <span>{investor.productsCount || 0}</span>
