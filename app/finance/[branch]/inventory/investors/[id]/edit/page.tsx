@@ -86,7 +86,6 @@ export default function EditInvestorPage() {
           national_id: cleanNationalId || null,
           phone: cleanPhone || null,
           notes: notes.trim() || null,
-          updated_at: new Date().toISOString(),
         })
         .eq("id", investorId)
         .eq("branch_id", branchId);
