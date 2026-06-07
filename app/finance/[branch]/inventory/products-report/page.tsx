@@ -64,6 +64,16 @@ export default function ProductsReportPage() {
     window.print();
   }
 
+  function formatDate(date: string) {
+    if (!date) return "-";
+
+    return new Date(date).toLocaleDateString("ar-SA-u-ca-gregory", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  }
+
   const totalQuantity = items.reduce(
     (sum, item) => sum + Number(item.quantity || 0),
     0
@@ -96,16 +106,13 @@ export default function ProductsReportPage() {
       <div style={container} className="print-container">
         <div style={header}>
           <h1 style={{ margin: 0 }}>كشف حركة المنتجات</h1>
-          <div style={{ marginTop: 10 }}>
-            {organizationName}
-          </div>
+          <div style={{ marginTop: 10 }}>{organizationName}</div>
         </div>
 
         <section style={filtersCard} className="no-print">
           <div style={filtersGrid}>
             <div>
               <label style={label}>من تاريخ</label>
-
               <input
                 type="date"
                 style={input}
@@ -116,7 +123,6 @@ export default function ProductsReportPage() {
 
             <div>
               <label style={label}>إلى تاريخ</label>
-
               <input
                 type="date"
                 style={input}
@@ -138,13 +144,8 @@ export default function ProductsReportPage() {
         </section>
 
         <section style={summaryCard}>
-          <div style={summaryBox}>
-            إجمالي الحركات: {items.length}
-          </div>
-
-          <div style={summaryBox}>
-            إجمالي الكميات: {totalQuantity}
-          </div>
+          <div style={summaryBox}>إجمالي الحركات: {items.length}</div>
+          <div style={summaryBox}>إجمالي الكميات: {totalQuantity}</div>
         </section>
 
         <section style={tableCard}>
@@ -165,25 +166,13 @@ export default function ProductsReportPage() {
           ) : (
             items.map((item) => (
               <div key={item.id} style={tableRow}>
-                <span>
-                  {item.finance_products?.product_name || "-"}
-                </span>
-
-                <span>
-                  {item.finance_investors?.investor_name || "-"}
-                </span>
-
+                <span>{item.finance_products?.product_name || "-"}</span>
+                <span>{item.finance_investors?.investor_name || "-"}</span>
                 <span>{item.movement_type}</span>
-
                 <strong>{item.quantity}</strong>
-
                 <span>{item.before_quantity}</span>
-
                 <span>{item.after_quantity}</span>
-
-                <span>
-                  {new Date(item.created_at).toLocaleDateString("ar-SA")}
-                </span>
+                <span>{formatDate(item.created_at)}</span>
               </div>
             ))
           )}
@@ -269,6 +258,7 @@ const primaryButton = {
   borderRadius: 14,
   fontSize: 16,
   cursor: "pointer",
+  fontWeight: "bold",
 };
 
 const printButton = {
@@ -279,6 +269,7 @@ const printButton = {
   borderRadius: 14,
   fontSize: 16,
   cursor: "pointer",
+  fontWeight: "bold",
 };
 
 const summaryCard = {
@@ -339,11 +330,13 @@ const emptyBox = {
 const backButton = {
   width: "100%",
   padding: 16,
-  background: "#e5e7eb",
-  color: "#0d47a1",
-  border: "1px solid #cbd5e1",
+  background: "#16a34a",
+  color: "#ffffff",
+  border: "none",
   borderRadius: 14,
   fontSize: 17,
   fontWeight: "bold",
   marginTop: 18,
+  cursor: "pointer",
+  boxShadow: "0 4px 12px rgba(22,163,74,0.25)",
 };
