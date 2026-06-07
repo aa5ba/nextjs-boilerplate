@@ -69,17 +69,10 @@ export default function EditInvestorPage() {
       return;
     }
 
-    const branchId = await getBranchId(branch);
-
-    if (!branchId) {
-      alert("تعذر تحديد الفرع");
-      return;
-    }
-
     try {
       setSaving(true);
 
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("finance_investors")
         .update({
           investor_name: investorName.trim(),
@@ -88,10 +81,15 @@ export default function EditInvestorPage() {
           notes: notes.trim() || null,
         })
         .eq("id", investorId)
-        .eq("branch_id", branchId);
+        .select();
 
       if (error) {
         alert(error.message);
+        return;
+      }
+
+      if (!data || data.length === 0) {
+        alert("لم يتم تعديل أي سجل. تحقق من رقم المستثمر أو الصلاحيات.");
         return;
       }
 
