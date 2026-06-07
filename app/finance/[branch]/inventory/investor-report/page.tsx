@@ -66,17 +66,17 @@ export default function InvestorReportPage() {
     setLoading(true);
 
     let query = supabase
-  .from("finance_inventory_movements")
-  .select(`
-    *,
-    finance_products(product_name),
-    finance_investors(investor_name),
-    finance_contracts(contract_number),
-    finance_customers(full_name, national_id)
-  `)
-  .eq("branch_id", branchId)
-  .eq("investor_id", investorId)
-  .order("created_at", { ascending: false });
+      .from("finance_inventory_movements")
+      .select(`
+        *,
+        finance_products(product_name),
+        finance_investors(investor_name),
+        finance_contracts(contract_number),
+        finance_customers(full_name, national_id)
+      `)
+      .eq("branch_id", branchId)
+      .eq("investor_id", investorId)
+      .order("created_at", { ascending: false });
 
     if (fromDate) query = query.gte("created_at", fromDate);
     if (toDate) query = query.lte("created_at", `${toDate}T23:59:59`);
@@ -185,7 +185,7 @@ export default function InvestorReportPage() {
             </button>
 
             <button style={printButton} onClick={() => window.print()}>
-              طباعة 
+              طباعة
             </button>
           </div>
         </section>
@@ -212,7 +212,7 @@ export default function InvestorReportPage() {
 
           <div style={summaryGrid}>
             <Summary title="عدد الحركات" value={items.length} />
-            <Summary title="إجمالي الخصم " value={totalOut} />
+            <Summary title="إجمالي الخصم" value={totalOut} />
             <Summary title="إجمالي الإرجاع" value={totalReturn} />
           </div>
 
@@ -236,7 +236,7 @@ export default function InvestorReportPage() {
               <div key={item.id} style={tableRow}>
                 <span>{formatGregorianDate(item.created_at)}</span>
                 <span>{item.finance_contracts?.contract_number || "-"}</span>
-<span>{item.finance_customers?.full_name || "-"}</span>
+                <span>{item.finance_customers?.full_name || "-"}</span>
                 <span>{item.finance_products?.product_name || "-"}</span>
                 <span>{item.movement_type || "-"}</span>
                 <strong>{item.quantity || 0}</strong>
@@ -247,7 +247,7 @@ export default function InvestorReportPage() {
           )}
 
           <div style={footer}>
-            <div>تم إنشاء هذا الكشف من النظام آلياً عبر  {organizationName}</div>
+            <div>تم إنشاء هذا الكشف من النظام آلياً عبر {organizationName}</div>
           </div>
 
           <div style={signatureRow} className="print-only">
@@ -352,6 +352,7 @@ const primaryButton = {
   borderRadius: 14,
   fontSize: 16,
   fontWeight: "bold",
+  cursor: "pointer",
 };
 
 const printButton = {
@@ -362,6 +363,7 @@ const printButton = {
   borderRadius: 14,
   fontSize: 16,
   fontWeight: "bold",
+  cursor: "pointer",
 };
 
 const printArea = {
@@ -463,11 +465,13 @@ const signatureRow = {
 const backButton = {
   width: "100%",
   padding: 16,
-  background: "#e5e7eb",
-  color: "#0d47a1",
-  border: "1px solid #cbd5e1",
+  background: "#16a34a",
+  color: "#ffffff",
+  border: "none",
   borderRadius: 14,
   fontSize: 17,
   fontWeight: "bold",
   marginTop: 18,
+  cursor: "pointer",
+  boxShadow: "0 4px 12px rgba(22,163,74,0.25)",
 };
