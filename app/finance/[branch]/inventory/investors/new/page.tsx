@@ -154,6 +154,7 @@ const input = {
   border: "1px solid #d9e3f5",
   fontSize: 16,
   marginBottom: 12,
+  boxSizing: "border-box" as const,
 };
 
 const textarea = {
@@ -164,6 +165,7 @@ const textarea = {
   border: "1px solid #d9e3f5",
   fontSize: 16,
   marginBottom: 12,
+  boxSizing: "border-box" as const,
 };
 
 const primaryButton = {
@@ -174,16 +176,20 @@ const primaryButton = {
   border: "none",
   borderRadius: 14,
   fontSize: 17,
+  fontWeight: "bold",
+  cursor: "pointer",
 };
 
 const backButton = {
   width: "100%",
   padding: 16,
-  background: "#e5e7eb",
-  color: "#0d47a1",
-  border: "1px solid #cbd5e1",
+  background: "#16a34a",
+  color: "#ffffff",
+  border: "none",
   borderRadius: 14,
   fontSize: 17,
   fontWeight: "bold",
   marginTop: 18,
+  cursor: "pointer",
+  boxShadow: "0 4px 12px rgba(22,163,74,0.25)",
 };
