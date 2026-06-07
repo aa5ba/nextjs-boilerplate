@@ -110,3 +110,74 @@ export default function InvestorsPage() {
     </div>
   </main>
 );
+
+const page = {
+  minHeight: "100vh",
+  background: "#eef5ff",
+  padding: 20,
+  fontFamily: "var(--font-almarai), sans-serif",
+};
+
+const container = {
+  width: "100%",
+  maxWidth: 1100,
+  margin: "auto",
+};
+
+const header = {
+  background: "linear-gradient(135deg,#0d47a1,#1976d2)",
+  color: "white",
+  padding: 28,
+  borderRadius: 24,
+  marginBottom: 18,
+};
+
+const card = {
+  background: "white",
+  border: "1px solid #d9e3f5",
+  borderRadius: 18,
+  padding: 20,
+  marginBottom: 16,
+  overflowX: "auto" as const,
+};
+
+const searchInput = {
+  width: "100%",
+  padding: 14,
+  borderRadius: 14,
+  border: "1px solid #d9e3f5",
+  fontSize: 16,
+  boxSizing: "border-box" as const,
+};
+
+const tableHeader = {
+  display: "grid",
+  gridTemplateColumns: "2fr 1.5fr 1.5fr 1fr",
+  gap: 12,
+  minWidth: 850,
+  background: "#f4f8ff",
+  color: "#0d47a1",
+  fontWeight: "bold",
+  padding: 14,
+  borderRadius: 12,
+  marginBottom: 10,
+};
+
+const tableRow = {
+  display: "grid",
+  gridTemplateColumns: "2fr 1.5fr 1.5fr 1fr",
+  gap: 12,
+  minWidth: 850,
+  padding: 14,
+  borderBottom: "1px solid #eef2f7",
+};
+
+const emptyBox = {
+  minWidth: 850,
+  background: "#f8fbff",
+  border: "1px dashed #cbd5e1",
+  borderRadius: 14,
+  padding: 22,
+  textAlign: "center" as const,
+  color: "#6b7280",
+};
