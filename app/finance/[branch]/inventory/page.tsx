@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
 
 const LOW_STOCK_LIMIT = 5;
+const ITEMS_PER_PAGE = 25;
 
 export default function FinanceInventoryPage() {
   const params = useParams();
@@ -19,11 +20,16 @@ export default function FinanceInventoryPage() {
   const [lowCount, setLowCount] = useState(0);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     loadInventory();
   }, [branch]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter]);
 
   async function loadInventory() {
     setLoading(true);
@@ -80,27 +86,36 @@ export default function FinanceInventoryPage() {
     setLoading(false);
   }
 
-  const filteredItems = items
-    .filter((item) => {
-      const productName = item.finance_products?.product_name || "";
-      const investorName = item.finance_investors?.investor_name || "";
-      const qty = Number(item.quantity || 0);
-      const status = getStockStatus(qty);
+  const filteredItems = useMemo(() => {
+    return items
+      .filter((item) => {
+        const productName = item.finance_products?.product_name || "";
+        const investorName = item.finance_investors?.investor_name || "";
+        const qty = Number(item.quantity || 0);
+        const status = getStockStatus(qty);
 
-      const matchesSearch =
-        productName.includes(searchTerm) || investorName.includes(searchTerm);
+        const matchesSearch =
+          productName.includes(searchTerm) || investorName.includes(searchTerm);
 
-      const matchesStatus =
-        statusFilter === "all" || status.key === statusFilter;
+        const matchesStatus =
+          statusFilter === "all" || status.key === statusFilter;
 
-      return matchesSearch && matchesStatus;
-    })
-    .sort((a, b) => {
-      const aStatus = getStockStatus(Number(a.quantity || 0)).priority;
-      const bStatus = getStockStatus(Number(b.quantity || 0)).priority;
+        return matchesSearch && matchesStatus;
+      })
+      .sort((a, b) => {
+        const aStatus = getStockStatus(Number(a.quantity || 0)).priority;
+        const bStatus = getStockStatus(Number(b.quantity || 0)).priority;
 
-      return aStatus - bStatus;
-    });
+        return aStatus - bStatus;
+      });
+  }, [items, searchTerm, statusFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / ITEMS_PER_PAGE));
+
+  const paginatedItems = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredItems.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [filteredItems, currentPage]);
 
   return (
     <main dir="rtl" style={page}>
@@ -169,7 +184,16 @@ export default function FinanceInventoryPage() {
 
         <section style={tableCard}>
           <div style={tableTop}>
-            <h2 style={sectionTitle}>المخزون الحالي</h2>
+            <div>
+              <h2 style={sectionTitle}>المخزون الحالي</h2>
+
+              {!loading && filteredItems.length > 0 && (
+                <div style={pageInfo}>
+                  صفحة {currentPage} من {totalPages} - عرض{" "}
+                  {paginatedItems.length} من {filteredItems.length}
+                </div>
+              )}
+            </div>
 
             <div style={filters}>
               <input
@@ -205,7 +229,7 @@ export default function FinanceInventoryPage() {
           ) : filteredItems.length === 0 ? (
             <div style={emptyBox}>لا توجد نتائج مطابقة</div>
           ) : (
-            filteredItems.map((item) => {
+            paginatedItems.map((item) => {
               const qty = Number(item.quantity || 0);
               const status = getStockStatus(qty);
 
@@ -221,6 +245,38 @@ export default function FinanceInventoryPage() {
                 </div>
               );
             })
+          )}
+
+          {!loading && filteredItems.length > ITEMS_PER_PAGE && (
+            <div style={paginationBox}>
+              <button
+                style={{
+                  ...paginationButton,
+                  opacity: currentPage === 1 ? 0.5 : 1,
+                }}
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage((page) => Math.max(page - 1, 1))}
+              >
+                السابق
+              </button>
+
+              <span style={paginationText}>
+                صفحة {currentPage} من {totalPages}
+              </span>
+
+              <button
+                style={{
+                  ...paginationButton,
+                  opacity: currentPage === totalPages ? 0.5 : 1,
+                }}
+                disabled={currentPage === totalPages}
+                onClick={() =>
+                  setCurrentPage((page) => Math.min(page + 1, totalPages))
+                }
+              >
+                التالي
+              </button>
+            </div>
           )}
         </section>
 
@@ -284,7 +340,7 @@ function ActionButton({ icon, title, onClick }: any) {
 function formatDate(date: string) {
   if (!date) return "-";
 
-  return new Date(date).toLocaleDateString("ar-SA", {
+  return new Date(date).toLocaleDateString("ar-SA-u-ca-gregory", {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -400,6 +456,13 @@ const sectionTitle = {
   color: "#0d47a1",
 };
 
+const pageInfo = {
+  color: "#64748b",
+  fontSize: 14,
+  fontWeight: "bold",
+  marginTop: 6,
+};
+
 const filters = {
   display: "flex",
   gap: 10,
@@ -492,14 +555,41 @@ const emptyBox = {
   color: "#6b7280",
 };
 
+const paginationBox = {
+  minWidth: 860,
+  marginTop: 18,
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "center",
+  gap: 12,
+};
+
+const paginationButton = {
+  padding: "11px 18px",
+  background: "#0d47a1",
+  color: "white",
+  border: "none",
+  borderRadius: 12,
+  fontSize: 15,
+  fontWeight: "bold",
+  cursor: "pointer",
+};
+
+const paginationText = {
+  color: "#0f172a",
+  fontWeight: "bold",
+};
+
 const backButton = {
   width: "100%",
   padding: 16,
-  background: "#e5e7eb",
-  color: "#0d47a1",
-  border: "1px solid #cbd5e1",
+  background: "#16a34a",
+  color: "#ffffff",
+  border: "none",
   borderRadius: 14,
   fontSize: 17,
   fontWeight: "bold",
   marginTop: 18,
+  cursor: "pointer",
+  boxShadow: "0 4px 12px rgba(22,163,74,0.25)",
 };
