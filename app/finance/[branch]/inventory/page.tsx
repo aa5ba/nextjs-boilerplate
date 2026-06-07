@@ -157,6 +157,13 @@ export default function FinanceInventoryPage() {
   }
 />
           <ActionButton
+  icon="📦"
+  title="المنتجات"
+  onClick={() =>
+    (window.location.href = `/finance/${branch}/inventory/products`)
+  }
+/>
+          <ActionButton
             icon="📦"
             title="إضافة كمية للمخزون"
             onClick={() =>
