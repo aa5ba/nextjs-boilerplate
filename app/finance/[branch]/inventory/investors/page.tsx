@@ -160,7 +160,18 @@ export default function InvestorsPage() {
           ) : (
             paginatedInvestors.map((investor) => (
               <div key={investor.id} style={tableRow}>
-                <span>{investor.investor_name || "-"}</span>
+                <span
+  style={{
+    cursor: "pointer",
+    color: "#0d47a1",
+    fontWeight: "bold",
+  }}
+  onClick={() =>
+    (window.location.href = `/finance/${branch}/inventory/investors/${investor.id}`)
+  }
+>
+  {investor.investor_name || "-"}
+</span>
                 <span>{investor.national_id || "-"}</span>
                 <span>{investor.phone || "-"}</span>
                 <span>{investor.productsCount || 0}</span>
