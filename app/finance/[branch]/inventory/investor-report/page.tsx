@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getOrganizationSettings } from "@/lib/getOrganizationSettings";
 
 export default function InvestorReportPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
+
   const branch = params.branch as string;
+  const investorFromUrl = searchParams.get("investor") || "";
 
   const [branchId, setBranchId] = useState<string | null>(null);
   const [organizationName, setOrganizationName] = useState("احتساب");
@@ -25,10 +28,16 @@ export default function InvestorReportPage() {
     loadInitial();
   }, [branch]);
 
+  useEffect(() => {
+    if (branchId && investorId) {
+      loadReport();
+    }
+  }, [branchId, investorId]);
+
   async function loadInitial() {
     const { data: branchData, error: branchError } = await supabase
       .from("finance_branches")
-      .select("id")
+      .select("id, organization_name")
       .eq("branch_slug", branch)
       .single();
 
@@ -41,7 +50,9 @@ export default function InvestorReportPage() {
     setBranchId(currentBranchId);
 
     const settings = await getOrganizationSettings();
-    setOrganizationName(settings.name || "احتساب");
+    setOrganizationName(
+      branchData.organization_name || settings.name || "احتساب"
+    );
 
     const { data, error } = await supabase
       .from("finance_investors")
@@ -55,6 +66,10 @@ export default function InvestorReportPage() {
     }
 
     setInvestors(data || []);
+
+    if (investorFromUrl) {
+      setInvestorId(investorFromUrl);
+    }
   }
 
   async function loadReport() {
@@ -70,7 +85,7 @@ export default function InvestorReportPage() {
       .select(`
         *,
         finance_products(product_name),
-        finance_investors(investor_name),
+        finance_investors(investor_name, national_id, phone),
         finance_contracts(contract_number),
         finance_customers(full_name, national_id)
       `)
@@ -97,6 +112,10 @@ export default function InvestorReportPage() {
 
   const totalOut = items
     .filter((x) => x.movement_type === "خصم")
+    .reduce((sum, x) => sum + Number(x.quantity || 0), 0);
+
+  const totalAdd = items
+    .filter((x) => x.movement_type === "إضافة")
     .reduce((sum, x) => sum + Number(x.quantity || 0), 0);
 
   const totalReturn = items
@@ -147,7 +166,10 @@ export default function InvestorReportPage() {
               <select
                 style={input}
                 value={investorId}
-                onChange={(e) => setInvestorId(e.target.value)}
+                onChange={(e) => {
+                  setInvestorId(e.target.value);
+                  setItems([]);
+                }}
               >
                 <option value="">اختر المستثمر</option>
                 {investors.map((investor) => (
@@ -185,7 +207,7 @@ export default function InvestorReportPage() {
             </button>
 
             <button style={printButton} onClick={() => window.print()}>
-              طباعة
+              طباعة A4
             </button>
           </div>
         </section>
@@ -206,12 +228,23 @@ export default function InvestorReportPage() {
           </div>
 
           <div style={investorBox}>
-            <strong>المستثمر:</strong>{" "}
-            {selectedInvestor?.investor_name || "لم يتم اختيار مستثمر"}
+            <div>
+              <strong>المستثمر:</strong>{" "}
+              {selectedInvestor?.investor_name || "لم يتم اختيار مستثمر"}
+            </div>
+
+            <div>
+              <strong>الهوية:</strong> {selectedInvestor?.national_id || "-"}
+            </div>
+
+            <div>
+              <strong>الجوال:</strong> {selectedInvestor?.phone || "-"}
+            </div>
           </div>
 
           <div style={summaryGrid}>
             <Summary title="عدد الحركات" value={items.length} />
+            <Summary title="إجمالي الإضافة" value={totalAdd} />
             <Summary title="إجمالي الخصم" value={totalOut} />
             <Summary title="إجمالي الإرجاع" value={totalReturn} />
           </div>
@@ -258,9 +291,13 @@ export default function InvestorReportPage() {
         <button
           className="no-print"
           style={backButton}
-          onClick={() => (window.location.href = `/finance/${branch}/inventory`)}
+          onClick={() =>
+            investorId
+              ? (window.location.href = `/finance/${branch}/inventory/investors/${investorId}`)
+              : (window.location.href = `/finance/${branch}/inventory`)
+          }
         >
-          الرجوع للمخزون
+          الرجوع
         </button>
       </div>
     </main>
@@ -400,6 +437,9 @@ const investorBox = {
   borderRadius: 12,
   padding: 14,
   marginBottom: 14,
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
+  gap: 10,
 };
 
 const summaryGrid = {
