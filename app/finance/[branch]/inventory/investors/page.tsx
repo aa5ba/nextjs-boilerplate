@@ -76,8 +76,9 @@ export default function InvestorsPage() {
       .from("finance_investors")
       .update({
         is_active: !investor.is_active,
-        updated_at: new Date().toISOString(),
-      })
+        .update({
+  is_active: !investor.is_active,
+})
       .eq("id", investor.id);
 
     if (error) {
