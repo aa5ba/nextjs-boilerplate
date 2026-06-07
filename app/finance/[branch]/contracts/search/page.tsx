@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
 import { normalizeNumber } from "@/lib/numberUtils";
+
+const ITEMS_PER_PAGE = 25;
 
 export default function SearchContractsPage() {
   const params = useParams();
@@ -12,6 +14,14 @@ export default function SearchContractsPage() {
 
   const [search, setSearch] = useState("");
   const [contracts, setContracts] = useState<any[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const totalPages = Math.max(1, Math.ceil(contracts.length / ITEMS_PER_PAGE));
+
+  const paginatedContracts = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return contracts.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [contracts, currentPage]);
 
   async function searchContracts() {
     if (!search.trim()) {
@@ -65,6 +75,7 @@ export default function SearchContractsPage() {
     }
 
     setContracts(data || []);
+    setCurrentPage(1);
   }
 
   return (
@@ -81,6 +92,9 @@ export default function SearchContractsPage() {
               placeholder="رقم العقد أو الهوية أو الجوال أو الاسم"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") searchContracts();
+              }}
             />
 
             <button style={searchButton} onClick={searchContracts}>
@@ -90,6 +104,17 @@ export default function SearchContractsPage() {
         </section>
 
         <section style={card}>
+          <div style={listHeader}>
+            <h2 style={sectionTitle}>نتائج البحث</h2>
+
+            {contracts.length > 0 && (
+              <span style={pageInfo}>
+                صفحة {currentPage} من {totalPages} - عرض{" "}
+                {paginatedContracts.length} من {contracts.length}
+              </span>
+            )}
+          </div>
+
           <div style={tableHeader}>
             <span>📄 العقد</span>
             <span>👤 العميل</span>
@@ -100,7 +125,7 @@ export default function SearchContractsPage() {
           {contracts.length === 0 ? (
             <div style={emptyBox}>لا توجد نتائج</div>
           ) : (
-            contracts.map((contract) => (
+            paginatedContracts.map((contract) => (
               <div
                 key={contract.id}
                 style={tableRow}
@@ -109,21 +134,58 @@ export default function SearchContractsPage() {
                 }
               >
                 <span>📄 {contract.contract_number}</span>
-                <span
-  style={{ cursor: "pointer", color: "#0d47a1", fontWeight: "bold" }}
-  onClick={(e) => {
-    e.stopPropagation();
 
-    window.location.href =
-      `/finance/${branch}/customers/${contract.customer_id}`;
-  }}
->
-  👤 {contract.finance_customers?.full_name || "-"}
-</span>
+                <span
+                  style={{
+                    cursor: "pointer",
+                    color: "#0d47a1",
+                    fontWeight: "bold",
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+
+                    window.location.href = `/finance/${branch}/customers/${contract.customer_id}`;
+                  }}
+                >
+                  👤 {contract.finance_customers?.full_name || "-"}
+                </span>
+
                 <span>📱 {contract.finance_customers?.phone || "-"}</span>
                 <span>📌 {contract.contract_status || "-"}</span>
               </div>
             ))
+          )}
+
+          {contracts.length > ITEMS_PER_PAGE && (
+            <div style={paginationBox}>
+              <button
+                style={{
+                  ...paginationButton,
+                  opacity: currentPage === 1 ? 0.5 : 1,
+                }}
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage((page) => Math.max(page - 1, 1))}
+              >
+                السابق
+              </button>
+
+              <span style={paginationText}>
+                صفحة {currentPage} من {totalPages}
+              </span>
+
+              <button
+                style={{
+                  ...paginationButton,
+                  opacity: currentPage === totalPages ? 0.5 : 1,
+                }}
+                disabled={currentPage === totalPages}
+                onClick={() =>
+                  setCurrentPage((page) => Math.min(page + 1, totalPages))
+                }
+              >
+                التالي
+              </button>
+            </div>
           )}
         </section>
 
@@ -180,6 +242,7 @@ const input = {
   borderRadius: 14,
   border: "1px solid #d9e3f5",
   fontSize: 16,
+  boxSizing: "border-box" as const,
 };
 
 const searchButton = {
@@ -189,6 +252,28 @@ const searchButton = {
   borderRadius: 14,
   fontSize: 16,
   cursor: "pointer",
+  fontWeight: "bold",
+};
+
+const listHeader = {
+  minWidth: 800,
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+  marginBottom: 12,
+};
+
+const sectionTitle = {
+  margin: 0,
+  color: "#0d47a1",
+  fontSize: 22,
+};
+
+const pageInfo = {
+  color: "#64748b",
+  fontSize: 14,
+  fontWeight: "bold",
 };
 
 const tableHeader = {
@@ -224,12 +309,41 @@ const emptyBox = {
   color: "#6b7280",
 };
 
+const paginationBox = {
+  minWidth: 800,
+  marginTop: 18,
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "center",
+  gap: 12,
+};
+
+const paginationButton = {
+  padding: "11px 18px",
+  background: "#0d47a1",
+  color: "white",
+  border: "none",
+  borderRadius: 12,
+  fontSize: 15,
+  fontWeight: "bold",
+  cursor: "pointer",
+};
+
+const paginationText = {
+  color: "#0f172a",
+  fontWeight: "bold",
+};
+
 const backButton = {
   width: "100%",
   padding: 16,
-  background: "#111827",
-  color: "white",
+  background: "#16a34a",
+  color: "#ffffff",
   border: "none",
   borderRadius: 14,
   fontSize: 17,
+  fontWeight: "bold",
+  marginTop: 18,
+  cursor: "pointer",
+  boxShadow: "0 4px 12px rgba(22,163,74,0.25)",
 };
