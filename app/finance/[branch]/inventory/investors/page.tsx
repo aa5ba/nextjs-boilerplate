@@ -65,8 +65,48 @@ export default function InvestorsPage() {
   }, [filteredInvestors, currentPage]);
 
   return (
-    <main dir="rtl">
-      <h1>قائمة المستثمرين</h1>
-    </main>
-  );
-}
+  <main dir="rtl" style={page}>
+    <div style={container}>
+      <div style={header}>
+        <h1 style={{ margin: 0 }}>👥 المستثمرون</h1>
+      </div>
+
+      <section style={card}>
+        <input
+          style={searchInput}
+          placeholder="البحث باسم المستثمر أو الهوية أو الجوال"
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setCurrentPage(1);
+          }}
+        />
+      </section>
+
+      <section style={card}>
+        <div style={tableHeader}>
+          <span>المستثمر</span>
+          <span>الهوية</span>
+          <span>الجوال</span>
+          <span>الحالة</span>
+        </div>
+
+        {paginatedInvestors.length === 0 ? (
+          <div style={emptyBox}>لا يوجد مستثمرون</div>
+        ) : (
+          paginatedInvestors.map((investor) => (
+            <div key={investor.id} style={tableRow}>
+              <span>{investor.investor_name || "-"}</span>
+              <span>{investor.national_id || "-"}</span>
+              <span>{investor.phone || "-"}</span>
+
+              <span>
+                {investor.is_active ? "نشط" : "معطل"}
+              </span>
+            </div>
+          ))
+        )}
+      </section>
+    </div>
+  </main>
+);
