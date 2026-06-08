@@ -21,6 +21,14 @@ const permissionOptions = [
   { key: "settings", label: "الإعدادات" },
   { key: "print", label: "الطباعة" },
   { key: "archive", label: "الأرشيف" },
+
+  { key: "add_investor", label: "إضافة مستثمر" },
+  { key: "edit_investor", label: "تعديل مستثمر" },
+  { key: "toggle_investor", label: "تعطيل / تفعيل مستثمر" },
+
+  { key: "add_product", label: "إضافة منتج" },
+  { key: "edit_product", label: "تعديل منتج" },
+  { key: "toggle_product", label: "تعطيل / تفعيل منتج" },
 ];
 
 export default function FinancePermissionsPage() {
@@ -183,7 +191,10 @@ export default function FinancePermissionsPage() {
     const confirmed = confirm("هل أنت متأكد من حذف هذا المستخدم؟");
     if (!confirmed) return;
 
-    const { error } = await supabase.from("finance_users").delete().eq("id", user.id);
+    const { error } = await supabase
+      .from("finance_users")
+      .delete()
+      .eq("id", user.id);
 
     if (error) {
       alert("تعذر حذف المستخدم");
@@ -271,20 +282,24 @@ export default function FinancePermissionsPage() {
             </Field>
 
             <h3 style={smallTitle}>الأدوار</h3>
+
             <div style={checksGrid}>
               {roleOptions.map((role) => (
                 <label key={role} style={checkBox}>
                   <input
                     type="checkbox"
                     checked={selectedRoles.includes(role)}
-                    onChange={() => toggleItem(role, selectedRoles, setSelectedRoles)}
+                    onChange={() =>
+                      toggleItem(role, selectedRoles, setSelectedRoles)
+                    }
                   />
                   {role}
                 </label>
               ))}
             </div>
 
-            <h3 style={smallTitle}>صلاحيات الأقسام</h3>
+            <h3 style={smallTitle}>صلاحيات الأقسام والعمليات</h3>
+
             <div style={checksGrid}>
               {permissionOptions.map((item) => (
                 <label key={item.key} style={checkBox}>
@@ -292,7 +307,11 @@ export default function FinancePermissionsPage() {
                     type="checkbox"
                     checked={selectedPermissions.includes(item.key)}
                     onChange={() =>
-                      toggleItem(item.key, selectedPermissions, setSelectedPermissions)
+                      toggleItem(
+                        item.key,
+                        selectedPermissions,
+                        setSelectedPermissions
+                      )
                     }
                   />
                   {item.label}
@@ -321,9 +340,11 @@ export default function FinancePermissionsPage() {
                   <div>
                     <strong>{user.employee_name}</strong>
                     <div style={mutedText}>{user.username}</div>
+
                     <div style={mutedText}>
                       الأدوار: {(user.roles || []).join("، ") || "-"}
                     </div>
+
                     <div style={mutedText}>
                       الصلاحيات: {(user.permissions || []).join("، ") || "-"}
                     </div>
@@ -341,7 +362,10 @@ export default function FinancePermissionsPage() {
                       {user.is_active ? "تعطيل" : "تفعيل"}
                     </button>
 
-                    <button style={dangerSmallButton} onClick={() => deleteUser(user)}>
+                    <button
+                      style={dangerSmallButton}
+                      onClick={() => deleteUser(user)}
+                    >
                       حذف
                     </button>
                   </div>
@@ -361,7 +385,11 @@ export default function FinancePermissionsPage() {
               investors.map((investor) => (
                 <div key={investor.id} style={simpleRow}>
                   <strong>{investor.investor_name || "-"}</strong>
-                  <span>{investor.national_id || investor.commercial_record || "-"}</span>
+                  <span>
+                    {investor.national_id ||
+                      investor.commercial_record ||
+                      "-"}
+                  </span>
                 </div>
               ))
             )}
@@ -384,7 +412,8 @@ export default function FinancePermissionsPage() {
                   }
                 >
                   عقد رقم {contract.contract_number || "-"} -{" "}
-                  {contract.customer_name || "-"} - {contract.payment_amount || 0} ر.س
+                  {contract.customer_name || "-"} -{" "}
+                  {contract.payment_amount || 0} ر.س
                 </button>
               ))
             )}
@@ -528,6 +557,7 @@ const saveButton = {
   fontSize: 17,
   fontWeight: "bold",
   marginTop: 18,
+  cursor: "pointer",
 };
 
 const emptyBox = {
@@ -583,6 +613,7 @@ const graySmallButton = {
   borderRadius: 10,
   padding: "9px 12px",
   fontWeight: "bold",
+  cursor: "pointer",
 };
 
 const dangerSmallButton = {
@@ -592,6 +623,7 @@ const dangerSmallButton = {
   borderRadius: 10,
   padding: "9px 12px",
   fontWeight: "bold",
+  cursor: "pointer",
 };
 
 const simpleRow = {
@@ -617,14 +649,17 @@ const itemButton = {
 const backButton = {
   width: "100%",
   padding: 16,
-  background: "#e5e7eb",
-  color: "#0d47a1",
-  border: "1px solid #cbd5e1",
+  background: "#16a34a",
+  color: "#ffffff",
+  border: "none",
   borderRadius: 14,
   fontSize: 17,
   fontWeight: "bold",
   marginTop: 18,
+  cursor: "pointer",
+  boxShadow: "0 4px 12px rgba(22,163,74,0.25)",
 };
+
 const loadingBox = {
   background: "white",
   border: "1px solid #d9e3f5",
