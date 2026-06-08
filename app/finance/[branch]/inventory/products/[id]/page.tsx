@@ -15,9 +15,43 @@ export default function ProductDetailsPage() {
   const [contractsCount, setContractsCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
+  const [permissions, setPermissions] = useState<string[]>([]);
+  const [roles, setRoles] = useState<string[]>([]);
+
   useEffect(() => {
+    loadCurrentUserPermissions();
     loadProduct();
   }, [branch, productId]);
+
+  function loadCurrentUserPermissions() {
+    const savedUser =
+      typeof window !== "undefined"
+        ? localStorage.getItem("finance_user")
+        : null;
+
+    if (!savedUser) {
+      setRoles(["مدير رئيسي"]);
+      setPermissions([]);
+      return;
+    }
+
+    try {
+      const user = JSON.parse(savedUser);
+      setRoles(user.roles || []);
+      setPermissions(user.permissions || []);
+    } catch {
+      setRoles(["مدير رئيسي"]);
+      setPermissions([]);
+    }
+  }
+
+  function hasPermission(permissionKey: string) {
+    return (
+      roles.includes("مدير رئيسي") ||
+      roles.includes("مدير") ||
+      permissions.includes(permissionKey)
+    );
+  }
 
   async function loadProduct() {
     setLoading(true);
@@ -61,10 +95,17 @@ export default function ProductDetailsPage() {
   }
 
   async function toggleProductStatus() {
+    if (!hasPermission("toggle_product")) {
+      alert("لا تملك صلاحية تعطيل أو تفعيل المنتجات");
+      return;
+    }
+
     if (!product) return;
 
     const confirmed = confirm(
-      product.is_active ? "هل تريد تعطيل هذا المنتج؟" : "هل تريد تفعيل هذا المنتج؟"
+      product.is_active
+        ? "هل تريد تعطيل هذا المنتج؟"
+        : "هل تريد تفعيل هذا المنتج؟"
     );
 
     if (!confirmed) return;
@@ -146,19 +187,23 @@ export default function ProductDetailsPage() {
         </section>
 
         <section style={actionsSection}>
-          <ActionButton
-            title="✏️ تعديل المنتج"
-            onClick={() =>
-              (window.location.href = `/finance/${branch}/inventory/products/${productId}/edit`)
-            }
-          />
+          {hasPermission("edit_product") && (
+            <ActionButton
+              title="✏️ تعديل المنتج"
+              onClick={() =>
+                (window.location.href = `/finance/${branch}/inventory/products/${productId}/edit`)
+              }
+            />
+          )}
 
-          <button
-            style={product.is_active ? dangerButton : activateButton}
-            onClick={toggleProductStatus}
-          >
-            {product.is_active ? "تعطيل المنتج" : "تفعيل المنتج"}
-          </button>
+          {hasPermission("toggle_product") && (
+            <button
+              style={product.is_active ? dangerButton : activateButton}
+              onClick={toggleProductStatus}
+            >
+              {product.is_active ? "تعطيل المنتج" : "تفعيل المنتج"}
+            </button>
+          )}
         </section>
 
         <section style={card}>
@@ -178,7 +223,11 @@ export default function ProductDetailsPage() {
             inventory.map((item) => (
               <div key={item.id} style={tableRow}>
                 <span
-                  style={{ cursor: "pointer", color: "#0d47a1", fontWeight: "bold" }}
+                  style={{
+                    cursor: "pointer",
+                    color: "#0d47a1",
+                    fontWeight: "bold",
+                  }}
                   onClick={() =>
                     (window.location.href = `/finance/${branch}/inventory/investors/${item.investor_id}`)
                   }
