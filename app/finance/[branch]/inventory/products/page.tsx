@@ -15,9 +15,43 @@ export default function ProductsPage() {
   const [search, setSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
 
+  const [permissions, setPermissions] = useState<string[]>([]);
+  const [roles, setRoles] = useState<string[]>([]);
+
   useEffect(() => {
+    loadCurrentUserPermissions();
     loadProducts();
   }, [branch]);
+
+  function loadCurrentUserPermissions() {
+    const savedUser =
+      typeof window !== "undefined"
+        ? localStorage.getItem("finance_user")
+        : null;
+
+    if (!savedUser) {
+      setRoles(["مدير رئيسي"]);
+      setPermissions([]);
+      return;
+    }
+
+    try {
+      const user = JSON.parse(savedUser);
+      setRoles(user.roles || []);
+      setPermissions(user.permissions || []);
+    } catch {
+      setRoles(["مدير رئيسي"]);
+      setPermissions([]);
+    }
+  }
+
+  function hasPermission(permissionKey: string) {
+    return (
+      roles.includes("مدير رئيسي") ||
+      roles.includes("مدير") ||
+      permissions.includes(permissionKey)
+    );
+  }
 
   async function loadProducts() {
     const branchId = await getBranchId(branch);
@@ -63,6 +97,11 @@ export default function ProductsPage() {
   }
 
   async function toggleProductStatus(product: any) {
+    if (!hasPermission("toggle_product")) {
+      alert("لا تملك صلاحية تعطيل أو تفعيل المنتجات");
+      return;
+    }
+
     const confirmed = confirm(
       product.is_active
         ? "هل تريد تعطيل هذا المنتج؟"
@@ -115,15 +154,28 @@ export default function ProductsPage() {
         </div>
 
         <section style={card}>
-          <input
-            style={searchInput}
-            placeholder="البحث باسم المنتج أو التصنيف"
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setCurrentPage(1);
-            }}
-          />
+          <div style={topActions}>
+            <input
+              style={searchInput}
+              placeholder="البحث باسم المنتج أو التصنيف"
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setCurrentPage(1);
+              }}
+            />
+
+            {hasPermission("add_product") && (
+              <button
+                style={addButton}
+                onClick={() =>
+                  (window.location.href = `/finance/${branch}/inventory/products/new`)
+                }
+              >
+                ➕ إضافة منتج
+              </button>
+            )}
+          </div>
         </section>
 
         <section style={card}>
@@ -176,21 +228,25 @@ export default function ProductsPage() {
                 </span>
 
                 <div style={actionsCell}>
-                  <button
-                    style={smallGrayButton}
-                    onClick={() =>
-                      (window.location.href = `/finance/${branch}/inventory/products/${product.id}/edit`)
-                    }
-                  >
-                    تعديل
-                  </button>
+                  {hasPermission("edit_product") && (
+                    <button
+                      style={smallGrayButton}
+                      onClick={() =>
+                        (window.location.href = `/finance/${branch}/inventory/products/${product.id}/edit`)
+                      }
+                    >
+                      تعديل
+                    </button>
+                  )}
 
-                  <button
-                    style={smallDangerButton}
-                    onClick={() => toggleProductStatus(product)}
-                  >
-                    {product.is_active ? "تعطيل" : "تفعيل"}
-                  </button>
+                  {hasPermission("toggle_product") && (
+                    <button
+                      style={smallDangerButton}
+                      onClick={() => toggleProductStatus(product)}
+                    >
+                      {product.is_active ? "تعطيل" : "تفعيل"}
+                    </button>
+                  )}
                 </div>
               </div>
             ))
@@ -270,6 +326,13 @@ const card = {
   overflowX: "auto" as const,
 };
 
+const topActions = {
+  display: "grid",
+  gridTemplateColumns: "1fr 170px",
+  gap: 12,
+  alignItems: "center",
+};
+
 const searchInput = {
   width: "100%",
   padding: 14,
@@ -277,6 +340,18 @@ const searchInput = {
   border: "1px solid #d9e3f5",
   fontSize: 16,
   boxSizing: "border-box" as const,
+};
+
+const addButton = {
+  width: "100%",
+  padding: 14,
+  background: "#0d47a1",
+  color: "white",
+  border: "none",
+  borderRadius: 14,
+  fontSize: 16,
+  fontWeight: "bold",
+  cursor: "pointer",
 };
 
 const listHeader = {
