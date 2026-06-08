@@ -63,6 +63,12 @@ export default function PrintNewRequestPage() {
   }, []);
 
   async function loadData() {
+    const { data: branchData } = await supabase
+      .from("finance_branches")
+      .select("*")
+      .eq("branch_slug", branch)
+      .single();
+
     const { data: contractData } = await supabase
       .from("finance_contracts")
       .select("*, finance_customers(full_name, national_id, phone, birth_hijri)")
@@ -75,9 +81,28 @@ export default function PrintNewRequestPage() {
       .eq("id", noteId)
       .single();
 
-    const orgSettings = await getOrganizationSettings();
+    const oldSettings = await getOrganizationSettings();
 
-    setOrganizationSettings(orgSettings);
+    setOrganizationSettings({
+      name:
+        branchData?.organization_name ||
+        oldSettings?.name ||
+        "احتساب",
+      phone:
+        branchData?.phone ||
+        oldSettings?.phone ||
+        "",
+      city:
+        branchData?.city ||
+        oldSettings?.city ||
+        branchData?.branch_name ||
+        "",
+      commercialRecord:
+        branchData?.commercial_record ||
+        oldSettings?.commercialRecord ||
+        "",
+    });
+
     setContract(contractData);
     setNote(noteData);
   }
@@ -105,24 +130,30 @@ export default function PrintNewRequestPage() {
     contract?.customer_birth_hijri ||
     "................";
 
-  const firstPartyName =
-    contract?.print_party_name ||
-    contract?.first_party_name ||
-    contract?.investor_name ||
-    organizationSettings.name ||
-    "................";
+  const firstPartyType =
+    contract?.print_party_type ||
+    contract?.first_party_type ||
+    "organization";
 
-  const firstPartyIdentifier =
-    contract?.print_party_identifier ||
-    contract?.first_party_identifier ||
-    organizationSettings.commercialRecord ||
-    "";
+  const isInvestorParty = firstPartyType === "investor";
 
-  const firstPartyIdentifierLabel =
-    contract?.print_party_type === "investor" ||
-    contract?.first_party_type === "investor"
-      ? "رقم الهوية"
-      : "سجل تجاري رقم";
+  const firstPartyName = isInvestorParty
+    ? contract?.print_party_name ||
+      contract?.first_party_name ||
+      contract?.investor_name ||
+      "................"
+    : organizationSettings.name || "................";
+
+  const firstPartyIdentifier = isInvestorParty
+    ? contract?.print_party_identifier ||
+      contract?.first_party_identifier ||
+      contract?.investor_national_id ||
+      ""
+    : organizationSettings.commercialRecord || "";
+
+  const firstPartyIdentifierLabel = isInvestorParty
+    ? "رقم الهوية"
+    : "سجل تجاري رقم";
 
   const contractIssueDate =
     contract?.contract_issue_date_gregorian ||
@@ -530,9 +561,9 @@ const backButton = {
   display: "block",
   margin: "12px auto 0",
   padding: 16,
-  background: "#e5e7eb",
-  color: "#0d47a1",
-  border: "1px solid #cbd5e1",
+  background: "#16a34a",
+  color: "white",
+  border: "none",
   borderRadius: 14,
   fontSize: 17,
   fontWeight: "bold",
