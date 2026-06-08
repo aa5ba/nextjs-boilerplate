@@ -164,12 +164,20 @@ export default function FinanceWorkflowPage() {
           </div>
         </section>
 
-        <button
-          style={backButton}
-          onClick={() => (window.location.href = `/finance/${branch}`)}
-        >
-          الرجوع لمحطة العمل الرئيسية
-        </button>
+        <div
+  style={{
+    display: "flex",
+    justifyContent: "center",
+    marginTop: 18,
+  }}
+>
+  <button
+    style={backButton}
+    onClick={() => (window.location.href = `/finance/${branch}`)}
+  >
+    ← الرجوع
+  </button>
+</div>
       </div>
     </main>
   );
