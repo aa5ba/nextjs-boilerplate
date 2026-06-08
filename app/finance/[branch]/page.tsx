@@ -249,7 +249,7 @@ export default function FinancePage() {
                 style={searchInput}
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
-                placeholder="بحث ذكي: اسم عميل، جوال، رقم عقد، أو مستثمر..."
+                placeholder="البحث السريع : اسم العميل او الهويه او رقم الجوال ..."
               />
 
               {searchText && (
