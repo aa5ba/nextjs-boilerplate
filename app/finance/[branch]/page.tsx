@@ -209,9 +209,10 @@ export default function FinancePage() {
   if (loading) {
     return (
       <main dir="rtl" style={page}>
-        <div style={container}>
+        <div style={backgroundLayer} />
+
+        <div style={loadingContainer}>
           <section style={hero}>
-            <p style={eyebrow}>محطة العمل</p>
             <h1 style={heroTitle}>جاري تحميل الفرع...</h1>
           </section>
         </div>
@@ -221,14 +222,17 @@ export default function FinancePage() {
 
   return (
     <main dir="rtl" style={page}>
+      <div style={backgroundLayer} />
+
       <div style={layout}>
-        <FinanceTrialSidebar />
+        <div className="desktop-sidebar">
+          <FinanceTrialSidebar />
+        </div>
 
         <div style={container}>
           <section style={hero}>
             <div>
-              <p style={eyebrow}>محطة العمل</p>
-              <h1 style={heroTitle}>محطة العمل الرئيسية</h1>
+              <h1 style={heroTitle}>الصفحة الرئيسية</h1>
               <p style={heroSub}>🏢 {organizationName}</p>
             </div>
           </section>
@@ -303,6 +307,18 @@ export default function FinancePage() {
           </section>
         </div>
       </div>
+
+      <style jsx>{`
+        .desktop-sidebar {
+          display: block;
+        }
+
+        @media (max-width: 768px) {
+          .desktop-sidebar {
+            display: none;
+          }
+        }
+      `}</style>
     </main>
   );
 }
@@ -325,9 +341,33 @@ const page: React.CSSProperties = {
   background: "#f4f7fb",
   padding: 18,
   fontFamily: "var(--font-almarai), sans-serif",
+  position: "relative",
+  overflowX: "hidden",
+};
+
+const backgroundLayer: React.CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  zIndex: 0,
+  backgroundImage: "url('/backgrounds/finance-bg.webp')",
+  backgroundSize: "cover",
+  backgroundPosition: "center",
+  backgroundRepeat: "no-repeat",
+  opacity: 0.18,
+  pointerEvents: "none",
+};
+
+const loadingContainer: React.CSSProperties = {
+  position: "relative",
+  zIndex: 1,
+  width: "100%",
+  maxWidth: 1100,
+  margin: "auto",
 };
 
 const layout: React.CSSProperties = {
+  position: "relative",
+  zIndex: 1,
   width: "100%",
   maxWidth: 1420,
   margin: "auto",
@@ -351,14 +391,8 @@ const hero: React.CSSProperties = {
   boxShadow: "0 12px 30px rgba(15,23,42,0.12)",
 };
 
-const eyebrow: React.CSSProperties = {
-  margin: 0,
-  opacity: 0.75,
-  fontSize: 14,
-};
-
 const heroTitle: React.CSSProperties = {
-  margin: "8px 0",
+  margin: "0 0 8px",
   fontSize: 32,
   lineHeight: 1.4,
 };
@@ -370,12 +404,13 @@ const heroSub: React.CSSProperties = {
 };
 
 const searchCard: React.CSSProperties = {
-  background: "white",
+  background: "rgba(255,255,255,0.94)",
   border: "1px solid #e2e8f0",
   borderRadius: 18,
   padding: 12,
   marginBottom: 14,
   boxShadow: "0 8px 22px rgba(15,23,42,0.04)",
+  backdropFilter: "blur(6px)",
 };
 
 const searchInputWrap: React.CSSProperties = {
@@ -471,11 +506,12 @@ const emptyResult: React.CSSProperties = {
 };
 
 const sectionsCard: React.CSSProperties = {
-  background: "white",
+  background: "rgba(255,255,255,0.94)",
   border: "1px solid #e2e8f0",
   borderRadius: 20,
   padding: 16,
   boxShadow: "0 10px 24px rgba(15,23,42,0.05)",
+  backdropFilter: "blur(6px)",
 };
 
 const sectionHeader: React.CSSProperties = {
