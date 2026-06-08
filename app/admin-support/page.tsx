@@ -80,7 +80,7 @@ export default function AdminSupportPage() {
 
     const parsed = JSON.parse(saved);
     setCurrentUser(parsed);
-    loadData(parsed);
+    loadData();
   }, []);
 
   function hasPermission(key: string) {
@@ -113,7 +113,7 @@ export default function AdminSupportPage() {
     });
   }
 
-  async function loadData(user = currentUser) {
+  async function loadData() {
     setLoading(true);
     await Promise.all([loadBranches(), loadSupportUsers(), loadLogs()]);
     setLoading(false);
@@ -249,6 +249,8 @@ export default function AdminSupportPage() {
     setOrganizationName(branch.organization_name || "");
     setBranchNotes(branch.notes || "");
     setShowBranchForm(true);
+    setActiveTab("branches");
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function resetBranchForm() {
@@ -372,63 +374,31 @@ export default function AdminSupportPage() {
   if (loading) {
     return (
       <main dir="rtl" style={page}>
-        <div style={shell}>
+        <div className="support-shell" style={shell}>
           <section style={topHero}>
             <h1 style={heroTitle}>جاري تحميل لوحة الدعم الفني...</h1>
           </section>
         </div>
+
+        <GlobalResponsiveStyles />
       </main>
     );
   }
 
   return (
     <main dir="rtl" style={page}>
-      <div style={shell}>
-        <aside style={sidePanel}>
-          <div style={brandBox}>
-            <div style={brandIcon}>🛠️</div>
-            <div>
-              <h2 style={brandTitle}>دعم احتساب</h2>
-              <p style={brandSub}>لوحة التحكم المركزية</p>
-            </div>
-          </div>
+      <div className="support-shell" style={shell}>
+        <aside className="support-sidebar" style={sidePanel}>
+          <BrandBox />
 
-          <nav style={nav}>
-            <button
-              style={activeTab === "overview" ? navActive : navItem}
-              onClick={() => setActiveTab("overview")}
-            >
-              📊 النظرة العامة
-            </button>
-
-            <button
-              style={activeTab === "branches" ? navActive : navItem}
-              onClick={() => setActiveTab("branches")}
-            >
-              🏢 الفروع
-            </button>
-
-            <button
-              style={activeTab === "users" ? navActive : navItem}
-              onClick={() => setActiveTab("users")}
-            >
-              👨‍💼 مستخدمو الدعم
-            </button>
-
-            <button
-              style={activeTab === "logs" ? navActive : navItem}
-              onClick={() => setActiveTab("logs")}
-            >
-              🧾 سجل العمليات
-            </button>
-          </nav>
+          <SideNav activeTab={activeTab} setActiveTab={setActiveTab} />
 
           <button style={logoutButton} onClick={logout}>
             تسجيل خروج
           </button>
         </aside>
 
-        <section style={mainPanel}>
+        <section className="support-main" style={mainPanel}>
           <header style={topHero}>
             <div>
               <p style={topLabel}>لوحة الدعم الفني</p>
@@ -439,7 +409,41 @@ export default function AdminSupportPage() {
             </div>
           </header>
 
-          <section style={statsGrid}>
+          <div className="mobile-nav">
+            <button
+              className={activeTab === "overview" ? "mobile-tab active" : "mobile-tab"}
+              onClick={() => setActiveTab("overview")}
+            >
+              📊 العامة
+            </button>
+
+            <button
+              className={activeTab === "branches" ? "mobile-tab active" : "mobile-tab"}
+              onClick={() => setActiveTab("branches")}
+            >
+              🏢 الفروع
+            </button>
+
+            <button
+              className={activeTab === "users" ? "mobile-tab active" : "mobile-tab"}
+              onClick={() => setActiveTab("users")}
+            >
+              👨‍💼 الدعم
+            </button>
+
+            <button
+              className={activeTab === "logs" ? "mobile-tab active" : "mobile-tab"}
+              onClick={() => setActiveTab("logs")}
+            >
+              🧾 السجل
+            </button>
+
+            <button className="mobile-tab logout" onClick={logout}>
+              خروج
+            </button>
+          </div>
+
+          <section className="stats-grid" style={statsGrid}>
             <Stat title="كل الفروع" value={branches.length} hint="إجمالي الفروع" />
             <Stat title="النشطة" value={activeBranches} hint="فروع تعمل الآن" />
             <Stat title="المعطلة" value={disabledBranches} hint="فروع موقوفة" />
@@ -451,7 +455,7 @@ export default function AdminSupportPage() {
           </section>
 
           {activeTab === "overview" && (
-            <section style={dashboardGrid}>
+            <section className="dashboard-grid" style={dashboardGrid}>
               <div style={darkCard}>
                 <h2 style={whiteTitle}>مختصر النظام</h2>
                 <p style={whiteText}>
@@ -577,7 +581,7 @@ export default function AdminSupportPage() {
               <section style={panelCard}>
                 <div style={branchesList}>
                   {branches.map((branch) => (
-                    <article key={branch.id} style={branchRow}>
+                    <article className="branch-row" key={branch.id} style={branchRow}>
                       <div style={branchMain}>
                         <div style={branchAvatar}>
                           {branch.branch_name?.slice(0, 1) || "ف"}
@@ -795,7 +799,152 @@ export default function AdminSupportPage() {
           )}
         </section>
       </div>
+
+      <GlobalResponsiveStyles />
     </main>
+  );
+}
+
+function BrandBox() {
+  return (
+    <div style={brandBox}>
+      <div style={brandIcon}>🛠️</div>
+      <div>
+        <h2 style={brandTitle}>دعم احتساب</h2>
+        <p style={brandSub}>لوحة التحكم المركزية</p>
+      </div>
+    </div>
+  );
+}
+
+function SideNav({
+  activeTab,
+  setActiveTab,
+}: {
+  activeTab: TabType;
+  setActiveTab: (tab: TabType) => void;
+}) {
+  return (
+    <nav style={nav}>
+      <button
+        style={activeTab === "overview" ? navActive : navItem}
+        onClick={() => setActiveTab("overview")}
+      >
+        📊 النظرة العامة
+      </button>
+
+      <button
+        style={activeTab === "branches" ? navActive : navItem}
+        onClick={() => setActiveTab("branches")}
+      >
+        🏢 الفروع
+      </button>
+
+      <button
+        style={activeTab === "users" ? navActive : navItem}
+        onClick={() => setActiveTab("users")}
+      >
+        👨‍💼 مستخدمو الدعم
+      </button>
+
+      <button
+        style={activeTab === "logs" ? navActive : navItem}
+        onClick={() => setActiveTab("logs")}
+      >
+        🧾 سجل العمليات
+      </button>
+    </nav>
+  );
+}
+
+function GlobalResponsiveStyles() {
+  return (
+    <style jsx global>{`
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        overflow-x: hidden;
+      }
+
+      .mobile-nav {
+        display: none;
+      }
+
+      @media (max-width: 900px) {
+        .support-shell {
+          display: block !important;
+          max-width: 100% !important;
+        }
+
+        .support-sidebar {
+          display: none !important;
+        }
+
+        .support-main {
+          min-height: auto !important;
+          border-radius: 22px !important;
+          padding: 12px !important;
+        }
+
+        .mobile-nav {
+          display: flex;
+          gap: 8px;
+          overflow-x: auto;
+          padding: 4px 2px 12px;
+          margin-bottom: 10px;
+          -webkit-overflow-scrolling: touch;
+        }
+
+        .mobile-nav::-webkit-scrollbar {
+          display: none;
+        }
+
+        .mobile-tab {
+          flex: 0 0 auto;
+          border: 1px solid #e2e8f0;
+          background: #ffffff;
+          color: #334155;
+          border-radius: 999px;
+          padding: 10px 13px;
+          font-family: var(--font-almarai), sans-serif;
+          font-weight: 900;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+
+        .mobile-tab.active {
+          color: #ffffff;
+          border-color: transparent;
+          background: linear-gradient(135deg, #2563eb, #7c3aed);
+        }
+
+        .mobile-tab.logout {
+          background: #fee2e2;
+          color: #991b1b;
+        }
+
+        .dashboard-grid {
+          grid-template-columns: 1fr !important;
+        }
+
+        .stats-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        }
+
+        .branch-row {
+          grid-template-columns: 1fr !important;
+          align-items: stretch !important;
+        }
+      }
+
+      @media (max-width: 520px) {
+        .stats-grid {
+          grid-template-columns: 1fr !important;
+        }
+      }
+    `}</style>
   );
 }
 
@@ -838,6 +987,7 @@ const page: React.CSSProperties = {
   padding: 14,
   fontFamily: "var(--font-almarai), sans-serif",
   color: "#0f172a",
+  overflowX: "hidden",
 };
 
 const shell: React.CSSProperties = {
@@ -1179,6 +1329,7 @@ const branchAvatar: React.CSSProperties = {
   justifyContent: "center",
   fontWeight: 900,
   fontSize: 20,
+  flex: "0 0 auto",
 };
 
 const branchTitle: React.CSSProperties = {
@@ -1188,6 +1339,7 @@ const branchTitle: React.CSSProperties = {
 const muted: React.CSSProperties = {
   color: "#64748b",
   margin: "6px 0",
+  wordBreak: "break-word",
 };
 
 const activeBadge: React.CSSProperties = {
@@ -1197,6 +1349,7 @@ const activeBadge: React.CSSProperties = {
   borderRadius: 999,
   padding: "6px 10px",
   fontWeight: 900,
+  width: "fit-content",
 };
 
 const inactiveBadge: React.CSSProperties = {
@@ -1206,6 +1359,7 @@ const inactiveBadge: React.CSSProperties = {
   borderRadius: 999,
   padding: "6px 10px",
   fontWeight: 900,
+  width: "fit-content",
 };
 
 const rowActions: React.CSSProperties = {
