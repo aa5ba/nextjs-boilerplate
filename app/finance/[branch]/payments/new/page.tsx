@@ -18,6 +18,8 @@ export default function NewPaymentPage() {
   const [paymentType, setPaymentType] = useState("");
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     initializePage();
@@ -44,7 +46,7 @@ export default function NewPaymentPage() {
 
     const { data } = await supabase
       .from("finance_contracts")
-      .select("*, finance_customers(full_name, national_id, phone)")
+      .select("*")
       .eq("id", contractId)
       .eq("branch_id", currentBranchId)
       .single();
@@ -60,23 +62,36 @@ export default function NewPaymentPage() {
       return;
     }
 
-    if (!search.trim()) {
-      alert("اكتب الاسم أو رقم الهوية");
+    const rawSearch = search.trim();
+    const normalizedSearch = normalizeNumber(rawSearch);
+
+    if (!rawSearch) {
+      alert("اكتب الاسم أو رقم الهوية أو رقم العقد");
       return;
     }
 
-    const normalizedSearch = normalizeNumber(search);
+    setSearching(true);
+    setSelectedContract(null);
 
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("finance_contracts")
-      .select("*, finance_customers(full_name, national_id, phone)")
+      .select("*")
       .eq("branch_id", branchId)
-      .eq("contract_status", "نشط")
+      .in("contract_status", ["نشط", "متأخر"])
       .or(
-        `finance_customers.full_name.ilike.%${search}%,finance_customers.national_id.ilike.%${normalizedSearch}%`
-      );
+        `contract_number.ilike.%${normalizedSearch}%,customer_name.ilike.%${rawSearch}%,customer_national_id.ilike.%${normalizedSearch}%,customer_phone.ilike.%${normalizedSearch}%`
+      )
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      alert(error.message);
+      setContracts([]);
+      setSearching(false);
+      return;
+    }
 
     setContracts(data || []);
+    setSearching(false);
   }
 
   async function savePayment() {
@@ -92,71 +107,94 @@ export default function NewPaymentPage() {
 
     const paid = toNumber(amount);
     const oldPaid = Number(selectedContract.paid_amount || 0);
-    const debt = Number(selectedContract.debt_amount || 0);
+    const debt = Number(
+      selectedContract.debt_amount ||
+        selectedContract.payment_amount ||
+        selectedContract.remaining_amount ||
+        0
+    );
 
     if (paid <= 0) {
       alert("أدخل مبلغ سداد صحيح");
       return;
     }
 
-    const newPaid = oldPaid + paid;
-    const newRemaining = Math.max(debt - newPaid, 0);
-    const newStatus = newRemaining <= 0 ? "تم السداد" : "نشط";
+    const currentRemaining = Number(
+      selectedContract.remaining_amount || debt - oldPaid || 0
+    );
 
-    const { data: paymentData, error: paymentError } = await supabase
-      .from("finance_payments")
-      .insert([
+    if (paid > currentRemaining) {
+      const confirmed = confirm(
+        "مبلغ السداد أكبر من المتبقي. هل تريد المتابعة؟"
+      );
+
+      if (!confirmed) return;
+    }
+
+    try {
+      setSaving(true);
+
+      const newPaid = oldPaid + paid;
+      const newRemaining = Math.max(debt - newPaid, 0);
+      const newStatus = newRemaining <= 0 ? "تم السداد" : "نشط";
+
+      const { data: paymentData, error: paymentError } = await supabase
+        .from("finance_payments")
+        .insert([
+          {
+            branch_id: branchId,
+            contract_id: selectedContract.id,
+            payment_amount: paid,
+            payment_type: paymentType,
+            notes: method,
+            created_by: "المدير",
+          },
+        ])
+        .select()
+        .single();
+
+      if (paymentError) {
+        alert(paymentError.message || "تعذر تسجيل السداد");
+        return;
+      }
+
+      const { error: contractError } = await supabase
+        .from("finance_contracts")
+        .update({
+          paid_amount: newPaid,
+          remaining_amount: newRemaining,
+          contract_status: newStatus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", selectedContract.id)
+        .eq("branch_id", branchId);
+
+      if (contractError) {
+        alert("تم تسجيل السداد، لكن تعذر تحديث العقد");
+        return;
+      }
+
+      await supabase.from("finance_activity_logs").insert([
         {
           branch_id: branchId,
+          activity_type: "سداد",
+          description: `تم تسجيل سداد للعميل ${
+            selectedContract.customer_name || ""
+          } بمبلغ ${paid} ر.س`,
+          customer_id: selectedContract.customer_id,
           contract_id: selectedContract.id,
-          payment_amount: paid,
-          payment_type: paymentType,
-          notes: method,
-          created_by: "المدير",
+          payment_id: paymentData.id,
+          customer_name: selectedContract.customer_name || "",
+          employee_name: "المدير",
+          status: newStatus,
         },
-      ])
-      .select()
-      .single();
+      ]);
 
-    if (paymentError) {
-      alert("تعذر تسجيل السداد");
-      return;
+      alert("تم تسجيل السداد بنجاح");
+      window.location.href = `/finance/${branch}/contracts/${selectedContract.id}`;
+    } finally {
+      setSaving(false);
     }
-
-    const { error: contractError } = await supabase
-      .from("finance_contracts")
-      .update({
-        paid_amount: newPaid,
-        remaining_amount: newRemaining,
-        contract_status: newStatus,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", selectedContract.id)
-      .eq("branch_id", branchId);
-
-    if (contractError) {
-      alert("تم تسجيل السداد، لكن تعذر تحديث العقد");
-      return;
-    }
-
-    await supabase.from("finance_activity_logs").insert([
-      {
-        branch_id: branchId,
-        activity_type: "سداد",
-        description: `تم تسجيل سداد للعميل ${
-          selectedContract.finance_customers?.full_name || ""
-        } بمبلغ ${paid} ر.س`,
-        customer_id: selectedContract.customer_id,
-        contract_id: selectedContract.id,
-        payment_id: paymentData.id,
-        customer_name: selectedContract.finance_customers?.full_name || "",
-        employee_name: "المدير",
-        status: newStatus,
-      },
-    ]);
-
-    alert("تم تسجيل السداد بنجاح");
-    window.location.href = `/finance/${branch}/contracts/${selectedContract.id}`;
   }
 
   return (
@@ -170,24 +208,37 @@ export default function NewPaymentPage() {
           <div style={searchRow}>
             <input
               style={input}
-              placeholder="بحث بالاسم أو رقم الهوية"
+              placeholder="بحث بالاسم أو رقم الهوية أو رقم العقد"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") searchContracts();
+              }}
             />
 
             <button style={searchButton} onClick={searchContracts}>
-              بحث
+              {searching ? "..." : "بحث"}
             </button>
           </div>
+
+          {contracts.length === 0 && search.trim() && !searching && (
+            <div style={emptyBox}>لا توجد عقود مطابقة</div>
+          )}
 
           {contracts.map((contract) => (
             <button
               key={contract.id}
               style={contractButton}
-              onClick={() => setSelectedContract(contract)}
+              onClick={() => {
+                setSelectedContract(contract);
+                setAmount("");
+                setPaymentType("");
+                setMethod("");
+              }}
             >
-              عقد رقم {contract.contract_number} -{" "}
-              {contract.finance_customers?.full_name}
+              عقد رقم {contract.contract_number || "-"} -{" "}
+              {contract.customer_name || "-"} - المتبقي{" "}
+              {contract.remaining_amount || 0} ر.س
             </button>
           ))}
         </section>
@@ -195,30 +246,38 @@ export default function NewPaymentPage() {
         {selectedContract && (
           <section style={card}>
             <h2 style={sectionTitle}>
-              عقد رقم {selectedContract.contract_number}
+              عقد رقم {selectedContract.contract_number || "-"}
             </h2>
 
+            <Row label="العميل" value={selectedContract.customer_name} />
             <Row
-              label="العميل"
-              value={selectedContract.finance_customers?.full_name}
+              label="رقم الهوية"
+              value={selectedContract.customer_national_id}
             />
             <Row
               label="مبلغ الدين"
-              value={`${selectedContract.debt_amount} ر.س`}
+              value={`${selectedContract.debt_amount || 0} ر.س`}
             />
             <Row
               label="المسدد"
-              value={`${selectedContract.paid_amount} ر.س`}
+              value={`${selectedContract.paid_amount || 0} ر.س`}
             />
             <Row
               label="المتبقي"
-              value={`${selectedContract.remaining_amount} ر.س`}
+              value={`${selectedContract.remaining_amount || 0} ر.س`}
             />
 
             <select
               style={input}
               value={paymentType}
-              onChange={(e) => setPaymentType(e.target.value)}
+              onChange={(e) => {
+                const value = e.target.value;
+                setPaymentType(value);
+
+                if (value === "كلي") {
+                  setAmount(String(selectedContract.remaining_amount || ""));
+                }
+              }}
             >
               <option value="">نوع السداد</option>
               <option value="كلي">كلي</option>
@@ -246,8 +305,8 @@ export default function NewPaymentPage() {
               <option value="تسوية">تسوية</option>
             </select>
 
-            <button style={primaryButton} onClick={savePayment}>
-              حفظ السداد
+            <button style={primaryButton} onClick={savePayment} disabled={saving}>
+              {saving ? "جاري الحفظ..." : "حفظ السداد"}
             </button>
           </section>
         )}
@@ -314,6 +373,7 @@ const input = {
   border: "1px solid #d9e3f5",
   fontSize: 16,
   marginBottom: 12,
+  boxSizing: "border-box" as const,
 };
 
 const searchButton = {
@@ -324,6 +384,7 @@ const searchButton = {
   borderRadius: 14,
   fontSize: 16,
   height: 50,
+  cursor: "pointer",
 };
 
 const contractButton = {
@@ -336,6 +397,16 @@ const contractButton = {
   cursor: "pointer",
   marginTop: 10,
   textAlign: "right" as const,
+};
+
+const emptyBox = {
+  background: "#f8fbff",
+  border: "1px dashed #cbd5e1",
+  borderRadius: 14,
+  padding: 18,
+  textAlign: "center" as const,
+  color: "#6b7280",
+  marginTop: 12,
 };
 
 const sectionTitle = {
@@ -359,14 +430,19 @@ const primaryButton = {
   border: "none",
   borderRadius: 14,
   fontSize: 17,
+  cursor: "pointer",
 };
 
 const backButton = {
   width: "100%",
   padding: 16,
-  background: "#111827",
-  color: "white",
+  background: "#16a34a",
+  color: "#ffffff",
   border: "none",
   borderRadius: 14,
   fontSize: 17,
+  fontWeight: "bold",
+  marginTop: 18,
+  cursor: "pointer",
+  boxShadow: "0 4px 12px rgba(22,163,74,0.25)",
 };
