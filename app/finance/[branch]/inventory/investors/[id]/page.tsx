@@ -15,9 +15,43 @@ export default function InvestorDetailsPage() {
   const [contractsCount, setContractsCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
+  const [permissions, setPermissions] = useState<string[]>([]);
+  const [roles, setRoles] = useState<string[]>([]);
+
   useEffect(() => {
+    loadCurrentUserPermissions();
     loadInvestor();
   }, [branch, investorId]);
+
+  function loadCurrentUserPermissions() {
+    const savedUser =
+      typeof window !== "undefined"
+        ? localStorage.getItem("finance_user")
+        : null;
+
+    if (!savedUser) {
+      setRoles(["مدير رئيسي"]);
+      setPermissions([]);
+      return;
+    }
+
+    try {
+      const user = JSON.parse(savedUser);
+      setRoles(user.roles || []);
+      setPermissions(user.permissions || []);
+    } catch {
+      setRoles(["مدير رئيسي"]);
+      setPermissions([]);
+    }
+  }
+
+  function hasPermission(permissionKey: string) {
+    return (
+      roles.includes("مدير رئيسي") ||
+      roles.includes("مدير") ||
+      permissions.includes(permissionKey)
+    );
+  }
 
   async function loadInvestor() {
     setLoading(true);
@@ -61,6 +95,11 @@ export default function InvestorDetailsPage() {
   }
 
   async function toggleInvestorStatus() {
+    if (!hasPermission("toggle_investor")) {
+      alert("لا تملك صلاحية تعطيل أو تفعيل المستثمرين");
+      return;
+    }
+
     if (!investor) return;
 
     const confirmed = confirm(
@@ -155,19 +194,23 @@ export default function InvestorDetailsPage() {
             }
           />
 
-          <ActionButton
-            title="✏️ تعديل المستثمر"
-            onClick={() =>
-              (window.location.href = `/finance/${branch}/inventory/investors/${investorId}/edit`)
-            }
-          />
+          {hasPermission("edit_investor") && (
+            <ActionButton
+              title="✏️ تعديل المستثمر"
+              onClick={() =>
+                (window.location.href = `/finance/${branch}/inventory/investors/${investorId}/edit`)
+              }
+            />
+          )}
 
-          <button
-            style={investor.is_active ? dangerButton : activateButton}
-            onClick={toggleInvestorStatus}
-          >
-            {investor.is_active ? "تعطيل المستثمر" : "تفعيل المستثمر"}
-          </button>
+          {hasPermission("toggle_investor") && (
+            <button
+              style={investor.is_active ? dangerButton : activateButton}
+              onClick={toggleInvestorStatus}
+            >
+              {investor.is_active ? "تعطيل المستثمر" : "تفعيل المستثمر"}
+            </button>
+          )}
         </section>
 
         <section style={card}>
