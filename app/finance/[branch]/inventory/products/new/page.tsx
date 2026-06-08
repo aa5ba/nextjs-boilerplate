@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
@@ -16,7 +16,53 @@ export default function NewProductPage() {
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
 
+  const [permissions, setPermissions] = useState<string[]>([]);
+  const [roles, setRoles] = useState<string[]>([]);
+  const [permissionLoaded, setPermissionLoaded] = useState(false);
+
+  useEffect(() => {
+    loadCurrentUserPermissions();
+  }, []);
+
+  function loadCurrentUserPermissions() {
+    const savedUser =
+      typeof window !== "undefined"
+        ? localStorage.getItem("finance_user")
+        : null;
+
+    if (!savedUser) {
+      setRoles(["مدير رئيسي"]);
+      setPermissions([]);
+      setPermissionLoaded(true);
+      return;
+    }
+
+    try {
+      const user = JSON.parse(savedUser);
+      setRoles(user.roles || []);
+      setPermissions(user.permissions || []);
+    } catch {
+      setRoles(["مدير رئيسي"]);
+      setPermissions([]);
+    }
+
+    setPermissionLoaded(true);
+  }
+
+  function hasPermission(permissionKey: string) {
+    return (
+      roles.includes("مدير رئيسي") ||
+      roles.includes("مدير") ||
+      permissions.includes(permissionKey)
+    );
+  }
+
   async function saveProduct() {
+    if (!hasPermission("add_product")) {
+      alert("لا تملك صلاحية إضافة المنتجات");
+      return;
+    }
+
     if (!productName.trim()) {
       alert("أدخل اسم المنتج");
       return;
@@ -54,6 +100,36 @@ export default function NewProductPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  if (!permissionLoaded) {
+    return (
+      <main dir="rtl" style={page}>
+        <div style={loadingBox}>جاري التحقق من الصلاحيات...</div>
+      </main>
+    );
+  }
+
+  if (!hasPermission("add_product")) {
+    return (
+      <main dir="rtl" style={page}>
+        <div style={container}>
+          <section style={deniedCard}>
+            <h1 style={{ marginTop: 0 }}>🚫 لا تملك صلاحية الوصول</h1>
+            <p>ليس لديك صلاحية إضافة المنتجات.</p>
+
+            <button
+              style={backButton}
+              onClick={() =>
+                (window.location.href = `/finance/${branch}/inventory`)
+              }
+            >
+              الرجوع للمخزون
+            </button>
+          </section>
+        </div>
+      </main>
+    );
   }
 
   return (
@@ -137,6 +213,15 @@ const card = {
   padding: 20,
 };
 
+const deniedCard = {
+  background: "white",
+  border: "1px solid #fecaca",
+  borderRadius: 18,
+  padding: 24,
+  color: "#991b1b",
+  textAlign: "center" as const,
+};
+
 const input = {
   width: "100%",
   padding: 14,
@@ -182,4 +267,14 @@ const backButton = {
   marginTop: 18,
   cursor: "pointer",
   boxShadow: "0 4px 12px rgba(22,163,74,0.25)",
+};
+
+const loadingBox = {
+  background: "white",
+  border: "1px solid #d9e3f5",
+  borderRadius: 18,
+  padding: 20,
+  textAlign: "center" as const,
+  color: "#0d47a1",
+  fontWeight: "bold",
 };
