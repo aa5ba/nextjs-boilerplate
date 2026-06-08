@@ -79,8 +79,8 @@ export default function NewPaymentPage() {
       .eq("branch_id", branchId)
       .in("contract_status", ["نشط", "متأخر"])
       .or(
-        `contract_number.ilike.%${normalizedSearch}%,customer_name.ilike.%${rawSearch}%,customer_national_id.ilike.%${normalizedSearch}%,customer_phone.ilike.%${normalizedSearch}%`
-      )
+  `customer_name.ilike.%${rawSearch}%,customer_national_id.ilike.%${normalizedSearch}%,customer_phone.ilike.%${normalizedSearch}%`
+)
       .order("created_at", { ascending: false });
 
     if (error) {
