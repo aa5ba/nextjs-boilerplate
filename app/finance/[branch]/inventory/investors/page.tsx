@@ -16,9 +16,43 @@ export default function InvestorsPage() {
   const [search, setSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
 
+  const [permissions, setPermissions] = useState<string[]>([]);
+  const [roles, setRoles] = useState<string[]>([]);
+
   useEffect(() => {
+    loadCurrentUserPermissions();
     loadInvestors();
   }, [branch]);
+
+  function loadCurrentUserPermissions() {
+    const savedUser =
+      typeof window !== "undefined"
+        ? localStorage.getItem("finance_user")
+        : null;
+
+    if (!savedUser) {
+      setRoles(["مدير رئيسي"]);
+      setPermissions([]);
+      return;
+    }
+
+    try {
+      const user = JSON.parse(savedUser);
+      setRoles(user.roles || []);
+      setPermissions(user.permissions || []);
+    } catch {
+      setRoles(["مدير رئيسي"]);
+      setPermissions([]);
+    }
+  }
+
+  function hasPermission(permissionKey: string) {
+    return (
+      roles.includes("مدير رئيسي") ||
+      roles.includes("مدير") ||
+      permissions.includes(permissionKey)
+    );
+  }
 
   async function loadInvestors() {
     const branchId = await getBranchId(branch);
@@ -64,6 +98,11 @@ export default function InvestorsPage() {
   }
 
   async function toggleInvestorStatus(investor: any) {
+    if (!hasPermission("toggle_investor")) {
+      alert("لا تملك صلاحية تعطيل أو تفعيل المستثمرين");
+      return;
+    }
+
     const confirmed = confirm(
       investor.is_active
         ? "هل تريد تعطيل هذا المستثمر؟"
@@ -121,15 +160,28 @@ export default function InvestorsPage() {
         </div>
 
         <section style={card}>
-          <input
-            style={searchInput}
-            placeholder="البحث باسم المستثمر أو الهوية أو الجوال"
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setCurrentPage(1);
-            }}
-          />
+          <div style={topActions}>
+            <input
+              style={searchInput}
+              placeholder="البحث باسم المستثمر أو الهوية أو الجوال"
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setCurrentPage(1);
+              }}
+            />
+
+            {hasPermission("add_investor") && (
+              <button
+                style={addButton}
+                onClick={() =>
+                  (window.location.href = `/finance/${branch}/inventory/investors/new`)
+                }
+              >
+                ➕ إضافة مستثمر
+              </button>
+            )}
+          </div>
         </section>
 
         <section style={card}>
@@ -191,21 +243,25 @@ export default function InvestorsPage() {
                     كشف
                   </button>
 
-                  <button
-                    style={smallGrayButton}
-                    onClick={() =>
-                      (window.location.href = `/finance/${branch}/inventory/investors/${investor.id}/edit`)
-                    }
-                  >
-                    تعديل
-                  </button>
+                  {hasPermission("edit_investor") && (
+                    <button
+                      style={smallGrayButton}
+                      onClick={() =>
+                        (window.location.href = `/finance/${branch}/inventory/investors/${investor.id}/edit`)
+                      }
+                    >
+                      تعديل
+                    </button>
+                  )}
 
-                  <button
-                    style={smallDangerButton}
-                    onClick={() => toggleInvestorStatus(investor)}
-                  >
-                    {investor.is_active ? "تعطيل" : "تفعيل"}
-                  </button>
+                  {hasPermission("toggle_investor") && (
+                    <button
+                      style={smallDangerButton}
+                      onClick={() => toggleInvestorStatus(investor)}
+                    >
+                      {investor.is_active ? "تعطيل" : "تفعيل"}
+                    </button>
+                  )}
                 </div>
               </div>
             ))
@@ -285,6 +341,13 @@ const card = {
   overflowX: "auto" as const,
 };
 
+const topActions = {
+  display: "grid",
+  gridTemplateColumns: "1fr 180px",
+  gap: 12,
+  alignItems: "center",
+};
+
 const searchInput = {
   width: "100%",
   padding: 14,
@@ -292,6 +355,18 @@ const searchInput = {
   border: "1px solid #d9e3f5",
   fontSize: 16,
   boxSizing: "border-box" as const,
+};
+
+const addButton = {
+  width: "100%",
+  padding: 14,
+  background: "#0d47a1",
+  color: "white",
+  border: "none",
+  borderRadius: 14,
+  fontSize: 16,
+  fontWeight: "bold",
+  cursor: "pointer",
 };
 
 const listHeader = {
