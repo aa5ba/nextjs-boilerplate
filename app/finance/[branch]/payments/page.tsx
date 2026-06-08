@@ -11,8 +11,10 @@ export default function FinancePaymentsPage() {
   const params = useParams();
   const branch = params.branch as string;
 
+  const [branchId, setBranchId] = useState<string | null>(null);
   const [payments, setPayments] = useState<any[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     loadPayments();
@@ -26,23 +28,133 @@ export default function FinancePaymentsPage() {
   }, [payments, currentPage]);
 
   async function loadPayments() {
-    const branchId = await getBranchId(branch);
+    setLoading(true);
 
-    if (!branchId) {
+    const currentBranchId = await getBranchId(branch);
+    setBranchId(currentBranchId);
+
+    if (!currentBranchId) {
       setPayments([]);
+      setLoading(false);
       return;
     }
 
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("finance_payments")
       .select(
-        "*, finance_contracts(id, customer_id, contract_number, finance_customers(full_name, national_id))"
+        `
+        *,
+        finance_contracts(
+          id,
+          customer_id,
+          contract_number,
+          customer_name,
+          debt_amount,
+          payment_amount,
+          paid_amount,
+          remaining_amount,
+          contract_status,
+          finance_customers(full_name, national_id)
+        )
+      `
       )
-      .eq("branch_id", branchId)
+      .eq("branch_id", currentBranchId)
       .order("created_at", { ascending: false });
+
+    if (error) {
+      alert(error.message);
+      setPayments([]);
+      setLoading(false);
+      return;
+    }
 
     setPayments(data || []);
     setCurrentPage(1);
+    setLoading(false);
+  }
+
+  async function cancelPayment(payment: any) {
+    if (!branchId) {
+      alert("تعذر تحديد الفرع");
+      return;
+    }
+
+    if (payment.is_cancelled) {
+      alert("عملية السداد ملغية مسبقًا");
+      return;
+    }
+
+    const contract = payment.finance_contracts;
+
+    if (!contract) {
+      alert("تعذر العثور على العقد المرتبط بعملية السداد");
+      return;
+    }
+
+    const confirmed = confirm(
+      `هل تريد إلغاء عملية السداد بمبلغ ${payment.payment_amount || 0} ر.س؟`
+    );
+
+    if (!confirmed) return;
+
+    const paymentAmount = Number(payment.payment_amount || 0);
+    const oldPaid = Number(contract.paid_amount || 0);
+    const debt = Number(contract.debt_amount || contract.payment_amount || 0);
+
+    const newPaid = Math.max(oldPaid - paymentAmount, 0);
+    const newRemaining = Math.max(debt - newPaid, 0);
+    const newStatus = newRemaining <= 0 ? "تم السداد" : "نشط";
+
+    const { error: paymentError } = await supabase
+      .from("finance_payments")
+      .update({
+        is_cancelled: true,
+      })
+      .eq("id", payment.id)
+      .eq("branch_id", branchId);
+
+    if (paymentError) {
+      alert(paymentError.message || "تعذر إلغاء عملية السداد");
+      return;
+    }
+
+    const { error: contractError } = await supabase
+      .from("finance_contracts")
+      .update({
+        paid_amount: newPaid,
+        remaining_amount: newRemaining,
+        contract_status: newStatus,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", payment.contract_id)
+      .eq("branch_id", branchId);
+
+    if (contractError) {
+      alert("تم إلغاء السداد، لكن تعذر تحديث العقد");
+      return;
+    }
+
+    await supabase.from("finance_activity_logs").insert([
+      {
+        branch_id: branchId,
+        activity_type: "إلغاء سداد",
+        description: `تم إلغاء عملية سداد بمبلغ ${paymentAmount} ر.س للعقد رقم ${
+          contract.contract_number || "-"
+        }`,
+        customer_id: contract.customer_id,
+        contract_id: payment.contract_id,
+        payment_id: payment.id,
+        customer_name:
+          contract.customer_name ||
+          contract.finance_customers?.full_name ||
+          "",
+        employee_name: "المدير",
+        status: newStatus,
+      },
+    ]);
+
+    alert("تم إلغاء عملية السداد بنجاح");
+    await loadPayments();
   }
 
   return (
@@ -62,7 +174,14 @@ export default function FinancePaymentsPage() {
             💳 إجراء سداد
           </button>
 
-          <button style={actionButton}>⛔ إلغاء عملية سداد</button>
+          <button
+            style={actionButton}
+            onClick={() =>
+              alert("لإلغاء عملية سداد، اضغط زر إلغاء بجانب العملية المطلوبة في الجدول.")
+            }
+          >
+            ⛔ إلغاء عملية سداد
+          </button>
         </section>
 
         <section style={card}>
@@ -83,52 +202,80 @@ export default function FinancePaymentsPage() {
             <span>المبلغ</span>
             <span>طريقة الدفع</span>
             <span>نوع السداد</span>
+            <span>الإجراء</span>
           </div>
 
-          {payments.length === 0 ? (
+          {loading ? (
+            <div style={emptyBox}>جاري تحميل عمليات السداد...</div>
+          ) : payments.length === 0 ? (
             <div style={emptyBox}>لا توجد عمليات سداد حتى الآن</div>
           ) : (
-            paginatedPayments.map((payment) => (
-              <div
-                key={payment.id}
-                style={{
-                  ...tableRow,
-                  opacity: payment.is_cancelled ? 0.6 : 1,
-                }}
-                onClick={() =>
-                  payment.finance_contracts?.contract_number &&
-                  (window.location.href = `/finance/${branch}/contracts/${payment.contract_id}`)
-                }
-              >
-                <span
+            paginatedPayments.map((payment) => {
+              const contract = payment.finance_contracts;
+              const customerName =
+                contract?.customer_name ||
+                contract?.finance_customers?.full_name ||
+                "-";
+
+              return (
+                <div
+                  key={payment.id}
                   style={{
-                    cursor: "pointer",
-                    color: "#0d47a1",
-                    fontWeight: "bold",
+                    ...tableRow,
+                    opacity: payment.is_cancelled ? 0.55 : 1,
                   }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-
-                    window.location.href = `/finance/${branch}/customers/${payment.finance_contracts?.customer_id}`;
-                  }}
+                  onClick={() =>
+                    payment.contract_id &&
+                    (window.location.href = `/finance/${branch}/contracts/${payment.contract_id}`)
+                  }
                 >
-                  {payment.finance_contracts?.finance_customers?.full_name ||
-                    "-"}
-                </span>
+                  <span
+                    style={{
+                      cursor: "pointer",
+                      color: "#0d47a1",
+                      fontWeight: "bold",
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
 
-                <span>{payment.finance_contracts?.contract_number || "-"}</span>
+                      if (contract?.customer_id) {
+                        window.location.href = `/finance/${branch}/customers/${contract.customer_id}`;
+                      }
+                    }}
+                  >
+                    {customerName}
+                  </span>
 
-                <span>{payment.payment_amount || 0} ر.س</span>
+                  <span>{contract?.contract_number || "-"}</span>
 
-                <span>{payment.notes || "-"}</span>
+                  <span>{payment.payment_amount || 0} ر.س</span>
 
-                <span>
-                  {payment.is_cancelled
-                    ? "ملغية"
-                    : payment.payment_type || "-"}
-                </span>
-              </div>
-            ))
+                  <span>{payment.notes || "-"}</span>
+
+                  <span>
+                    {payment.is_cancelled
+                      ? "ملغية"
+                      : payment.payment_type || "-"}
+                  </span>
+
+                  <span>
+                    {payment.is_cancelled ? (
+                      <span style={cancelledBadge}>ملغية</span>
+                    ) : (
+                      <button
+                        style={cancelButton}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          cancelPayment(payment);
+                        }}
+                      >
+                        إلغاء
+                      </button>
+                    )}
+                  </span>
+                </div>
+              );
+            })
           )}
 
           {payments.length > ITEMS_PER_PAGE && (
@@ -223,7 +370,7 @@ const card = {
 };
 
 const listHeader = {
-  minWidth: 850,
+  minWidth: 980,
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
@@ -245,9 +392,9 @@ const pageInfo = {
 
 const tableHeader = {
   display: "grid",
-  gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr",
+  gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr",
   gap: 12,
-  minWidth: 850,
+  minWidth: 980,
   background: "#f4f8ff",
   color: "#0d47a1",
   fontWeight: "bold",
@@ -258,16 +405,17 @@ const tableHeader = {
 
 const tableRow = {
   display: "grid",
-  gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr",
+  gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr",
   gap: 12,
-  minWidth: 850,
+  minWidth: 980,
   padding: 14,
   borderBottom: "1px solid #eef2f7",
   cursor: "pointer",
+  alignItems: "center",
 };
 
 const emptyBox = {
-  minWidth: 850,
+  minWidth: 980,
   background: "#f8fbff",
   border: "1px dashed #cbd5e1",
   borderRadius: 14,
@@ -276,8 +424,26 @@ const emptyBox = {
   color: "#6b7280",
 };
 
+const cancelButton = {
+  background: "#fee2e2",
+  color: "#991b1b",
+  border: "none",
+  borderRadius: 10,
+  padding: "8px 12px",
+  fontWeight: "bold",
+  cursor: "pointer",
+};
+
+const cancelledBadge = {
+  background: "#e5e7eb",
+  color: "#6b7280",
+  borderRadius: 999,
+  padding: "7px 12px",
+  fontWeight: "bold",
+};
+
 const paginationBox = {
-  minWidth: 850,
+  minWidth: 980,
   marginTop: 18,
   display: "flex",
   justifyContent: "center",
