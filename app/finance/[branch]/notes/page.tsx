@@ -397,12 +397,18 @@ export default function FinanceNotesPage() {
 
 function formatDate(date: string) {
   if (!date) return "-";
-  return new Date(date).toLocaleDateString("ar-SA");
+
+  const d = new Date(date);
+
+  return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
 }
 
 function formatDateTime(date: string) {
   if (!date) return "-";
-  return new Date(date).toLocaleString("ar-SA");
+
+  const d = new Date(date);
+
+  return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
 const page: React.CSSProperties = {
