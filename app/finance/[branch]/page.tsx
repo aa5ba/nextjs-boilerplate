@@ -8,12 +8,12 @@ import FinanceTrialSidebar from "./FinanceTrialSidebar";
 const sections = [
   { title: "سير العمل", path: "workflow", icon: "💼", permission: "workflow" },
   { title: "العملاء", path: "customers", icon: "👥", permission: "customers" },
-  { title: "طلب جديد", path: "new-request", icon: "➕🧩", permission: "contracts" },
+  { title: "طلب جديد", path: "new-request", icon: "➕", permission: "contracts" },
   { title: "سداد", path: "payments", icon: "💳", permission: "payments" },
   { title: "المخزون والمنتجات", path: "inventory", icon: "📦", permission: "inventory" },
   { title: "العقود", path: "contracts", icon: "📄", permission: "contracts" },
-  { title: "الملاحظات والتذكيرات", path: "notes", icon: "✏️", permission: "workflow" },
-  { title: "إدارة الصلاحيات", path: "permissions", icon: "🔐", permission: "settings" },
+  { title: "الملاحظات", path: "notes", icon: "✏️", permission: "workflow" },
+  { title: "الصلاحيات", path: "permissions", icon: "🔐", permission: "settings" },
   { title: "الإعدادات", path: "settings", icon: "⚙️", permission: "settings" },
 ];
 
@@ -210,9 +210,10 @@ export default function FinancePage() {
     return (
       <main dir="rtl" style={page}>
         <div style={container}>
-          <div style={header}>
-            <h1 style={headerTitle}>جاري تحميل الفرع...</h1>
-          </div>
+          <section style={hero}>
+            <p style={eyebrow}>محطة العمل</p>
+            <h1 style={heroTitle}>جاري تحميل الفرع...</h1>
+          </section>
         </div>
       </main>
     );
@@ -220,36 +221,26 @@ export default function FinancePage() {
 
   return (
     <main dir="rtl" style={page}>
-      <div style={backgroundLayer} />
-
       <div style={layout}>
         <FinanceTrialSidebar />
 
         <div style={container}>
-          <div style={header}>
-            <div style={organizationBadge}>🏢 {organizationName}</div>
-            <h1 style={headerTitle}>محطة العمل الرئيسية</h1>
-          </div>
+          <section style={hero}>
+            <div>
+              <p style={eyebrow}>محطة العمل</p>
+              <h1 style={heroTitle}>محطة العمل الرئيسية</h1>
+              <p style={heroSub}>🏢 {organizationName}</p>
+            </div>
+          </section>
 
-          <div style={grid}>
-            {visibleSections.map((item) => (
-              <Card
-                key={item.path}
-                title={item.title}
-                href={`/finance/${branch}/${item.path}`}
-                icon={item.icon}
-              />
-            ))}
-          </div>
-
-          <section style={smartSearchBox}>
+          <section style={searchCard}>
             <div style={searchInputWrap}>
               <span style={searchIcon}>🔎</span>
               <input
                 style={searchInput}
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
-                placeholder="البحث السريع : اسم العميل او الهويه او رقم الجوال ..."
+                placeholder="البحث السريع: اسم العميل، الهوية، الجوال، رقم العقد..."
               />
 
               {searchText && (
@@ -292,6 +283,24 @@ export default function FinancePage() {
               </div>
             )}
           </section>
+
+          <section style={sectionsCard}>
+            <div style={sectionHeader}>
+              <h2 style={sectionTitle}>الأقسام</h2>
+              <span style={sectionCount}>{visibleSections.length}</span>
+            </div>
+
+            <div style={grid}>
+              {visibleSections.map((item) => (
+                <Card
+                  key={item.path}
+                  title={item.title}
+                  href={`/finance/${branch}/${item.path}`}
+                  icon={item.icon}
+                />
+              ))}
+            </div>
+          </section>
         </div>
       </div>
     </main>
@@ -311,181 +320,111 @@ function Card({ title, href, icon }: any) {
   );
 }
 
-const page = {
+const page: React.CSSProperties = {
   minHeight: "100vh",
-  background: "transparent",
-  padding: 20,
+  background: "#f4f7fb",
+  padding: 18,
   fontFamily: "var(--font-almarai), sans-serif",
 };
 
-const backgroundLayer = {
-  position: "fixed" as const,
-  inset: 0,
-  zIndex: 0,
-  backgroundImage:
-    "url('/backgrounds/E9E9FD94-8BE8-4410-9168-2F1985604328.png')",
-  backgroundSize: "cover",
-  backgroundPosition: "center",
-  backgroundRepeat: "no-repeat",
-  pointerEvents: "none" as const,
-};
-
-const layout = {
-  position: "relative" as const,
-  zIndex: 1,
+const layout: React.CSSProperties = {
   width: "100%",
   maxWidth: 1420,
   margin: "auto",
   display: "flex",
-  gap: 20,
+  gap: 18,
   alignItems: "flex-start",
 };
 
-const container = {
+const container: React.CSSProperties = {
   width: "100%",
   maxWidth: 1100,
   margin: "auto",
 };
 
-const header = {
-  background:
-    "linear-gradient(135deg,rgba(13,71,161,.96),rgba(25,118,210,.94))",
+const hero: React.CSSProperties = {
+  background: "linear-gradient(135deg,#0f172a,#1e3a8a)",
   color: "white",
-  padding: "30px 20px",
-  borderRadius: 22,
-  marginBottom: 22,
-  boxShadow: "0 18px 45px rgba(13,71,161,.16)",
+  borderRadius: 24,
+  padding: 24,
+  marginBottom: 14,
+  boxShadow: "0 12px 30px rgba(15,23,42,0.12)",
 };
 
-const organizationBadge = {
-  width: "fit-content",
-  margin: "0 auto 14px auto",
-  background: "rgba(255,255,255,0.15)",
-  border: "1px solid rgba(255,255,255,0.25)",
-  padding: "10px 18px",
-  borderRadius: 14,
-  fontSize: 16,
-  fontWeight: "bold",
-  backdropFilter: "blur(6px)",
-};
-
-const headerTitle = {
+const eyebrow: React.CSSProperties = {
   margin: 0,
-  textAlign: "center" as const,
-  fontSize: 34,
-  fontWeight: 700,
-  letterSpacing: "0px",
+  opacity: 0.75,
+  fontSize: 14,
+};
+
+const heroTitle: React.CSSProperties = {
+  margin: "8px 0",
+  fontSize: 32,
   lineHeight: 1.4,
 };
 
-const grid = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(320px,1fr))",
-  gap: 18,
+const heroSub: React.CSSProperties = {
+  margin: 0,
+  opacity: 0.9,
+  fontSize: 16,
 };
 
-const card = {
-  width: "100%",
-  minHeight: 110,
-  background: "rgba(255,255,255,0.9)",
-  color: "#0f172a",
-  border: "1px solid rgba(217,227,245,.9)",
+const searchCard: React.CSSProperties = {
+  background: "white",
+  border: "1px solid #e2e8f0",
   borderRadius: 18,
-  padding: 18,
-  fontSize: 17,
-  fontWeight: "bold",
-  cursor: "pointer",
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  boxShadow: "0 14px 35px rgba(15,23,42,.06)",
-  backdropFilter: "blur(4px)",
+  padding: 12,
+  marginBottom: 14,
+  boxShadow: "0 8px 22px rgba(15,23,42,0.04)",
 };
 
-const cardRight = {
-  display: "flex",
-  alignItems: "center",
-  gap: 14,
-};
-
-const iconBox = {
-  width: 44,
-  height: 44,
-  borderRadius: 14,
-  background: "#eef5ff",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  fontSize: 22,
-};
-
-const cardTitle = {
-  color: "#0d47a1",
-  fontWeight: "bold",
-};
-
-const arrow = {
-  color: "#0d6efd",
-  fontSize: 28,
-};
-
-const smartSearchBox = {
-  marginTop: 18,
-  background: "rgba(255,255,255,0.92)",
-  border: "1px solid rgba(217,227,245,.95)",
-  borderRadius: 18,
-  padding: 14,
-  boxShadow: "0 14px 35px rgba(15,23,42,.07)",
-  backdropFilter: "blur(6px)",
-};
-
-const searchInputWrap = {
+const searchInputWrap: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: 10,
-  background: "#ffffff",
-  border: "1px solid #d9e3f5",
-  borderRadius: 16,
+  background: "#f8fafc",
+  border: "1px solid #dbe3ef",
+  borderRadius: 15,
   padding: "0 14px",
-  minHeight: 58,
+  minHeight: 56,
 };
 
-const searchIcon = {
-  fontSize: 22,
+const searchIcon: React.CSSProperties = {
+  fontSize: 21,
   color: "#64748b",
 };
 
-const searchInput = {
+const searchInput: React.CSSProperties = {
   width: "100%",
   border: "none",
   outline: "none",
-  fontSize: 17,
+  fontSize: 16,
   color: "#0f172a",
   background: "transparent",
   fontFamily: "var(--font-almarai), sans-serif",
 };
 
-const clearSearchButton = {
+const clearSearchButton: React.CSSProperties = {
   width: 34,
   height: 34,
   borderRadius: 999,
   border: "none",
-  background: "#eef2f7",
-  color: "#64748b",
+  background: "#e2e8f0",
+  color: "#475569",
   fontSize: 22,
   cursor: "pointer",
 };
 
-const resultsBox = {
+const resultsBox: React.CSSProperties = {
   marginTop: 12,
   display: "grid",
   gap: 10,
 };
 
-const resultItem = {
+const resultItem: React.CSSProperties = {
   width: "100%",
   border: "1px solid #e2e8f0",
-  background: "#f8fbff",
+  background: "#ffffff",
   borderRadius: 14,
   padding: 12,
   display: "grid",
@@ -493,40 +432,118 @@ const resultItem = {
   gap: 12,
   alignItems: "center",
   cursor: "pointer",
-  textAlign: "right" as const,
+  textAlign: "right",
 };
 
-const resultIcon = {
+const resultIcon: React.CSSProperties = {
   width: 44,
   height: 44,
   borderRadius: 14,
-  background: "#eef5ff",
+  background: "#eff6ff",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
   fontSize: 22,
 };
 
-const resultContent = {
+const resultContent: React.CSSProperties = {
   display: "flex",
-  flexDirection: "column" as const,
+  flexDirection: "column",
   gap: 5,
   color: "#0f172a",
 };
 
-const resultType = {
-  background: "#e0f2fe",
-  color: "#075985",
+const resultType: React.CSSProperties = {
+  background: "#dbeafe",
+  color: "#1d4ed8",
   borderRadius: 999,
   padding: "7px 12px",
   fontWeight: "bold",
   fontSize: 13,
 };
 
-const emptyResult = {
+const emptyResult: React.CSSProperties = {
   padding: 14,
-  textAlign: "center" as const,
+  textAlign: "center",
   color: "#64748b",
-  background: "#f8fbff",
+  background: "#f8fafc",
   borderRadius: 14,
+};
+
+const sectionsCard: React.CSSProperties = {
+  background: "white",
+  border: "1px solid #e2e8f0",
+  borderRadius: 20,
+  padding: 16,
+  boxShadow: "0 10px 24px rgba(15,23,42,0.05)",
+};
+
+const sectionHeader: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  marginBottom: 14,
+};
+
+const sectionTitle: React.CSSProperties = {
+  margin: 0,
+  color: "#0f172a",
+  fontSize: 22,
+};
+
+const sectionCount: React.CSSProperties = {
+  background: "#2563eb",
+  color: "white",
+  borderRadius: 999,
+  padding: "6px 12px",
+  fontWeight: 800,
+};
+
+const grid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit,minmax(230px,1fr))",
+  gap: 12,
+};
+
+const card: React.CSSProperties = {
+  width: "100%",
+  minHeight: 82,
+  background: "#ffffff",
+  color: "#0f172a",
+  border: "1px solid #e2e8f0",
+  borderRadius: 16,
+  padding: 14,
+  fontSize: 16,
+  fontWeight: 800,
+  cursor: "pointer",
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  boxShadow: "0 6px 16px rgba(15,23,42,0.04)",
+};
+
+const cardRight: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+};
+
+const iconBox: React.CSSProperties = {
+  width: 42,
+  height: 42,
+  borderRadius: 14,
+  background: "#eff6ff",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: 21,
+};
+
+const cardTitle: React.CSSProperties = {
+  color: "#0f172a",
+};
+
+const arrow: React.CSSProperties = {
+  color: "#2563eb",
+  fontSize: 26,
 };
