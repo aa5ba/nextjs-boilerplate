@@ -23,6 +23,9 @@ export default function FinanceInventoryPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(true);
 
+  const [permissions, setPermissions] = useState<string[]>([]);
+  const [roles, setRoles] = useState<string[]>([]);
+
   useEffect(() => {
     loadInventory();
   }, [branch]);
@@ -31,8 +34,39 @@ export default function FinanceInventoryPage() {
     setCurrentPage(1);
   }, [searchTerm, statusFilter]);
 
+  function loadCurrentUserPermissions() {
+    const savedUser =
+      typeof window !== "undefined"
+        ? localStorage.getItem("finance_user")
+        : null;
+
+    if (!savedUser) {
+      setRoles(["مدير رئيسي"]);
+      setPermissions([]);
+      return;
+    }
+
+    try {
+      const user = JSON.parse(savedUser);
+      setRoles(user.roles || []);
+      setPermissions(user.permissions || []);
+    } catch {
+      setRoles(["مدير رئيسي"]);
+      setPermissions([]);
+    }
+  }
+
+  function hasPermission(permissionKey: string) {
+    return (
+      roles.includes("مدير رئيسي") ||
+      roles.includes("مدير") ||
+      permissions.includes(permissionKey)
+    );
+  }
+
   async function loadInventory() {
     setLoading(true);
+    loadCurrentUserPermissions();
 
     const branchId = await getBranchId(branch);
 
@@ -110,7 +144,10 @@ export default function FinanceInventoryPage() {
       });
   }, [items, searchTerm, statusFilter]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredItems.length / ITEMS_PER_PAGE));
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredItems.length / ITEMS_PER_PAGE)
+  );
 
   const paginatedItems = useMemo(() => {
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -141,28 +178,32 @@ export default function FinanceInventoryPage() {
             }
           />
 
-          <ActionButton
-            icon="👤"
-            title="إضافة مستثمر"
-            onClick={() =>
-              (window.location.href = `/finance/${branch}/inventory/investors/new`)
-            }
+          {hasPermission("add_investor") && (
+            <ActionButton
+              icon="👤"
+              title="إضافة مستثمر"
+              onClick={() =>
+                (window.location.href = `/finance/${branch}/inventory/investors/new`)
+              }
             />
+          )}
 
           <ActionButton
-  icon="👥"
-  title="المستثمرين"
-  onClick={() =>
-    (window.location.href = `/finance/${branch}/inventory/investors`)
-  }
-/>
+            icon="👥"
+            title="المستثمرين"
+            onClick={() =>
+              (window.location.href = `/finance/${branch}/inventory/investors`)
+            }
+          />
+
           <ActionButton
-  icon="📦"
-  title="المنتجات"
-  onClick={() =>
-    (window.location.href = `/finance/${branch}/inventory/products`)
-  }
-/>
+            icon="📦"
+            title="المنتجات"
+            onClick={() =>
+              (window.location.href = `/finance/${branch}/inventory/products`)
+            }
+          />
+
           <ActionButton
             icon="📦"
             title="إضافة كمية للمخزون"
