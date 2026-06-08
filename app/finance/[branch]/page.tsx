@@ -1,20 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import FinanceTrialSidebar from "./FinanceTrialSidebar";
 
 const sections = [
-  { title: "سير العمل", path: "workflow", icon: "💼" },
-  { title: "العملاء", path: "customers", icon: "👥" },
-  { title: "طلب جديد", path: "new-request", icon: "➕🧩" },
-  { title: "سداد", path: "payments", icon: "💳" },
-  { title: "المخزون والمنتجات", path: "inventory", icon: "📦" },
-  { title: "العقود", path: "contracts", icon: "📄" },
-  { title: "الملاحظات والتذكيرات", path: "notes", icon: "✏️" },
-  { title: "إدارة الصلاحيات", path: "permissions", icon: "🔐" },
-  { title: "الإعدادات", path: "settings", icon: "⚙️" },
+  { title: "سير العمل", path: "workflow", icon: "💼", permission: "workflow" },
+  { title: "العملاء", path: "customers", icon: "👥", permission: "customers" },
+  { title: "طلب جديد", path: "new-request", icon: "➕🧩", permission: "contracts" },
+  { title: "سداد", path: "payments", icon: "💳", permission: "payments" },
+  { title: "المخزون والمنتجات", path: "inventory", icon: "📦", permission: "inventory" },
+  { title: "العقود", path: "contracts", icon: "📄", permission: "contracts" },
+  { title: "الملاحظات والتذكيرات", path: "notes", icon: "✏️", permission: "workflow" },
+  { title: "إدارة الصلاحيات", path: "permissions", icon: "🔐", permission: "settings" },
+  { title: "الإعدادات", path: "settings", icon: "⚙️", permission: "settings" },
 ];
 
 export default function FinancePage() {
@@ -25,11 +25,16 @@ export default function FinancePage() {
   const [branchId, setBranchId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const [permissions, setPermissions] = useState<string[]>([]);
+  const [roles, setRoles] = useState<string[]>([]);
+
   const [searchText, setSearchText] = useState("");
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
 
   useEffect(() => {
+    loadCurrentUserPermissions();
+
     if (branch) {
       loadBranch();
     }
@@ -41,7 +46,41 @@ export default function FinancePage() {
     }, 400);
 
     return () => clearTimeout(timer);
-  }, [searchText, branchId]);
+  }, [searchText, branchId, permissions, roles]);
+
+  function loadCurrentUserPermissions() {
+    const savedUser =
+      typeof window !== "undefined"
+        ? localStorage.getItem("finance_user")
+        : null;
+
+    if (!savedUser) {
+      setRoles(["مدير رئيسي"]);
+      setPermissions([]);
+      return;
+    }
+
+    try {
+      const user = JSON.parse(savedUser);
+      setRoles(user.roles || []);
+      setPermissions(user.permissions || []);
+    } catch {
+      setRoles(["مدير رئيسي"]);
+      setPermissions([]);
+    }
+  }
+
+  function hasPermission(permissionKey: string) {
+    return (
+      roles.includes("مدير رئيسي") ||
+      roles.includes("مدير") ||
+      permissions.includes(permissionKey)
+    );
+  }
+
+  const visibleSections = useMemo(() => {
+    return sections.filter((item) => hasPermission(item.permission));
+  }, [permissions, roles]);
 
   async function loadBranch() {
     const { data, error } = await supabase
@@ -79,9 +118,10 @@ export default function FinancePage() {
     setSearchLoading(true);
 
     const safeQuery = query.replace(/,/g, " ");
+    const requests: Promise<any>[] = [];
 
-    const [customersResult, contractsResult, investorsResult] =
-      await Promise.all([
+    if (hasPermission("customers")) {
+      requests.push(
         supabase
           .from("finance_customers")
           .select("id, full_name, national_id, phone")
@@ -89,8 +129,14 @@ export default function FinancePage() {
           .or(
             `full_name.ilike.%${safeQuery}%,national_id.ilike.%${safeQuery}%,phone.ilike.%${safeQuery}%`
           )
-          .limit(5),
+          .limit(5)
+      );
+    } else {
+      requests.push(Promise.resolve({ data: [] }));
+    }
 
+    if (hasPermission("contracts")) {
+      requests.push(
         supabase
           .from("finance_contracts")
           .select(
@@ -100,8 +146,14 @@ export default function FinancePage() {
           .or(
             `contract_number.ilike.%${safeQuery}%,customer_name.ilike.%${safeQuery}%,customer_national_id.ilike.%${safeQuery}%,customer_phone.ilike.%${safeQuery}%,investor_name.ilike.%${safeQuery}%`
           )
-          .limit(5),
+          .limit(5)
+      );
+    } else {
+      requests.push(Promise.resolve({ data: [] }));
+    }
 
+    if (hasPermission("inventory")) {
+      requests.push(
         supabase
           .from("finance_investors")
           .select("id, investor_name, national_id, commercial_record")
@@ -109,11 +161,17 @@ export default function FinancePage() {
           .or(
             `investor_name.ilike.%${safeQuery}%,national_id.ilike.%${safeQuery}%,commercial_record.ilike.%${safeQuery}%`
           )
-          .limit(5),
-      ]);
+          .limit(5)
+      );
+    } else {
+      requests.push(Promise.resolve({ data: [] }));
+    }
+
+    const [customersResult, contractsResult, investorsResult] =
+      await Promise.all(requests);
 
     const customers =
-      customersResult.data?.map((item) => ({
+      customersResult.data?.map((item: any) => ({
         id: item.id,
         type: "عميل",
         icon: "👤",
@@ -123,25 +181,25 @@ export default function FinancePage() {
       })) || [];
 
     const contracts =
-      contractsResult.data?.map((item) => ({
+      contractsResult.data?.map((item: any) => ({
         id: item.id,
         type: "عقد",
         icon: "📄",
         title: `عقد رقم ${item.contract_number || "-"}`,
-        subtitle: `${item.customer_name || "-"} | ${item.customer_phone || "-"} | ${
-          item.investor_name || "-"
-        }`,
+        subtitle: `${item.customer_name || "-"} | ${
+          item.customer_phone || "-"
+        } | ${item.investor_name || "-"}`,
         href: `/finance/${branch}/contracts/${item.id}`,
       })) || [];
 
     const investors =
-      investorsResult.data?.map((item) => ({
+      investorsResult.data?.map((item: any) => ({
         id: item.id,
         type: "مستثمر",
         icon: "🏦",
         title: item.investor_name || "-",
         subtitle: item.national_id || item.commercial_record || "-",
-        href: `/finance/${branch}/inventory`,
+        href: `/finance/${branch}/inventory/investors/${item.id}`,
       })) || [];
 
     setSearchResults([...customers, ...contracts, ...investors]);
@@ -174,7 +232,7 @@ export default function FinancePage() {
           </div>
 
           <div style={grid}>
-            {sections.map((item) => (
+            {visibleSections.map((item) => (
               <Card
                 key={item.path}
                 title={item.title}
@@ -193,6 +251,7 @@ export default function FinancePage() {
                 onChange={(e) => setSearchText(e.target.value)}
                 placeholder="بحث ذكي: اسم عميل، جوال، رقم عقد، أو مستثمر..."
               />
+
               {searchText && (
                 <button
                   style={clearSearchButton}
