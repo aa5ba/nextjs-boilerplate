@@ -118,7 +118,7 @@ export default function FinancePage() {
     setSearchLoading(true);
 
     const safeQuery = query.replace(/,/g, " ");
-    const requests: Promise<any>[] = [];
+    const requests: any[] = [];
 
     if (hasPermission("customers")) {
       requests.push(
