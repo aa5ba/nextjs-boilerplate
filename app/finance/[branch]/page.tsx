@@ -34,10 +34,7 @@ export default function FinancePage() {
 
   useEffect(() => {
     loadCurrentUserPermissions();
-
-    if (branch) {
-      loadBranch();
-    }
+    if (branch) loadBranch();
   }, [branch]);
 
   useEffect(() => {
@@ -209,8 +206,6 @@ export default function FinancePage() {
   if (loading) {
     return (
       <main dir="rtl" style={page}>
-        <div style={backgroundLayer} />
-
         <div style={loadingContainer}>
           <section style={hero}>
             <h1 style={heroTitle}>جاري تحميل الفرع...</h1>
@@ -222,8 +217,6 @@ export default function FinancePage() {
 
   return (
     <main dir="rtl" style={page}>
-      <div style={backgroundLayer} />
-
       <div style={layout}>
         <div className="desktop-sidebar">
           <FinanceTrialSidebar />
@@ -231,10 +224,8 @@ export default function FinancePage() {
 
         <div style={container}>
           <section style={hero}>
-            <div>
-              <h1 style={heroTitle}>الصفحة الرئيسية</h1>
-              <p style={heroSub}>🏢 {organizationName}</p>
-            </div>
+            <h1 style={heroTitle}>الصفحة الرئيسية</h1>
+            <p style={heroSub}>🏢 {organizationName}</p>
           </section>
 
           <section style={searchCard}>
@@ -289,11 +280,6 @@ export default function FinancePage() {
           </section>
 
           <section style={sectionsCard}>
-            <div style={sectionHeader}>
-              <h2 style={sectionTitle}>الأقسام</h2>
-              <span style={sectionCount}>{visibleSections.length}</span>
-            </div>
-
             <div style={grid}>
               {visibleSections.map((item) => (
                 <Card
@@ -338,36 +324,25 @@ function Card({ title, href, icon }: any) {
 
 const page: React.CSSProperties = {
   minHeight: "100vh",
-  background: "#f4f7fb",
-  padding: 18,
-  fontFamily: "var(--font-almarai), sans-serif",
-  position: "relative",
-  overflowX: "hidden",
-};
-
-const backgroundLayer: React.CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  zIndex: 0,
-  backgroundImage: "url('/backgrounds/finance-bg.webp')",
+  backgroundColor: "#f4f7fb",
+  backgroundImage:
+    "linear-gradient(rgba(244,247,251,0.72), rgba(244,247,251,0.72)), url('/backgrounds/finance-bg.webp')",
   backgroundSize: "cover",
   backgroundPosition: "center",
   backgroundRepeat: "no-repeat",
-  opacity: 0.18,
-  pointerEvents: "none",
+  backgroundAttachment: "fixed",
+  padding: 18,
+  fontFamily: "var(--font-almarai), sans-serif",
+  overflowX: "hidden",
 };
 
 const loadingContainer: React.CSSProperties = {
-  position: "relative",
-  zIndex: 1,
   width: "100%",
   maxWidth: 1100,
   margin: "auto",
 };
 
 const layout: React.CSSProperties = {
-  position: "relative",
-  zIndex: 1,
   width: "100%",
   maxWidth: 1420,
   margin: "auto",
@@ -512,27 +487,6 @@ const sectionsCard: React.CSSProperties = {
   padding: 16,
   boxShadow: "0 10px 24px rgba(15,23,42,0.05)",
   backdropFilter: "blur(6px)",
-};
-
-const sectionHeader: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  marginBottom: 14,
-};
-
-const sectionTitle: React.CSSProperties = {
-  margin: 0,
-  color: "#0f172a",
-  fontSize: 22,
-};
-
-const sectionCount: React.CSSProperties = {
-  background: "#2563eb",
-  color: "white",
-  borderRadius: 999,
-  padding: "6px 12px",
-  fontWeight: 800,
 };
 
 const grid: React.CSSProperties = {
