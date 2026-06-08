@@ -19,9 +19,54 @@ export default function EditProductPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  const [permissions, setPermissions] = useState<string[]>([]);
+  const [roles, setRoles] = useState<string[]>([]);
+  const [permissionLoaded, setPermissionLoaded] = useState(false);
+
   useEffect(() => {
-    loadProduct();
-  }, [branch, productId]);
+    loadCurrentUserPermissions();
+  }, []);
+
+  useEffect(() => {
+    if (permissionLoaded && hasPermission("edit_product")) {
+      loadProduct();
+    } else if (permissionLoaded) {
+      setLoading(false);
+    }
+  }, [permissionLoaded, branch, productId]);
+
+  function loadCurrentUserPermissions() {
+    const savedUser =
+      typeof window !== "undefined"
+        ? localStorage.getItem("finance_user")
+        : null;
+
+    if (!savedUser) {
+      setRoles(["مدير رئيسي"]);
+      setPermissions([]);
+      setPermissionLoaded(true);
+      return;
+    }
+
+    try {
+      const user = JSON.parse(savedUser);
+      setRoles(user.roles || []);
+      setPermissions(user.permissions || []);
+    } catch {
+      setRoles(["مدير رئيسي"]);
+      setPermissions([]);
+    }
+
+    setPermissionLoaded(true);
+  }
+
+  function hasPermission(permissionKey: string) {
+    return (
+      roles.includes("مدير رئيسي") ||
+      roles.includes("مدير") ||
+      permissions.includes(permissionKey)
+    );
+  }
 
   async function loadProduct() {
     setLoading(true);
@@ -56,6 +101,11 @@ export default function EditProductPage() {
   }
 
   async function saveProduct() {
+    if (!hasPermission("edit_product")) {
+      alert("لا تملك صلاحية تعديل المنتجات");
+      return;
+    }
+
     if (!productName.trim()) {
       alert("أدخل اسم المنتج");
       return;
@@ -100,10 +150,36 @@ export default function EditProductPage() {
     }
   }
 
-  if (loading) {
+  if (!permissionLoaded || loading) {
     return (
       <main dir="rtl" style={page}>
-        <div style={loadingBox}>جاري تحميل بيانات المنتج...</div>
+        <div style={loadingBox}>
+          {!permissionLoaded
+            ? "جاري التحقق من الصلاحيات..."
+            : "جاري تحميل بيانات المنتج..."}
+        </div>
+      </main>
+    );
+  }
+
+  if (!hasPermission("edit_product")) {
+    return (
+      <main dir="rtl" style={page}>
+        <div style={container}>
+          <section style={deniedCard}>
+            <h1 style={{ marginTop: 0 }}>🚫 لا تملك صلاحية الوصول</h1>
+            <p>ليس لديك صلاحية تعديل المنتجات.</p>
+
+            <button
+              style={backButton}
+              onClick={() =>
+                (window.location.href = `/finance/${branch}/inventory/products/${productId}`)
+              }
+            >
+              الرجوع لملف المنتج
+            </button>
+          </section>
+        </div>
       </main>
     );
   }
@@ -189,6 +265,15 @@ const card = {
   border: "1px solid #d9e3f5",
   borderRadius: 18,
   padding: 20,
+};
+
+const deniedCard = {
+  background: "white",
+  border: "1px solid #fecaca",
+  borderRadius: 18,
+  padding: 24,
+  color: "#991b1b",
+  textAlign: "center" as const,
 };
 
 const input = {
