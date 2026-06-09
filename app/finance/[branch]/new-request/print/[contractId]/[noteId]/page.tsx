@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { getOrganizationSettings } from "@/lib/getOrganizationSettings";
 
 export default function PrintNewRequestPage() {
   const params = useParams();
@@ -81,26 +80,11 @@ export default function PrintNewRequestPage() {
       .eq("id", noteId)
       .single();
 
-    const oldSettings = await getOrganizationSettings();
-
     setOrganizationSettings({
-      name:
-        branchData?.organization_name ||
-        oldSettings?.name ||
-        "احتساب",
-      phone:
-        branchData?.phone ||
-        oldSettings?.phone ||
-        "",
-      city:
-        branchData?.city ||
-        oldSettings?.city ||
-        branchData?.branch_name ||
-        "",
-      commercialRecord:
-        branchData?.commercial_record ||
-        oldSettings?.commercialRecord ||
-        "",
+      name: branchData?.organization_name || "احتساب",
+      phone: branchData?.phone || "",
+      city: branchData?.city || branchData?.branch_name || "",
+      commercialRecord: branchData?.commercial_record || "",
     });
 
     setContract(contractData);
@@ -142,14 +126,20 @@ export default function PrintNewRequestPage() {
       contract?.first_party_name ||
       contract?.investor_name ||
       "................"
-    : organizationSettings.name || "................";
+    : contract?.print_party_name ||
+      contract?.first_party_name ||
+      organizationSettings.name ||
+      "................";
 
   const firstPartyIdentifier = isInvestorParty
     ? contract?.print_party_identifier ||
       contract?.first_party_identifier ||
       contract?.investor_national_id ||
       ""
-    : organizationSettings.commercialRecord || "";
+    : contract?.print_party_identifier ||
+      contract?.first_party_identifier ||
+      organizationSettings.commercialRecord ||
+      "";
 
   const firstPartyIdentifierLabel = isInvestorParty
     ? "رقم الهوية"
