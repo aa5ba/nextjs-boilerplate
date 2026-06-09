@@ -17,6 +17,9 @@ type Branch = {
   branch_name: string;
   branch_slug: string;
   organization_name: string;
+  city: string | null;
+  commercial_record: string | null;
+  phone: string | null;
   is_active: boolean;
   notes: string | null;
   created_at: string;
@@ -58,6 +61,9 @@ export default function AdminSupportPage() {
   const [branchName, setBranchName] = useState("");
   const [branchSlug, setBranchSlug] = useState("");
   const [organizationName, setOrganizationName] = useState("");
+  const [branchCity, setBranchCity] = useState("");
+  const [branchCommercialRecord, setBranchCommercialRecord] = useState("");
+  const [branchPhone, setBranchPhone] = useState("");
   const [branchNotes, setBranchNotes] = useState("");
 
   const [showUserForm, setShowUserForm] = useState(false);
@@ -186,6 +192,9 @@ export default function AdminSupportPage() {
       branch_name: branchName.trim(),
       branch_slug: branchSlug.trim().toLowerCase(),
       organization_name: organizationName.trim(),
+      city: branchCity.trim() || null,
+      commercial_record: branchCommercialRecord.trim() || null,
+      phone: branchPhone.trim() || null,
       notes: branchNotes.trim() || null,
       updated_at: new Date().toISOString(),
     };
@@ -247,6 +256,9 @@ export default function AdminSupportPage() {
     setBranchName(branch.branch_name || "");
     setBranchSlug(branch.branch_slug || "");
     setOrganizationName(branch.organization_name || "");
+    setBranchCity(branch.city || "");
+    setBranchCommercialRecord(branch.commercial_record || "");
+    setBranchPhone(branch.phone || "");
     setBranchNotes(branch.notes || "");
     setShowBranchForm(true);
     setActiveTab("branches");
@@ -258,6 +270,9 @@ export default function AdminSupportPage() {
     setBranchName("");
     setBranchSlug("");
     setOrganizationName("");
+    setBranchCity("");
+    setBranchCommercialRecord("");
+    setBranchPhone("");
     setBranchNotes("");
     setShowBranchForm(false);
   }
@@ -555,6 +570,38 @@ export default function AdminSupportPage() {
                         placeholder="مثال: مؤسسة سداد وأرقام"
                       />
                     </div>
+
+                    <div>
+                      <label style={label}>المدينة</label>
+                      <input
+                        style={input}
+                        value={branchCity}
+                        onChange={(e) => setBranchCity(e.target.value)}
+                        placeholder="مثال: حائل"
+                      />
+                    </div>
+
+                    <div>
+                      <label style={label}>السجل التجاري</label>
+                      <input
+                        style={input}
+                        value={branchCommercialRecord}
+                        onChange={(e) =>
+                          setBranchCommercialRecord(e.target.value)
+                        }
+                        placeholder="مثال: 7049981769"
+                      />
+                    </div>
+
+                    <div>
+                      <label style={label}>رقم الجوال</label>
+                      <input
+                        style={input}
+                        value={branchPhone}
+                        onChange={(e) => setBranchPhone(e.target.value)}
+                        placeholder="مثال: 05xxxxxxxx"
+                      />
+                    </div>
                   </div>
 
                   <div style={{ marginTop: 12 }}>
@@ -590,6 +637,11 @@ export default function AdminSupportPage() {
                         <div>
                           <h3 style={branchTitle}>{branch.branch_name}</h3>
                           <p style={muted}>🏢 {branch.organization_name}</p>
+                          <p style={muted}>📍 {branch.city || "لم تحدد المدينة"}</p>
+                          <p style={muted}>
+                            🧾 {branch.commercial_record || "لا يوجد سجل تجاري"}
+                          </p>
+                          <p style={muted}>📱 {branch.phone || "لا يوجد رقم جوال"}</p>
                           <p style={muted}>/finance/{branch.branch_slug}</p>
                         </div>
                       </div>
