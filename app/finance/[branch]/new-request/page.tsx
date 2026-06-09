@@ -5,7 +5,6 @@ import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
 import { normalizeNumber, toNumber } from "@/lib/numberUtils";
-import { getOrganizationSettings } from "@/lib/getOrganizationSettings";
 
 export default function NewRequestPage() {
   const params = useParams();
@@ -227,19 +226,27 @@ export default function NewRequestPage() {
         if (!confirmContinue) return;
       }
 
-      const organizationSettings = await getOrganizationSettings();
+      const { data: branchData, error: branchError } = await supabase
+  .from("finance_branches")
+  .select("organization_name, commercial_record")
+  .eq("id", branchId)
+  .single();
 
-      const printPartyName =
-        printPartyType === "organization"
-          ? organizationSettings.name
-          : selectedInvestor.investor_name;
+if (branchError) {
+  throw new Error("تعذر جلب بيانات الفرع: " + branchError.message);
+}
 
-      const printPartyIdentifier =
-        printPartyType === "organization"
-          ? organizationSettings.commercialRecord
-          : selectedInvestor.national_id;
+const printPartyName =
+  printPartyType === "organization"
+    ? branchData?.organization_name || ""
+    : selectedInvestor.investor_name;
 
-      const birthHijri = `${birthDay}/${birthMonth}/${birthYear}`;
+const printPartyIdentifier =
+  printPartyType === "organization"
+    ? branchData?.commercial_record || ""
+    : selectedInvestor.national_id;
+
+const birthHijri = `${birthDay}/${birthMonth}/${birthYear}`;
 
       const { data: requestData, error: rpcError } = await supabase.rpc(
         "create_new_request_atomic",
@@ -814,9 +821,9 @@ const primaryButton = {
 const backButton = {
   width: "100%",
   padding: 16,
-  background: "#e5e7eb",
-  color: "#0d47a1",
-  border: "1px solid #cbd5e1",
+  background: "#16a34a",
+  color: "white",
+  border: "none",
   borderRadius: 14,
   fontSize: 17,
   fontWeight: "bold",
