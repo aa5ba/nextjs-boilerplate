@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
-import { getOrganizationSettings } from "@/lib/getOrganizationSettings";
 import { exportElementToPdf } from "@/lib/exportElementToPdf";
 
 export default function PrintContractPage() {
@@ -53,6 +52,12 @@ export default function PrintContractPage() {
       return;
     }
 
+    const { data: branchData } = await supabase
+      .from("finance_branches")
+      .select("organization_name, phone, city, commercial_record, branch_name")
+      .eq("id", branchId)
+      .single();
+
     const { data } = await supabase
       .from("finance_contracts")
       .select(
@@ -62,40 +67,66 @@ export default function PrintContractPage() {
       .eq("branch_id", branchId)
       .single();
 
-    const orgSettings = await getOrganizationSettings();
+    setOrganizationSettings({
+      name: branchData?.organization_name || "احتساب",
+      phone: branchData?.phone || "",
+      city: branchData?.city || branchData?.branch_name || "",
+      commercialRecord: branchData?.commercial_record || "",
+    });
 
-    setOrganizationSettings(orgSettings);
     setContract(data);
   }
 
   const customerName =
-    contract?.finance_customers?.full_name || "................";
-
-  const nationalId =
-    contract?.finance_customers?.national_id || "................";
-
-  const phone = contract?.finance_customers?.phone || "................";
-
-  const birthHijri =
-    contract?.finance_customers?.birth_hijri || "................";
-
-  const firstPartyName =
-    contract?.print_party_name ||
-    contract?.first_party_name ||
-    contract?.investor_name ||
-    organizationSettings.name ||
+    contract?.finance_customers?.full_name ||
+    contract?.customer_name ||
     "................";
 
-  const firstPartyIdentifier =
-    contract?.print_party_identifier ||
-    contract?.first_party_identifier ||
-    "";
+  const nationalId =
+    contract?.finance_customers?.national_id ||
+    contract?.customer_national_id ||
+    "................";
 
-  const firstPartyIdentifierLabel =
-    contract?.print_party_type === "investor" ||
-    contract?.first_party_type === "investor"
-      ? "رقم الهوية"
-      : "السجل التجاري";
+  const phone =
+    contract?.finance_customers?.phone ||
+    contract?.customer_phone ||
+    "................";
+
+  const birthHijri =
+    contract?.finance_customers?.birth_hijri ||
+    contract?.customer_birth_hijri ||
+    "................";
+
+  const firstPartyType =
+    contract?.print_party_type ||
+    contract?.first_party_type ||
+    "organization";
+
+  const isInvestorParty = firstPartyType === "investor";
+
+  const firstPartyName = isInvestorParty
+    ? contract?.print_party_name ||
+      contract?.first_party_name ||
+      contract?.investor_name ||
+      "................"
+    : contract?.print_party_name ||
+      contract?.first_party_name ||
+      organizationSettings.name ||
+      "................";
+
+  const firstPartyIdentifier = isInvestorParty
+    ? contract?.print_party_identifier ||
+      contract?.first_party_identifier ||
+      contract?.investor_national_id ||
+      ""
+    : contract?.print_party_identifier ||
+      contract?.first_party_identifier ||
+      organizationSettings.commercialRecord ||
+      "";
+
+  const firstPartyIdentifierLabel = isInvestorParty
+    ? "رقم الهوية"
+    : "السجل التجاري";
 
   return (
     <main dir="rtl" style={page}>
@@ -125,12 +156,20 @@ export default function PrintContractPage() {
         <div style={metaRow}>
           <span>رقم العقد: {contract?.contract_number || "-"}</span>
           <span>
-            التاريخ الميلادي: {contract?.contract_date_gregorian || "-"}
+            التاريخ الميلادي:{" "}
+            {contract?.contract_issue_date_gregorian ||
+              contract?.contract_date_gregorian ||
+              "-"}
           </span>
         </div>
 
         <div style={metaRow}>
-          <span>التاريخ الهجري: {contract?.contract_date_hijri || "-"}</span>
+          <span>
+            التاريخ الهجري:{" "}
+            {contract?.contract_issue_date_hijri ||
+              contract?.contract_date_hijri ||
+              "-"}
+          </span>
           <span>موعد السداد: {contract?.payment_due_date || "-"}</span>
         </div>
 
@@ -154,7 +193,7 @@ export default function PrintContractPage() {
         </p>
 
         <p style={paragraph}>
-          وذلك مقابل منتج /{" "}
+          وذلك مقابل /{" "}
           <strong>{contract?.product_name || "................"}</strong>،
           وعددها / <strong>{contract?.product_quantity || "-"}</strong>، بمبلغ
           دين وقدره / <strong>{contract?.debt_amount || 0}</strong> ريال سعودي.
@@ -162,10 +201,23 @@ export default function PrintContractPage() {
 
         <p style={paragraph}>
           ويلتزم الطرف الثاني بسداد مبلغ وقدره /
-          <strong> {contract?.payment_amount || 0}</strong> ريال سعودي، وذلك حسب
-          نوع السداد / <strong>{contract?.payment_type || "-"}</strong>، وبقسط
-          قدره / <strong> {contract?.installment_amount || 0}</strong> ريال
-          سعودي.
+          <strong> {contract?.payment_amount || 0}</strong> ريال سعودي
+          {contract?.has_deferred_payments ||
+          Number(contract?.installment_amount || 0) > 0 ? (
+            <>
+              ، على دفعات آجلة قيمة كل دفعة /
+              <strong> {contract?.installment_amount || 0}</strong> ريال سعودي،
+              وعددها /{" "}
+              <strong>{contract?.deferred_payments_count || 0}</strong> دفعات،
+              ويكون تاريخ الاستحقاق بتاريخ /
+              <strong> {contract?.payment_due_date || "-"}</strong>.
+            </>
+          ) : (
+            <>
+              ، ويكون تاريخ الاستحقاق بتاريخ /
+              <strong> {contract?.payment_due_date || "-"}</strong>.
+            </>
+          )}
         </p>
 
         <p style={paragraph}>
@@ -202,29 +254,38 @@ export default function PrintContractPage() {
           </div>
         </div>
 
-        <div style={guarantorBox}>
-          <strong>الكفيل الغارم</strong>
-          <div>الاسم / {contract?.guarantor_name || "................"}</div>
-          <div>رقم الهوية / ................</div>
-          <div>الجوال / ................</div>
-          <div>التوقيع / ................</div>
-        </div>
+        {contract?.has_guarantor && (
+          <div style={guarantorBox}>
+            <strong>الكفيل الغارم</strong>
+            <div>الاسم / {contract?.guarantor_name || "................"}</div>
+            <div>
+              رقم الهوية / {contract?.guarantor_national_id || "................"}
+            </div>
+            <div>الجوال / {contract?.guarantor_phone || "................"}</div>
+            <div>
+              تاريخ الميلاد /{" "}
+              {contract?.guarantor_birth_hijri || "................"}
+            </div>
+            <div>التوقيع / ................</div>
+          </div>
+        )}
       </section>
 
       <button style={printButton} onClick={() => window.print()}>
         🖨️ طباعة العقد
       </button>
+
       <button
-  style={printButton}
-  onClick={() =>
-    exportElementToPdf(
-      "contract-print-area",
-      contract?.contract_number || "contract"
-    )
-  }
->
-  📄 تحميل PDF
-</button>
+        style={printButton}
+        onClick={() =>
+          exportElementToPdf(
+            "contract-print-area",
+            contract?.contract_number || "contract"
+          )
+        }
+      >
+        📄 تحميل PDF
+      </button>
 
       <button
         style={backButton}
@@ -369,9 +430,9 @@ const backButton = {
   display: "block",
   margin: "12px auto 0",
   padding: 16,
-  background: "#e5e7eb",
-  color: "#0d47a1",
-  border: "1px solid #cbd5e1",
+  background: "#16a34a",
+  color: "white",
+  border: "none",
   borderRadius: 14,
   fontSize: 17,
   fontWeight: "bold",
