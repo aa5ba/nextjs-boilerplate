@@ -57,22 +57,21 @@ export default function DesignLabV13Page() {
 
   return (
     <main dir="rtl" style={page}>
-      <div style={backgroundGlowOne} />
-      <div style={backgroundGlowTwo} />
-
       <div style={container}>
-        <section style={hero}>
-          <div style={rightHeader}>
+        <section className="v13-hero" style={hero}>
+          <div className="v13-right" style={rightHeader}>
             <div style={dateLabel}>التاريخ الميلادي</div>
             <div style={dateText}>{today}</div>
           </div>
 
           <div style={centerHeader}>
-            <h1 style={organizationTitle}>مؤسسة سداد و أرقام</h1>
+            <h1 className="v13-org-title" style={organizationTitle}>
+              مؤسسة سداد و أرقام
+            </h1>
             <div style={workstationTitle}>محطة العمل الرئيسية</div>
           </div>
 
-          <div style={leftHeader}>
+          <div className="v13-left" style={leftHeader}>
             <div style={employeeBox}>
               <span>👤</span>
               <strong>{employeeName}</strong>
@@ -184,6 +183,8 @@ export default function DesignLabV13Page() {
           الرجوع للصفحة الرئيسية
         </button>
       </div>
+
+      <ResponsiveStyles />
     </main>
   );
 }
@@ -213,37 +214,48 @@ function StatCard({
   );
 }
 
+function ResponsiveStyles() {
+  return (
+    <style jsx global>{`
+      @media (max-width: 700px) {
+        .v13-hero {
+          grid-template-columns: 1fr !important;
+          text-align: center !important;
+          padding: 24px 18px !important;
+          gap: 18px !important;
+        }
+
+        .v13-right,
+        .v13-left {
+          justify-content: center !important;
+          text-align: center !important;
+        }
+
+        .v13-left {
+          flex-direction: column !important;
+        }
+
+        .v13-org-title {
+          font-size: 30px !important;
+          line-height: 1.35 !important;
+        }
+      }
+    `}</style>
+  );
+}
+
 const page: React.CSSProperties = {
   minHeight: "100vh",
-  background: "linear-gradient(135deg,#f1f8ff 0%,#f4fbf8 45%,#f8fafc 100%)",
+  backgroundImage:
+    "linear-gradient(rgba(255,255,255,0.82), rgba(255,255,255,0.82)), url('/backgrounds/v13-finance-bg-1.png')",
+  backgroundSize: "cover",
+  backgroundPosition: "center",
+  backgroundRepeat: "no-repeat",
+  backgroundAttachment: "fixed",
   padding: 18,
   fontFamily: "var(--font-almarai), sans-serif",
   position: "relative",
   overflowX: "hidden",
-};
-
-const backgroundGlowOne: React.CSSProperties = {
-  position: "fixed",
-  width: 420,
-  height: 420,
-  borderRadius: "50%",
-  background: "rgba(37,99,235,0.14)",
-  filter: "blur(85px)",
-  top: -150,
-  right: -150,
-  pointerEvents: "none",
-};
-
-const backgroundGlowTwo: React.CSSProperties = {
-  position: "fixed",
-  width: 420,
-  height: 420,
-  borderRadius: "50%",
-  background: "rgba(22,163,74,0.12)",
-  filter: "blur(85px)",
-  bottom: -160,
-  left: -140,
-  pointerEvents: "none",
 };
 
 const container: React.CSSProperties = {
