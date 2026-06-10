@@ -12,6 +12,20 @@ const SUPPORT_PERMISSIONS = [
   { key: "backup_restore", label: "النسخ والاستعادة" },
 ];
 
+const BRANCH_MANAGER_PERMISSIONS = [
+  "workflow",
+  "customers",
+  "contracts",
+  "payments",
+  "inventory",
+  "expenses",
+  "notes",
+  "settings",
+  "permissions",
+  "print",
+  "archive",
+];
+
 type Branch = {
   id: string;
   branch_name: string;
@@ -35,6 +49,23 @@ type SupportUser = {
   permissions?: string[];
 };
 
+type BranchManager = {
+  id: string;
+  branch_id: string;
+  full_name: string;
+  username: string;
+  phone: string | null;
+  role: string;
+  is_active: boolean;
+  last_login_at: string | null;
+  created_at: string;
+  finance_branches?: {
+    branch_name: string;
+    branch_slug: string;
+    organization_name: string;
+  } | null;
+};
+
 type SupportLog = {
   id: string;
   user_id: string | null;
@@ -46,11 +77,12 @@ type SupportLog = {
   created_at: string;
 };
 
-type TabType = "overview" | "branches" | "users" | "logs";
+type TabType = "overview" | "branches" | "branch_managers" | "users" | "logs";
 
 export default function AdminSupportPage() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [branchManagers, setBranchManagers] = useState<BranchManager[]>([]);
   const [supportUsers, setSupportUsers] = useState<SupportUser[]>([]);
   const [logs, setLogs] = useState<SupportLog[]>([]);
   const [activeTab, setActiveTab] = useState<TabType>("overview");
@@ -65,6 +97,10 @@ export default function AdminSupportPage() {
   const [branchCommercialRecord, setBranchCommercialRecord] = useState("");
   const [branchPhone, setBranchPhone] = useState("");
   const [branchNotes, setBranchNotes] = useState("");
+
+  const [managerFullName, setManagerFullName] = useState("");
+  const [managerUsername, setManagerUsername] = useState("");
+  const [managerPassword, setManagerPassword] = useState("");
 
   const [showUserForm, setShowUserForm] = useState(false);
   const [supportFullName, setSupportFullName] = useState("");
@@ -121,7 +157,12 @@ export default function AdminSupportPage() {
 
   async function loadData() {
     setLoading(true);
-    await Promise.all([loadBranches(), loadSupportUsers(), loadLogs()]);
+    await Promise.all([
+      loadBranches(),
+      loadBranchManagers(),
+      loadSupportUsers(),
+      loadLogs(),
+    ]);
     setLoading(false);
   }
 
@@ -137,6 +178,38 @@ export default function AdminSupportPage() {
     }
 
     setBranches(data || []);
+  }
+
+  async function loadBranchManagers() {
+    const { data, error } = await supabase
+      .from("finance_users")
+      .select(
+        `
+        id,
+        branch_id,
+        full_name,
+        username,
+        phone,
+        role,
+        is_active,
+        last_login_at,
+        created_at,
+        finance_branches (
+          branch_name,
+          branch_slug,
+          organization_name
+        )
+      `
+      )
+      .eq("role", "مدير فرع")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      alert("تعذر تحميل مدراء الفروع: " + error.message);
+      return;
+    }
+
+    setBranchManagers((data as any[]) || []);
   }
 
   async function loadSupportUsers() {
@@ -178,6 +251,16 @@ export default function AdminSupportPage() {
     }
   }
 
+  function validateUsername(value: string) {
+    const username = value.trim();
+    if (username.length < 3 || username.length > 30) return false;
+    return /^[A-Za-z0-9_\u0600-\u06FF]+$/.test(username);
+  }
+
+  function validatePin(value: string) {
+    return /^\d{4}$/.test(value.trim());
+  }
+
   async function saveBranch() {
     if (!hasPermission("manage_branches")) {
       alert("لا تملك صلاحية إدارة الفروع");
@@ -187,6 +270,16 @@ export default function AdminSupportPage() {
     if (!branchName.trim()) return alert("اكتب اسم الفرع");
     if (!branchSlug.trim()) return alert("اكتب رابط الفرع");
     if (!organizationName.trim()) return alert("اكتب اسم المنظمة");
+
+    if (!editingBranchId) {
+      if (!managerFullName.trim()) return alert("اكتب اسم مدير الفرع");
+      if (!validateUsername(managerUsername)) {
+        return alert("اسم المستخدم يجب أن يكون من 3 إلى 30 حرفاً ويقبل العربي أو الإنجليزي أو الأرقام أو _ فقط");
+      }
+      if (!validatePin(managerPassword)) {
+        return alert("كلمة مرور مدير الفرع يجب أن تكون 4 أرقام فقط");
+      }
+    }
 
     const payload = {
       branch_name: branchName.trim(),
@@ -199,30 +292,70 @@ export default function AdminSupportPage() {
       updated_at: new Date().toISOString(),
     };
 
-    const result = editingBranchId
-      ? await supabase
-          .from("finance_branches")
-          .update(payload)
-          .eq("id", editingBranchId)
-      : await supabase.from("finance_branches").insert({
-          ...payload,
-          is_active: true,
-        });
+    if (editingBranchId) {
+      const { error } = await supabase
+        .from("finance_branches")
+        .update(payload)
+        .eq("id", editingBranchId);
 
-    if (result.error) {
-      alert("تعذر حفظ الفرع: " + result.error.message);
+      if (error) {
+        alert("تعذر حفظ الفرع: " + error.message);
+        return;
+      }
+
+      await addLog(
+        "تعديل فرع",
+        "branch",
+        editingBranchId,
+        `${branchName} - ${organizationName}`
+      );
+
+      resetBranchForm();
+      await Promise.all([loadBranches(), loadBranchManagers(), loadLogs()]);
+      return;
+    }
+
+    const { data: newBranch, error: branchError } = await supabase
+      .from("finance_branches")
+      .insert({
+        ...payload,
+        is_active: true,
+      })
+      .select("id, branch_name, branch_slug, organization_name")
+      .single();
+
+    if (branchError || !newBranch) {
+      alert("تعذر إنشاء الفرع: " + branchError?.message);
+      return;
+    }
+
+    const { error: managerError } = await supabase.from("finance_users").insert({
+      branch_id: newBranch.id,
+      full_name: managerFullName.trim(),
+      username: managerUsername.trim(),
+      password_pin: managerPassword.trim(),
+      phone: branchPhone.trim() || null,
+      role: "مدير فرع",
+      permissions: BRANCH_MANAGER_PERMISSIONS,
+      is_active: true,
+    });
+
+    if (managerError) {
+      await supabase.from("finance_branches").delete().eq("id", newBranch.id);
+
+      alert("تم إلغاء إنشاء الفرع لأن إنشاء مدير الفرع فشل: " + managerError.message);
       return;
     }
 
     await addLog(
-      editingBranchId ? "تعديل فرع" : "إضافة فرع",
+      "إضافة فرع مع مديره",
       "branch",
-      editingBranchId || branchSlug,
-      `${branchName} - ${organizationName}`
+      newBranch.id,
+      `${newBranch.branch_name} - المدير: ${managerFullName}`
     );
 
     resetBranchForm();
-    await Promise.all([loadBranches(), loadLogs()]);
+    await Promise.all([loadBranches(), loadBranchManagers(), loadLogs()]);
   }
 
   async function toggleBranch(branch: Branch) {
@@ -251,6 +384,70 @@ export default function AdminSupportPage() {
     await Promise.all([loadBranches(), loadLogs()]);
   }
 
+  async function toggleBranchManager(manager: BranchManager) {
+    if (!hasPermission("manage_branches")) return alert("لا تملك الصلاحية");
+
+    const { error } = await supabase
+      .from("finance_users")
+      .update({
+        is_active: !manager.is_active,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", manager.id);
+
+    if (error) {
+      alert("تعذر تعديل حالة مدير الفرع: " + error.message);
+      return;
+    }
+
+    await addLog(
+      manager.is_active ? "تعطيل مدير فرع" : "تفعيل مدير فرع",
+      "branch_manager",
+      manager.id,
+      manager.full_name
+    );
+
+    await Promise.all([loadBranchManagers(), loadLogs()]);
+  }
+
+  async function resetBranchManagerPassword(manager: BranchManager) {
+    if (!hasPermission("manage_branches")) return alert("لا تملك الصلاحية");
+
+    const newPassword = window.prompt(
+      `اكتب كلمة مرور جديدة من 4 أرقام للمدير: ${manager.full_name}`
+    );
+
+    if (newPassword === null) return;
+
+    if (!validatePin(newPassword)) {
+      alert("كلمة المرور يجب أن تكون 4 أرقام فقط");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("finance_users")
+      .update({
+        password_pin: newPassword.trim(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", manager.id);
+
+    if (error) {
+      alert("تعذر إعادة تعيين كلمة المرور: " + error.message);
+      return;
+    }
+
+    await addLog(
+      "إعادة تعيين كلمة مرور مدير فرع",
+      "branch_manager",
+      manager.id,
+      manager.full_name
+    );
+
+    alert("تم تحديث كلمة المرور بنجاح");
+    await loadLogs();
+  }
+
   function editBranch(branch: Branch) {
     setEditingBranchId(branch.id);
     setBranchName(branch.branch_name || "");
@@ -260,6 +457,9 @@ export default function AdminSupportPage() {
     setBranchCommercialRecord(branch.commercial_record || "");
     setBranchPhone(branch.phone || "");
     setBranchNotes(branch.notes || "");
+    setManagerFullName("");
+    setManagerUsername("");
+    setManagerPassword("");
     setShowBranchForm(true);
     setActiveTab("branches");
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -274,6 +474,9 @@ export default function AdminSupportPage() {
     setBranchCommercialRecord("");
     setBranchPhone("");
     setBranchNotes("");
+    setManagerFullName("");
+    setManagerUsername("");
+    setManagerPassword("");
     setShowBranchForm(false);
   }
 
@@ -440,10 +643,21 @@ export default function AdminSupportPage() {
             </button>
 
             <button
+              className={
+                activeTab === "branch_managers"
+                  ? "mobile-tab active"
+                  : "mobile-tab"
+              }
+              onClick={() => setActiveTab("branch_managers")}
+            >
+              👨‍💼 مدراء الفروع
+            </button>
+
+            <button
               className={activeTab === "users" ? "mobile-tab active" : "mobile-tab"}
               onClick={() => setActiveTab("users")}
             >
-              👨‍💼 الدعم
+              🛠️ الدعم
             </button>
 
             <button
@@ -463,6 +677,11 @@ export default function AdminSupportPage() {
             <Stat title="النشطة" value={activeBranches} hint="فروع تعمل الآن" />
             <Stat title="المعطلة" value={disabledBranches} hint="فروع موقوفة" />
             <Stat
+              title="مدراء الفروع"
+              value={branchManagers.length}
+              hint="مدير واحد لكل فرع"
+            />
+            <Stat
               title="الدعم"
               value={supportUsers.length}
               hint="مستخدمو الدعم الفني"
@@ -474,8 +693,8 @@ export default function AdminSupportPage() {
               <div style={darkCard}>
                 <h2 style={whiteTitle}>مختصر النظام</h2>
                 <p style={whiteText}>
-                  من هنا يمكنك إدارة فروع احتساب، إضافة مستخدمي الدعم الفني،
-                  وتوثيق عمليات الدخول والتعديل.
+                  من هنا يمكنك إدارة فروع احتساب، إنشاء مدير الفرع الأول،
+                  إضافة مستخدمي الدعم الفني، وتوثيق عمليات الدخول والتعديل.
                 </p>
 
                 <div style={quickActions}>
@@ -488,9 +707,16 @@ export default function AdminSupportPage() {
 
                   <button
                     style={quickButton}
+                    onClick={() => setActiveTab("branch_managers")}
+                  >
+                    مدراء الفروع
+                  </button>
+
+                  <button
+                    style={quickButton}
                     onClick={() => setActiveTab("users")}
                   >
-                    إدارة المستخدمين
+                    مستخدمو الدعم
                   </button>
                 </div>
               </div>
@@ -520,7 +746,9 @@ export default function AdminSupportPage() {
               <div style={sectionTop}>
                 <div>
                   <h2 style={sectionTitle}>إدارة الفروع</h2>
-                  <p style={sectionSub}>إضافة وتعديل وتفعيل فروع النظام.</p>
+                  <p style={sectionSub}>
+                    إضافة فرع جديد مع إنشاء مدير الفرع الأول تلقائياً.
+                  </p>
                 </div>
 
                 <button
@@ -604,6 +832,51 @@ export default function AdminSupportPage() {
                     </div>
                   </div>
 
+                  {!editingBranchId && (
+                    <>
+                      <div style={subFormTitle}>بيانات مدير الفرع الأول</div>
+
+                      <div style={formGrid}>
+                        <div>
+                          <label style={label}>اسم مدير الفرع *</label>
+                          <input
+                            style={input}
+                            value={managerFullName}
+                            onChange={(e) => setManagerFullName(e.target.value)}
+                            placeholder="مثال: عبدالله البكر"
+                          />
+                        </div>
+
+                        <div>
+                          <label style={label}>اسم المستخدم *</label>
+                          <input
+                            style={input}
+                            value={managerUsername}
+                            onChange={(e) => setManagerUsername(e.target.value)}
+                            placeholder="مثال: abdullah أو عبدالله"
+                          />
+                        </div>
+
+                        <div>
+                          <label style={label}>كلمة المرور 4 أرقام *</label>
+                          <input
+                            style={input}
+                            type="password"
+                            inputMode="numeric"
+                            maxLength={4}
+                            value={managerPassword}
+                            onChange={(e) =>
+                              setManagerPassword(
+                                e.target.value.replace(/\D/g, "").slice(0, 4)
+                              )
+                            }
+                            placeholder="مثال: 1234"
+                          />
+                        </div>
+                      </div>
+                    </>
+                  )}
+
                   <div style={{ marginTop: 12 }}>
                     <label style={label}>ملاحظات</label>
                     <textarea
@@ -681,6 +954,75 @@ export default function AdminSupportPage() {
                     </article>
                   ))}
                 </div>
+              </section>
+            </>
+          )}
+
+          {activeTab === "branch_managers" && (
+            <>
+              <div style={sectionTop}>
+                <div>
+                  <h2 style={sectionTitle}>مدراء الفروع</h2>
+                  <p style={sectionSub}>
+                    لكل فرع مدير واحد فقط، ويتم إنشاؤه من نموذج إضافة الفرع.
+                  </p>
+                </div>
+              </div>
+
+              <section style={usersGrid}>
+                {branchManagers.length === 0 ? (
+                  <div style={emptyBox}>لا يوجد مدراء فروع حتى الآن.</div>
+                ) : (
+                  branchManagers.map((manager) => (
+                    <article key={manager.id} style={userCard}>
+                      <div style={userIcon}>👨‍💼</div>
+
+                      <h3 style={userTitle}>{manager.full_name}</h3>
+                      <p style={muted}>@{manager.username}</p>
+                      <p style={muted}>
+                        🏢{" "}
+                        {manager.finance_branches?.branch_name ||
+                          "فرع غير محدد"}
+                      </p>
+                      <p style={muted}>
+                        🔗 /finance/
+                        {manager.finance_branches?.branch_slug || "-"}
+                      </p>
+                      <p style={muted}>
+                        آخر دخول:{" "}
+                        {manager.last_login_at
+                          ? formatDateTime(manager.last_login_at)
+                          : "لم يسجل دخول بعد"}
+                      </p>
+
+                      <span
+                        style={manager.is_active ? activeBadge : inactiveBadge}
+                      >
+                        {manager.is_active ? "نشط" : "معطل"}
+                      </span>
+
+                      <div style={rowActions}>
+                        <button
+                          style={smallBlueButton}
+                          onClick={() => resetBranchManagerPassword(manager)}
+                        >
+                          إعادة كلمة المرور
+                        </button>
+
+                        <button
+                          style={
+                            manager.is_active
+                              ? smallDangerButton
+                              : smallGreenButton
+                          }
+                          onClick={() => toggleBranchManager(manager)}
+                        >
+                          {manager.is_active ? "تعطيل" : "تفعيل"}
+                        </button>
+                      </div>
+                    </article>
+                  ))
+                )}
               </section>
             </>
           )}
@@ -893,10 +1235,17 @@ function SideNav({
       </button>
 
       <button
+        style={activeTab === "branch_managers" ? navActive : navItem}
+        onClick={() => setActiveTab("branch_managers")}
+      >
+        👨‍💼 مدراء الفروع
+      </button>
+
+      <button
         style={activeTab === "users" ? navActive : navItem}
         onClick={() => setActiveTab("users")}
       >
-        👨‍💼 مستخدمو الدعم
+        🛠️ مستخدمو الدعم
       </button>
 
       <button
@@ -1310,6 +1659,17 @@ const formCard: React.CSSProperties = {
 
 const formTitle: React.CSSProperties = {
   marginTop: 0,
+};
+
+const subFormTitle: React.CSSProperties = {
+  marginTop: 18,
+  marginBottom: 12,
+  padding: 12,
+  background: "#eff6ff",
+  color: "#1d4ed8",
+  border: "1px solid #bfdbfe",
+  borderRadius: 14,
+  fontWeight: 900,
 };
 
 const formGrid: React.CSSProperties = {
