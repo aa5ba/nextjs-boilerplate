@@ -29,6 +29,11 @@ export default function FinancePage() {
   const [permissions, setPermissions] = useState<string[]>([]);
   const [roles, setRoles] = useState<string[]>([]);
 
+  const [customersCount, setCustomersCount] = useState(0);
+  const [contractsCount, setContractsCount] = useState(0);
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const [latestActivities, setLatestActivities] = useState<any[]>([]);
+
   const [searchText, setSearchText] = useState("");
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -37,6 +42,12 @@ export default function FinancePage() {
     loadCurrentUserPermissions();
     if (branch) loadBranch();
   }, [branch]);
+
+  useEffect(() => {
+    if (branchId) {
+      loadDashboardData(branchId);
+    }
+  }, [branchId]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -81,6 +92,8 @@ export default function FinancePage() {
   }, [permissions, roles]);
 
   async function loadBranch() {
+    setLoading(true);
+
     const { data, error } = await supabase
       .from("finance_branches")
       .select("id, organization_name, branch_name, is_active")
@@ -97,6 +110,165 @@ export default function FinancePage() {
     setOrganizationName(data.organization_name || "احتساب");
     setBranchId(data.id);
     setLoading(false);
+  }
+
+  async function loadDashboardData(currentBranchId: string) {
+    await Promise.all([
+      loadCounts(currentBranchId),
+      loadAlerts(currentBranchId),
+      loadLatestActivities(currentBranchId),
+    ]);
+  }
+
+  async function loadCounts(currentBranchId: string) {
+    const [customersResult, contractsResult] = await Promise.all([
+      supabase
+        .from("finance_customers")
+        .select("id", { count: "exact", head: true })
+        .eq("branch_id", currentBranchId),
+
+      supabase
+        .from("finance_contracts")
+        .select("id", { count: "exact", head: true })
+        .eq("branch_id", currentBranchId),
+    ]);
+
+    setCustomersCount(customersResult.count || 0);
+    setContractsCount(contractsResult.count || 0);
+  }
+
+  async function loadAlerts(currentBranchId: string) {
+    const newAlerts: any[] = [];
+
+    const { data: negativeInventory } = await supabase
+      .from("finance_inventory")
+      .select(
+        `
+        id,
+        quantity,
+        finance_products(product_name),
+        finance_investors(investor_name)
+      `
+      )
+      .eq("branch_id", currentBranchId)
+      .lt("quantity", 0)
+      .limit(5);
+
+    const { data: lowInventory } = await supabase
+      .from("finance_inventory")
+      .select(
+        `
+        id,
+        quantity,
+        finance_products(product_name),
+        finance_investors(investor_name)
+      `
+      )
+      .eq("branch_id", currentBranchId)
+      .gte("quantity", 0)
+      .lte("quantity", 5)
+      .limit(5);
+
+    negativeInventory?.forEach((item: any) => {
+      newAlerts.push({
+        id: `negative-${item.id}`,
+        type: "danger",
+        icon: "🔴",
+        title: "منتج بالسالب",
+        text: `${getProductName(item)} لدى ${getInvestorName(item)} | الكمية: ${
+          item.quantity ?? 0
+        }`,
+        href: `/finance/${branch}/inventory`,
+      });
+    });
+
+    lowInventory?.forEach((item: any) => {
+      newAlerts.push({
+        id: `low-${item.id}`,
+        type: "warning",
+        icon: "🟠",
+        title: "منتج منخفض",
+        text: `${getProductName(item)} لدى ${getInvestorName(item)} | الكمية: ${
+          item.quantity ?? 0
+        }`,
+        href: `/finance/${branch}/inventory`,
+      });
+    });
+
+    if (newAlerts.length === 0) {
+      newAlerts.push({
+        id: "safe",
+        type: "success",
+        icon: "✅",
+        title: "لا توجد تنبيهات حالياً",
+        text: "المخزون والعمليات بحالة مستقرة.",
+        href: `/finance/${branch}/inventory`,
+      });
+    }
+
+    setAlerts(newAlerts.slice(0, 6));
+  }
+
+  async function loadLatestActivities(currentBranchId: string) {
+    const { data } = await supabase
+      .from("finance_activity_logs")
+      .select("*")
+      .eq("branch_id", currentBranchId)
+      .order("created_at", { ascending: false })
+      .limit(6);
+
+    setLatestActivities(data || []);
+  }
+
+  function getProductName(item: any) {
+    return (
+      item?.finance_products?.product_name ||
+      item?.product_name ||
+      "منتج غير محدد"
+    );
+  }
+
+  function getInvestorName(item: any) {
+    return (
+      item?.finance_investors?.investor_name ||
+      item?.investor_name ||
+      "مستثمر غير محدد"
+    );
+  }
+
+  function getActivityText(item: any) {
+    return (
+      item.description ||
+      item.details ||
+      item.note ||
+      item.action ||
+      item.action_type ||
+      "عملية جديدة"
+    );
+  }
+
+  function getActivityTitle(item: any) {
+    const action = item.action_type || item.action || "";
+
+    if (action.includes("contract")) return "العقود";
+    if (action.includes("payment")) return "السداد";
+    if (action.includes("customer")) return "العملاء";
+    if (action.includes("inventory")) return "المخزون";
+
+    return "عملية";
+  }
+
+  function formatDate(value: string) {
+    if (!value) return "-";
+
+    try {
+      return new Intl.DateTimeFormat("ar-SA", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }).format(new Date(value));
+    } catch {
+      return value;
+    }
   }
 
   function normalizeDigits(value: string) {
@@ -229,6 +401,22 @@ export default function FinancePage() {
             <p style={heroSub}>🏢 {organizationName}</p>
           </section>
 
+          <section style={statsGrid}>
+            <StatCard
+              title="عدد العملاء"
+              value={customersCount}
+              icon="👥"
+              href={`/finance/${branch}/customers`}
+            />
+
+            <StatCard
+              title="عدد العقود"
+              value={contractsCount}
+              icon="📄"
+              href={`/finance/${branch}/contracts`}
+            />
+          </section>
+
           <section style={searchCard}>
             <div style={searchInputWrap}>
               <span style={searchIcon}>🔎</span>
@@ -292,6 +480,73 @@ export default function FinancePage() {
               ))}
             </div>
           </section>
+
+          <section style={bottomGrid}>
+            <section style={panelCard}>
+              <div style={panelHeader}>
+                <h2 style={panelTitle}>التنبيهات</h2>
+                <button
+                  style={panelLink}
+                  onClick={() => (window.location.href = `/finance/${branch}/inventory`)}
+                >
+                  عرض المخزون
+                </button>
+              </div>
+
+              <div style={listWrap}>
+                {alerts.map((item) => (
+                  <button
+                    key={item.id}
+                    style={{
+                      ...alertItem,
+                      ...(item.type === "danger"
+                        ? alertDanger
+                        : item.type === "warning"
+                        ? alertWarning
+                        : alertSuccess),
+                    }}
+                    onClick={() => (window.location.href = item.href)}
+                  >
+                    <span style={alertIcon}>{item.icon}</span>
+                    <span style={alertContent}>
+                      <strong>{item.title}</strong>
+                      <small>{item.text}</small>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section style={panelCard}>
+              <div style={panelHeader}>
+                <h2 style={panelTitle}>آخر العمليات</h2>
+                <button
+                  style={panelLink}
+                  onClick={() => (window.location.href = `/finance/${branch}/workflow`)}
+                >
+                  عرض الكل
+                </button>
+              </div>
+
+              <div style={listWrap}>
+                {latestActivities.length === 0 ? (
+                  <div style={emptyResult}>لا توجد عمليات مسجلة حالياً</div>
+                ) : (
+                  latestActivities.map((item: any) => (
+                    <div key={item.id} style={activityItem}>
+                      <span style={activityIcon}>🕘</span>
+
+                      <span style={activityContent}>
+                        <strong>{getActivityTitle(item)}</strong>
+                        <small>{getActivityText(item)}</small>
+                        <em>{formatDate(item.created_at)}</em>
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+          </section>
         </div>
       </div>
 
@@ -319,6 +574,19 @@ function Card({ title, href, icon }: any) {
       </div>
 
       <span style={arrow}>‹</span>
+    </button>
+  );
+}
+
+function StatCard({ title, value, icon, href }: any) {
+  return (
+    <button style={statCard} onClick={() => (window.location.href = href)}>
+      <span style={statIcon}>{icon}</span>
+
+      <span style={statContent}>
+        <strong>{value}</strong>
+        <small>{title}</small>
+      </span>
     </button>
   );
 }
@@ -377,6 +645,45 @@ const heroSub: React.CSSProperties = {
   margin: 0,
   opacity: 0.9,
   fontSize: 16,
+};
+
+const statsGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
+  gap: 12,
+  marginBottom: 14,
+};
+
+const statCard: React.CSSProperties = {
+  width: "100%",
+  background: "rgba(255,255,255,0.96)",
+  border: "1px solid #e2e8f0",
+  borderRadius: 20,
+  padding: 18,
+  display: "flex",
+  alignItems: "center",
+  gap: 14,
+  cursor: "pointer",
+  boxShadow: "0 10px 24px rgba(15,23,42,0.05)",
+  textAlign: "right",
+};
+
+const statIcon: React.CSSProperties = {
+  width: 54,
+  height: 54,
+  borderRadius: 18,
+  background: "#eff6ff",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: 26,
+};
+
+const statContent: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 4,
+  color: "#0f172a",
 };
 
 const searchCard: React.CSSProperties = {
@@ -537,4 +844,124 @@ const cardTitle: React.CSSProperties = {
 const arrow: React.CSSProperties = {
   color: "#2563eb",
   fontSize: 26,
+};
+
+const bottomGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit,minmax(320px,1fr))",
+  gap: 14,
+  marginTop: 14,
+};
+
+const panelCard: React.CSSProperties = {
+  background: "rgba(255,255,255,0.96)",
+  border: "1px solid #e2e8f0",
+  borderRadius: 20,
+  padding: 16,
+  boxShadow: "0 10px 24px rgba(15,23,42,0.05)",
+  backdropFilter: "blur(6px)",
+};
+
+const panelHeader: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+  marginBottom: 12,
+};
+
+const panelTitle: React.CSSProperties = {
+  margin: 0,
+  color: "#0f172a",
+  fontSize: 20,
+};
+
+const panelLink: React.CSSProperties = {
+  border: "none",
+  background: "#eff6ff",
+  color: "#1d4ed8",
+  borderRadius: 999,
+  padding: "9px 14px",
+  fontWeight: 800,
+  cursor: "pointer",
+  fontFamily: "var(--font-almarai), sans-serif",
+};
+
+const listWrap: React.CSSProperties = {
+  display: "grid",
+  gap: 10,
+};
+
+const alertItem: React.CSSProperties = {
+  width: "100%",
+  borderRadius: 16,
+  padding: 12,
+  display: "grid",
+  gridTemplateColumns: "42px 1fr",
+  gap: 12,
+  alignItems: "center",
+  cursor: "pointer",
+  textAlign: "right",
+};
+
+const alertDanger: React.CSSProperties = {
+  border: "1px solid #fecaca",
+  background: "#fef2f2",
+};
+
+const alertWarning: React.CSSProperties = {
+  border: "1px solid #fed7aa",
+  background: "#fff7ed",
+};
+
+const alertSuccess: React.CSSProperties = {
+  border: "1px solid #bbf7d0",
+  background: "#f0fdf4",
+};
+
+const alertIcon: React.CSSProperties = {
+  width: 42,
+  height: 42,
+  borderRadius: 14,
+  background: "rgba(255,255,255,0.75)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: 21,
+};
+
+const alertContent: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 5,
+  color: "#0f172a",
+};
+
+const activityItem: React.CSSProperties = {
+  border: "1px solid #e2e8f0",
+  background: "#ffffff",
+  borderRadius: 16,
+  padding: 12,
+  display: "grid",
+  gridTemplateColumns: "42px 1fr",
+  gap: 12,
+  alignItems: "center",
+};
+
+const activityIcon: React.CSSProperties = {
+  width: 42,
+  height: 42,
+  borderRadius: 14,
+  background: "#f1f5f9",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: 21,
+};
+
+const activityContent: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 5,
+  color: "#0f172a",
 };
