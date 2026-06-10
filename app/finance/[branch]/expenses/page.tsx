@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
 
@@ -21,6 +21,7 @@ type ExpenseInvoice = {
 
 export default function ExpensesPage() {
   const params = useParams();
+  const router = useRouter();
   const branch = params.branch as string;
 
   const [branchId, setBranchId] = useState<string | null>(null);
@@ -106,9 +107,7 @@ export default function ExpensesPage() {
         <section style={actionsCard}>
           <button
             style={primaryButton}
-            onClick={() =>
-              (window.location.href = `/finance/${branch}/expenses/new`)
-            }
+            onClick={() => router.push(`/finance/${branch}/expenses/new`)}
           >
             ➕ إنشاء فاتورة جديدة
           </button>
@@ -178,12 +177,14 @@ export default function ExpensesPage() {
           )}
         </section>
 
-        <button
-          style={backButton}
-          onClick={() => (window.location.href = `/finance/${branch}`)}
-        >
-          الرجوع للصفحة الرئيسية
-        </button>
+        <div style={backWrapper}>
+          <button
+            style={backButton}
+            onClick={() => router.push(`/finance/${branch}`)}
+          >
+            ← الرجوع للرئيسية
+          </button>
+        </div>
       </div>
     </main>
   );
@@ -371,15 +372,20 @@ const pageInfo: React.CSSProperties = {
   fontWeight: 800,
 };
 
-const backButton: React.CSSProperties = {
-  width: "100%",
-  padding: 16,
-  background: "#16a34a",
-  color: "white",
-  border: "none",
-  borderRadius: 14,
-  fontSize: 17,
-  fontWeight: "bold",
+const backWrapper: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "center",
   marginTop: 18,
+};
+
+const backButton: React.CSSProperties = {
+  padding: "11px 18px",
+  background: "linear-gradient(135deg,#64748b,#334155)",
+  color: "#ffffff",
+  border: "none",
+  borderRadius: 12,
+  fontSize: 14,
+  fontWeight: 900,
   cursor: "pointer",
+  boxShadow: "0 5px 14px rgba(51,65,85,0.22)",
 };
