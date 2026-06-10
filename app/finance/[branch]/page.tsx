@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
 const sections = [
@@ -99,6 +99,7 @@ const sections = [
 
 export default function FinancePage() {
   const params = useParams();
+  const router = useRouter();
   const branch = params.branch as string;
 
   const [organizationName, setOrganizationName] = useState("جاري التحميل...");
@@ -144,12 +145,11 @@ export default function FinancePage() {
 
   function redirectToLogin() {
     localStorage.removeItem("finance_user");
-    window.location.href = `/finance/${branch}/login`;
+    router.replace(`/finance/${branch}/login`);
   }
 
   async function checkLoginAndLoadBranch() {
     setLoading(true);
-    setAuthorized(false);
 
     const savedUser =
       typeof window !== "undefined"
@@ -174,6 +174,19 @@ export default function FinancePage() {
       redirectToLogin();
       return;
     }
+
+    const localRoles =
+      localUser.roles?.length
+        ? localUser.roles
+        : [localUser.role].filter(Boolean);
+
+    setOrganizationName(localUser.organization_name || "احتساب");
+    setBranchId(localUser.branch_id || null);
+    setEmployeeName(localUser.full_name || localUser.username || "الموظف");
+    setRoles(localRoles);
+    setPermissions(localUser.permissions || []);
+    setAuthorized(true);
+    setLoading(false);
 
     const { data: branchData, error: branchError } = await supabase
       .from("finance_branches")
@@ -470,15 +483,15 @@ export default function FinancePage() {
   }
 
   function go(path: string) {
-    window.location.href = `/finance/${branch}/${path}`;
+    router.push(`/finance/${branch}/${path}`);
   }
 
   function logout() {
     localStorage.removeItem("finance_user");
-    window.location.href = `/finance/${branch}/login`;
+    router.replace(`/finance/${branch}/login`);
   }
 
-  if (loading || !authorized) {
+  if (!authorized) {
     return (
       <main dir="rtl" style={page}>
         <div style={container}>
@@ -572,7 +585,7 @@ export default function FinancePage() {
                   <button
                     key={`${item.type}-${item.id}`}
                     style={resultItem}
-                    onClick={() => (window.location.href = item.href)}
+                    onClick={() => router.push(item.href)}
                   >
                     <span style={resultIcon}>{item.icon}</span>
 
@@ -668,7 +681,7 @@ export default function FinancePage() {
                     ? compactNoticeRed
                     : compactNoticeBlue
                 }
-                onClick={() => (window.location.href = item.href)}
+                onClick={() => router.push(item.href)}
               >
                 {item.text}
               </button>
