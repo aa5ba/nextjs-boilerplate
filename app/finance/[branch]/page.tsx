@@ -84,7 +84,7 @@ const sections = [
     icon: "🔐",
     color: "#334155",
     bg: "linear-gradient(135deg,#f8fafc,#e2e8f0)",
-    permission: "settings",
+    permission: "permissions",
   },
   {
     title: "الإعدادات",
@@ -101,10 +101,12 @@ export default function FinancePage() {
   const params = useParams();
   const branch = params.branch as string;
 
-  const [organizationName, setOrganizationName] = useState("احتساب");
+  const [organizationName, setOrganizationName] = useState("جاري التحميل...");
   const [employeeName, setEmployeeName] = useState("الموظف");
   const [branchId, setBranchId] = useState<string | null>(null);
+
   const [loading, setLoading] = useState(true);
+  const [authorized, setAuthorized] = useState(false);
 
   const [permissions, setPermissions] = useState<string[]>([]);
   const [roles, setRoles] = useState<string[]>([]);
@@ -121,13 +123,16 @@ export default function FinancePage() {
   const today = new Date().toLocaleDateString("en-CA");
 
   useEffect(() => {
-    loadCurrentUserPermissions();
-    if (branch) loadBranch();
+    if (branch) {
+      checkLoginAndLoadBranch();
+    }
   }, [branch]);
 
   useEffect(() => {
-    if (branchId) loadDashboardData(branchId);
-  }, [branchId]);
+    if (authorized && branchId) {
+      loadDashboardData(branchId);
+    }
+  }, [authorized, branchId]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -135,42 +140,102 @@ export default function FinancePage() {
     }, 400);
 
     return () => clearTimeout(timer);
-  }, [searchText, branchId, permissions, roles]);
+  }, [searchText, branchId, permissions, roles, authorized]);
 
-  function loadCurrentUserPermissions() {
+  function redirectToLogin() {
+    localStorage.removeItem("finance_user");
+    window.location.href = `/finance/${branch}/login`;
+  }
+
+  async function checkLoginAndLoadBranch() {
+    setLoading(true);
+    setAuthorized(false);
+
     const savedUser =
       typeof window !== "undefined"
         ? localStorage.getItem("finance_user")
         : null;
 
     if (!savedUser) {
-      setRoles(["مدير رئيسي"]);
-      setPermissions([]);
-      setEmployeeName("الموظف");
+      redirectToLogin();
       return;
     }
 
-    try {
-      const user = JSON.parse(savedUser);
+    let localUser: any = null;
 
-      setRoles(user.roles || []);
-      setPermissions(user.permissions || []);
-      setEmployeeName(
-        user.full_name ||
-          user.fullName ||
-          user.name ||
-          user.username ||
-          "الموظف"
-      );
+    try {
+      localUser = JSON.parse(savedUser);
     } catch {
-      setRoles(["مدير رئيسي"]);
-      setPermissions([]);
-      setEmployeeName("الموظف");
+      redirectToLogin();
+      return;
     }
+
+    if (!localUser?.branch_slug || localUser.branch_slug !== branch) {
+      redirectToLogin();
+      return;
+    }
+
+    const { data: branchData, error: branchError } = await supabase
+      .from("finance_branches")
+      .select("id, organization_name, branch_name, branch_slug, is_active")
+      .eq("branch_slug", branch)
+      .single();
+
+    if (branchError || !branchData || !branchData.is_active) {
+      redirectToLogin();
+      return;
+    }
+
+    if (localUser.branch_id !== branchData.id) {
+      redirectToLogin();
+      return;
+    }
+
+    const { data: freshUser, error: userError } = await supabase
+      .from("finance_users")
+      .select(
+        "id, branch_id, full_name, username, role, permissions, is_active"
+      )
+      .eq("id", localUser.id)
+      .eq("branch_id", branchData.id)
+      .single();
+
+    if (userError || !freshUser || !freshUser.is_active) {
+      redirectToLogin();
+      return;
+    }
+
+    const userRoles = [freshUser.role].filter(Boolean);
+
+    setOrganizationName(branchData.organization_name || "احتساب");
+    setBranchId(branchData.id);
+    setEmployeeName(freshUser.full_name || freshUser.username || "الموظف");
+    setRoles(userRoles);
+    setPermissions(freshUser.permissions || []);
+    setAuthorized(true);
+    setLoading(false);
+
+    localStorage.setItem(
+      "finance_user",
+      JSON.stringify({
+        id: freshUser.id,
+        branch_id: branchData.id,
+        branch_slug: branchData.branch_slug,
+        branch_name: branchData.branch_name,
+        organization_name: branchData.organization_name,
+        full_name: freshUser.full_name,
+        username: freshUser.username,
+        role: freshUser.role,
+        roles: userRoles,
+        permissions: freshUser.permissions || [],
+        logged_at: localUser.logged_at || new Date().toISOString(),
+      })
+    );
   }
 
   function hasPermission(permissionKey: string) {
     return (
+      roles.includes("مدير فرع") ||
       roles.includes("مدير رئيسي") ||
       roles.includes("مدير") ||
       permissions.includes(permissionKey)
@@ -178,29 +243,9 @@ export default function FinancePage() {
   }
 
   const visibleSections = useMemo(() => {
+    if (!authorized) return [];
     return sections.filter((item) => hasPermission(item.permission));
-  }, [permissions, roles]);
-
-  async function loadBranch() {
-    setLoading(true);
-
-    const { data, error } = await supabase
-      .from("finance_branches")
-      .select("id, organization_name, branch_name, is_active")
-      .eq("branch_slug", branch)
-      .single();
-
-    if (error || !data || !data.is_active) {
-      setOrganizationName("فرع غير موجود");
-      setBranchId(null);
-      setLoading(false);
-      return;
-    }
-
-    setOrganizationName(data.organization_name || "احتساب");
-    setBranchId(data.id);
-    setLoading(false);
-  }
+  }, [permissions, roles, authorized]);
 
   async function loadDashboardData(currentBranchId: string) {
     await Promise.all([
@@ -328,7 +373,7 @@ export default function FinancePage() {
   async function runSmartSearch() {
     const query = normalizeDigits(searchText.trim());
 
-    if (!branchId || query.length < 2) {
+    if (!authorized || !branchId || query.length < 2) {
       setSearchResults([]);
       return;
     }
@@ -430,17 +475,17 @@ export default function FinancePage() {
 
   function logout() {
     localStorage.removeItem("finance_user");
-    window.location.href = `/finance/${branch}`;
+    window.location.href = `/finance/${branch}/login`;
   }
 
-  if (loading) {
+  if (loading || !authorized) {
     return (
       <main dir="rtl" style={page}>
         <div style={container}>
           <section className="v13-hero" style={hero}>
             <div style={centerHeader}>
               <h1 className="v13-org-title" style={organizationTitle}>
-                جاري تحميل الفرع...
+                جاري التحقق من تسجيل الدخول...
               </h1>
             </div>
           </section>
