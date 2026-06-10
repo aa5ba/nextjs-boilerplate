@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 
 const sections = [
@@ -19,8 +20,39 @@ export default function DesignLabV13Page() {
   const params = useParams();
   const branch = params.branch as string;
 
+  const [employeeName, setEmployeeName] = useState("الموظف");
+
+  const today = new Date().toLocaleDateString("en-CA");
+
+  useEffect(() => {
+    const savedUser =
+      typeof window !== "undefined"
+        ? localStorage.getItem("finance_user")
+        : null;
+
+    if (!savedUser) return;
+
+    try {
+      const user = JSON.parse(savedUser);
+      setEmployeeName(
+        user.full_name ||
+          user.fullName ||
+          user.name ||
+          user.username ||
+          "الموظف"
+      );
+    } catch {
+      setEmployeeName("الموظف");
+    }
+  }, []);
+
   function go(path: string) {
     window.location.href = `/finance/${branch}/${path}`;
+  }
+
+  function logout() {
+    localStorage.removeItem("finance_user");
+    window.location.href = `/finance/${branch}`;
   }
 
   return (
@@ -30,15 +62,25 @@ export default function DesignLabV13Page() {
 
       <div style={container}>
         <section style={hero}>
-          <div>
-            <span style={badge}>نموذج ١٣ — Blue Green Professional</span>
-            <h1 style={heroTitle}>محطة العمل</h1>
-            <p style={heroSub}>لوحة تشغيل مالية حديثة، مريحة، وسريعة الاستخدام</p>
+          <div style={rightHeader}>
+            <div style={dateLabel}>التاريخ الميلادي</div>
+            <div style={dateText}>{today}</div>
           </div>
 
-          <div style={heroCard}>
-            <span>🏢 مؤسسة سداد و أرقام</span>
-            <strong>جاهز للعمل اليومي</strong>
+          <div style={centerHeader}>
+            <h1 style={organizationTitle}>مؤسسة سداد و أرقام</h1>
+            <div style={workstationTitle}>محطة العمل الرئيسية</div>
+          </div>
+
+          <div style={leftHeader}>
+            <div style={employeeBox}>
+              <span>👤</span>
+              <strong>{employeeName}</strong>
+            </div>
+
+            <button style={logoutButton} onClick={logout}>
+              تسجيل الخروج
+            </button>
           </div>
         </section>
 
@@ -58,10 +100,18 @@ export default function DesignLabV13Page() {
         </section>
 
         <section style={quickActions}>
-          <button style={primaryAction} onClick={() => go("new-request")}>➕ طلب جديد</button>
-          <button style={greenAction} onClick={() => go("payments/new")}>💳 تسجيل سداد</button>
-          <button style={tealAction} onClick={() => go("inventory/add")}>📦 إضافة مخزون</button>
-          <button style={grayAction} onClick={() => go("expenses/new")}>🧾 فاتورة مصروف</button>
+          <button style={primaryAction} onClick={() => go("new-request")}>
+            ➕ طلب جديد
+          </button>
+          <button style={greenAction} onClick={() => go("payments/new")}>
+            💳 تسجيل سداد
+          </button>
+          <button style={tealAction} onClick={() => go("inventory/add")}>
+            📦 إضافة مخزون
+          </button>
+          <button style={grayAction} onClick={() => go("expenses/new")}>
+            🧾 فاتورة مصروف
+          </button>
         </section>
 
         <section style={infoGrid}>
@@ -71,8 +121,12 @@ export default function DesignLabV13Page() {
               <strong>تنبيهات مهمة</strong>
             </div>
 
-            <div style={noticeBlue}>يوجد 12 عقداً مستحق السداد خلال الأسبوع القادم</div>
-            <div style={noticeGreen}>يوجد 3 منتجات قاربت على النفاد من المخزون</div>
+            <div style={noticeBlue}>
+              يوجد 12 عقداً مستحق السداد خلال الأسبوع القادم
+            </div>
+            <div style={noticeGreen}>
+              يوجد 3 منتجات قاربت على النفاد من المخزون
+            </div>
           </div>
 
           <div style={panel}>
@@ -101,7 +155,13 @@ export default function DesignLabV13Page() {
                 onClick={() => go(item.path)}
               >
                 <div style={cardRight}>
-                  <div style={{ ...iconBox, background: item.bg, color: item.color }}>
+                  <div
+                    style={{
+                      ...iconBox,
+                      background: item.bg,
+                      color: item.color,
+                    }}
+                  >
                     {item.icon}
                   </div>
 
@@ -141,7 +201,10 @@ function StatCard({
 }) {
   return (
     <div style={statCard}>
-      <div style={{ ...statIcon, background: `${color}14`, color }}>{icon}</div>
+      <div style={{ ...statIcon, background: `${color}14`, color }}>
+        {icon}
+      </div>
+
       <div>
         <div style={statValue}>{value}</div>
         <div style={statTitle}>{title}</div>
@@ -196,51 +259,78 @@ const hero: React.CSSProperties = {
   borderRadius: 30,
   padding: 24,
   color: "white",
-  display: "flex",
-  justifyContent: "space-between",
+  display: "grid",
+  gridTemplateColumns: "220px 1fr 260px",
   alignItems: "center",
   gap: 16,
-  flexWrap: "wrap",
   marginBottom: 16,
   boxShadow: "0 18px 45px rgba(29,78,216,0.18)",
 };
 
-const badge: React.CSSProperties = {
-  display: "inline-block",
-  background: "rgba(255,255,255,0.15)",
-  color: "white",
-  border: "1px solid rgba(255,255,255,0.24)",
-  borderRadius: 999,
-  padding: "7px 12px",
-  fontWeight: 900,
-  fontSize: 13,
-  marginBottom: 10,
-  backdropFilter: "blur(8px)",
+const rightHeader: React.CSSProperties = {
+  textAlign: "right",
 };
 
-const heroTitle: React.CSSProperties = {
+const centerHeader: React.CSSProperties = {
+  textAlign: "center",
+};
+
+const leftHeader: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "flex-end",
+  alignItems: "center",
+  gap: 10,
+  flexWrap: "wrap",
+};
+
+const organizationTitle: React.CSSProperties = {
   margin: 0,
-  fontSize: 38,
-  lineHeight: 1.35,
+  fontSize: 34,
+  lineHeight: 1.25,
+  fontWeight: 900,
+  color: "white",
+};
+
+const workstationTitle: React.CSSProperties = {
+  marginTop: 7,
+  fontSize: 16,
+  color: "#dbeafe",
+  fontWeight: 800,
+};
+
+const dateLabel: React.CSSProperties = {
+  color: "#bfdbfe",
+  fontSize: 13,
+  fontWeight: 800,
+  marginBottom: 4,
+};
+
+const dateText: React.CSSProperties = {
+  color: "white",
+  fontSize: 17,
   fontWeight: 900,
 };
 
-const heroSub: React.CSSProperties = {
-  margin: "8px 0 0",
-  color: "#e0f2fe",
-  fontSize: 16,
-  lineHeight: 1.7,
+const employeeBox: React.CSSProperties = {
+  background: "rgba(255,255,255,0.13)",
+  border: "1px solid rgba(255,255,255,0.22)",
+  borderRadius: 14,
+  padding: "10px 12px",
+  display: "flex",
+  alignItems: "center",
+  gap: 7,
+  color: "white",
 };
 
-const heroCard: React.CSSProperties = {
-  minWidth: 245,
-  background: "rgba(255,255,255,0.14)",
-  border: "1px solid rgba(255,255,255,0.22)",
-  borderRadius: 22,
-  padding: 16,
-  display: "grid",
-  gap: 7,
-  backdropFilter: "blur(10px)",
+const logoutButton: React.CSSProperties = {
+  background: "rgba(255,255,255,0.18)",
+  border: "1px solid rgba(255,255,255,0.28)",
+  color: "white",
+  borderRadius: 14,
+  padding: "10px 14px",
+  fontWeight: 900,
+  cursor: "pointer",
+  backdropFilter: "blur(8px)",
 };
 
 const statsGrid: React.CSSProperties = {
