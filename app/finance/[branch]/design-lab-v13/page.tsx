@@ -3,81 +3,25 @@
 import { useParams } from "next/navigation";
 
 const sections = [
-  {
-    title: "سير العمل",
-    desc: "متابعة العمليات والتنبيهات",
-    icon: "💼",
-    color: "#2563eb",
-    bg: "linear-gradient(135deg,#eff6ff,#dbeafe)",
-  },
-  {
-    title: "العملاء",
-    desc: "إدارة العملاء والملفات",
-    icon: "👥",
-    color: "#0284c7",
-    bg: "linear-gradient(135deg,#f0f9ff,#e0f2fe)",
-  },
-  {
-    title: "طلب جديد",
-    desc: "إنشاء عقد وسند جديد",
-    icon: "➕",
-    color: "#16a34a",
-    bg: "linear-gradient(135deg,#f0fdf4,#dcfce7)",
-  },
-  {
-    title: "السداد",
-    desc: "تسجيل ومتابعة الدفعات",
-    icon: "💳",
-    color: "#059669",
-    bg: "linear-gradient(135deg,#ecfdf5,#d1fae5)",
-  },
-  {
-    title: "المخزون",
-    desc: "المنتجات والمستثمرين",
-    icon: "📦",
-    color: "#0f766e",
-    bg: "linear-gradient(135deg,#f0fdfa,#ccfbf1)",
-  },
-  {
-    title: "العقود",
-    desc: "بحث وطباعة ومتابعة",
-    icon: "📄",
-    color: "#1d4ed8",
-    bg: "linear-gradient(135deg,#eef2ff,#dbeafe)",
-  },
-  {
-    title: "المصروفات",
-    desc: "المشتريات والمصروفات",
-    icon: "🧾",
-    color: "#475569",
-    bg: "linear-gradient(135deg,#f8fafc,#e2e8f0)",
-  },
-  {
-    title: "الملاحظات",
-    desc: "ملاحظات وتذكيرات",
-    icon: "✏️",
-    color: "#0ea5e9",
-    bg: "linear-gradient(135deg,#f0f9ff,#e0f2fe)",
-  },
-  {
-    title: "الصلاحيات",
-    desc: "المستخدمون والأدوار",
-    icon: "🔐",
-    color: "#334155",
-    bg: "linear-gradient(135deg,#f8fafc,#e2e8f0)",
-  },
-  {
-    title: "الإعدادات",
-    desc: "بيانات الفرع والمنظمة",
-    icon: "⚙️",
-    color: "#0f172a",
-    bg: "linear-gradient(135deg,#f1f5f9,#e2e8f0)",
-  },
+  { title: "سير العمل", path: "workflow", desc: "متابعة العمليات والتنبيهات", icon: "💼", color: "#2563eb", bg: "linear-gradient(135deg,#eff6ff,#dbeafe)" },
+  { title: "العملاء", path: "customers", desc: "إدارة العملاء والملفات", icon: "👥", color: "#0284c7", bg: "linear-gradient(135deg,#f0f9ff,#e0f2fe)" },
+  { title: "طلب جديد", path: "new-request", desc: "إنشاء عقد وسند جديد", icon: "➕", color: "#16a34a", bg: "linear-gradient(135deg,#f0fdf4,#dcfce7)" },
+  { title: "السداد", path: "payments", desc: "تسجيل ومتابعة الدفعات", icon: "💳", color: "#059669", bg: "linear-gradient(135deg,#ecfdf5,#d1fae5)" },
+  { title: "المخزون", path: "inventory", desc: "المنتجات والمستثمرين", icon: "📦", color: "#0f766e", bg: "linear-gradient(135deg,#f0fdfa,#ccfbf1)" },
+  { title: "العقود", path: "contracts", desc: "بحث وطباعة ومتابعة", icon: "📄", color: "#1d4ed8", bg: "linear-gradient(135deg,#eef2ff,#dbeafe)" },
+  { title: "المصروفات", path: "expenses", desc: "المشتريات والمصروفات", icon: "🧾", color: "#475569", bg: "linear-gradient(135deg,#f8fafc,#e2e8f0)" },
+  { title: "الملاحظات", path: "notes", desc: "ملاحظات وتذكيرات", icon: "✏️", color: "#0ea5e9", bg: "linear-gradient(135deg,#f0f9ff,#e0f2fe)" },
+  { title: "الصلاحيات", path: "permissions", desc: "المستخدمون والأدوار", icon: "🔐", color: "#334155", bg: "linear-gradient(135deg,#f8fafc,#e2e8f0)" },
+  { title: "الإعدادات", path: "settings", desc: "بيانات الفرع والمنظمة", icon: "⚙️", color: "#0f172a", bg: "linear-gradient(135deg,#f1f5f9,#e2e8f0)" },
 ];
 
 export default function DesignLabV13Page() {
   const params = useParams();
   const branch = params.branch as string;
+
+  function go(path: string) {
+    window.location.href = `/finance/${branch}/${path}`;
+  }
 
   return (
     <main dir="rtl" style={page}>
@@ -89,9 +33,7 @@ export default function DesignLabV13Page() {
           <div>
             <span style={badge}>نموذج ١٣ — Blue Green Professional</span>
             <h1 style={heroTitle}>محطة العمل</h1>
-            <p style={heroSub}>
-              لوحة تشغيل مالية حديثة، مريحة، وسريعة الاستخدام
-            </p>
+            <p style={heroSub}>لوحة تشغيل مالية حديثة، مريحة، وسريعة الاستخدام</p>
           </div>
 
           <div style={heroCard}>
@@ -116,10 +58,10 @@ export default function DesignLabV13Page() {
         </section>
 
         <section style={quickActions}>
-          <button style={primaryAction}>➕ طلب جديد</button>
-          <button style={greenAction}>💳 تسجيل سداد</button>
-          <button style={tealAction}>📦 إضافة مخزون</button>
-          <button style={grayAction}>🧾 فاتورة مصروف</button>
+          <button style={primaryAction} onClick={() => go("new-request")}>➕ طلب جديد</button>
+          <button style={greenAction} onClick={() => go("payments/new")}>💳 تسجيل سداد</button>
+          <button style={tealAction} onClick={() => go("inventory/add")}>📦 إضافة مخزون</button>
+          <button style={grayAction} onClick={() => go("expenses/new")}>🧾 فاتورة مصروف</button>
         </section>
 
         <section style={infoGrid}>
@@ -129,13 +71,8 @@ export default function DesignLabV13Page() {
               <strong>تنبيهات مهمة</strong>
             </div>
 
-            <div style={noticeBlue}>
-              يوجد 12 عقداً مستحق السداد خلال الأسبوع القادم
-            </div>
-
-            <div style={noticeGreen}>
-              يوجد 3 منتجات قاربت على النفاد من المخزون
-            </div>
+            <div style={noticeBlue}>يوجد 12 عقداً مستحق السداد خلال الأسبوع القادم</div>
+            <div style={noticeGreen}>يوجد 3 منتجات قاربت على النفاد من المخزون</div>
           </div>
 
           <div style={panel}>
@@ -158,15 +95,13 @@ export default function DesignLabV13Page() {
 
           <div style={grid}>
             {sections.map((item) => (
-              <button key={item.title} style={sectionCard}>
+              <button
+                key={item.title}
+                style={sectionCard}
+                onClick={() => go(item.path)}
+              >
                 <div style={cardRight}>
-                  <div
-                    style={{
-                      ...iconBox,
-                      background: item.bg,
-                      color: item.color,
-                    }}
-                  >
+                  <div style={{ ...iconBox, background: item.bg, color: item.color }}>
                     {item.icon}
                   </div>
 
@@ -207,7 +142,6 @@ function StatCard({
   return (
     <div style={statCard}>
       <div style={{ ...statIcon, background: `${color}14`, color }}>{icon}</div>
-
       <div>
         <div style={statValue}>{value}</div>
         <div style={statTitle}>{title}</div>
@@ -218,8 +152,7 @@ function StatCard({
 
 const page: React.CSSProperties = {
   minHeight: "100vh",
-  background:
-    "linear-gradient(135deg,#f1f8ff 0%,#f4fbf8 45%,#f8fafc 100%)",
+  background: "linear-gradient(135deg,#f1f8ff 0%,#f4fbf8 45%,#f8fafc 100%)",
   padding: 18,
   fontFamily: "var(--font-almarai), sans-serif",
   position: "relative",
@@ -259,10 +192,9 @@ const container: React.CSSProperties = {
 };
 
 const hero: React.CSSProperties = {
-  background:
-    "linear-gradient(135deg,#0f172a 0%,#1d4ed8 48%,#0f766e 100%)",
+  background: "linear-gradient(135deg,#0f172a 0%,#1d4ed8 48%,#0f766e 100%)",
   borderRadius: 30,
-  padding: 28,
+  padding: 24,
   color: "white",
   display: "flex",
   justifyContent: "space-between",
@@ -288,7 +220,7 @@ const badge: React.CSSProperties = {
 
 const heroTitle: React.CSSProperties = {
   margin: 0,
-  fontSize: 40,
+  fontSize: 38,
   lineHeight: 1.35,
   fontWeight: 900,
 };
@@ -296,12 +228,12 @@ const heroTitle: React.CSSProperties = {
 const heroSub: React.CSSProperties = {
   margin: "8px 0 0",
   color: "#e0f2fe",
-  fontSize: 17,
+  fontSize: 16,
   lineHeight: 1.7,
 };
 
 const heroCard: React.CSSProperties = {
-  minWidth: 250,
+  minWidth: 245,
   background: "rgba(255,255,255,0.14)",
   border: "1px solid rgba(255,255,255,0.22)",
   borderRadius: 22,
@@ -319,7 +251,7 @@ const statsGrid: React.CSSProperties = {
 };
 
 const statCard: React.CSSProperties = {
-  background: "rgba(255,255,255,0.92)",
+  background: "rgba(255,255,255,0.96)",
   border: "1px solid #e2e8f0",
   borderRadius: 24,
   padding: 18,
@@ -353,7 +285,7 @@ const statTitle: React.CSSProperties = {
 };
 
 const searchCard: React.CSSProperties = {
-  background: "rgba(255,255,255,0.96)",
+  background: "rgba(255,255,255,0.98)",
   border: "1px solid #dbeafe",
   borderRadius: 24,
   padding: "0 16px",
@@ -429,7 +361,7 @@ const infoGrid: React.CSSProperties = {
 };
 
 const panel: React.CSSProperties = {
-  background: "rgba(255,255,255,0.96)",
+  background: "rgba(255,255,255,0.98)",
   border: "1px solid #e2e8f0",
   borderRadius: 24,
   padding: 18,
@@ -507,7 +439,7 @@ const grid: React.CSSProperties = {
 const sectionCard: React.CSSProperties = {
   width: "100%",
   minHeight: 96,
-  background: "#ffffff",
+  background: "linear-gradient(135deg,#ffffff,#f8fafc)",
   border: "1px solid #e2e8f0",
   borderRadius: 22,
   padding: 16,
