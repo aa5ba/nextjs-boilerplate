@@ -3,19 +3,98 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import FinanceTrialSidebar from "./FinanceTrialSidebar";
 
 const sections = [
-  { title: "سير العمل", path: "workflow", icon: "💼", permission: "workflow" },
-  { title: "العملاء", path: "customers", icon: "👥", permission: "customers" },
-  { title: "طلب جديد", path: "new-request", icon: "➕", permission: "contracts" },
-  { title: "سداد", path: "payments", icon: "💳", permission: "payments" },
-  { title: "المخزون والمنتجات", path: "inventory", icon: "📦", permission: "inventory" },
-  { title: "العقود", path: "contracts", icon: "📄", permission: "contracts" },
-  { title: "المصروفات والمشتريات", path: "expenses", icon: "🧾", permission: "expenses" },
-  { title: "الملاحظات", path: "notes", icon: "✏️", permission: "workflow" },
-  { title: "الصلاحيات", path: "permissions", icon: "🔐", permission: "settings" },
-  { title: "الإعدادات", path: "settings", icon: "⚙️", permission: "settings" },
+  {
+    title: "سير العمل",
+    path: "workflow",
+    desc: "متابعة العمليات والتنبيهات",
+    icon: "💼",
+    color: "#2563eb",
+    bg: "linear-gradient(135deg,#eff6ff,#dbeafe)",
+    permission: "workflow",
+  },
+  {
+    title: "العملاء",
+    path: "customers",
+    desc: "إدارة العملاء والملفات",
+    icon: "👥",
+    color: "#0284c7",
+    bg: "linear-gradient(135deg,#f0f9ff,#e0f2fe)",
+    permission: "customers",
+  },
+  {
+    title: "طلب جديد",
+    path: "new-request",
+    desc: "إنشاء عقد وسند جديد",
+    icon: "➕",
+    color: "#16a34a",
+    bg: "linear-gradient(135deg,#f0fdf4,#dcfce7)",
+    permission: "contracts",
+  },
+  {
+    title: "السداد",
+    path: "payments",
+    desc: "تسجيل ومتابعة الدفعات",
+    icon: "💳",
+    color: "#059669",
+    bg: "linear-gradient(135deg,#ecfdf5,#d1fae5)",
+    permission: "payments",
+  },
+  {
+    title: "المخزون",
+    path: "inventory",
+    desc: "المنتجات والمستثمرين",
+    icon: "📦",
+    color: "#0f766e",
+    bg: "linear-gradient(135deg,#f0fdfa,#ccfbf1)",
+    permission: "inventory",
+  },
+  {
+    title: "العقود",
+    path: "contracts",
+    desc: "بحث وطباعة ومتابعة",
+    icon: "📄",
+    color: "#1d4ed8",
+    bg: "linear-gradient(135deg,#eef2ff,#dbeafe)",
+    permission: "contracts",
+  },
+  {
+    title: "المصروفات",
+    path: "expenses",
+    desc: "المشتريات والمصروفات",
+    icon: "🧾",
+    color: "#475569",
+    bg: "linear-gradient(135deg,#f8fafc,#e2e8f0)",
+    permission: "expenses",
+  },
+  {
+    title: "الملاحظات",
+    path: "notes",
+    desc: "ملاحظات وتذكيرات",
+    icon: "✏️",
+    color: "#0ea5e9",
+    bg: "linear-gradient(135deg,#f0f9ff,#e0f2fe)",
+    permission: "workflow",
+  },
+  {
+    title: "الصلاحيات",
+    path: "permissions",
+    desc: "المستخدمون والأدوار",
+    icon: "🔐",
+    color: "#334155",
+    bg: "linear-gradient(135deg,#f8fafc,#e2e8f0)",
+    permission: "settings",
+  },
+  {
+    title: "الإعدادات",
+    path: "settings",
+    desc: "بيانات الفرع والمنظمة",
+    icon: "⚙️",
+    color: "#0f172a",
+    bg: "linear-gradient(135deg,#f1f5f9,#e2e8f0)",
+    permission: "settings",
+  },
 ];
 
 export default function FinancePage() {
@@ -23,6 +102,7 @@ export default function FinancePage() {
   const branch = params.branch as string;
 
   const [organizationName, setOrganizationName] = useState("احتساب");
+  const [employeeName, setEmployeeName] = useState("الموظف");
   const [branchId, setBranchId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -38,15 +118,15 @@ export default function FinancePage() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
 
+  const today = new Date().toLocaleDateString("en-CA");
+
   useEffect(() => {
     loadCurrentUserPermissions();
     if (branch) loadBranch();
   }, [branch]);
 
   useEffect(() => {
-    if (branchId) {
-      loadDashboardData(branchId);
-    }
+    if (branchId) loadDashboardData(branchId);
   }, [branchId]);
 
   useEffect(() => {
@@ -66,16 +146,26 @@ export default function FinancePage() {
     if (!savedUser) {
       setRoles(["مدير رئيسي"]);
       setPermissions([]);
+      setEmployeeName("الموظف");
       return;
     }
 
     try {
       const user = JSON.parse(savedUser);
+
       setRoles(user.roles || []);
       setPermissions(user.permissions || []);
+      setEmployeeName(
+        user.full_name ||
+          user.fullName ||
+          user.name ||
+          user.username ||
+          "الموظف"
+      );
     } catch {
       setRoles(["مدير رئيسي"]);
       setPermissions([]);
+      setEmployeeName("الموظف");
     }
   }
 
@@ -152,7 +242,7 @@ export default function FinancePage() {
       )
       .eq("branch_id", currentBranchId)
       .lt("quantity", 0)
-      .limit(5);
+      .limit(3);
 
     const { data: lowInventory } = await supabase
       .from("finance_inventory")
@@ -167,17 +257,13 @@ export default function FinancePage() {
       .eq("branch_id", currentBranchId)
       .gte("quantity", 0)
       .lte("quantity", 5)
-      .limit(5);
+      .limit(3);
 
     negativeInventory?.forEach((item: any) => {
       newAlerts.push({
         id: `negative-${item.id}`,
         type: "danger",
-        icon: "🔴",
-        title: "منتج بالسالب",
-        text: `${getProductName(item)} لدى ${getInvestorName(item)} | الكمية: ${
-          item.quantity ?? 0
-        }`,
+        text: `منتج بالسالب: ${getProductName(item)} - الكمية ${item.quantity}`,
         href: `/finance/${branch}/inventory`,
       });
     });
@@ -185,12 +271,8 @@ export default function FinancePage() {
     lowInventory?.forEach((item: any) => {
       newAlerts.push({
         id: `low-${item.id}`,
-        type: "warning",
-        icon: "🟠",
-        title: "منتج منخفض",
-        text: `${getProductName(item)} لدى ${getInvestorName(item)} | الكمية: ${
-          item.quantity ?? 0
-        }`,
+        type: "green",
+        text: `منتج منخفض: ${getProductName(item)} - الكمية ${item.quantity}`,
         href: `/finance/${branch}/inventory`,
       });
     });
@@ -198,15 +280,13 @@ export default function FinancePage() {
     if (newAlerts.length === 0) {
       newAlerts.push({
         id: "safe",
-        type: "success",
-        icon: "✅",
-        title: "لا توجد تنبيهات حالياً",
-        text: "المخزون والعمليات بحالة مستقرة.",
+        type: "blue",
+        text: "لا توجد تنبيهات مهمة حالياً",
         href: `/finance/${branch}/inventory`,
       });
     }
 
-    setAlerts(newAlerts.slice(0, 6));
+    setAlerts(newAlerts.slice(0, 3));
   }
 
   async function loadLatestActivities(currentBranchId: string) {
@@ -215,7 +295,7 @@ export default function FinancePage() {
       .select("*")
       .eq("branch_id", currentBranchId)
       .order("created_at", { ascending: false })
-      .limit(6);
+      .limit(3);
 
     setLatestActivities(data || []);
   }
@@ -228,14 +308,6 @@ export default function FinancePage() {
     );
   }
 
-  function getInvestorName(item: any) {
-    return (
-      item?.finance_investors?.investor_name ||
-      item?.investor_name ||
-      "مستثمر غير محدد"
-    );
-  }
-
   function getActivityText(item: any) {
     return (
       item.description ||
@@ -245,30 +317,6 @@ export default function FinancePage() {
       item.action_type ||
       "عملية جديدة"
     );
-  }
-
-  function getActivityTitle(item: any) {
-    const action = item.action_type || item.action || "";
-
-    if (action.includes("contract")) return "العقود";
-    if (action.includes("payment")) return "السداد";
-    if (action.includes("customer")) return "العملاء";
-    if (action.includes("inventory")) return "المخزون";
-
-    return "عملية";
-  }
-
-  function formatDate(value: string) {
-    if (!value) return "-";
-
-    try {
-      return new Intl.DateTimeFormat("ar-SA", {
-        dateStyle: "medium",
-        timeStyle: "short",
-      }).format(new Date(value));
-    } catch {
-      return value;
-    }
   }
 
   function normalizeDigits(value: string) {
@@ -376,349 +424,465 @@ export default function FinancePage() {
     setSearchLoading(false);
   }
 
+  function go(path: string) {
+    window.location.href = `/finance/${branch}/${path}`;
+  }
+
+  function logout() {
+    localStorage.removeItem("finance_user");
+    window.location.href = `/finance/${branch}`;
+  }
+
   if (loading) {
     return (
       <main dir="rtl" style={page}>
-        <div style={loadingContainer}>
-          <section style={hero}>
-            <h1 style={heroTitle}>جاري تحميل الفرع...</h1>
+        <div style={container}>
+          <section className="v13-hero" style={hero}>
+            <div style={centerHeader}>
+              <h1 className="v13-org-title" style={organizationTitle}>
+                جاري تحميل الفرع...
+              </h1>
+            </div>
           </section>
         </div>
+        <ResponsiveStyles />
       </main>
     );
   }
 
   return (
     <main dir="rtl" style={page}>
-      <div style={layout}>
-        <div className="desktop-sidebar">
-          <FinanceTrialSidebar />
-        </div>
+      <div style={container}>
+        <section className="v13-hero" style={hero}>
+          <div className="v13-right" style={rightHeader}>
+            <div style={dateLabel}>التاريخ الميلادي</div>
+            <div style={dateText}>{today}</div>
+          </div>
 
-        <div style={container}>
-          <section style={hero}>
-            <h1 style={heroTitle}>الصفحة الرئيسية</h1>
-            <p style={heroSub}>🏢 {organizationName}</p>
-          </section>
+          <div style={centerHeader}>
+            <h1 className="v13-org-title" style={organizationTitle}>
+              {organizationName}
+            </h1>
+            <div style={workstationTitle}>محطة العمل الرئيسية</div>
+          </div>
 
-          <section style={statsGrid}>
-            <StatCard
-              title="عدد العملاء"
-              value={customersCount}
-              icon="👥"
-              href={`/finance/${branch}/customers`}
-            />
-
-            <StatCard
-              title="عدد العقود"
-              value={contractsCount}
-              icon="📄"
-              href={`/finance/${branch}/contracts`}
-            />
-          </section>
-
-          <section style={searchCard}>
-            <div style={searchInputWrap}>
-              <span style={searchIcon}>🔎</span>
-              <input
-                style={searchInput}
-                value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
-                placeholder="البحث السريع: اسم العميل، الهوية، الجوال، رقم العقد..."
-              />
-
-              {searchText && (
-                <button
-                  style={clearSearchButton}
-                  onClick={() => {
-                    setSearchText("");
-                    setSearchResults([]);
-                  }}
-                >
-                  ×
-                </button>
-              )}
+          <div className="v13-left" style={leftHeader}>
+            <div style={employeeBox}>
+              <span>👤</span>
+              <strong>{employeeName}</strong>
             </div>
 
-            {searchText.trim().length >= 2 && (
-              <div style={resultsBox}>
-                {searchLoading ? (
-                  <div style={emptyResult}>جاري البحث...</div>
-                ) : searchResults.length === 0 ? (
-                  <div style={emptyResult}>لا توجد نتائج مطابقة</div>
-                ) : (
-                  searchResults.map((item) => (
-                    <button
-                      key={`${item.type}-${item.id}`}
-                      style={resultItem}
-                      onClick={() => (window.location.href = item.href)}
-                    >
-                      <span style={resultIcon}>{item.icon}</span>
+            <button style={logoutButton} onClick={logout}>
+              تسجيل الخروج
+            </button>
+          </div>
+        </section>
 
-                      <span style={resultContent}>
-                        <strong>{item.title}</strong>
-                        <small>{item.subtitle}</small>
-                      </span>
+        <section style={statsGrid}>
+          <StatCard
+            title="العقود"
+            value={contractsCount}
+            icon="📄"
+            color="#2563eb"
+          />
+          <StatCard
+            title="العملاء"
+            value={customersCount}
+            icon="👥"
+            color="#0284c7"
+          />
+        </section>
 
-                      <span style={resultType}>{item.type}</span>
-                    </button>
-                  ))
-                )}
-              </div>
+        <section style={searchWrapper}>
+          <section style={searchCard}>
+            <span style={searchIcon}>🔎</span>
+            <input
+              style={searchInput}
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              placeholder="البحث السريع: اسم العميل، رقم العقد، الهوية، الجوال..."
+            />
+
+            {searchText && (
+              <button
+                style={clearSearchButton}
+                onClick={() => {
+                  setSearchText("");
+                  setSearchResults([]);
+                }}
+              >
+                ×
+              </button>
             )}
           </section>
 
-          <section style={sectionsCard}>
-            <div style={grid}>
-              {visibleSections.map((item) => (
-                <Card
-                  key={item.path}
-                  title={item.title}
-                  href={`/finance/${branch}/${item.path}`}
-                  icon={item.icon}
-                />
-              ))}
-            </div>
-          </section>
-
-          <section style={bottomGrid}>
-            <section style={panelCard}>
-              <div style={panelHeader}>
-                <h2 style={panelTitle}>التنبيهات</h2>
-                <button
-                  style={panelLink}
-                  onClick={() => (window.location.href = `/finance/${branch}/inventory`)}
-                >
-                  عرض المخزون
-                </button>
-              </div>
-
-              <div style={listWrap}>
-                {alerts.map((item) => (
+          {searchText.trim().length >= 2 && (
+            <div style={resultsBox}>
+              {searchLoading ? (
+                <div style={emptyResult}>جاري البحث...</div>
+              ) : searchResults.length === 0 ? (
+                <div style={emptyResult}>لا توجد نتائج مطابقة</div>
+              ) : (
+                searchResults.map((item) => (
                   <button
-                    key={item.id}
-                    style={{
-                      ...alertItem,
-                      ...(item.type === "danger"
-                        ? alertDanger
-                        : item.type === "warning"
-                        ? alertWarning
-                        : alertSuccess),
-                    }}
+                    key={`${item.type}-${item.id}`}
+                    style={resultItem}
                     onClick={() => (window.location.href = item.href)}
                   >
-                    <span style={alertIcon}>{item.icon}</span>
-                    <span style={alertContent}>
+                    <span style={resultIcon}>{item.icon}</span>
+
+                    <span style={resultContent}>
                       <strong>{item.title}</strong>
-                      <small>{item.text}</small>
+                      <small>{item.subtitle}</small>
                     </span>
+
+                    <span style={resultType}>{item.type}</span>
                   </button>
-                ))}
-              </div>
-            </section>
+                ))
+              )}
+            </div>
+          )}
+        </section>
 
-            <section style={panelCard}>
-              <div style={panelHeader}>
-                <h2 style={panelTitle}>آخر العمليات</h2>
-                <button
-                  style={panelLink}
-                  onClick={() => (window.location.href = `/finance/${branch}/workflow`)}
-                >
-                  عرض الكل
-                </button>
-              </div>
+        <section style={quickActions}>
+          {hasPermission("contracts") && (
+            <button style={primaryAction} onClick={() => go("new-request")}>
+              ➕ طلب جديد
+            </button>
+          )}
 
-              <div style={listWrap}>
-                {latestActivities.length === 0 ? (
-                  <div style={emptyResult}>لا توجد عمليات مسجلة حالياً</div>
-                ) : (
-                  latestActivities.map((item: any) => (
-                    <div key={item.id} style={activityItem}>
-                      <span style={activityIcon}>🕘</span>
+          {hasPermission("payments") && (
+            <button style={greenAction} onClick={() => go("payments/new")}>
+              💳 تسجيل سداد
+            </button>
+          )}
 
-                      <span style={activityContent}>
-                        <strong>{getActivityTitle(item)}</strong>
-                        <small>{getActivityText(item)}</small>
-                        <em>{formatDate(item.created_at)}</em>
-                      </span>
-                    </div>
-                  ))
-                )}
-              </div>
-            </section>
-          </section>
-        </div>
+          {hasPermission("inventory") && (
+            <button style={tealAction} onClick={() => go("inventory/add")}>
+              📦 إضافة مخزون
+            </button>
+          )}
+
+          {hasPermission("expenses") && (
+            <button style={grayAction} onClick={() => go("expenses/new")}>
+              🧾 فاتورة مصروف
+            </button>
+          )}
+        </section>
+
+        <section style={sectionsPanel}>
+          <div style={panelHeader}>
+            <span style={panelIconBlue}>⚡</span>
+            <strong>أقسام محطة العمل</strong>
+          </div>
+
+          <div style={grid}>
+            {visibleSections.map((item) => (
+              <button
+                key={item.title}
+                style={sectionCard}
+                onClick={() => go(item.path)}
+              >
+                <div style={cardRight}>
+                  <div
+                    style={{
+                      ...iconBox,
+                      background: item.bg,
+                      color: item.color,
+                    }}
+                  >
+                    {item.icon}
+                  </div>
+
+                  <div>
+                    <div style={cardTitle}>{item.title}</div>
+                    <div style={cardDesc}>{item.desc}</div>
+                  </div>
+                </div>
+
+                <span style={{ ...arrow, color: item.color }}>‹</span>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section style={compactInfoGrid}>
+          <div style={compactPanel}>
+            <div style={compactPanelHeader}>
+              <span style={compactPanelIconBlue}>🚨</span>
+              <strong>تنبيهات مهمة</strong>
+            </div>
+
+            {alerts.map((item) => (
+              <button
+                key={item.id}
+                style={
+                  item.type === "green"
+                    ? compactNoticeGreen
+                    : item.type === "danger"
+                    ? compactNoticeRed
+                    : compactNoticeBlue
+                }
+                onClick={() => (window.location.href = item.href)}
+              >
+                {item.text}
+              </button>
+            ))}
+          </div>
+
+          <div style={compactPanel}>
+            <div style={compactPanelHeader}>
+              <span style={compactPanelIconGreen}>🕒</span>
+              <strong>آخر العمليات</strong>
+            </div>
+
+            {latestActivities.length === 0 ? (
+              <div style={compactActivityItem}>لا توجد عمليات مسجلة حالياً</div>
+            ) : (
+              latestActivities.map((item: any) => (
+                <div key={item.id} style={compactActivityItem}>
+                  {getActivityText(item)}
+                </div>
+              ))
+            )}
+          </div>
+        </section>
       </div>
 
-      <style jsx>{`
-        .desktop-sidebar {
-          display: block;
-        }
-
-        @media (max-width: 768px) {
-          .desktop-sidebar {
-            display: none;
-          }
-        }
-      `}</style>
+      <ResponsiveStyles />
     </main>
   );
 }
 
-function Card({ title, href, icon }: any) {
+function StatCard({
+  title,
+  value,
+  icon,
+  color,
+}: {
+  title: string;
+  value: number;
+  icon: string;
+  color: string;
+}) {
   return (
-    <button style={card} onClick={() => (window.location.href = href)}>
-      <div style={cardRight}>
-        <span style={iconBox}>{icon}</span>
-        <span style={cardTitle}>{title}</span>
+    <div style={statCard}>
+      <div style={{ ...statIcon, background: `${color}14`, color }}>
+        {icon}
       </div>
 
-      <span style={arrow}>‹</span>
-    </button>
+      <div>
+        <div style={statValue}>{value}</div>
+        <div style={statTitle}>{title}</div>
+      </div>
+    </div>
   );
 }
 
-function StatCard({ title, value, icon, href }: any) {
+function ResponsiveStyles() {
   return (
-    <button style={statCard} onClick={() => (window.location.href = href)}>
-      <span style={statIcon}>{icon}</span>
+    <style jsx global>{`
+      @media (max-width: 700px) {
+        .v13-hero {
+          grid-template-columns: 1fr !important;
+          text-align: center !important;
+          padding: 24px 18px !important;
+          gap: 18px !important;
+        }
 
-      <span style={statContent}>
-        <strong>{value}</strong>
-        <small>{title}</small>
-      </span>
-    </button>
+        .v13-right,
+        .v13-left {
+          justify-content: center !important;
+          text-align: center !important;
+        }
+
+        .v13-left {
+          flex-direction: column !important;
+        }
+
+        .v13-org-title {
+          font-size: 30px !important;
+          line-height: 1.35 !important;
+        }
+      }
+    `}</style>
   );
 }
 
 const page: React.CSSProperties = {
   minHeight: "100vh",
-  backgroundColor: "#f4f7fb",
   backgroundImage:
-    "linear-gradient(rgba(244,247,251,0.72), rgba(244,247,251,0.72)), url('/backgrounds/finance-bg.webp')",
+    "linear-gradient(rgba(255,255,255,0.82), rgba(255,255,255,0.82)), url('/backgrounds/v13-finance-bg-1.png')",
   backgroundSize: "cover",
   backgroundPosition: "center",
   backgroundRepeat: "no-repeat",
   backgroundAttachment: "fixed",
   padding: 18,
   fontFamily: "var(--font-almarai), sans-serif",
+  position: "relative",
   overflowX: "hidden",
-};
-
-const loadingContainer: React.CSSProperties = {
-  width: "100%",
-  maxWidth: 1100,
-  margin: "auto",
-};
-
-const layout: React.CSSProperties = {
-  width: "100%",
-  maxWidth: 1420,
-  margin: "auto",
-  display: "flex",
-  gap: 18,
-  alignItems: "flex-start",
 };
 
 const container: React.CSSProperties = {
   width: "100%",
-  maxWidth: 1100,
+  maxWidth: 1180,
   margin: "auto",
+  position: "relative",
+  zIndex: 2,
 };
 
 const hero: React.CSSProperties = {
-  background: "linear-gradient(135deg,#0f172a,#1e3a8a)",
-  color: "white",
-  borderRadius: 24,
+  background: "linear-gradient(135deg,#0f172a 0%,#1d4ed8 48%,#0f766e 100%)",
+  borderRadius: 30,
   padding: 24,
-  marginBottom: 14,
-  boxShadow: "0 12px 30px rgba(15,23,42,0.12)",
+  color: "white",
+  display: "grid",
+  gridTemplateColumns: "220px 1fr 260px",
+  alignItems: "center",
+  gap: 16,
+  marginBottom: 16,
+  boxShadow: "0 18px 45px rgba(29,78,216,0.18)",
 };
 
-const heroTitle: React.CSSProperties = {
-  margin: "0 0 8px",
-  fontSize: 32,
-  lineHeight: 1.4,
+const rightHeader: React.CSSProperties = {
+  textAlign: "right",
 };
 
-const heroSub: React.CSSProperties = {
+const centerHeader: React.CSSProperties = {
+  textAlign: "center",
+};
+
+const leftHeader: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "flex-end",
+  alignItems: "center",
+  gap: 10,
+  flexWrap: "wrap",
+};
+
+const organizationTitle: React.CSSProperties = {
   margin: 0,
-  opacity: 0.9,
+  fontSize: 34,
+  lineHeight: 1.25,
+  fontWeight: 900,
+  color: "white",
+};
+
+const workstationTitle: React.CSSProperties = {
+  marginTop: 7,
   fontSize: 16,
+  color: "#dbeafe",
+  fontWeight: 800,
+};
+
+const dateLabel: React.CSSProperties = {
+  color: "#bfdbfe",
+  fontSize: 13,
+  fontWeight: 800,
+  marginBottom: 4,
+};
+
+const dateText: React.CSSProperties = {
+  color: "white",
+  fontSize: 17,
+  fontWeight: 900,
+};
+
+const employeeBox: React.CSSProperties = {
+  background: "rgba(255,255,255,0.13)",
+  border: "1px solid rgba(255,255,255,0.22)",
+  borderRadius: 14,
+  padding: "10px 12px",
+  display: "flex",
+  alignItems: "center",
+  gap: 7,
+  color: "white",
+};
+
+const logoutButton: React.CSSProperties = {
+  background: "rgba(255,255,255,0.18)",
+  border: "1px solid rgba(255,255,255,0.28)",
+  color: "white",
+  borderRadius: 14,
+  padding: "10px 14px",
+  fontWeight: 900,
+  cursor: "pointer",
+  backdropFilter: "blur(8px)",
 };
 
 const statsGrid: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
+  gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))",
   gap: 12,
   marginBottom: 14,
+  maxWidth: 620,
+  marginLeft: "auto",
+  marginRight: "auto",
 };
 
 const statCard: React.CSSProperties = {
-  width: "100%",
   background: "rgba(255,255,255,0.96)",
   border: "1px solid #e2e8f0",
-  borderRadius: 20,
+  borderRadius: 24,
   padding: 18,
   display: "flex",
   alignItems: "center",
   gap: 14,
-  cursor: "pointer",
-  boxShadow: "0 10px 24px rgba(15,23,42,0.05)",
-  textAlign: "right",
+  boxShadow: "0 12px 28px rgba(15,23,42,0.05)",
 };
 
 const statIcon: React.CSSProperties = {
-  width: 54,
-  height: 54,
+  width: 52,
+  height: 52,
   borderRadius: 18,
-  background: "#eff6ff",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  fontSize: 26,
+  fontSize: 25,
+  flex: "0 0 auto",
 };
 
-const statContent: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 4,
+const statValue: React.CSSProperties = {
   color: "#0f172a",
+  fontSize: 29,
+  fontWeight: 900,
+};
+
+const statTitle: React.CSSProperties = {
+  color: "#64748b",
+  fontWeight: 800,
+  marginTop: 4,
+};
+
+const searchWrapper: React.CSSProperties = {
+  position: "relative",
+  marginBottom: 14,
 };
 
 const searchCard: React.CSSProperties = {
-  background: "rgba(255,255,255,0.94)",
-  border: "1px solid #e2e8f0",
-  borderRadius: 18,
-  padding: 12,
-  marginBottom: 14,
-  boxShadow: "0 8px 22px rgba(15,23,42,0.04)",
-  backdropFilter: "blur(6px)",
-};
-
-const searchInputWrap: React.CSSProperties = {
+  background: "rgba(255,255,255,0.98)",
+  border: "1px solid #dbeafe",
+  borderRadius: 24,
+  padding: "0 16px",
+  minHeight: 62,
   display: "flex",
   alignItems: "center",
   gap: 10,
-  background: "#f8fafc",
-  border: "1px solid #dbe3ef",
-  borderRadius: 15,
-  padding: "0 14px",
-  minHeight: 56,
+  boxShadow: "0 12px 28px rgba(37,99,235,0.07)",
 };
 
 const searchIcon: React.CSSProperties = {
-  fontSize: 21,
-  color: "#64748b",
+  color: "#2563eb",
+  fontSize: 22,
 };
 
 const searchInput: React.CSSProperties = {
   width: "100%",
   border: "none",
   outline: "none",
+  background: "transparent",
   fontSize: 16,
   color: "#0f172a",
-  background: "transparent",
   fontFamily: "var(--font-almarai), sans-serif",
 };
 
@@ -734,40 +898,41 @@ const clearSearchButton: React.CSSProperties = {
 };
 
 const resultsBox: React.CSSProperties = {
-  marginTop: 12,
+  marginTop: 10,
   display: "grid",
-  gap: 10,
+  gap: 8,
 };
 
 const resultItem: React.CSSProperties = {
   width: "100%",
   border: "1px solid #e2e8f0",
-  background: "#ffffff",
-  borderRadius: 14,
-  padding: 12,
+  background: "rgba(255,255,255,0.98)",
+  borderRadius: 16,
+  padding: 11,
   display: "grid",
-  gridTemplateColumns: "44px 1fr auto",
-  gap: 12,
+  gridTemplateColumns: "42px 1fr auto",
+  gap: 10,
   alignItems: "center",
   cursor: "pointer",
   textAlign: "right",
+  boxShadow: "0 8px 18px rgba(15,23,42,0.04)",
 };
 
 const resultIcon: React.CSSProperties = {
-  width: 44,
-  height: 44,
+  width: 42,
+  height: 42,
   borderRadius: 14,
   background: "#eff6ff",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  fontSize: 22,
+  fontSize: 21,
 };
 
 const resultContent: React.CSSProperties = {
   display: "flex",
   flexDirection: "column",
-  gap: 5,
+  gap: 4,
   color: "#0f172a",
 };
 
@@ -781,43 +946,105 @@ const resultType: React.CSSProperties = {
 };
 
 const emptyResult: React.CSSProperties = {
-  padding: 14,
+  padding: 13,
   textAlign: "center",
   color: "#64748b",
   background: "#f8fafc",
   borderRadius: 14,
 };
 
-const sectionsCard: React.CSSProperties = {
-  background: "rgba(255,255,255,0.94)",
-  border: "1px solid #e2e8f0",
-  borderRadius: 20,
+const quickActions: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))",
+  gap: 10,
+  marginBottom: 14,
+};
+
+const actionBase: React.CSSProperties = {
+  border: "none",
+  borderRadius: 18,
   padding: 16,
-  boxShadow: "0 10px 24px rgba(15,23,42,0.05)",
-  backdropFilter: "blur(6px)",
+  fontWeight: 900,
+  fontSize: 15,
+  cursor: "pointer",
+  boxShadow: "0 10px 24px rgba(15,23,42,0.06)",
+};
+
+const primaryAction: React.CSSProperties = {
+  ...actionBase,
+  background: "linear-gradient(135deg,#2563eb,#60a5fa)",
+  color: "white",
+};
+
+const greenAction: React.CSSProperties = {
+  ...actionBase,
+  background: "linear-gradient(135deg,#16a34a,#4ade80)",
+  color: "white",
+};
+
+const tealAction: React.CSSProperties = {
+  ...actionBase,
+  background: "linear-gradient(135deg,#0f766e,#2dd4bf)",
+  color: "white",
+};
+
+const grayAction: React.CSSProperties = {
+  ...actionBase,
+  background: "linear-gradient(135deg,#475569,#94a3b8)",
+  color: "white",
+};
+
+const panel: React.CSSProperties = {
+  background: "rgba(255,255,255,0.98)",
+  border: "1px solid #e2e8f0",
+  borderRadius: 24,
+  padding: 18,
+  boxShadow: "0 12px 28px rgba(15,23,42,0.05)",
+};
+
+const sectionsPanel: React.CSSProperties = {
+  ...panel,
+  marginBottom: 14,
+};
+
+const panelHeader: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 9,
+  color: "#0f172a",
+  fontSize: 17,
+  marginBottom: 13,
+};
+
+const panelIconBlue: React.CSSProperties = {
+  background: "#eff6ff",
+  color: "#2563eb",
+  width: 36,
+  height: 36,
+  borderRadius: 12,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
 };
 
 const grid: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(230px,1fr))",
+  gridTemplateColumns: "repeat(auto-fit,minmax(250px,1fr))",
   gap: 12,
 };
 
-const card: React.CSSProperties = {
+const sectionCard: React.CSSProperties = {
   width: "100%",
-  minHeight: 82,
-  background: "#ffffff",
-  color: "#0f172a",
+  minHeight: 96,
+  background: "linear-gradient(135deg,#ffffff,#f8fafc)",
   border: "1px solid #e2e8f0",
-  borderRadius: 16,
-  padding: 14,
-  fontSize: 16,
-  fontWeight: 800,
-  cursor: "pointer",
+  borderRadius: 22,
+  padding: 16,
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
-  boxShadow: "0 6px 16px rgba(15,23,42,0.04)",
+  cursor: "pointer",
+  boxShadow: "0 10px 24px rgba(15,23,42,0.04)",
 };
 
 const cardRight: React.CSSProperties = {
@@ -827,141 +1054,109 @@ const cardRight: React.CSSProperties = {
 };
 
 const iconBox: React.CSSProperties = {
-  width: 42,
-  height: 42,
-  borderRadius: 14,
-  background: "#eff6ff",
+  width: 54,
+  height: 54,
+  borderRadius: 18,
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  fontSize: 21,
+  fontSize: 24,
+  flex: "0 0 auto",
 };
 
 const cardTitle: React.CSSProperties = {
+  fontWeight: 900,
+  fontSize: 16,
   color: "#0f172a",
+};
+
+const cardDesc: React.CSSProperties = {
+  color: "#64748b",
+  fontSize: 13,
+  marginTop: 5,
 };
 
 const arrow: React.CSSProperties = {
-  color: "#2563eb",
-  fontSize: 26,
+  fontSize: 29,
 };
 
-const bottomGrid: React.CSSProperties = {
+const compactInfoGrid: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(320px,1fr))",
-  gap: 14,
-  marginTop: 14,
+  gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))",
+  gap: 10,
+  maxWidth: 780,
+  margin: "0 auto 8px",
 };
 
-const panelCard: React.CSSProperties = {
-  background: "rgba(255,255,255,0.96)",
+const compactPanel: React.CSSProperties = {
+  background: "rgba(255,255,255,0.98)",
   border: "1px solid #e2e8f0",
   borderRadius: 20,
-  padding: 16,
-  boxShadow: "0 10px 24px rgba(15,23,42,0.05)",
-  backdropFilter: "blur(6px)",
+  padding: 13,
+  boxShadow: "0 10px 22px rgba(15,23,42,0.04)",
 };
 
-const panelHeader: React.CSSProperties = {
+const compactPanelHeader: React.CSSProperties = {
   display: "flex",
-  justifyContent: "space-between",
   alignItems: "center",
-  gap: 12,
-  marginBottom: 12,
-};
-
-const panelTitle: React.CSSProperties = {
-  margin: 0,
+  gap: 8,
   color: "#0f172a",
-  fontSize: 20,
+  fontSize: 15,
+  marginBottom: 9,
 };
 
-const panelLink: React.CSSProperties = {
-  border: "none",
+const compactPanelIconBlue: React.CSSProperties = {
   background: "#eff6ff",
-  color: "#1d4ed8",
-  borderRadius: 999,
-  padding: "9px 14px",
-  fontWeight: 800,
-  cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
-};
-
-const listWrap: React.CSSProperties = {
-  display: "grid",
-  gap: 10,
-};
-
-const alertItem: React.CSSProperties = {
-  width: "100%",
-  borderRadius: 16,
-  padding: 12,
-  display: "grid",
-  gridTemplateColumns: "42px 1fr",
-  gap: 12,
+  color: "#2563eb",
+  width: 30,
+  height: 30,
+  borderRadius: 10,
+  display: "flex",
   alignItems: "center",
-  cursor: "pointer",
-  textAlign: "right",
+  justifyContent: "center",
 };
 
-const alertDanger: React.CSSProperties = {
-  border: "1px solid #fecaca",
-  background: "#fef2f2",
-};
-
-const alertWarning: React.CSSProperties = {
-  border: "1px solid #fed7aa",
-  background: "#fff7ed",
-};
-
-const alertSuccess: React.CSSProperties = {
-  border: "1px solid #bbf7d0",
+const compactPanelIconGreen: React.CSSProperties = {
+  ...compactPanelIconBlue,
   background: "#f0fdf4",
+  color: "#16a34a",
 };
 
-const alertIcon: React.CSSProperties = {
-  width: 42,
-  height: 42,
-  borderRadius: 14,
-  background: "rgba(255,255,255,0.75)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  fontSize: 21,
+const compactNoticeBlue: React.CSSProperties = {
+  width: "100%",
+  background: "#eff6ff",
+  border: "1px solid #bfdbfe",
+  color: "#1d4ed8",
+  borderRadius: 13,
+  padding: 10,
+  marginBottom: 7,
+  lineHeight: 1.6,
+  fontWeight: 800,
+  textAlign: "right",
+  cursor: "pointer",
 };
 
-const alertContent: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 5,
-  color: "#0f172a",
+const compactNoticeGreen: React.CSSProperties = {
+  ...compactNoticeBlue,
+  background: "#f0fdf4",
+  border: "1px solid #bbf7d0",
+  color: "#166534",
 };
 
-const activityItem: React.CSSProperties = {
+const compactNoticeRed: React.CSSProperties = {
+  ...compactNoticeBlue,
+  background: "#fef2f2",
+  border: "1px solid #fecaca",
+  color: "#b91c1c",
+};
+
+const compactActivityItem: React.CSSProperties = {
+  background: "#f8fafc",
   border: "1px solid #e2e8f0",
-  background: "#ffffff",
-  borderRadius: 16,
-  padding: 12,
-  display: "grid",
-  gridTemplateColumns: "42px 1fr",
-  gap: 12,
-  alignItems: "center",
-};
-
-const activityIcon: React.CSSProperties = {
-  width: 42,
-  height: 42,
-  borderRadius: 14,
-  background: "#f1f5f9",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  fontSize: 21,
-};
-
-const activityContent: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 5,
-  color: "#0f172a",
+  color: "#475569",
+  borderRadius: 13,
+  padding: 10,
+  marginBottom: 7,
+  lineHeight: 1.6,
+  fontSize: 13,
 };
