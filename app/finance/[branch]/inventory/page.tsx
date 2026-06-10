@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
 
@@ -10,6 +10,7 @@ const ITEMS_PER_PAGE = 25;
 
 export default function FinanceInventoryPage() {
   const params = useParams();
+  const router = useRouter();
   const branch = params.branch as string;
 
   const [items, setItems] = useState<any[]>([]);
@@ -33,6 +34,10 @@ export default function FinanceInventoryPage() {
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, statusFilter]);
+
+  function go(path: string) {
+    router.push(`/finance/${branch}/${path}`);
+  }
 
   function loadCurrentUserPermissions() {
     const savedUser =
@@ -173,67 +178,51 @@ export default function FinanceInventoryPage() {
           <ActionButton
             icon="➕"
             title="إضافة منتج"
-            onClick={() =>
-              (window.location.href = `/finance/${branch}/inventory/products/new`)
-            }
+            onClick={() => go("inventory/products/new")}
           />
 
           {hasPermission("add_investor") && (
             <ActionButton
               icon="👤"
               title="إضافة مستثمر"
-              onClick={() =>
-                (window.location.href = `/finance/${branch}/inventory/investors/new`)
-              }
+              onClick={() => go("inventory/investors/new")}
             />
           )}
 
           <ActionButton
             icon="👥"
             title="المستثمرين"
-            onClick={() =>
-              (window.location.href = `/finance/${branch}/inventory/investors`)
-            }
+            onClick={() => go("inventory/investors")}
           />
 
           <ActionButton
             icon="📦"
             title="المنتجات"
-            onClick={() =>
-              (window.location.href = `/finance/${branch}/inventory/products`)
-            }
+            onClick={() => go("inventory/products")}
           />
 
           <ActionButton
             icon="📦"
             title="إضافة كمية للمخزون"
-            onClick={() =>
-              (window.location.href = `/finance/${branch}/inventory/add-stock`)
-            }
+            onClick={() => go("inventory/add-stock")}
           />
 
           <ActionButton
             icon="📋"
             title="سجل الحركات"
-            onClick={() =>
-              (window.location.href = `/finance/${branch}/inventory/movements`)
-            }
+            onClick={() => go("inventory/movements")}
           />
 
           <ActionButton
             icon="🖨️"
             title="كشف المنتجات"
-            onClick={() =>
-              (window.location.href = `/finance/${branch}/inventory/products-report`)
-            }
+            onClick={() => go("inventory/products-report")}
           />
 
           <ActionButton
             icon="🧾"
             title="كشف المستثمر"
-            onClick={() =>
-              (window.location.href = `/finance/${branch}/inventory/investor-report`)
-            }
+            onClick={() => go("inventory/investor-report")}
           />
         </section>
 
@@ -335,12 +324,11 @@ export default function FinanceInventoryPage() {
           )}
         </section>
 
-        <button
-          style={backButton}
-          onClick={() => (window.location.href = `/finance/${branch}`)}
-        >
-          الرجوع لمحطة العمل الرئيسية
-        </button>
+        <div style={backWrapper}>
+          <button style={backButton} onClick={() => router.push(`/finance/${branch}`)}>
+            ← الرجوع للرئيسية
+          </button>
+        </div>
       </div>
     </main>
   );
@@ -635,16 +623,20 @@ const paginationText = {
   fontWeight: "bold",
 };
 
+const backWrapper = {
+  display: "flex",
+  justifyContent: "center",
+  marginTop: 18,
+};
+
 const backButton = {
-  width: "100%",
-  padding: 16,
-  background: "#16a34a",
+  padding: "11px 18px",
+  background: "linear-gradient(135deg,#64748b,#334155)",
   color: "#ffffff",
   border: "none",
-  borderRadius: 14,
-  fontSize: 17,
-  fontWeight: "bold",
-  marginTop: 18,
+  borderRadius: 12,
+  fontSize: 14,
+  fontWeight: "900",
   cursor: "pointer",
-  boxShadow: "0 4px 12px rgba(22,163,74,0.25)",
+  boxShadow: "0 5px 14px rgba(51,65,85,0.22)",
 };
