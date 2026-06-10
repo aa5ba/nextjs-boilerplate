@@ -291,7 +291,22 @@ export default function AdminSupportPage() {
       notes: branchNotes.trim() || null,
       updated_at: new Date().toISOString(),
     };
+const { data: existingBranch, error: existingBranchError } = await supabase
+  .from("finance_branches")
+  .select("id")
+  .eq("branch_slug", payload.branch_slug)
+  .neq("id", editingBranchId || "00000000-0000-0000-0000-000000000000")
+  .maybeSingle();
 
+if (existingBranchError) {
+  alert("تعذر التحقق من رابط الفرع");
+  return;
+}
+
+if (existingBranch) {
+  alert("الفرع المدخل موجود مسبقاً");
+  return;
+}    
     if (editingBranchId) {
       const { error } = await supabase
         .from("finance_branches")
@@ -323,11 +338,18 @@ export default function AdminSupportPage() {
       })
       .select("id, branch_name, branch_slug, organization_name")
       .single();
+if (branchError || !newBranch) {
+  if (
+    branchError?.code === "23505" ||
+    branchError?.message?.includes("duplicate key")
+  ) {
+    alert("الفرع المدخل موجود مسبقاً");
+    return;
+  }
 
-    if (branchError || !newBranch) {
-      alert("تعذر إنشاء الفرع: " + branchError?.message);
-      return;
-    }
+  alert("تعذر إنشاء الفرع: " + branchError?.message);
+  return;
+}
 
     const { error: managerError } = await supabase.from("finance_users").insert({
       branch_id: newBranch.id,
