@@ -10,8 +10,7 @@ export default function FinanceSettingsPage() {
 
   const [organizationName, setOrganizationName] = useState("");
   const [organizationPhone, setOrganizationPhone] = useState("");
-  const [organizationEmail, setOrganizationEmail] = useState("");
-  const [organizationAddress, setOrganizationAddress] = useState("");
+  const [organizationCity, setOrganizationCity] = useState("");
   const [commercialRecord, setCommercialRecord] = useState("");
 
   const [organizationLogoUrl, setOrganizationLogoUrl] = useState("");
@@ -37,9 +36,7 @@ export default function FinanceSettingsPage() {
 
     const { data: branchData, error: branchError } = await supabase
       .from("finance_branches")
-      .select(
-        "organization_name, commercial_record, organization_phone, organization_email, organization_address"
-      )
+      .select("organization_name, commercial_record, phone, city")
       .eq("branch_slug", branch)
       .single();
 
@@ -51,9 +48,8 @@ export default function FinanceSettingsPage() {
 
     setOrganizationName(branchData?.organization_name || "");
     setCommercialRecord(branchData?.commercial_record || "");
-    setOrganizationPhone(branchData?.organization_phone || "");
-    setOrganizationEmail(branchData?.organization_email || "");
-    setOrganizationAddress(branchData?.organization_address || "");
+    setOrganizationPhone(branchData?.phone || "");
+    setOrganizationCity(branchData?.city || "");
 
     const { data: settingsData } = await supabase
       .from("finance_settings")
@@ -105,9 +101,8 @@ export default function FinanceSettingsPage() {
         .update({
           organization_name: organizationName.trim(),
           commercial_record: cleanCommercialRecord.trim(),
-          organization_phone: cleanPhone.trim(),
-          organization_email: organizationEmail.trim(),
-          organization_address: organizationAddress.trim(),
+          phone: cleanPhone.trim(),
+          city: organizationCity.trim(),
           updated_at: new Date().toISOString(),
         })
         .eq("branch_slug", branch);
@@ -140,9 +135,9 @@ export default function FinanceSettingsPage() {
     <main dir="rtl" style={page}>
       <div style={container}>
         <div style={header}>
-          <h1 style={{ margin: 0 }}>⚙️ إعدادات النظام</h1>
+          <h1 style={{ margin: 0 }}>⚙️ الإعدادات</h1>
           <p style={headerText}>
-            بيانات المنظمة خاصة بهذا الفرع فقط وتظهر في العقود والسندات والمخالصة.
+            بيانات المنظمة خاصة بهذا الفرع وتظهر في العقود والسندات والطباعة.
           </p>
         </div>
 
@@ -182,21 +177,12 @@ export default function FinanceSettingsPage() {
             />
           </Field>
 
-          <Field label="البريد الإلكتروني - اختياري">
-            <input
-              style={input}
-              type="email"
-              value={organizationEmail}
-              onChange={(e) => setOrganizationEmail(e.target.value)}
-            />
-          </Field>
-
-          <Field label="العنوان - اختياري">
+          <Field label="المدينة - اختياري">
             <input
               style={input}
               type="text"
-              value={organizationAddress}
-              onChange={(e) => setOrganizationAddress(e.target.value)}
+              value={organizationCity}
+              onChange={(e) => setOrganizationCity(e.target.value)}
             />
           </Field>
         </section>
@@ -270,7 +256,7 @@ function Field({ label, children }: any) {
 
 const page = {
   minHeight: "100vh",
-  background: "#eef5ff",
+  background: "#f4f7fb",
   padding: 20,
   fontFamily: "var(--font-almarai), sans-serif",
 };
@@ -282,11 +268,12 @@ const container = {
 };
 
 const header = {
-  background: "linear-gradient(135deg,#0d47a1,#1976d2)",
+  background: "linear-gradient(135deg,#0f172a,#1e3a8a)",
   color: "white",
   padding: 28,
   borderRadius: 24,
   marginBottom: 18,
+  boxShadow: "0 12px 30px rgba(15,23,42,0.12)",
 };
 
 const headerText = {
@@ -297,16 +284,17 @@ const headerText = {
 
 const card = {
   background: "white",
-  border: "1px solid #d9e3f5",
+  border: "1px solid #e2e8f0",
   borderRadius: 18,
   padding: 20,
   marginBottom: 16,
+  boxShadow: "0 8px 22px rgba(15,23,42,0.04)",
 };
 
 const sectionTitle = {
   marginTop: 0,
   marginBottom: 18,
-  color: "#0d47a1",
+  color: "#0f172a",
 };
 
 const fieldBox = {
@@ -325,10 +313,10 @@ const input = {
   width: "100%",
   padding: 14,
   borderRadius: 14,
-  border: "1px solid #d9e3f5",
+  border: "1px solid #dbe3ef",
   fontSize: 16,
   boxSizing: "border-box" as const,
-  background: "white",
+  background: "#f8fafc",
 };
 
 const textarea = {
@@ -336,16 +324,16 @@ const textarea = {
   minHeight: 90,
   padding: 14,
   borderRadius: 14,
-  border: "1px solid #d9e3f5",
+  border: "1px solid #dbe3ef",
   fontSize: 16,
   boxSizing: "border-box" as const,
-  background: "white",
+  background: "#f8fafc",
 };
 
 const saveButton = {
   width: "100%",
   padding: 16,
-  background: "#0d47a1",
+  background: "#2563eb",
   color: "white",
   border: "none",
   borderRadius: 14,
@@ -357,9 +345,9 @@ const saveButton = {
 const backButton = {
   width: "100%",
   padding: 16,
-  background: "#e5e7eb",
-  color: "#0d47a1",
-  border: "1px solid #cbd5e1",
+  background: "#16a34a",
+  color: "white",
+  border: "none",
   borderRadius: 14,
   fontSize: 17,
   fontWeight: "bold",
