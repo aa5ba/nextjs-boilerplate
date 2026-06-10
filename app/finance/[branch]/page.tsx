@@ -12,6 +12,7 @@ const sections = [
   { title: "سداد", path: "payments", icon: "💳", permission: "payments" },
   { title: "المخزون والمنتجات", path: "inventory", icon: "📦", permission: "inventory" },
   { title: "العقود", path: "contracts", icon: "📄", permission: "contracts" },
+  { title: "المصروفات والمشتريات", path: "expenses", icon: "🧾", permission: "expenses" },
   { title: "الملاحظات", path: "notes", icon: "✏️", permission: "workflow" },
   { title: "الصلاحيات", path: "permissions", icon: "🔐", permission: "settings" },
   { title: "الإعدادات", path: "settings", icon: "⚙️", permission: "settings" },
