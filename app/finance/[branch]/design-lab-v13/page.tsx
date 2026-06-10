@@ -84,10 +84,8 @@ export default function DesignLabV13Page() {
         </section>
 
         <section style={statsGrid}>
-          <StatCard title="العقود النشطة" value="145" icon="📄" color="#2563eb" />
+          <StatCard title="العقود" value="145" icon="📄" color="#2563eb" />
           <StatCard title="العملاء" value="812" icon="👥" color="#0284c7" />
-          <StatCard title="السداد اليوم" value="28" icon="💳" color="#16a34a" />
-          <StatCard title="المنتجات" value="53" icon="📦" color="#0f766e" />
         </section>
 
         <section style={searchCard}>
@@ -111,33 +109,6 @@ export default function DesignLabV13Page() {
           <button style={grayAction} onClick={() => go("expenses/new")}>
             🧾 فاتورة مصروف
           </button>
-        </section>
-
-        <section style={infoGrid}>
-          <div style={panel}>
-            <div style={panelHeader}>
-              <span style={panelIconBlue}>🚨</span>
-              <strong>تنبيهات مهمة</strong>
-            </div>
-
-            <div style={noticeBlue}>
-              يوجد 12 عقداً مستحق السداد خلال الأسبوع القادم
-            </div>
-            <div style={noticeGreen}>
-              يوجد 3 منتجات قاربت على النفاد من المخزون
-            </div>
-          </div>
-
-          <div style={panel}>
-            <div style={panelHeader}>
-              <span style={panelIconGreen}>🕒</span>
-              <strong>آخر العمليات</strong>
-            </div>
-
-            <div style={activityItem}>تم إنشاء عقد جديد للعميل أحمد محمد</div>
-            <div style={activityItem}>تم تسجيل عملية سداد بمبلغ 5,000 ريال</div>
-            <div style={activityItem}>تم إضافة فاتورة مصروف جديدة</div>
-          </div>
         </section>
 
         <section style={sectionsPanel}>
@@ -173,6 +144,33 @@ export default function DesignLabV13Page() {
                 <span style={{ ...arrow, color: item.color }}>‹</span>
               </button>
             ))}
+          </div>
+        </section>
+
+        <section style={infoGrid}>
+          <div style={panel}>
+            <div style={panelHeader}>
+              <span style={panelIconBlue}>🚨</span>
+              <strong>تنبيهات مهمة</strong>
+            </div>
+
+            <div style={noticeBlue}>
+              يوجد 12 عقداً مستحق السداد خلال الأسبوع القادم
+            </div>
+            <div style={noticeGreen}>
+              يوجد 3 منتجات قاربت على النفاد من المخزون
+            </div>
+          </div>
+
+          <div style={panel}>
+            <div style={panelHeader}>
+              <span style={panelIconGreen}>🕒</span>
+              <strong>آخر العمليات</strong>
+            </div>
+
+            <div style={activityItem}>تم إنشاء عقد جديد للعميل أحمد محمد</div>
+            <div style={activityItem}>تم تسجيل عملية سداد بمبلغ 5,000 ريال</div>
+            <div style={activityItem}>تم إضافة فاتورة مصروف جديدة</div>
           </div>
         </section>
 
@@ -247,7 +245,7 @@ function ResponsiveStyles() {
 const page: React.CSSProperties = {
   minHeight: "100vh",
   backgroundImage:
-    "linear-gradient(rgba(255,255,255,0.82), rgba(255,255,255,0.82)), url('/backgrounds/v13-finance-bg-1.png')",
+    "linear-gradient(rgba(255,255,255,0.82), rgba(255,255,255,0.82)), url('/backgrounds/v13-finance-bg-2.png')",
   backgroundSize: "cover",
   backgroundPosition: "center",
   backgroundRepeat: "no-repeat",
@@ -347,9 +345,12 @@ const logoutButton: React.CSSProperties = {
 
 const statsGrid: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(210px,1fr))",
+  gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))",
   gap: 12,
   marginBottom: 14,
+  maxWidth: 620,
+  marginLeft: "auto",
+  marginRight: "auto",
 };
 
 const statCard: React.CSSProperties = {
@@ -530,6 +531,7 @@ const activityItem: React.CSSProperties = {
 
 const sectionsPanel: React.CSSProperties = {
   ...panel,
+  marginBottom: 14,
 };
 
 const grid: React.CSSProperties = {
