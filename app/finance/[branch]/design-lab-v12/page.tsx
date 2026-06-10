@@ -410,6 +410,16 @@ const quickActions: React.CSSProperties = {
   marginBottom: 14,
 };
 
+const quickButtonBase: React.CSSProperties = {
+  border: "1px solid rgba(255,255,255,0.75)",
+  borderRadius: 20,
+  padding: 16,
+  fontWeight: 900,
+  fontSize: 15,
+  cursor: "pointer",
+  boxShadow: "0 10px 24px rgba(15,23,42,0.05)",
+};
+
 const quickPrimary: React.CSSProperties = {
   ...quickButtonBase,
   background: "linear-gradient(135deg,#dbeafe,#eff6ff)",
@@ -432,16 +442,6 @@ const quickPurple: React.CSSProperties = {
   ...quickButtonBase,
   background: "linear-gradient(135deg,#f3e8ff,#faf5ff)",
   color: "#7e22ce",
-};
-
-const quickButtonBase: React.CSSProperties = {
-  border: "1px solid rgba(255,255,255,0.75)",
-  borderRadius: 20,
-  padding: 16,
-  fontWeight: 900,
-  fontSize: 15,
-  cursor: "pointer",
-  boxShadow: "0 10px 24px rgba(15,23,42,0.05)",
 };
 
 const mainGrid: React.CSSProperties = {
