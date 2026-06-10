@@ -61,7 +61,7 @@ const sections = [
     title: "الإعدادات",
     desc: "بيانات الفرع والمنظمة",
     icon: "⚙️",
-    color: "#f59e0b",
+    color: "#d97706",
   },
 ];
 
@@ -77,7 +77,7 @@ export default function DesignLabV9Page() {
       <div style={container}>
         <section style={hero}>
           <div>
-            <div style={goldBadge}>نموذج ٩ — Luxury Finance</div>
+            <div style={goldBadge}>نموذج ٩ — Light Luxury</div>
 
             <h1 style={heroTitle}>محطة العمل الفاخرة</h1>
 
@@ -170,7 +170,7 @@ export default function DesignLabV9Page() {
                   <div
                     style={{
                       ...iconBox,
-                      background: `linear-gradient(135deg, ${item.color}, #020617)`,
+                      background: `linear-gradient(135deg, ${item.color}, #0f172a)`,
                     }}
                   >
                     {item.icon}
@@ -220,7 +220,7 @@ function StatCard({
 const page: React.CSSProperties = {
   minHeight: "100vh",
   background:
-    "radial-gradient(circle at top right,#1e293b 0%,#0f172a 42%,#020617 100%)",
+    "radial-gradient(circle at top right,rgba(37,99,235,0.16),transparent 28%), radial-gradient(circle at bottom left,rgba(212,175,55,0.20),transparent 30%), linear-gradient(180deg,#f8fbff 0%,#eef5ff 48%,#ffffff 100%)",
   padding: 20,
   fontFamily: "var(--font-almarai), sans-serif",
   position: "relative",
@@ -229,25 +229,25 @@ const page: React.CSSProperties = {
 
 const glowOne: React.CSSProperties = {
   position: "fixed",
-  width: 360,
-  height: 360,
+  width: 340,
+  height: 340,
   borderRadius: "50%",
-  background: "rgba(251,191,36,0.16)",
-  filter: "blur(70px)",
+  background: "rgba(212,175,55,0.18)",
+  filter: "blur(80px)",
   top: -120,
-  right: -100,
+  right: -110,
   pointerEvents: "none",
 };
 
 const glowTwo: React.CSSProperties = {
   position: "fixed",
-  width: 420,
-  height: 420,
+  width: 380,
+  height: 380,
   borderRadius: "50%",
-  background: "rgba(37,99,235,0.18)",
-  filter: "blur(80px)",
+  background: "rgba(37,99,235,0.16)",
+  filter: "blur(85px)",
   bottom: -150,
-  left: -120,
+  left: -130,
   pointerEvents: "none",
 };
 
@@ -261,8 +261,8 @@ const container: React.CSSProperties = {
 
 const hero: React.CSSProperties = {
   background:
-    "linear-gradient(135deg,rgba(2,6,23,0.92),rgba(15,23,42,0.86),rgba(30,41,59,0.78))",
-  color: "white",
+    "linear-gradient(135deg,rgba(255,255,255,0.98),rgba(239,246,255,0.95),rgba(255,255,255,0.92))",
+  color: "#0f172a",
   borderRadius: 32,
   padding: 32,
   display: "flex",
@@ -271,14 +271,14 @@ const hero: React.CSSProperties = {
   marginBottom: 20,
   flexWrap: "wrap",
   gap: 18,
-  border: "1px solid rgba(255,255,255,0.10)",
-  boxShadow: "0 24px 70px rgba(0,0,0,0.38)",
+  border: "1px solid #dbeafe",
+  boxShadow: "0 24px 60px rgba(15,23,42,0.10)",
   backdropFilter: "blur(18px)",
 };
 
 const goldBadge: React.CSSProperties = {
   display: "inline-block",
-  background: "linear-gradient(135deg,#fbbf24,#fde68a)",
+  background: "linear-gradient(135deg,#d4af37,#fde68a)",
   color: "#111827",
   padding: "8px 14px",
   borderRadius: 999,
@@ -292,31 +292,32 @@ const heroTitle: React.CSSProperties = {
   fontSize: 40,
   lineHeight: 1.35,
   fontWeight: 900,
+  color: "#0f172a",
 };
 
 const heroSub: React.CSSProperties = {
   margin: "10px 0 0",
-  color: "#cbd5e1",
+  color: "#475569",
   fontSize: 16,
   lineHeight: 1.8,
 };
 
 const heroOrgBox: React.CSSProperties = {
   minWidth: 240,
-  background: "rgba(255,255,255,0.08)",
-  border: "1px solid rgba(255,255,255,0.10)",
+  background: "#ffffff",
+  border: "1px solid #e2e8f0",
   borderRadius: 22,
   padding: 18,
   display: "grid",
   gap: 6,
-  color: "#f8fafc",
-  backdropFilter: "blur(12px)",
+  color: "#0f172a",
+  boxShadow: "0 14px 30px rgba(15,23,42,0.07)",
 };
 
 const orgLabel: React.CSSProperties = {
-  color: "#fbbf24",
+  color: "#b45309",
   fontSize: 13,
-  fontWeight: 800,
+  fontWeight: 900,
 };
 
 const statsGrid: React.CSSProperties = {
@@ -327,14 +328,13 @@ const statsGrid: React.CSSProperties = {
 };
 
 const statCard: React.CSSProperties = {
-  background: "rgba(255,255,255,0.08)",
-  backdropFilter: "blur(16px)",
-  border: "1px solid rgba(255,255,255,0.10)",
+  background: "#ffffff",
+  border: "1px solid #e2e8f0",
   borderRadius: 24,
   padding: 24,
   textAlign: "center",
-  color: "white",
-  boxShadow: "0 18px 35px rgba(0,0,0,0.22)",
+  color: "#0f172a",
+  boxShadow: "0 16px 35px rgba(15,23,42,0.08)",
 };
 
 const statIcon: React.CSSProperties = {
@@ -345,33 +345,33 @@ const statValue: React.CSSProperties = {
   fontSize: 34,
   fontWeight: 900,
   marginTop: 10,
-  color: "#f8fafc",
+  color: "#0f172a",
 };
 
 const statTitle: React.CSSProperties = {
   marginTop: 8,
-  color: "#cbd5e1",
+  color: "#64748b",
   fontWeight: 800,
 };
 
 const performanceBar: React.CSSProperties = {
-  background: "rgba(255,255,255,0.08)",
-  border: "1px solid rgba(255,255,255,0.10)",
+  background: "#ffffff",
+  border: "1px solid #e2e8f0",
   borderRadius: 24,
   padding: 14,
   marginBottom: 18,
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))",
   gap: 10,
-  backdropFilter: "blur(16px)",
+  boxShadow: "0 12px 30px rgba(15,23,42,0.06)",
 };
 
 const performanceItem: React.CSSProperties = {
-  background: "rgba(2,6,23,0.35)",
-  border: "1px solid rgba(255,255,255,0.08)",
+  background: "#f8fafc",
+  border: "1px solid #e2e8f0",
   borderRadius: 18,
   padding: 14,
-  color: "#cbd5e1",
+  color: "#475569",
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
@@ -386,12 +386,12 @@ const splitGrid: React.CSSProperties = {
 };
 
 const panel: React.CSSProperties = {
-  background: "rgba(255,255,255,0.08)",
-  backdropFilter: "blur(16px)",
+  background: "#ffffff",
   borderRadius: 24,
   padding: 20,
-  border: "1px solid rgba(255,255,255,0.10)",
-  color: "white",
+  border: "1px solid #e2e8f0",
+  color: "#0f172a",
+  boxShadow: "0 14px 35px rgba(15,23,42,0.07)",
 };
 
 const sectionBox: React.CSSProperties = {
@@ -405,13 +405,13 @@ const sectionHeader: React.CSSProperties = {
   fontSize: 18,
   fontWeight: 900,
   marginBottom: 14,
-  color: "white",
+  color: "#0f172a",
 };
 
 const alertCard: React.CSSProperties = {
-  background: "rgba(251,191,36,0.15)",
-  border: "1px solid rgba(251,191,36,0.25)",
-  color: "#fde68a",
+  background: "#fffbeb",
+  border: "1px solid #fde68a",
+  color: "#92400e",
   borderRadius: 16,
   padding: 14,
   marginBottom: 10,
@@ -419,12 +419,12 @@ const alertCard: React.CSSProperties = {
 };
 
 const activityCard: React.CSSProperties = {
-  background: "rgba(255,255,255,0.06)",
-  border: "1px solid rgba(255,255,255,0.08)",
+  background: "#f8fafc",
+  border: "1px solid #e2e8f0",
   borderRadius: 16,
   padding: 14,
   marginBottom: 10,
-  color: "#e2e8f0",
+  color: "#475569",
   lineHeight: 1.7,
 };
 
@@ -437,16 +437,15 @@ const grid: React.CSSProperties = {
 const card: React.CSSProperties = {
   width: "100%",
   minHeight: 92,
-  background: "rgba(255,255,255,0.06)",
-  backdropFilter: "blur(14px)",
-  border: "1px solid rgba(255,255,255,0.10)",
+  background: "#ffffff",
+  border: "1px solid #e2e8f0",
   borderRadius: 22,
   padding: 18,
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
-  color: "white",
-  boxShadow: "0 14px 30px rgba(0,0,0,0.18)",
+  color: "#0f172a",
+  boxShadow: "0 12px 30px rgba(15,23,42,0.06)",
   cursor: "pointer",
 };
 
@@ -465,35 +464,36 @@ const iconBox: React.CSSProperties = {
   justifyContent: "center",
   color: "white",
   fontSize: 23,
-  boxShadow: "0 10px 20px rgba(0,0,0,0.22)",
+  boxShadow: "0 10px 20px rgba(15,23,42,0.18)",
 };
 
 const cardTitle: React.CSSProperties = {
   fontWeight: 900,
   fontSize: 16,
-  color: "white",
+  color: "#0f172a",
 };
 
 const cardDesc: React.CSSProperties = {
   marginTop: 5,
-  color: "#cbd5e1",
+  color: "#64748b",
   fontSize: 13,
 };
 
 const arrow: React.CSSProperties = {
   fontSize: 30,
-  color: "#fbbf24",
+  color: "#d4af37",
 };
 
 const backButton: React.CSSProperties = {
   width: "100%",
   marginTop: 18,
   padding: 16,
-  background: "linear-gradient(135deg,#fbbf24,#fde68a)",
-  color: "#111827",
+  background: "linear-gradient(135deg,#16a34a,#22c55e)",
+  color: "white",
   border: "none",
   borderRadius: 16,
   fontSize: 17,
   fontWeight: 900,
   cursor: "pointer",
+  boxShadow: "0 12px 28px rgba(22,163,74,0.20)",
 };
