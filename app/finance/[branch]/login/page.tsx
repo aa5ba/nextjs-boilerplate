@@ -148,7 +148,7 @@ export default function FinanceLoginPage() {
 const page: React.CSSProperties = {
   minHeight: "100vh",
   backgroundImage:
-    "linear-gradient(rgba(255,255,255,0.78), rgba(255,255,255,0.78)), url('/backgrounds/v13-finance-bg-1.png')",
+    "linear-gradient(rgba(255,255,255,0.78), rgba(255,255,255,0.78)), url('/backgrounds/v13-finance-bg-2.png')",
   backgroundSize: "cover",
   backgroundPosition: "center",
   backgroundRepeat: "no-repeat",
