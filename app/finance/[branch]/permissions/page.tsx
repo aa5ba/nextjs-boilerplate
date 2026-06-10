@@ -5,12 +5,7 @@ import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
 
-const roleOptions = [
-  "مدير رئيسي",
-  "مدير",
-  "موظف",
-  "مشاهدة فقط",
-];
+const roleOptions = ["مدير", "موظف", "مشاهدة فقط"];
 
 const permissionOptions = [
   { key: "contracts", label: "العقود" },
@@ -19,6 +14,8 @@ const permissionOptions = [
   { key: "payments", label: "السداد" },
   { key: "workflow", label: "سير العمل" },
   { key: "settings", label: "الإعدادات" },
+  { key: "permissions", label: "الصلاحيات" },
+  { key: "expenses", label: "المصروفات" },
   { key: "print", label: "الطباعة" },
   { key: "archive", label: "الأرشيف" },
 
@@ -36,6 +33,9 @@ export default function FinancePermissionsPage() {
   const branch = params.branch as string;
 
   const [branchId, setBranchId] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [authorized, setAuthorized] = useState(false);
+
   const [activeTab, setActiveTab] = useState("users");
 
   const [users, setUsers] = useState<any[]>([]);
@@ -45,7 +45,7 @@ export default function FinancePermissionsPage() {
   const [employeeName, setEmployeeName] = useState("");
   const [employeeUsername, setEmployeeUsername] = useState("");
   const [employeePassword, setEmployeePassword] = useState("");
-  const [selectedRoles, setSelectedRoles] = useState<string[]>(["موظف"]);
+  const [selectedRole, setSelectedRole] = useState("موظف");
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([
     "contracts",
     "customers",
@@ -58,19 +58,73 @@ export default function FinancePermissionsPage() {
     loadData();
   }, [branch]);
 
+  function hasPageAccess(user: any) {
+    return (
+      user?.role === "مدير فرع" ||
+      user?.role === "مدير رئيسي" ||
+      user?.permissions?.includes("permissions")
+    );
+  }
+
   async function loadData() {
     setLoading(true);
+
+    const saved =
+      typeof window !== "undefined"
+        ? localStorage.getItem("finance_user")
+        : null;
+
+    if (!saved) {
+      window.location.href = `/finance/${branch}/login`;
+      return;
+    }
+
+    let parsedUser: any = null;
+
+    try {
+      parsedUser = JSON.parse(saved);
+    } catch {
+      localStorage.removeItem("finance_user");
+      window.location.href = `/finance/${branch}/login`;
+      return;
+    }
+
+    if (!parsedUser?.branch_slug || parsedUser.branch_slug !== branch) {
+      localStorage.removeItem("finance_user");
+      window.location.href = `/finance/${branch}/login`;
+      return;
+    }
+
+    if (!hasPageAccess(parsedUser)) {
+      alert("لا تملك صلاحية الدخول لهذه الصفحة");
+      window.location.href = `/finance/${branch}`;
+      return;
+    }
 
     const currentBranchId = await getBranchId(branch);
     setBranchId(currentBranchId);
 
-    if (!currentBranchId) {
-      setUsers([]);
-      setInvestors([]);
-      setArchivedContracts([]);
-      setLoading(false);
+    if (!currentBranchId || parsedUser.branch_id !== currentBranchId) {
+      localStorage.removeItem("finance_user");
+      window.location.href = `/finance/${branch}/login`;
       return;
     }
+
+    const { data: freshUser } = await supabase
+      .from("finance_users")
+      .select("id, branch_id, full_name, username, role, permissions, is_active")
+      .eq("id", parsedUser.id)
+      .eq("branch_id", currentBranchId)
+      .single();
+
+    if (!freshUser || !freshUser.is_active || !hasPageAccess(freshUser)) {
+      localStorage.removeItem("finance_user");
+      window.location.href = `/finance/${branch}/login`;
+      return;
+    }
+
+    setCurrentUser(freshUser);
+    setAuthorized(true);
 
     const { data: usersData } = await supabase
       .from("finance_users")
@@ -97,12 +151,18 @@ export default function FinancePermissionsPage() {
     setLoading(false);
   }
 
-  function toggleItem(value: string, list: string[], setter: any) {
-    if (list.includes(value)) {
-      setter(list.filter((item) => item !== value));
+  function togglePermission(value: string) {
+    if (selectedPermissions.includes(value)) {
+      setSelectedPermissions(selectedPermissions.filter((item) => item !== value));
     } else {
-      setter([...list, value]);
+      setSelectedPermissions([...selectedPermissions, value]);
     }
+  }
+
+  function validateUsername(value: string) {
+    const username = value.trim();
+    if (username.length < 3 || username.length > 30) return false;
+    return /^[A-Za-z0-9_\u0600-\u06FF]+$/.test(username);
   }
 
   async function createUser() {
@@ -116,39 +176,40 @@ export default function FinancePermissionsPage() {
       return;
     }
 
-    if (!employeeUsername.trim()) {
-      alert("يرجى إدخال اسم المستخدم");
+    if (!validateUsername(employeeUsername)) {
+      alert("اسم المستخدم يجب أن يكون من 3 إلى 30 حرفاً ويقبل العربي أو الإنجليزي أو الأرقام أو _ فقط");
       return;
     }
 
-    if (employeePassword.length < 4) {
-      alert("كلمة المرور يجب ألا تقل عن 4 أرقام أو أحرف");
+    if (!/^\d{4}$/.test(employeePassword)) {
+      alert("كلمة المرور يجب أن تكون 4 أرقام فقط");
+      return;
+    }
+
+    if (selectedRole === "مدير فرع") {
+      alert("مدير الفرع يتم إنشاؤه من لوحة الدعم الفني فقط");
       return;
     }
 
     try {
       setSaving(true);
 
-      const { error } = await supabase.from("finance_users").insert([
-        {
-          branch_id: branchId,
-          employee_name: employeeName.trim(),
-          username: employeeUsername.trim(),
-          password: employeePassword,
-          roles: selectedRoles,
-          permissions: selectedPermissions,
-          is_active: true,
-          is_main_admin: selectedRoles.includes("مدير رئيسي"),
-          created_by: "المدير",
-        },
-      ]);
+      const { error } = await supabase.from("finance_users").insert({
+        branch_id: branchId,
+        full_name: employeeName.trim(),
+        username: employeeUsername.trim(),
+        password_pin: employeePassword.trim(),
+        role: selectedRole,
+        permissions: selectedPermissions,
+        is_active: true,
+      });
 
       if (error) throw new Error(error.message);
 
       setEmployeeName("");
       setEmployeeUsername("");
       setEmployeePassword("");
-      setSelectedRoles(["موظف"]);
+      setSelectedRole("موظف");
       setSelectedPermissions(["contracts", "customers"]);
 
       alert("تم إنشاء المستخدم بنجاح");
@@ -161,8 +222,13 @@ export default function FinancePermissionsPage() {
   }
 
   async function toggleUserStatus(user: any) {
-    if (user.is_main_admin) {
-      alert("لا يمكن تعطيل المدير الرئيسي");
+    if (user.role === "مدير فرع") {
+      alert("لا يمكن تعطيل مدير الفرع من هنا، يتم ذلك من لوحة الدعم الفني");
+      return;
+    }
+
+    if (user.id === currentUser?.id) {
+      alert("لا يمكنك تعطيل حسابك الحالي");
       return;
     }
 
@@ -172,7 +238,8 @@ export default function FinancePermissionsPage() {
         is_active: !user.is_active,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", user.id);
+      .eq("id", user.id)
+      .eq("branch_id", branchId);
 
     if (error) {
       alert("تعذر تعديل حالة المستخدم");
@@ -183,8 +250,13 @@ export default function FinancePermissionsPage() {
   }
 
   async function deleteUser(user: any) {
-    if (user.is_main_admin) {
-      alert("لا يمكن حذف المدير الرئيسي");
+    if (user.role === "مدير فرع") {
+      alert("لا يمكن حذف مدير الفرع من هنا");
+      return;
+    }
+
+    if (user.id === currentUser?.id) {
+      alert("لا يمكنك حذف حسابك الحالي");
       return;
     }
 
@@ -194,7 +266,8 @@ export default function FinancePermissionsPage() {
     const { error } = await supabase
       .from("finance_users")
       .delete()
-      .eq("id", user.id);
+      .eq("id", user.id)
+      .eq("branch_id", branchId);
 
     if (error) {
       alert("تعذر حذف المستخدم");
@@ -204,7 +277,39 @@ export default function FinancePermissionsPage() {
     await loadData();
   }
 
-  if (loading) {
+  async function resetUserPassword(user: any) {
+    if (user.role === "مدير فرع") {
+      alert("تغيير كلمة مرور مدير الفرع يتم من لوحة الدعم الفني");
+      return;
+    }
+
+    const newPin = prompt("أدخل كلمة المرور الجديدة من 4 أرقام");
+
+    if (newPin === null) return;
+
+    if (!/^\d{4}$/.test(newPin)) {
+      alert("كلمة المرور يجب أن تكون 4 أرقام فقط");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("finance_users")
+      .update({
+        password_pin: newPin,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", user.id)
+      .eq("branch_id", branchId);
+
+    if (error) {
+      alert("تعذر تحديث كلمة المرور");
+      return;
+    }
+
+    alert("تم تحديث كلمة المرور");
+  }
+
+  if (loading || !authorized) {
     return (
       <main dir="rtl" style={page}>
         <div style={loadingBox}>جاري تحميل الصلاحيات...</div>
@@ -218,7 +323,7 @@ export default function FinancePermissionsPage() {
         <div style={header}>
           <h1 style={{ margin: 0 }}>إدارة الصلاحيات</h1>
           <p style={headerText}>
-            إدارة المستخدمين والصلاحيات والأرشيف والمستثمرين.
+            إدارة موظفي الفرع والصلاحيات والأرشيف والمستثمرين.
           </p>
         </div>
 
@@ -227,14 +332,14 @@ export default function FinancePermissionsPage() {
             style={activeTab === "users" ? activeTabButton : tabButton}
             onClick={() => setActiveTab("users")}
           >
-            المستخدمون
+            إضافة مستخدم
           </button>
 
           <button
             style={activeTab === "permissions" ? activeTabButton : tabButton}
             onClick={() => setActiveTab("permissions")}
           >
-            الصلاحيات
+            المستخدمون
           </button>
 
           <button
@@ -254,13 +359,14 @@ export default function FinancePermissionsPage() {
 
         {activeTab === "users" && (
           <section style={card}>
-            <h2 style={sectionTitle}>إضافة مستخدم</h2>
+            <h2 style={sectionTitle}>إضافة مستخدم جديد</h2>
 
             <Field label="اسم الموظف">
               <input
                 style={input}
                 value={employeeName}
                 onChange={(e) => setEmployeeName(e.target.value)}
+                placeholder="مثال: محمد أحمد"
               />
             </Field>
 
@@ -269,29 +375,34 @@ export default function FinancePermissionsPage() {
                 style={input}
                 value={employeeUsername}
                 onChange={(e) => setEmployeeUsername(e.target.value)}
+                placeholder="مثال: mohammed أو محمد"
               />
             </Field>
 
-            <Field label="كلمة المرور">
+            <Field label="كلمة المرور 4 أرقام">
               <input
                 style={input}
                 type="password"
+                inputMode="numeric"
+                maxLength={4}
                 value={employeePassword}
-                onChange={(e) => setEmployeePassword(e.target.value)}
+                onChange={(e) =>
+                  setEmployeePassword(e.target.value.replace(/\D/g, "").slice(0, 4))
+                }
+                placeholder="مثال: 1234"
               />
             </Field>
 
-            <h3 style={smallTitle}>الأدوار</h3>
+            <h3 style={smallTitle}>الدور</h3>
 
             <div style={checksGrid}>
               {roleOptions.map((role) => (
                 <label key={role} style={checkBox}>
                   <input
-                    type="checkbox"
-                    checked={selectedRoles.includes(role)}
-                    onChange={() =>
-                      toggleItem(role, selectedRoles, setSelectedRoles)
-                    }
+                    type="radio"
+                    name="role"
+                    checked={selectedRole === role}
+                    onChange={() => setSelectedRole(role)}
                   />
                   {role}
                 </label>
@@ -306,13 +417,7 @@ export default function FinancePermissionsPage() {
                   <input
                     type="checkbox"
                     checked={selectedPermissions.includes(item.key)}
-                    onChange={() =>
-                      toggleItem(
-                        item.key,
-                        selectedPermissions,
-                        setSelectedPermissions
-                      )
-                    }
+                    onChange={() => togglePermission(item.key)}
                   />
                   {item.label}
                 </label>
@@ -330,21 +435,14 @@ export default function FinancePermissionsPage() {
             <h2 style={sectionTitle}>قائمة المستخدمين</h2>
 
             {users.length === 0 ? (
-              <div style={emptyBox}>
-                لا توجد بيانات مستخدمين. إذا ظهر خطأ عند الإضافة، أنشئ جدول
-                finance_users أولًا.
-              </div>
+              <div style={emptyBox}>لا توجد بيانات مستخدمين.</div>
             ) : (
               users.map((user) => (
                 <div key={user.id} style={userRow}>
                   <div>
-                    <strong>{user.employee_name}</strong>
-                    <div style={mutedText}>{user.username}</div>
-
-                    <div style={mutedText}>
-                      الأدوار: {(user.roles || []).join("، ") || "-"}
-                    </div>
-
+                    <strong>{user.full_name || "-"}</strong>
+                    <div style={mutedText}>@{user.username || "-"}</div>
+                    <div style={mutedText}>الدور: {user.role || "-"}</div>
                     <div style={mutedText}>
                       الصلاحيات: {(user.permissions || []).join("، ") || "-"}
                     </div>
@@ -354,6 +452,13 @@ export default function FinancePermissionsPage() {
                     <span style={user.is_active ? activeBadge : inactiveBadge}>
                       {user.is_active ? "نشط" : "معطل"}
                     </span>
+
+                    <button
+                      style={graySmallButton}
+                      onClick={() => resetUserPassword(user)}
+                    >
+                      كلمة المرور
+                    </button>
 
                     <button
                       style={graySmallButton}
@@ -386,9 +491,7 @@ export default function FinancePermissionsPage() {
                 <div key={investor.id} style={simpleRow}>
                   <strong>{investor.investor_name || "-"}</strong>
                   <span>
-                    {investor.national_id ||
-                      investor.commercial_record ||
-                      "-"}
+                    {investor.national_id || investor.commercial_record || "-"}
                   </span>
                 </div>
               ))
@@ -582,6 +685,7 @@ const userActions = {
   display: "flex",
   gap: 8,
   alignItems: "center",
+  flexWrap: "wrap" as const,
 };
 
 const mutedText = {
