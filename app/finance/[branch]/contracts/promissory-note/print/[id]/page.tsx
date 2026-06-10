@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
-import { getOrganizationSettings } from "@/lib/getOrganizationSettings";
 
 export default function PrintPromissoryNotePage() {
   const params = useParams();
@@ -63,6 +62,12 @@ export default function PrintPromissoryNotePage() {
       return;
     }
 
+    const { data: branchData } = await supabase
+      .from("finance_branches")
+      .select("organization_name, phone, city, commercial_record, branch_name")
+      .eq("id", branchId)
+      .single();
+
     const { data } = await supabase
       .from("finance_promissory_notes")
       .select(`
@@ -73,6 +78,7 @@ export default function PrintPromissoryNotePage() {
           print_party_type,
           first_party_name,
           first_party_identifier,
+          first_party_type,
           investor_name
         )
       `)
@@ -80,28 +86,45 @@ export default function PrintPromissoryNotePage() {
       .eq("branch_id", branchId)
       .single();
 
-    const orgSettings = await getOrganizationSettings();
+    setOrganizationSettings({
+      name: branchData?.organization_name || "احتساب",
+      phone: branchData?.phone || "",
+      city: branchData?.city || branchData?.branch_name || "",
+      commercialRecord: branchData?.commercial_record || "",
+    });
 
-    setOrganizationSettings(orgSettings);
     setNote(data);
   }
 
-  const firstPartyName =
-    note?.finance_contracts?.print_party_name ||
-    note?.finance_contracts?.first_party_name ||
-    note?.finance_contracts?.investor_name ||
-    organizationSettings.name ||
-    "................";
+  const firstPartyType =
+    note?.finance_contracts?.print_party_type ||
+    note?.finance_contracts?.first_party_type ||
+    "organization";
 
-  const firstPartyIdentifier =
-    note?.finance_contracts?.print_party_identifier ||
-    note?.finance_contracts?.first_party_identifier ||
-    "";
+  const isInvestorParty = firstPartyType === "investor";
 
-  const firstPartyIdentifierLabel =
-    note?.finance_contracts?.print_party_type === "investor"
-      ? "رقم الهوية"
-      : "السجل التجاري";
+  const firstPartyName = isInvestorParty
+    ? note?.finance_contracts?.print_party_name ||
+      note?.finance_contracts?.first_party_name ||
+      note?.finance_contracts?.investor_name ||
+      "................"
+    : note?.finance_contracts?.print_party_name ||
+      note?.finance_contracts?.first_party_name ||
+      organizationSettings.name ||
+      "................";
+
+  const firstPartyIdentifier = isInvestorParty
+    ? note?.finance_contracts?.print_party_identifier ||
+      note?.finance_contracts?.first_party_identifier ||
+      ""
+    : note?.finance_contracts?.print_party_identifier ||
+      note?.finance_contracts?.first_party_identifier ||
+      organizationSettings.commercialRecord ||
+      "";
+
+  const firstPartyIdentifierLabel = isInvestorParty
+    ? "رقم الهوية"
+    : "السجل التجاري";
 
   return (
     <main dir="rtl" style={page}>
@@ -134,11 +157,21 @@ export default function PrintPromissoryNotePage() {
 
         <div style={metaRow}>
           <span>رقم السند: {note?.note_number || "-"}</span>
-          <span>تاريخ التحرير: {note?.note_date_gregorian || "-"}</span>
+          <span>
+            تاريخ التحرير:{" "}
+            {note?.note_issue_date_gregorian ||
+              note?.note_date_gregorian ||
+              "-"}
+          </span>
         </div>
 
         <div style={metaRow}>
-          <span>تاريخ التحرير هجري: {note?.note_date_hijri || "-"}</span>
+          <span>
+            تاريخ التحرير هجري:{" "}
+            {note?.note_issue_date_hijri ||
+              note?.note_date_hijri ||
+              "-"}
+          </span>
           <span>تاريخ الاستحقاق: {note?.due_date || "-"}</span>
         </div>
 
@@ -382,9 +415,9 @@ const backButton = {
   display: "block",
   margin: "12px auto 0",
   padding: 16,
-  background: "#e5e7eb",
-  color: "#0d47a1",
-  border: "1px solid #cbd5e1",
+  background: "#16a34a",
+  color: "white",
+  border: "none",
   borderRadius: 14,
   fontSize: 17,
   fontWeight: "bold",
