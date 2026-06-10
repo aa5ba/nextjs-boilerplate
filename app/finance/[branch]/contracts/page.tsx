@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
 
@@ -9,6 +9,7 @@ const ITEMS_PER_PAGE = 25;
 
 export default function FinanceContractsPage() {
   const params = useParams();
+  const router = useRouter();
   const branch = params.branch as string;
 
   const [contracts, setContracts] = useState<any[]>([]);
@@ -37,6 +38,10 @@ export default function FinanceContractsPage() {
     fromDate,
     toDate,
   ]);
+
+  function go(path: string) {
+    router.push(`/finance/${branch}/${path}`);
+  }
 
   async function loadContracts() {
     setLoading(true);
@@ -84,11 +89,7 @@ export default function FinanceContractsPage() {
   }
 
   function getCustomerName(contract: any) {
-    return (
-      contract?.finance_customers?.full_name ||
-      contract?.customer_name ||
-      "-"
-    );
+    return contract?.finance_customers?.full_name || contract?.customer_name || "-";
   }
 
   function getCustomerNationalId(contract: any) {
@@ -100,11 +101,7 @@ export default function FinanceContractsPage() {
   }
 
   function getCustomerPhone(contract: any) {
-    return (
-      contract?.finance_customers?.phone ||
-      contract?.customer_phone ||
-      "-"
-    );
+    return contract?.finance_customers?.phone || contract?.customer_phone || "-";
   }
 
   function isDateInRange(contract: any) {
@@ -232,48 +229,34 @@ export default function FinanceContractsPage() {
           <ActionButton
             icon="📄"
             title="إنشاء عقد جديد"
-            onClick={() =>
-              (window.location.href = `/finance/${branch}/contracts/new`)
-            }
+            onClick={() => go("contracts/new")}
           />
 
           <ActionButton
             icon="🧾"
             title="إنشاء سند جديد"
-            onClick={() =>
-              (window.location.href = `/finance/${branch}/contracts/promissory-note/new`)
-            }
+            onClick={() => go("contracts/promissory-note/new")}
           />
 
           <ActionButton
             icon="🔎"
             title="البحث عن سند"
-            onClick={() =>
-              (window.location.href = `/finance/${branch}/contracts/promissory-note/search`)
-            }
+            onClick={() => go("contracts/promissory-note/search")}
           />
 
           <ActionButton
             icon="📂"
             title="العقود القائمة"
-            onClick={() =>
-              (window.location.href = `/finance/${branch}/contracts/active`)
-            }
+            onClick={() => go("contracts/active")}
           />
 
           <ActionButton
             icon="✅"
             title="العقود المنتهية"
-            onClick={() =>
-              (window.location.href = `/finance/${branch}/contracts/closed`)
-            }
+            onClick={() => go("contracts/closed")}
           />
 
-          <ActionButton
-            icon="🔄"
-            title="تحديث النتائج"
-            onClick={loadContracts}
-          />
+          <ActionButton icon="🔄" title="تحديث النتائج" onClick={loadContracts} />
         </section>
 
         <section style={card}>
@@ -366,7 +349,9 @@ export default function FinanceContractsPage() {
           />
           <SummaryBox
             title="العقود المتأخرة"
-            value={contracts.filter((item) => item.contract_status === "متأخر").length}
+            value={
+              contracts.filter((item) => item.contract_status === "متأخر").length
+            }
           />
         </section>
 
@@ -375,8 +360,8 @@ export default function FinanceContractsPage() {
             <h2 style={sectionTitle}>نتائج العقود</h2>
             {!loading && filteredContracts.length > 0 && (
               <span style={pageInfo}>
-                صفحة {currentPage} من {totalPages} - عرض {paginatedContracts.length} من{" "}
-                {filteredContracts.length}
+                صفحة {currentPage} من {totalPages} - عرض{" "}
+                {paginatedContracts.length} من {filteredContracts.length}
               </span>
             )}
           </div>
@@ -391,9 +376,7 @@ export default function FinanceContractsPage() {
                 <button
                   key={contract.id}
                   style={contractCard}
-                  onClick={() =>
-                    (window.location.href = `/finance/${branch}/contracts/${contract.id}`)
-                  }
+                  onClick={() => go(`contracts/${contract.id}`)}
                 >
                   <div style={contractTop}>
                     <strong>عقد رقم {contract.contract_number || "-"}</strong>
@@ -449,10 +432,7 @@ export default function FinanceContractsPage() {
           )}
         </section>
 
-        <button
-          style={backButton}
-          onClick={() => (window.location.href = `/finance/${branch}`)}
-        >
+        <button style={backButton} onClick={() => router.push(`/finance/${branch}`)}>
           الرجوع لمحطة العمل الرئيسية
         </button>
       </div>
