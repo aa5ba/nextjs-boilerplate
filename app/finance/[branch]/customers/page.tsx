@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
 
@@ -9,6 +9,7 @@ const ITEMS_PER_PAGE = 25;
 
 export default function FinanceCustomersPage() {
   const params = useParams();
+  const router = useRouter();
   const branch = params.branch as string;
 
   const [groups, setGroups] = useState<any[]>([]);
@@ -24,6 +25,10 @@ export default function FinanceCustomersPage() {
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
     return groups.slice(startIndex, startIndex + ITEMS_PER_PAGE);
   }, [groups, currentPage]);
+
+  function go(path: string) {
+    router.push(`/finance/${branch}/${path}`);
+  }
 
   async function loadGroups() {
     const branchId = await getBranchId(branch);
@@ -58,9 +63,7 @@ export default function FinanceCustomersPage() {
               <button
                 key={group.id}
                 style={groupCard}
-                onClick={() =>
-                  (window.location.href = `/finance/${branch}/customers/groups/${group.id}`)
-                }
+                onClick={() => go(`customers/groups/${group.id}`)}
               >
                 {group.name}
               </button>
@@ -101,48 +104,28 @@ export default function FinanceCustomersPage() {
         )}
 
         <section style={actionsSection}>
-          <button
-            style={actionButton}
-            onClick={() =>
-              (window.location.href = `/finance/${branch}/customers/new`)
-            }
-          >
+          <button style={actionButton} onClick={() => go("customers/new")}>
             <span style={buttonContent}>
               <span style={buttonIcon}>➕</span>
               إنشاء عميل جديد
             </span>
           </button>
 
-          <button
-            style={actionButton}
-            onClick={() =>
-              (window.location.href = `/finance/${branch}/customers/search`)
-            }
-          >
+          <button style={actionButton} onClick={() => go("customers/search")}>
             <span style={buttonContent}>
               <span style={buttonIcon}>🔍</span>
               البحث عن عميل
             </span>
           </button>
 
-          <button
-            style={actionButton}
-            onClick={() =>
-              (window.location.href = `/finance/${branch}/customers/list`)
-            }
-          >
+          <button style={actionButton} onClick={() => go("customers/list")}>
             <span style={buttonContent}>
               <span style={buttonIcon}>📋</span>
               قائمة العملاء
             </span>
           </button>
 
-          <button
-            style={actionButton}
-            onClick={() =>
-              (window.location.href = `/finance/${branch}/customers/groups`)
-            }
-          >
+          <button style={actionButton} onClick={() => go("customers/groups")}>
             <span style={buttonContent}>
               <span style={buttonIcon}>👥</span>
               إنشاء / تعديل مجموعة عملاء
@@ -164,10 +147,7 @@ export default function FinanceCustomersPage() {
           </button>
         </section>
 
-        <button
-          style={backButton}
-          onClick={() => (window.location.href = `/finance/${branch}`)}
-        >
+        <button style={backButton} onClick={() => router.push(`/finance/${branch}`)}>
           الرجوع لمحطة العمل الرئيسية
         </button>
       </div>
