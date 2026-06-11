@@ -1,11 +1,17 @@
 import type { Metadata } from "next";
-import { Almarai } from "next/font/google";
+import { Almarai, Noto_Naskh_Arabic } from "next/font/google";
 import "./globals.css";
 
 const almarai = Almarai({
   subsets: ["arabic", "latin"],
   weight: ["300", "400", "700", "800"],
   variable: "--font-almarai",
+});
+
+const notoNaskhArabic = Noto_Naskh_Arabic({
+  subsets: ["arabic", "latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-noto-naskh-arabic",
 });
 
 export const metadata: Metadata = {
@@ -19,7 +25,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ar" dir="rtl" className={almarai.variable}>
+    <html
+      lang="ar"
+      dir="rtl"
+      className={`${almarai.variable} ${notoNaskhArabic.variable}`}
+    >
       <body
         className="min-h-full flex flex-col"
         style={{
