@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
 
@@ -24,6 +24,7 @@ type TabType = "branch" | "private";
 
 export default function FinanceNotesPage() {
   const params = useParams();
+  const router = useRouter();
   const branch = params.branch as string;
 
   const [branchId, setBranchId] = useState<string | null>(null);
@@ -301,7 +302,11 @@ export default function FinanceNotesPage() {
             </div>
 
             <button style={saveButton} onClick={saveNote} disabled={saving}>
-              {saving ? "جاري الحفظ..." : editingId ? "حفظ التعديل" : "حفظ الملاحظة"}
+              {saving
+                ? "جاري الحفظ..."
+                : editingId
+                ? "حفظ التعديل"
+                : "حفظ الملاحظة"}
             </button>
           </section>
         )}
@@ -323,9 +328,7 @@ export default function FinanceNotesPage() {
           {loading ? (
             <div style={emptyBox}>جاري تحميل الملاحظات...</div>
           ) : filteredNotes.length === 0 ? (
-            <div style={emptyBox}>
-              لا توجد ملاحظات في هذا القسم.
-            </div>
+            <div style={emptyBox}>لا توجد ملاحظات في هذا القسم.</div>
           ) : (
             <div style={notesList}>
               {filteredNotes.map((item) => (
@@ -384,12 +387,14 @@ export default function FinanceNotesPage() {
           )}
         </section>
 
-        <button
-          style={backButton}
-          onClick={() => (window.location.href = `/finance/${branch}`)}
-        >
-          الرجوع لمحطة العمل الرئيسية
-        </button>
+        <div style={backWrapper}>
+          <button
+            style={backButton}
+            onClick={() => router.push(`/finance/${branch}`)}
+          >
+            ← الرجوع للرئيسية
+          </button>
+        </div>
       </div>
     </main>
   );
@@ -708,14 +713,20 @@ const emptyBox: React.CSSProperties = {
   textAlign: "center",
 };
 
-const backButton: React.CSSProperties = {
-  width: "100%",
-  padding: 16,
-  background: "#16a34a",
-  color: "white",
-  border: "none",
-  borderRadius: 14,
-  fontSize: 17,
+const backWrapper: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "center",
   marginTop: 18,
+};
+
+const backButton: React.CSSProperties = {
+  padding: "11px 18px",
+  background: "linear-gradient(135deg,#64748b,#334155)",
+  color: "#ffffff",
+  border: "none",
+  borderRadius: 12,
+  fontSize: 14,
+  fontWeight: 900,
   cursor: "pointer",
+  boxShadow: "0 5px 14px rgba(51,65,85,0.22)",
 };
