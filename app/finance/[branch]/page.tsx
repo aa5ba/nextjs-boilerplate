@@ -106,7 +106,6 @@ export default function FinancePage() {
   const [employeeName, setEmployeeName] = useState("الموظف");
   const [branchId, setBranchId] = useState<string | null>(null);
 
-  const [loading, setLoading] = useState(true);
   const [authorized, setAuthorized] = useState(false);
 
   const [permissions, setPermissions] = useState<string[]>([]);
@@ -145,32 +144,71 @@ export default function FinancePage() {
 
   function redirectToLogin() {
     localStorage.removeItem("finance_user");
-    router.replace(`/finance/${branch}/login`);
+
+    localStorage.removeItem("finance_user_id");
+    localStorage.removeItem("finance_user_name");
+    localStorage.removeItem("finance_username");
+    localStorage.removeItem("finance_role");
+    localStorage.removeItem("finance_branch_id");
+    localStorage.removeItem("finance_branch_slug");
+    localStorage.removeItem("finance_branch_name");
+    localStorage.removeItem("finance_organization_name");
+
+    router.replace("/login");
+  }
+
+  function getLocalUser() {
+    if (typeof window === "undefined") return null;
+
+    const savedUser = localStorage.getItem("finance_user");
+
+    if (savedUser) {
+      try {
+        return JSON.parse(savedUser);
+      } catch {
+        return null;
+      }
+    }
+
+    const id = localStorage.getItem("finance_user_id");
+    const role = localStorage.getItem("finance_role");
+    const branchId = localStorage.getItem("finance_branch_id");
+    const branchSlug = localStorage.getItem("finance_branch_slug");
+
+    if (!id || !role || !branchId || !branchSlug) {
+      return null;
+    }
+
+    return {
+      id,
+      branch_id: branchId,
+      branch_slug: branchSlug,
+      branch_name: localStorage.getItem("finance_branch_name") || "",
+      organization_name:
+        localStorage.getItem("finance_organization_name") || "احتساب",
+      full_name: localStorage.getItem("finance_user_name") || "الموظف",
+      username: localStorage.getItem("finance_username") || "",
+      role,
+      roles: [role],
+      permissions: [],
+      logged_at: new Date().toISOString(),
+    };
   }
 
   async function checkLoginAndLoadBranch() {
-    setLoading(true);
+    const localUser = getLocalUser();
 
-    const savedUser =
-      typeof window !== "undefined"
-        ? localStorage.getItem("finance_user")
-        : null;
-
-    if (!savedUser) {
-      redirectToLogin();
-      return;
-    }
-
-    let localUser: any = null;
-
-    try {
-      localUser = JSON.parse(savedUser);
-    } catch {
+    if (!localUser) {
       redirectToLogin();
       return;
     }
 
     if (!localUser?.branch_slug || localUser.branch_slug !== branch) {
+      if (localUser?.branch_slug) {
+        router.replace(`/finance/${localUser.branch_slug}`);
+        return;
+      }
+
       redirectToLogin();
       return;
     }
@@ -186,7 +224,6 @@ export default function FinancePage() {
     setRoles(localRoles);
     setPermissions(localUser.permissions || []);
     setAuthorized(true);
-    setLoading(false);
 
     const { data: branchData, error: branchError } = await supabase
       .from("finance_branches")
@@ -200,15 +237,13 @@ export default function FinancePage() {
     }
 
     if (localUser.branch_id !== branchData.id) {
-      redirectToLogin();
+      router.replace(`/finance/${localUser.branch_slug}`);
       return;
     }
 
     const { data: freshUser, error: userError } = await supabase
-      .from("finance_users")
-      .select(
-        "id, branch_id, full_name, username, role, permissions, is_active"
-      )
+      .from("finance_branch_users")
+      .select("id, branch_id, full_name, username, role, is_active")
       .eq("id", localUser.id)
       .eq("branch_id", branchData.id)
       .single();
@@ -224,9 +259,20 @@ export default function FinancePage() {
     setBranchId(branchData.id);
     setEmployeeName(freshUser.full_name || freshUser.username || "الموظف");
     setRoles(userRoles);
-    setPermissions(freshUser.permissions || []);
+    setPermissions(localUser.permissions || []);
     setAuthorized(true);
-    setLoading(false);
+
+    localStorage.setItem("finance_user_id", freshUser.id);
+    localStorage.setItem("finance_user_name", freshUser.full_name || "");
+    localStorage.setItem("finance_username", freshUser.username || "");
+    localStorage.setItem("finance_role", freshUser.role || "");
+    localStorage.setItem("finance_branch_id", branchData.id);
+    localStorage.setItem("finance_branch_slug", branchData.branch_slug);
+    localStorage.setItem("finance_branch_name", branchData.branch_name || "");
+    localStorage.setItem(
+      "finance_organization_name",
+      branchData.organization_name || "احتساب"
+    );
 
     localStorage.setItem(
       "finance_user",
@@ -240,7 +286,7 @@ export default function FinancePage() {
         username: freshUser.username,
         role: freshUser.role,
         roles: userRoles,
-        permissions: freshUser.permissions || [],
+        permissions: localUser.permissions || [],
         logged_at: localUser.logged_at || new Date().toISOString(),
       })
     );
@@ -248,6 +294,9 @@ export default function FinancePage() {
 
   function hasPermission(permissionKey: string) {
     return (
+      roles.includes("main_admin") ||
+      roles.includes("branch_manager") ||
+      roles.includes("employee") ||
       roles.includes("مدير فرع") ||
       roles.includes("مدير رئيسي") ||
       roles.includes("مدير") ||
@@ -487,8 +536,7 @@ export default function FinancePage() {
   }
 
   function logout() {
-    localStorage.removeItem("finance_user");
-    router.replace(`/finance/${branch}/login`);
+    redirectToLogin();
   }
 
   if (!authorized) {
@@ -513,7 +561,7 @@ export default function FinancePage() {
       <div style={container}>
         <section className="v13-hero" style={hero}>
           <div className="v13-right" style={rightHeader}>
-            <div style={dateLabel}>التاريخ الميلادي</div>
+            <div style={dateLabel}>التاريخ :</div>
             <div style={dateText}>{today}</div>
           </div>
 
@@ -760,7 +808,7 @@ function ResponsiveStyles() {
 
         .v13-org-title {
           font-size: 30px !important;
-          line-height: 1.35 !important;
+          line-height: 1.45 !important;
         }
       }
     `}</style>
@@ -821,9 +869,11 @@ const leftHeader: React.CSSProperties = {
 const organizationTitle: React.CSSProperties = {
   margin: 0,
   fontSize: 34,
-  lineHeight: 1.25,
-  fontWeight: 900,
+  lineHeight: 1.45,
+  fontWeight: 700,
   color: "white",
+  fontFamily:
+    "var(--font-noto-naskh-arabic), 'Noto Naskh Arabic', 'Amiri', serif",
 };
 
 const workstationTitle: React.CSSProperties = {
