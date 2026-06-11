@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
 import { normalizeNumber, toNumber } from "@/lib/numberUtils";
 
 export default function NewRequestPage() {
   const params = useParams();
+  const router = useRouter();
   const branch = params.branch as string;
 
   const today = new Date().toLocaleDateString("en-CA");
@@ -227,26 +228,26 @@ export default function NewRequestPage() {
       }
 
       const { data: branchData, error: branchError } = await supabase
-  .from("finance_branches")
-  .select("organization_name, commercial_record")
-  .eq("id", branchId)
-  .single();
+        .from("finance_branches")
+        .select("organization_name, commercial_record")
+        .eq("id", branchId)
+        .single();
 
-if (branchError) {
-  throw new Error("تعذر جلب بيانات الفرع: " + branchError.message);
-}
+      if (branchError) {
+        throw new Error("تعذر جلب بيانات الفرع: " + branchError.message);
+      }
 
-const printPartyName =
-  printPartyType === "organization"
-    ? branchData?.organization_name || ""
-    : selectedInvestor.investor_name;
+      const printPartyName =
+        printPartyType === "organization"
+          ? branchData?.organization_name || ""
+          : selectedInvestor.investor_name;
 
-const printPartyIdentifier =
-  printPartyType === "organization"
-    ? branchData?.commercial_record || ""
-    : selectedInvestor.national_id;
+      const printPartyIdentifier =
+        printPartyType === "organization"
+          ? branchData?.commercial_record || ""
+          : selectedInvestor.national_id;
 
-const birthHijri = `${birthDay}/${birthMonth}/${birthYear}`;
+      const birthHijri = `${birthDay}/${birthMonth}/${birthYear}`;
 
       const { data: requestData, error: rpcError } = await supabase.rpc(
         "create_new_request_atomic",
@@ -301,14 +302,15 @@ const birthHijri = `${birthDay}/${birthMonth}/${birthYear}`;
 
       const created = requestData?.[0];
 
-if (!created?.contract_id || !created?.note_id) {
-  throw new Error("تم إنشاء الطلب لكن لم يتم إرجاع بيانات الطباعة");
-}
+      if (!created?.contract_id || !created?.note_id) {
+        throw new Error("تم إنشاء الطلب لكن لم يتم إرجاع بيانات الطباعة");
+      }
 
-alert("تم إنشاء الطلب وخصم المخزون بنجاح");
+      alert("تم إنشاء الطلب وخصم المخزون بنجاح");
 
-window.location.href =
-  `/finance/${branch}/new-request/print/${created.contract_id}/${created.note_id}`;
+      router.push(
+        `/finance/${branch}/new-request/print/${created.contract_id}/${created.note_id}`
+      );
     } catch (error: any) {
       console.error(error);
       alert(error.message || "حدث خطأ أثناء إنشاء الطلب");
@@ -655,12 +657,14 @@ window.location.href =
           </button>
         </section>
 
-        <button
-          style={backButton}
-          onClick={() => (window.location.href = `/finance/${branch}`)}
-        >
-          الرجوع لمحطة العمل الرئيسية
-        </button>
+        <div style={backWrapper}>
+          <button
+            style={backButton}
+            onClick={() => router.push(`/finance/${branch}`)}
+          >
+            ← الرجوع للرئيسية
+          </button>
+        </div>
       </div>
     </main>
   );
@@ -818,14 +822,20 @@ const primaryButton = {
   fontSize: 17,
 };
 
-const backButton = {
-  width: "100%",
-  padding: 16,
-  background: "#16a34a",
-  color: "white",
-  border: "none",
-  borderRadius: 14,
-  fontSize: 17,
-  fontWeight: "bold",
+const backWrapper = {
+  display: "flex",
+  justifyContent: "center",
   marginTop: 18,
+};
+
+const backButton = {
+  padding: "11px 18px",
+  background: "linear-gradient(135deg,#64748b,#334155)",
+  color: "#ffffff",
+  border: "none",
+  borderRadius: 12,
+  fontSize: 14,
+  fontWeight: "900",
+  cursor: "pointer",
+  boxShadow: "0 5px 14px rgba(51,65,85,0.22)",
 };
