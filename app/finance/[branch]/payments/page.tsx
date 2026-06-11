@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
 
@@ -9,6 +9,7 @@ const ITEMS_PER_PAGE = 25;
 
 export default function FinancePaymentsPage() {
   const params = useParams();
+  const router = useRouter();
   const branch = params.branch as string;
 
   const [branchId, setBranchId] = useState<string | null>(null);
@@ -167,9 +168,7 @@ export default function FinancePaymentsPage() {
         <section style={actionsSection}>
           <button
             style={actionButton}
-            onClick={() =>
-              (window.location.href = `/finance/${branch}/payments/new`)
-            }
+            onClick={() => router.push(`/finance/${branch}/payments/new`)}
           >
             💳 إجراء سداد
           </button>
@@ -224,10 +223,13 @@ export default function FinancePaymentsPage() {
                     ...tableRow,
                     opacity: payment.is_cancelled ? 0.55 : 1,
                   }}
-                  onClick={() =>
-                    payment.contract_id &&
-                    (window.location.href = `/finance/${branch}/contracts/${payment.contract_id}`)
-                  }
+                  onClick={() => {
+                    if (payment.contract_id) {
+                      router.push(
+                        `/finance/${branch}/contracts/${payment.contract_id}`
+                      );
+                    }
+                  }}
                 >
                   <span
                     style={{
@@ -239,7 +241,9 @@ export default function FinancePaymentsPage() {
                       e.stopPropagation();
 
                       if (contract?.customer_id) {
-                        window.location.href = `/finance/${branch}/customers/${contract.customer_id}`;
+                        router.push(
+                          `/finance/${branch}/customers/${contract.customer_id}`
+                        );
                       }
                     }}
                   >
@@ -311,12 +315,14 @@ export default function FinancePaymentsPage() {
           )}
         </section>
 
-        <button
-          style={backButton}
-          onClick={() => (window.location.href = `/finance/${branch}`)}
-        >
-          الرجوع لمحطة العمل الرئيسية
-        </button>
+        <div style={backWrapper}>
+          <button
+            style={backButton}
+            onClick={() => router.push(`/finance/${branch}`)}
+          >
+            ← الرجوع للرئيسية
+          </button>
+        </div>
       </div>
     </main>
   );
@@ -467,16 +473,20 @@ const paginationText = {
   fontWeight: "bold",
 };
 
+const backWrapper = {
+  display: "flex",
+  justifyContent: "center",
+  marginTop: 18,
+};
+
 const backButton = {
-  width: "100%",
-  padding: 16,
-  background: "#16a34a",
+  padding: "11px 18px",
+  background: "linear-gradient(135deg,#64748b,#334155)",
   color: "#ffffff",
   border: "none",
-  borderRadius: 14,
-  fontSize: 17,
-  fontWeight: "bold",
-  marginTop: 18,
+  borderRadius: 12,
+  fontSize: 14,
+  fontWeight: "900",
   cursor: "pointer",
-  boxShadow: "0 4px 12px rgba(22,163,74,0.25)",
+  boxShadow: "0 5px 14px rgba(51,65,85,0.22)",
 };
