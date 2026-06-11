@@ -25,32 +25,41 @@ export default function NewProductPage() {
   }, []);
 
   function loadCurrentUserPermissions() {
-    const savedUser =
-      typeof window !== "undefined"
-        ? localStorage.getItem("finance_user")
-        : null;
+    if (typeof window === "undefined") return;
 
-    if (!savedUser) {
-      setRoles(["مدير رئيسي"]);
+    const role = localStorage.getItem("finance_role");
+    const savedUser = localStorage.getItem("finance_user");
+
+    if (role) {
+      setRoles([role]);
       setPermissions([]);
       setPermissionLoaded(true);
       return;
     }
 
-    try {
-      const user = JSON.parse(savedUser);
-      setRoles(user.roles || []);
-      setPermissions(user.permissions || []);
-    } catch {
-      setRoles(["مدير رئيسي"]);
-      setPermissions([]);
+    if (savedUser) {
+      try {
+        const user = JSON.parse(savedUser);
+        setRoles(user.roles || [user.role].filter(Boolean));
+        setPermissions(user.permissions || []);
+      } catch {
+        setRoles([]);
+        setPermissions([]);
+      }
+
+      setPermissionLoaded(true);
+      return;
     }
 
+    setRoles([]);
+    setPermissions([]);
     setPermissionLoaded(true);
   }
 
   function hasPermission(permissionKey: string) {
     return (
+      roles.includes("main_admin") ||
+      roles.includes("branch_manager") ||
       roles.includes("مدير رئيسي") ||
       roles.includes("مدير") ||
       permissions.includes(permissionKey)
@@ -185,20 +194,20 @@ export default function NewProductPage() {
   );
 }
 
-const page = {
+const page: React.CSSProperties = {
   minHeight: "100vh",
   background: "#eef5ff",
   padding: 20,
   fontFamily: "var(--font-almarai), sans-serif",
 };
 
-const container = {
+const container: React.CSSProperties = {
   width: "100%",
   maxWidth: 800,
   margin: "auto",
 };
 
-const header = {
+const header: React.CSSProperties = {
   background: "linear-gradient(135deg,#0d47a1,#1976d2)",
   color: "white",
   padding: 28,
@@ -206,33 +215,33 @@ const header = {
   marginBottom: 18,
 };
 
-const card = {
+const card: React.CSSProperties = {
   background: "white",
   border: "1px solid #d9e3f5",
   borderRadius: 18,
   padding: 20,
 };
 
-const deniedCard = {
+const deniedCard: React.CSSProperties = {
   background: "white",
   border: "1px solid #fecaca",
   borderRadius: 18,
   padding: 24,
   color: "#991b1b",
-  textAlign: "center" as const,
+  textAlign: "center",
 };
 
-const input = {
+const input: React.CSSProperties = {
   width: "100%",
   padding: 14,
   borderRadius: 14,
   border: "1px solid #d9e3f5",
   fontSize: 16,
   marginBottom: 12,
-  boxSizing: "border-box" as const,
+  boxSizing: "border-box",
 };
 
-const textarea = {
+const textarea: React.CSSProperties = {
   width: "100%",
   minHeight: 100,
   padding: 14,
@@ -240,10 +249,10 @@ const textarea = {
   border: "1px solid #d9e3f5",
   fontSize: 16,
   marginBottom: 12,
-  boxSizing: "border-box" as const,
+  boxSizing: "border-box",
 };
 
-const primaryButton = {
+const primaryButton: React.CSSProperties = {
   width: "100%",
   padding: 16,
   background: "#0d47a1",
@@ -255,10 +264,10 @@ const primaryButton = {
   cursor: "pointer",
 };
 
-const backButton = {
+const backButton: React.CSSProperties = {
   width: "100%",
   padding: 16,
-  background: "#16a34a",
+  background: "linear-gradient(135deg,#64748b,#334155)",
   color: "#ffffff",
   border: "none",
   borderRadius: 14,
@@ -266,15 +275,15 @@ const backButton = {
   fontWeight: "bold",
   marginTop: 18,
   cursor: "pointer",
-  boxShadow: "0 4px 12px rgba(22,163,74,0.25)",
+  boxShadow: "0 4px 12px rgba(51,65,85,0.22)",
 };
 
-const loadingBox = {
+const loadingBox: React.CSSProperties = {
   background: "white",
   border: "1px solid #d9e3f5",
   borderRadius: 18,
   padding: 20,
-  textAlign: "center" as const,
+  textAlign: "center",
   color: "#0d47a1",
   fontWeight: "bold",
 };
