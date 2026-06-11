@@ -664,9 +664,9 @@ export default function FinancePage() {
           )}
 
           {hasPermission("inventory") && (
-            <button style={tealAction} onClick={() => go("inventory/add")}>
-              📦 إضافة مخزون
-            </button>
+          <button style={tealAction} onClick={() => go("inventory/add-stock")}>
+  📦 إضافة كمية للمخزون
+</button>
           )}
 
           {hasPermission("expenses") && (
