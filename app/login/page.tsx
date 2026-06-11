@@ -230,14 +230,17 @@ export default function LoginPage() {
 
 const page: React.CSSProperties = {
   minHeight: "100vh",
-  background:
-    "linear-gradient(135deg, #0f172a 0%, #1e3a5f 45%, #f8fafc 100%)",
+  backgroundImage:
+    "linear-gradient(rgba(255,255,255,0.82), rgba(255,255,255,0.82)), url('/backgrounds/v13-finance-bg-2.png')",
+  backgroundSize: "cover",
+  backgroundPosition: "center",
+  backgroundRepeat: "no-repeat",
+  backgroundAttachment: "fixed",
   display: "flex",
   justifyContent: "center",
   alignItems: "center",
   padding: 20,
 };
-
 const card: React.CSSProperties = {
   width: "100%",
   maxWidth: 430,
