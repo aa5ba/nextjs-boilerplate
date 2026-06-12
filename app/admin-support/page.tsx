@@ -12,20 +12,6 @@ const SUPPORT_PERMISSIONS = [
   { key: "backup_restore", label: "النسخ والاستعادة" },
 ];
 
-const BRANCH_MANAGER_PERMISSIONS = [
-  "workflow",
-  "customers",
-  "contracts",
-  "payments",
-  "inventory",
-  "expenses",
-  "notes",
-  "settings",
-  "permissions",
-  "print",
-  "archive",
-];
-
 type Branch = {
   id: string;
   branch_name: string;
@@ -54,10 +40,8 @@ type BranchManager = {
   branch_id: string;
   full_name: string;
   username: string;
-  phone: string | null;
   role: string;
   is_active: boolean;
-  last_login_at: string | null;
   created_at: string;
   finance_branches?: {
     branch_name: string;
@@ -182,17 +166,15 @@ export default function AdminSupportPage() {
 
   async function loadBranchManagers() {
     const { data, error } = await supabase
-      .from("finance_users")
+      .from("finance_branch_users")
       .select(
         `
         id,
         branch_id,
         full_name,
         username,
-        phone,
         role,
         is_active,
-        last_login_at,
         created_at,
         finance_branches (
           branch_name,
@@ -201,7 +183,7 @@ export default function AdminSupportPage() {
         )
       `
       )
-      .eq("role", "مدير فرع")
+      .eq("role", "branch_manager")
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -261,6 +243,61 @@ export default function AdminSupportPage() {
     return /^\d{4}$/.test(value.trim());
   }
 
+  async function rollbackNewBranch(branchId: string) {
+    await supabase.from("finance_branch_users").delete().eq("branch_id", branchId);
+    await supabase.from("finance_investors").delete().eq("branch_id", branchId);
+    await supabase.from("finance_branches").delete().eq("id", branchId);
+  }
+
+  async function ensurePrimaryInvestorForBranch(branch: {
+    id: string;
+    branch_name: string;
+  }) {
+    const { data: existingInvestor, error: investorCheckError } = await supabase
+      .from("finance_investors")
+      .select("id")
+      .eq("branch_id", branch.id)
+      .eq("is_primary", true)
+      .maybeSingle();
+
+    if (investorCheckError) {
+      return {
+        ok: false,
+        error: investorCheckError.message,
+      };
+    }
+
+    if (existingInvestor) {
+      return {
+        ok: true,
+        error: null,
+      };
+    }
+
+    const { error: investorError } = await supabase
+      .from("finance_investors")
+      .insert({
+        branch_id: branch.id,
+        investor_name: `المستثمر الرئيسي - ${branch.branch_name}`,
+        phone: null,
+        notes: "مستثمر رئيسي تم إنشاؤه تلقائياً للفرع",
+        is_active: true,
+        is_primary: true,
+      });
+
+    if (investorError) {
+      return {
+        ok: false,
+        error: investorError.message,
+      };
+    }
+
+    return {
+      ok: true,
+      error: null,
+    };
+  }
+
   async function saveBranch() {
     if (!hasPermission("manage_branches")) {
       alert("لا تملك صلاحية إدارة الفروع");
@@ -273,9 +310,13 @@ export default function AdminSupportPage() {
 
     if (!editingBranchId) {
       if (!managerFullName.trim()) return alert("اكتب اسم مدير الفرع");
+
       if (!validateUsername(managerUsername)) {
-        return alert("اسم المستخدم يجب أن يكون من 3 إلى 30 حرفاً ويقبل العربي أو الإنجليزي أو الأرقام أو _ فقط");
+        return alert(
+          "اسم المستخدم يجب أن يكون من 3 إلى 30 حرفاً ويقبل العربي أو الإنجليزي أو الأرقام أو _ فقط"
+        );
       }
+
       if (!validatePin(managerPassword)) {
         return alert("كلمة مرور مدير الفرع يجب أن تكون 4 أرقام فقط");
       }
@@ -291,22 +332,24 @@ export default function AdminSupportPage() {
       notes: branchNotes.trim() || null,
       updated_at: new Date().toISOString(),
     };
-const { data: existingBranch, error: existingBranchError } = await supabase
-  .from("finance_branches")
-  .select("id")
-  .eq("branch_slug", payload.branch_slug)
-  .neq("id", editingBranchId || "00000000-0000-0000-0000-000000000000")
-  .maybeSingle();
 
-if (existingBranchError) {
-  alert("تعذر التحقق من رابط الفرع");
-  return;
-}
+    const { data: existingBranch, error: existingBranchError } = await supabase
+      .from("finance_branches")
+      .select("id")
+      .eq("branch_slug", payload.branch_slug)
+      .neq("id", editingBranchId || "00000000-0000-0000-0000-000000000000")
+      .maybeSingle();
 
-if (existingBranch) {
-  alert("الفرع المدخل موجود مسبقاً");
-  return;
-}    
+    if (existingBranchError) {
+      alert("تعذر التحقق من رابط الفرع");
+      return;
+    }
+
+    if (existingBranch) {
+      alert("الفرع المدخل موجود مسبقاً");
+      return;
+    }
+
     if (editingBranchId) {
       const { error } = await supabase
         .from("finance_branches")
@@ -315,6 +358,19 @@ if (existingBranch) {
 
       if (error) {
         alert("تعذر حفظ الفرع: " + error.message);
+        return;
+      }
+
+      const primaryInvestorResult = await ensurePrimaryInvestorForBranch({
+        id: editingBranchId,
+        branch_name: branchName.trim(),
+      });
+
+      if (!primaryInvestorResult.ok) {
+        alert(
+          "تم تعديل الفرع، لكن تعذر التحقق من المستثمر الرئيسي: " +
+            primaryInvestorResult.error
+        );
         return;
       }
 
@@ -338,39 +394,68 @@ if (existingBranch) {
       })
       .select("id, branch_name, branch_slug, organization_name")
       .single();
-if (branchError || !newBranch) {
-  if (
-    branchError?.code === "23505" ||
-    branchError?.message?.includes("duplicate key")
-  ) {
-    alert("الفرع المدخل موجود مسبقاً");
-    return;
-  }
 
-  alert("تعذر إنشاء الفرع: " + branchError?.message);
-  return;
-}
+    if (branchError || !newBranch) {
+      if (
+        branchError?.code === "23505" ||
+        branchError?.message?.includes("duplicate key")
+      ) {
+        alert("الفرع المدخل موجود مسبقاً");
+        return;
+      }
 
-    const { error: managerError } = await supabase.from("finance_users").insert({
-      branch_id: newBranch.id,
-      full_name: managerFullName.trim(),
-      username: managerUsername.trim(),
-      password_pin: managerPassword.trim(),
-      phone: branchPhone.trim() || null,
-      role: "مدير فرع",
-      permissions: BRANCH_MANAGER_PERMISSIONS,
-      is_active: true,
-    });
+      alert("تعذر إنشاء الفرع: " + branchError?.message);
+      return;
+    }
+
+    const { error: managerError } = await supabase
+      .from("finance_branch_users")
+      .insert({
+        branch_id: newBranch.id,
+        full_name: managerFullName.trim(),
+        username: managerUsername.trim(),
+        password: managerPassword.trim(),
+        role: "branch_manager",
+        is_active: true,
+      });
 
     if (managerError) {
-      await supabase.from("finance_branches").delete().eq("id", newBranch.id);
+      await rollbackNewBranch(newBranch.id);
 
-      alert("تم إلغاء إنشاء الفرع لأن إنشاء مدير الفرع فشل: " + managerError.message);
+      if (
+        managerError.code === "23505" ||
+        managerError.message?.includes("duplicate key")
+      ) {
+        alert(
+          "تم إلغاء إنشاء الفرع لأن اسم مستخدم مدير الفرع مستخدم مسبقاً. اختر اسم مستخدم آخر."
+        );
+        return;
+      }
+
+      alert(
+        "تم إلغاء إنشاء الفرع لأن إنشاء مدير الفرع فشل: " +
+          managerError.message
+      );
+      return;
+    }
+
+    const primaryInvestorResult = await ensurePrimaryInvestorForBranch({
+      id: newBranch.id,
+      branch_name: newBranch.branch_name,
+    });
+
+    if (!primaryInvestorResult.ok) {
+      await rollbackNewBranch(newBranch.id);
+
+      alert(
+        "تم إلغاء إنشاء الفرع لأن إنشاء المستثمر الرئيسي فشل: " +
+          primaryInvestorResult.error
+      );
       return;
     }
 
     await addLog(
-      "إضافة فرع مع مديره",
+      "إضافة فرع مع مديره والمستثمر الرئيسي",
       "branch",
       newBranch.id,
       `${newBranch.branch_name} - المدير: ${managerFullName}`
@@ -410,10 +495,9 @@ if (branchError || !newBranch) {
     if (!hasPermission("manage_branches")) return alert("لا تملك الصلاحية");
 
     const { error } = await supabase
-      .from("finance_users")
+      .from("finance_branch_users")
       .update({
         is_active: !manager.is_active,
-        updated_at: new Date().toISOString(),
       })
       .eq("id", manager.id);
 
@@ -447,10 +531,9 @@ if (branchError || !newBranch) {
     }
 
     const { error } = await supabase
-      .from("finance_users")
+      .from("finance_branch_users")
       .update({
-        password_pin: newPassword.trim(),
-        updated_at: new Date().toISOString(),
+        password: newPassword.trim(),
       })
       .eq("id", manager.id);
 
@@ -651,14 +734,18 @@ if (branchError || !newBranch) {
 
           <div className="mobile-nav">
             <button
-              className={activeTab === "overview" ? "mobile-tab active" : "mobile-tab"}
+              className={
+                activeTab === "overview" ? "mobile-tab active" : "mobile-tab"
+              }
               onClick={() => setActiveTab("overview")}
             >
               📊 العامة
             </button>
 
             <button
-              className={activeTab === "branches" ? "mobile-tab active" : "mobile-tab"}
+              className={
+                activeTab === "branches" ? "mobile-tab active" : "mobile-tab"
+              }
               onClick={() => setActiveTab("branches")}
             >
               🏢 الفروع
@@ -676,14 +763,18 @@ if (branchError || !newBranch) {
             </button>
 
             <button
-              className={activeTab === "users" ? "mobile-tab active" : "mobile-tab"}
+              className={
+                activeTab === "users" ? "mobile-tab active" : "mobile-tab"
+              }
               onClick={() => setActiveTab("users")}
             >
               🛠️ الدعم
             </button>
 
             <button
-              className={activeTab === "logs" ? "mobile-tab active" : "mobile-tab"}
+              className={
+                activeTab === "logs" ? "mobile-tab active" : "mobile-tab"
+              }
               onClick={() => setActiveTab("logs")}
             >
               🧾 السجل
@@ -701,7 +792,7 @@ if (branchError || !newBranch) {
             <Stat
               title="مدراء الفروع"
               value={branchManagers.length}
-              hint="مدير واحد لكل فرع"
+              hint="مدير لكل فرع"
             />
             <Stat
               title="الدعم"
@@ -715,7 +806,7 @@ if (branchError || !newBranch) {
               <div style={darkCard}>
                 <h2 style={whiteTitle}>مختصر النظام</h2>
                 <p style={whiteText}>
-                  من هنا يمكنك إدارة فروع احتساب، إنشاء مدير الفرع الأول،
+                  من هنا يمكنك إدارة فروع محطة العمل، إنشاء مدير الفرع الأول،
                   إضافة مستخدمي الدعم الفني، وتوثيق عمليات الدخول والتعديل.
                 </p>
 
@@ -769,7 +860,8 @@ if (branchError || !newBranch) {
                 <div>
                   <h2 style={sectionTitle}>إدارة الفروع</h2>
                   <p style={sectionSub}>
-                    إضافة فرع جديد مع إنشاء مدير الفرع الأول تلقائياً.
+                    إضافة فرع جديد مع إنشاء مدير الفرع الأول والمستثمر الرئيسي
+                    تلقائياً.
                   </p>
                 </div>
 
@@ -923,7 +1015,11 @@ if (branchError || !newBranch) {
               <section style={panelCard}>
                 <div style={branchesList}>
                   {branches.map((branch) => (
-                    <article className="branch-row" key={branch.id} style={branchRow}>
+                    <article
+                      className="branch-row"
+                      key={branch.id}
+                      style={branchRow}
+                    >
                       <div style={branchMain}>
                         <div style={branchAvatar}>
                           {branch.branch_name?.slice(0, 1) || "ف"}
@@ -932,11 +1028,15 @@ if (branchError || !newBranch) {
                         <div>
                           <h3 style={branchTitle}>{branch.branch_name}</h3>
                           <p style={muted}>🏢 {branch.organization_name}</p>
-                          <p style={muted}>📍 {branch.city || "لم تحدد المدينة"}</p>
+                          <p style={muted}>
+                            📍 {branch.city || "لم تحدد المدينة"}
+                          </p>
                           <p style={muted}>
                             🧾 {branch.commercial_record || "لا يوجد سجل تجاري"}
                           </p>
-                          <p style={muted}>📱 {branch.phone || "لا يوجد رقم جوال"}</p>
+                          <p style={muted}>
+                            📱 {branch.phone || "لا يوجد رقم جوال"}
+                          </p>
                           <p style={muted}>/finance/{branch.branch_slug}</p>
                         </div>
                       </div>
@@ -966,7 +1066,9 @@ if (branchError || !newBranch) {
 
                         <button
                           style={
-                            branch.is_active ? smallDangerButton : smallGreenButton
+                            branch.is_active
+                              ? smallDangerButton
+                              : smallGreenButton
                           }
                           onClick={() => toggleBranch(branch)}
                         >
@@ -986,7 +1088,8 @@ if (branchError || !newBranch) {
                 <div>
                   <h2 style={sectionTitle}>مدراء الفروع</h2>
                   <p style={sectionSub}>
-                    لكل فرع مدير واحد فقط، ويتم إنشاؤه من نموذج إضافة الفرع.
+                    يتم إنشاء مدير الفرع من نموذج إضافة الفرع، ويمكن إعادة تعيين
+                    كلمة المرور أو تعطيله من هنا.
                   </p>
                 </div>
               </div>
@@ -1011,10 +1114,7 @@ if (branchError || !newBranch) {
                         {manager.finance_branches?.branch_slug || "-"}
                       </p>
                       <p style={muted}>
-                        آخر دخول:{" "}
-                        {manager.last_login_at
-                          ? formatDateTime(manager.last_login_at)
-                          : "لم يسجل دخول بعد"}
+                        تاريخ الإنشاء: {formatDateTime(manager.created_at)}
                       </p>
 
                       <span
@@ -1168,7 +1268,9 @@ if (branchError || !newBranch) {
                     </div>
 
                     <button
-                      style={user.is_active ? smallDangerButton : smallGreenButton}
+                      style={
+                        user.is_active ? smallDangerButton : smallGreenButton
+                      }
                       onClick={() => toggleSupportUser(user)}
                     >
                       {user.is_active ? "تعطيل" : "تفعيل"}
