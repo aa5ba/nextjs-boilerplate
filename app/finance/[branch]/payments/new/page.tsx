@@ -1,80 +1,127 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
+import { normalizeNumber, toNumber } from "@/lib/numberUtils";
 
-const ITEMS_PER_PAGE = 25;
-
-export default function FinancePaymentsPage() {
+export default function NewPaymentPage() {
   const params = useParams();
   const router = useRouter();
   const branch = params.branch as string;
 
   const [branchId, setBranchId] = useState<string | null>(null);
-  const [payments, setPayments] = useState<any[]>([]);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [contracts, setContracts] = useState<any[]>([]);
+  const [selectedContract, setSelectedContract] = useState<any>(null);
+
+  const [paymentType, setPaymentType] = useState("");
+  const [amount, setAmount] = useState("");
+  const [method, setMethod] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [loadingContract, setLoadingContract] = useState(false);
 
   useEffect(() => {
-    loadPayments();
+    initializePage();
   }, [branch]);
 
-  const totalPages = Math.max(1, Math.ceil(payments.length / ITEMS_PER_PAGE));
-
-  const paginatedPayments = useMemo(() => {
-    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    return payments.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-  }, [payments, currentPage]);
-
-  async function loadPayments() {
-    setLoading(true);
-
+  async function initializePage() {
     const currentBranchId = await getBranchId(branch);
     setBranchId(currentBranchId);
 
     if (!currentBranchId) {
-      setPayments([]);
-      setLoading(false);
+      setContracts([]);
+      setSelectedContract(null);
       return;
     }
 
+    await loadContractFromUrl(currentBranchId);
+  }
+
+  async function loadContractFromUrl(currentBranchId: string) {
+    const urlParams = new URLSearchParams(window.location.search);
+    const contractId = urlParams.get("contract");
+
+    if (!contractId) return;
+
+    setLoadingContract(true);
+
     const { data, error } = await supabase
-      .from("finance_payments")
-      .select(
-        `
-        *,
-        finance_contracts(
-          id,
-          customer_id,
-          contract_number,
-          customer_name,
-          customer_phone,
-          debt_amount,
-          payment_amount,
-          paid_amount,
-          remaining_amount,
-          payment_due_date,
-          contract_status,
-          finance_customers(full_name, national_id)
-        )
-      `
-      )
+      .from("finance_contracts")
+      .select("*")
+      .eq("id", contractId)
       .eq("branch_id", currentBranchId)
+      .single();
+
+    if (error) {
+      alert("تعذر تحميل العقد المحدد: " + error.message);
+      setLoadingContract(false);
+      return;
+    }
+
+    if (data) {
+      setSelectedContract(data);
+      setContracts([data]);
+    }
+
+    setLoadingContract(false);
+  }
+
+  async function searchContracts() {
+    if (!branchId) {
+      alert("تعذر تحديد الفرع");
+      return;
+    }
+
+    const rawSearch = search.trim();
+    const normalizedSearch = normalizeNumber(rawSearch);
+
+    if (!rawSearch) {
+      alert("اكتب الاسم أو رقم الهوية أو رقم الجوال أو رقم العقد");
+      return;
+    }
+
+    setSearching(true);
+    setSelectedContract(null);
+
+    const { data, error } = await supabase
+      .from("finance_contracts")
+      .select("*")
+      .eq("branch_id", branchId)
+      .or(
+        [
+          `contract_number.ilike.%${rawSearch}%`,
+          `customer_name.ilike.%${rawSearch}%`,
+          `customer_national_id.ilike.%${normalizedSearch}%`,
+          `customer_phone.ilike.%${normalizedSearch}%`,
+        ].join(",")
+      )
       .order("created_at", { ascending: false });
 
     if (error) {
-      alert("تعذر تحميل عمليات السداد: " + error.message);
-      setPayments([]);
-      setLoading(false);
+      alert(error.message);
+      setContracts([]);
+      setSearching(false);
       return;
     }
 
-    setPayments(data || []);
-    setCurrentPage(1);
-    setLoading(false);
+    const filteredContracts = (data || []).filter((contract) => {
+      const status = String(contract.contract_status || "").trim();
+      const remaining = Number(contract.remaining_amount || 0);
+
+      return (
+        remaining > 0 &&
+        status !== "مغلق" &&
+        status !== "closed" &&
+        status !== "تم السداد"
+      );
+    });
+
+    setContracts(filteredContracts);
+    setSearching(false);
   }
 
   function getEmployeeName() {
@@ -97,7 +144,19 @@ export default function FinancePaymentsPage() {
     return "المدير";
   }
 
-  function getStatusAfterUpdate(remainingAmount: number, dueDate?: string | null) {
+  function isDateDue(date?: string | null) {
+    if (!date) return false;
+
+    const dueDate = new Date(date);
+    const today = new Date();
+
+    dueDate.setHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
+
+    return dueDate <= today;
+  }
+
+  function getStatusAfterPayment(remainingAmount: number, dueDate?: string | null) {
     if (remainingAmount <= 0) return "تم السداد";
 
     if (isDateDue(dueDate)) return "متأخر";
@@ -105,98 +164,142 @@ export default function FinancePaymentsPage() {
     return "نشط";
   }
 
-  async function cancelPayment(payment: any) {
+  async function refreshSelectedContract(contractId: string) {
+    if (!branchId) return;
+
+    const { data } = await supabase
+      .from("finance_contracts")
+      .select("*")
+      .eq("id", contractId)
+      .eq("branch_id", branchId)
+      .single();
+
+    if (data) {
+      setSelectedContract(data);
+      setContracts((prev) =>
+        prev.map((contract) => (contract.id === data.id ? data : contract))
+      );
+    }
+  }
+
+  async function savePayment() {
     if (!branchId) {
       alert("تعذر تحديد الفرع");
       return;
     }
 
-    if (payment.is_cancelled) {
-      alert("عملية السداد ملغية مسبقًا");
+    if (!selectedContract) {
+      alert("اختر العقد أولاً");
       return;
     }
 
-    const contract = payment.finance_contracts;
-
-    if (!contract) {
-      alert("تعذر العثور على العقد المرتبط بعملية السداد");
+    if (!paymentType || !amount || !method) {
+      alert("أكمل بيانات السداد");
       return;
     }
 
-    const confirmed = confirm(
-      `هل تريد إلغاء عملية السداد بمبلغ ${formatMoney(
-        payment.payment_amount || 0
-      )} ر.س؟`
-    );
-
-    if (!confirmed) return;
-
-    const paymentAmount = Number(payment.payment_amount || 0);
-    const oldPaid = Number(contract.paid_amount || 0);
+    const paid = toNumber(amount);
+    const oldPaid = Number(selectedContract.paid_amount || 0);
+    const oldRemaining = Number(selectedContract.remaining_amount || 0);
     const debt = Number(
-      contract.debt_amount ||
-        contract.payment_amount ||
-        oldPaid + Number(contract.remaining_amount || 0) ||
+      selectedContract.debt_amount ||
+        selectedContract.payment_amount ||
+        oldPaid + oldRemaining ||
         0
     );
 
-    const newPaid = Math.max(oldPaid - paymentAmount, 0);
-    const newRemaining = Math.max(debt - newPaid, 0);
-    const newStatus = getStatusAfterUpdate(
-      newRemaining,
-      contract.payment_due_date
-    );
-
-    const { error: paymentError } = await supabase
-      .from("finance_payments")
-      .update({
-        is_cancelled: true,
-      })
-      .eq("id", payment.id)
-      .eq("branch_id", branchId);
-
-    if (paymentError) {
-      alert(paymentError.message || "تعذر إلغاء عملية السداد");
+    if (paid <= 0) {
+      alert("أدخل مبلغ سداد صحيح");
       return;
     }
 
-    const { error: contractError } = await supabase
-      .from("finance_contracts")
-      .update({
-        paid_amount: newPaid,
-        remaining_amount: newRemaining,
-        contract_status: newStatus,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", payment.contract_id)
-      .eq("branch_id", branchId);
+    const currentRemaining = oldRemaining || Math.max(debt - oldPaid, 0);
 
-    if (contractError) {
-      alert("تم إلغاء السداد، لكن تعذر تحديث العقد: " + contractError.message);
+    if (currentRemaining <= 0) {
+      alert("هذا العقد لا يوجد عليه مبلغ متبقٍ للسداد");
       return;
     }
 
-    await supabase.from("finance_activity_logs").insert([
-      {
-        branch_id: branchId,
-        activity_type: "إلغاء سداد",
-        description: `تم إلغاء عملية سداد بمبلغ ${paymentAmount} ر.س للعقد رقم ${
-          contract.contract_number || "-"
-        }`,
-        customer_id: contract.customer_id,
-        contract_id: payment.contract_id,
-        payment_id: payment.id,
-        customer_name:
-          contract.customer_name ||
-          contract.finance_customers?.full_name ||
-          "",
-        employee_name: getEmployeeName(),
-        status: newStatus,
-      },
-    ]);
+    if (paid > currentRemaining) {
+      const confirmed = confirm(
+        "مبلغ السداد أكبر من المتبقي. هل تريد المتابعة؟"
+      );
 
-    alert("تم إلغاء عملية السداد بنجاح");
-    await loadPayments();
+      if (!confirmed) return;
+    }
+
+    try {
+      setSaving(true);
+
+      const newPaid = oldPaid + paid;
+      const newRemaining = Math.max(debt - newPaid, 0);
+      const newStatus = getStatusAfterPayment(
+        newRemaining,
+        selectedContract.payment_due_date
+      );
+
+      const { data: paymentData, error: paymentError } = await supabase
+        .from("finance_payments")
+        .insert([
+          {
+            branch_id: branchId,
+            contract_id: selectedContract.id,
+            payment_amount: paid,
+            payment_type: paymentType,
+            notes: method,
+            created_by: getEmployeeName(),
+          },
+        ])
+        .select()
+        .single();
+
+      if (paymentError) {
+        alert(paymentError.message || "تعذر تسجيل السداد");
+        setSaving(false);
+        return;
+      }
+
+      const { error: contractError } = await supabase
+        .from("finance_contracts")
+        .update({
+          paid_amount: newPaid,
+          remaining_amount: newRemaining,
+          contract_status: newStatus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", selectedContract.id)
+        .eq("branch_id", branchId);
+
+      if (contractError) {
+        alert("تم تسجيل السداد، لكن تعذر تحديث العقد: " + contractError.message);
+        setSaving(false);
+        return;
+      }
+
+      await supabase.from("finance_activity_logs").insert([
+        {
+          branch_id: branchId,
+          activity_type: "سداد",
+          description: `تم تسجيل سداد للعميل ${
+            selectedContract.customer_name || ""
+          } بمبلغ ${paid} ر.س`,
+          customer_id: selectedContract.customer_id,
+          contract_id: selectedContract.id,
+          payment_id: paymentData.id,
+          customer_name: selectedContract.customer_name || "",
+          employee_name: getEmployeeName(),
+          status: newStatus,
+        },
+      ]);
+
+      alert("تم تسجيل السداد بنجاح");
+
+      await refreshSelectedContract(selectedContract.id);
+
+      router.push(`/finance/${branch}/contracts/${selectedContract.id}`);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -216,229 +319,150 @@ export default function FinancePaymentsPage() {
             </button>
           </div>
 
-          <div>
-            <p style={headerLabel}>محطة العمل</p>
-            <h1 style={headerTitle}>سداد</h1>
-            <p style={headerSub}>
-              متابعة عمليات السداد، إلغاء العمليات عند الحاجة، وربطها بالعقود
-              وسير العمل.
-            </p>
-          </div>
+          <h1 style={headerTitle}>إجراء سداد</h1>
         </header>
 
-        <section style={actionsSection}>
-          <button
-            style={actionButton}
-            onClick={() => router.push(`/finance/${branch}/payments/new`)}
-          >
-            <span style={actionIcon}>💳</span>
-            <span>
-              <strong>إجراء سداد</strong>
-              <small>تسجيل دفعة جديدة على عقد</small>
-            </span>
-          </button>
-
-          <button
-            style={actionButton}
-            onClick={() =>
-              alert("لإلغاء عملية سداد، اضغط زر إلغاء بجانب العملية المطلوبة.")
-            }
-          >
-            <span style={actionIcon}>⛔</span>
-            <span>
-              <strong>إلغاء عملية سداد</strong>
-              <small>من جدول العمليات بالأسفل</small>
-            </span>
-          </button>
-        </section>
-
         <section style={card}>
-          <div style={listHeader}>
-            <div>
-              <p style={sectionKicker}>السداد</p>
-              <h2 style={sectionTitle}>عمليات السداد</h2>
-            </div>
+          <div style={searchRow}>
+            <input
+              style={input}
+              placeholder="بحث بالاسم أو رقم الهوية أو رقم الجوال أو رقم العقد"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") searchContracts();
+              }}
+            />
 
-            {payments.length > 0 && (
-              <span style={pageInfo}>
-                صفحة {currentPage} من {totalPages} - عرض{" "}
-                {paginatedPayments.length} من {payments.length}
-              </span>
-            )}
+            <button style={searchButton} onClick={searchContracts}>
+              {searching ? "..." : "بحث"}
+            </button>
           </div>
 
-          <div className="desktop-table" style={tableBox}>
-            <div style={tableHeader}>
-              <span>العميل</span>
-              <span>رقم العقد</span>
-              <span>المبلغ</span>
-              <span>طريقة الدفع</span>
-              <span>نوع السداد</span>
-              <span>الإجراء</span>
-            </div>
-
-            {loading ? (
-              <div style={emptyBox}>جاري تحميل عمليات السداد...</div>
-            ) : payments.length === 0 ? (
-              <div style={emptyBox}>لا توجد عمليات سداد حتى الآن</div>
-            ) : (
-              paginatedPayments.map((payment) => {
-                const contract = payment.finance_contracts;
-                const customerName =
-                  contract?.customer_name ||
-                  contract?.finance_customers?.full_name ||
-                  "-";
-
-                return (
-                  <div
-                    key={payment.id}
-                    style={{
-                      ...tableRow,
-                      opacity: payment.is_cancelled ? 0.55 : 1,
-                    }}
-                    onClick={() => {
-                      if (payment.contract_id) {
-                        router.push(
-                          `/finance/${branch}/contracts/${payment.contract_id}`
-                        );
-                      }
-                    }}
-                  >
-                    <span
-                      style={customerLink}
-                      onClick={(e) => {
-                        e.stopPropagation();
-
-                        if (contract?.customer_id) {
-                          router.push(
-                            `/finance/${branch}/customers/${contract.customer_id}`
-                          );
-                        }
-                      }}
-                    >
-                      {customerName}
-                    </span>
-
-                    <span>{contract?.contract_number || "-"}</span>
-                    <span>{formatMoney(payment.payment_amount)} ر.س</span>
-                    <span>{payment.notes || "-"}</span>
-                    <span>
-                      {payment.is_cancelled
-                        ? "ملغية"
-                        : payment.payment_type || "-"}
-                    </span>
-
-                    <span>
-                      {payment.is_cancelled ? (
-                        <span style={cancelledBadge}>ملغية</span>
-                      ) : (
-                        <button
-                          style={cancelButton}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            cancelPayment(payment);
-                          }}
-                        >
-                          إلغاء
-                        </button>
-                      )}
-                    </span>
-                  </div>
-                );
-              })
-            )}
-          </div>
-
-          <div className="mobile-cards">
-            {loading ? (
-              <div style={emptyBox}>جاري تحميل عمليات السداد...</div>
-            ) : payments.length === 0 ? (
-              <div style={emptyBox}>لا توجد عمليات سداد حتى الآن</div>
-            ) : (
-              paginatedPayments.map((payment) => {
-                const contract = payment.finance_contracts;
-                const customerName =
-                  contract?.customer_name ||
-                  contract?.finance_customers?.full_name ||
-                  "-";
-
-                return (
-                  <article key={payment.id} style={mobileCard}>
-                    <div style={mobileCardTop}>
-                      <strong>{customerName}</strong>
-                      {payment.is_cancelled ? (
-                        <span style={cancelledBadge}>ملغية</span>
-                      ) : (
-                        <span style={successBadge}>مسجلة</span>
-                      )}
-                    </div>
-
-                    <span>رقم العقد: {contract?.contract_number || "-"}</span>
-                    <span>المبلغ: {formatMoney(payment.payment_amount)} ر.س</span>
-                    <span>طريقة الدفع: {payment.notes || "-"}</span>
-                    <span>نوع السداد: {payment.payment_type || "-"}</span>
-
-                    <div style={mobileActions}>
-                      {payment.contract_id && (
-                        <button
-                          style={smallBlueButton}
-                          onClick={() =>
-                            router.push(
-                              `/finance/${branch}/contracts/${payment.contract_id}`
-                            )
-                          }
-                        >
-                          فتح العقد
-                        </button>
-                      )}
-
-                      {!payment.is_cancelled && (
-                        <button
-                          style={cancelButton}
-                          onClick={() => cancelPayment(payment)}
-                        >
-                          إلغاء
-                        </button>
-                      )}
-                    </div>
-                  </article>
-                );
-              })
-            )}
-          </div>
-
-          {payments.length > ITEMS_PER_PAGE && (
-            <div style={paginationBox}>
-              <button
-                style={{
-                  ...paginationButton,
-                  opacity: currentPage === 1 ? 0.5 : 1,
-                }}
-                disabled={currentPage === 1}
-                onClick={() => setCurrentPage((page) => Math.max(page - 1, 1))}
-              >
-                السابق
-              </button>
-
-              <span style={paginationText}>
-                صفحة {currentPage} من {totalPages}
-              </span>
-
-              <button
-                style={{
-                  ...paginationButton,
-                  opacity: currentPage === totalPages ? 0.5 : 1,
-                }}
-                disabled={currentPage === totalPages}
-                onClick={() =>
-                  setCurrentPage((page) => Math.min(page + 1, totalPages))
-                }
-              >
-                التالي
-              </button>
-            </div>
+          {loadingContract && (
+            <div style={emptyBox}>جاري تحميل العقد المحدد...</div>
           )}
+
+          {contracts.length === 0 && search.trim() && !searching && (
+            <div style={emptyBox}>لا توجد عقود مطابقة قابلة للسداد</div>
+          )}
+
+          <div style={contractsList}>
+            {contracts.map((contract) => (
+              <button
+                key={contract.id}
+                style={
+                  selectedContract?.id === contract.id
+                    ? selectedContractButton
+                    : contractButton
+                }
+                onClick={() => {
+                  setSelectedContract(contract);
+                  setAmount("");
+                  setPaymentType("");
+                  setMethod("");
+                }}
+              >
+                <strong>عقد رقم {contract.contract_number || "-"}</strong>
+                <span>{contract.customer_name || "-"}</span>
+                <small>
+                  المتبقي {formatMoney(contract.remaining_amount)} ر.س
+                </small>
+              </button>
+            ))}
+          </div>
         </section>
+
+        {selectedContract && (
+          <section style={card}>
+            <div style={selectedHeader}>
+              <h2 style={sectionTitle}>
+                عقد رقم {selectedContract.contract_number || "-"}
+              </h2>
+
+              <span style={remainingPill}>
+                المتبقي {formatMoney(selectedContract.remaining_amount)} ر.س
+              </span>
+            </div>
+
+            <div style={detailsGrid}>
+              <Row label="العميل" value={selectedContract.customer_name} />
+              <Row
+                label="رقم الهوية"
+                value={selectedContract.customer_national_id}
+              />
+              <Row
+                label="مبلغ الدين"
+                value={`${formatMoney(selectedContract.debt_amount)} ر.س`}
+              />
+              <Row
+                label="المسدد"
+                value={`${formatMoney(selectedContract.paid_amount)} ر.س`}
+              />
+              <Row
+                label="المتبقي"
+                value={`${formatMoney(selectedContract.remaining_amount)} ر.س`}
+              />
+            </div>
+
+            <div style={formGrid}>
+              <div>
+                <label style={label}>نوع السداد</label>
+                <select
+                  style={input}
+                  value={paymentType}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setPaymentType(value);
+
+                    if (value === "كلي") {
+                      setAmount(String(selectedContract.remaining_amount || ""));
+                    }
+
+                    if (value === "جزئي") {
+                      setAmount("");
+                    }
+                  }}
+                >
+                  <option value="">اختر نوع السداد</option>
+                  <option value="كلي">كلي</option>
+                  <option value="جزئي">جزئي</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={label}>المبلغ المدفوع</label>
+                <input
+                  style={input}
+                  inputMode="numeric"
+                  placeholder="المبلغ المدفوع"
+                  value={amount}
+                  onChange={(e) => setAmount(normalizeNumber(e.target.value))}
+                />
+              </div>
+
+              <div>
+                <label style={label}>طريقة الدفع</label>
+                <select
+                  style={input}
+                  value={method}
+                  onChange={(e) => setMethod(e.target.value)}
+                >
+                  <option value="">اختر طريقة الدفع</option>
+                  <option value="نقدًا">نقدًا</option>
+                  <option value="تحويل">تحويل</option>
+                  <option value="شبكة">شبكة</option>
+                  <option value="شيك">شيك</option>
+                  <option value="تسوية">تسوية</option>
+                </select>
+              </div>
+            </div>
+
+            <button style={primaryButton} onClick={savePayment} disabled={saving}>
+              {saving ? "جاري الحفظ..." : "حفظ السداد"}
+            </button>
+          </section>
+        )}
 
         <div style={bottomActions}>
           <button style={backButton} onClick={() => router.back()}>
@@ -459,16 +483,13 @@ export default function FinancePaymentsPage() {
   );
 }
 
-function isDateDue(date?: string | null) {
-  if (!date) return false;
-
-  const dueDate = new Date(date);
-  const today = new Date();
-
-  dueDate.setHours(0, 0, 0, 0);
-  today.setHours(0, 0, 0, 0);
-
-  return dueDate <= today;
+function Row({ label, value }: any) {
+  return (
+    <div style={row}>
+      <span>{label}</span>
+      <strong>{value || "-"}</strong>
+    </div>
+  );
 }
 
 function formatMoney(value: any) {
@@ -486,18 +507,9 @@ function GlobalResponsiveStyles() {
         box-sizing: border-box;
       }
 
-      .mobile-cards {
-        display: none;
-      }
-
-      @media (max-width: 760px) {
-        .desktop-table {
-          display: none !important;
-        }
-
-        .mobile-cards {
-          display: grid !important;
-          gap: 10px;
+      @media (max-width: 720px) {
+        .payment-search-row {
+          grid-template-columns: 1fr !important;
         }
       }
     `}</style>
@@ -514,7 +526,7 @@ const page: CSSProperties = {
 
 const container: CSSProperties = {
   width: "100%",
-  maxWidth: 1150,
+  maxWidth: 1100,
   margin: "auto",
 };
 
@@ -535,22 +547,10 @@ const headerActions: CSSProperties = {
   marginBottom: 18,
 };
 
-const headerLabel: CSSProperties = {
-  margin: 0,
-  color: "#bfdbfe",
-  fontWeight: 800,
-};
-
 const headerTitle: CSSProperties = {
-  margin: "4px 0",
+  margin: 0,
   fontSize: 34,
   lineHeight: 1.4,
-};
-
-const headerSub: CSSProperties = {
-  margin: 0,
-  color: "#dbeafe",
-  lineHeight: 1.8,
 };
 
 const backButton: CSSProperties = {
@@ -577,202 +577,139 @@ const homeButton: CSSProperties = {
   boxShadow: "0 8px 18px rgba(21,128,61,.25)",
 };
 
-const actionsSection: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))",
-  gap: 14,
-  marginBottom: 18,
-};
-
-const actionButton: CSSProperties = {
-  background: "white",
-  border: "1px solid #e2e8f0",
-  borderRadius: 20,
-  padding: 18,
-  cursor: "pointer",
-  color: "#0f172a",
-  display: "flex",
-  alignItems: "center",
-  gap: 12,
-  textAlign: "right",
-  boxShadow: "0 8px 20px rgba(15,23,42,.05)",
-};
-
-const actionIcon: CSSProperties = {
-  width: 48,
-  height: 48,
-  borderRadius: 16,
-  background: "#eff6ff",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  fontSize: 22,
-};
-
 const card: CSSProperties = {
   background: "white",
   border: "1px solid #e2e8f0",
   borderRadius: 22,
   padding: 18,
+  marginBottom: 16,
   boxShadow: "0 8px 20px rgba(15,23,42,.05)",
 };
 
-const listHeader: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
+const searchRow: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 130px",
   gap: 12,
-  marginBottom: 12,
-  flexWrap: "wrap",
 };
 
-const sectionKicker: CSSProperties = {
-  margin: 0,
-  color: "#2563eb",
-  fontWeight: 900,
-  fontSize: 13,
-};
-
-const sectionTitle: CSSProperties = {
-  margin: "4px 0",
-  fontSize: 22,
-  color: "#0f172a",
-};
-
-const pageInfo: CSSProperties = {
-  color: "#64748b",
-  fontSize: 14,
-  fontWeight: 900,
-};
-
-const tableBox: CSSProperties = {
+const input: CSSProperties = {
   width: "100%",
-  overflowX: "auto",
-};
-
-const tableHeader: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr",
-  gap: 12,
-  minWidth: 980,
-  background: "#f1f5f9",
-  color: "#1e3a8a",
-  fontWeight: 900,
   padding: 14,
-  borderRadius: 12,
-  marginBottom: 10,
+  borderRadius: 14,
+  border: "1px solid #cbd5e1",
+  fontSize: 16,
+  marginBottom: 12,
+  boxSizing: "border-box",
+  background: "#f8fafc",
+  fontFamily: "inherit",
 };
 
-const tableRow: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr",
-  gap: 12,
-  minWidth: 980,
+const searchButton: CSSProperties = {
   padding: 14,
-  borderBottom: "1px solid #eef2f7",
+  background: "#1e3a8a",
+  color: "white",
+  border: "none",
+  borderRadius: 14,
+  fontSize: 16,
+  height: 50,
   cursor: "pointer",
-  alignItems: "center",
+  fontWeight: 900,
 };
 
-const customerLink: CSSProperties = {
+const contractsList: CSSProperties = {
+  display: "grid",
+  gap: 10,
+};
+
+const contractButton: CSSProperties = {
+  width: "100%",
+  padding: 14,
+  background: "#f8fbff",
+  border: "1px solid #d9e3f5",
+  borderRadius: 14,
+  fontSize: 16,
   cursor: "pointer",
-  color: "#1d4ed8",
-  fontWeight: 900,
+  textAlign: "right",
+  display: "grid",
+  gap: 5,
+};
+
+const selectedContractButton: CSSProperties = {
+  ...contractButton,
+  border: "1px solid #2563eb",
+  background: "#eff6ff",
 };
 
 const emptyBox: CSSProperties = {
   background: "#f8fbff",
   border: "1px dashed #cbd5e1",
   borderRadius: 14,
-  padding: 22,
+  padding: 18,
   textAlign: "center",
   color: "#6b7280",
+  marginTop: 12,
 };
 
-const cancelButton: CSSProperties = {
-  background: "#fee2e2",
-  color: "#991b1b",
-  border: "none",
-  borderRadius: 10,
-  padding: "8px 12px",
-  fontWeight: 900,
-  cursor: "pointer",
+const selectedHeader: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  flexWrap: "wrap",
+  alignItems: "center",
+  marginBottom: 14,
 };
 
-const cancelledBadge: CSSProperties = {
-  background: "#e5e7eb",
-  color: "#6b7280",
-  borderRadius: 999,
-  padding: "7px 12px",
-  fontWeight: 900,
-  width: "fit-content",
+const sectionTitle: CSSProperties = {
+  margin: 0,
+  fontSize: 22,
+  color: "#0f172a",
 };
 
-const successBadge: CSSProperties = {
+const remainingPill: CSSProperties = {
   background: "#dcfce7",
   color: "#166534",
   borderRadius: 999,
-  padding: "7px 12px",
-  fontWeight: 900,
-  width: "fit-content",
-};
-
-const paginationBox: CSSProperties = {
-  marginTop: 18,
-  display: "flex",
-  justifyContent: "center",
-  alignItems: "center",
-  gap: 12,
-  flexWrap: "wrap",
-};
-
-const paginationButton: CSSProperties = {
-  padding: "10px 16px",
-  background: "#1e3a8a",
-  color: "white",
-  border: "none",
-  borderRadius: 12,
-  fontSize: 14,
-  fontWeight: 900,
-  cursor: "pointer",
-};
-
-const paginationText: CSSProperties = {
-  color: "#0f172a",
-  fontWeight: 900,
-};
-
-const mobileCard: CSSProperties = {
-  border: "1px solid #e2e8f0",
-  borderRadius: 16,
-  padding: 13,
-  background: "#f8fafc",
-  display: "grid",
-  gap: 7,
-};
-
-const mobileCardTop: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 8,
-  alignItems: "center",
-};
-
-const mobileActions: CSSProperties = {
-  display: "flex",
-  gap: 8,
-  flexWrap: "wrap",
-  marginTop: 8,
-};
-
-const smallBlueButton: CSSProperties = {
-  border: "none",
-  background: "#dbeafe",
-  color: "#1d4ed8",
-  borderRadius: 10,
   padding: "8px 12px",
   fontWeight: 900,
+};
+
+const detailsGrid: CSSProperties = {
+  display: "grid",
+  gap: 0,
+  marginBottom: 14,
+};
+
+const row: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  padding: "10px 0",
+  borderBottom: "1px solid #eef2f7",
+};
+
+const formGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
+  gap: 12,
+};
+
+const label: CSSProperties = {
+  display: "block",
+  fontWeight: 900,
+  color: "#334155",
+  marginBottom: 7,
+};
+
+const primaryButton: CSSProperties = {
+  width: "100%",
+  padding: 16,
+  background: "linear-gradient(135deg,#2563eb,#1e3a8a)",
+  color: "white",
+  border: "none",
+  borderRadius: 14,
+  fontSize: 17,
   cursor: "pointer",
+  fontWeight: 900,
 };
 
 const bottomActions: CSSProperties = {
