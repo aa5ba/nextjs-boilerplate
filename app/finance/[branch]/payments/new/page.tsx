@@ -566,8 +566,15 @@ const backButton: CSSProperties = {
 };
 
 const homeButton: CSSProperties = {
-  ...backButton,
-  background: "rgba(255,255,255,.10)",
+  border: "1px solid rgba(255,255,255,.20)",
+  background: "linear-gradient(135deg,#16a34a,#15803d)",
+  color: "#ffffff",
+  borderRadius: 12,
+  padding: "10px 14px",
+  fontSize: 14,
+  fontWeight: 900,
+  cursor: "pointer",
+  boxShadow: "0 8px 18px rgba(21,128,61,.25)",
 };
 
 const actionsSection: CSSProperties = {
