@@ -69,60 +69,68 @@ export default function NewPaymentPage() {
 
     setLoadingContract(false);
   }
-
-  async function searchContracts() {
-    if (!branchId) {
-      alert("تعذر تحديد الفرع");
-      return;
-    }
-
-    const rawSearch = search.trim();
-    const normalizedSearch = normalizeNumber(rawSearch);
-
-    if (!rawSearch) {
-      alert("اكتب الاسم أو رقم الهوية أو رقم الجوال أو رقم العقد");
-      return;
-    }
-
-    setSearching(true);
-    setSelectedContract(null);
-
-    const { data, error } = await supabase
-      .from("finance_contracts")
-      .select("*")
-      .eq("branch_id", branchId)
-      .or(
-        [
-          `contract_number.ilike.%${rawSearch}%`,
-          `customer_name.ilike.%${rawSearch}%`,
-          `customer_national_id.ilike.%${normalizedSearch}%`,
-          `customer_phone.ilike.%${normalizedSearch}%`,
-        ].join(",")
-      )
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      alert(error.message);
-      setContracts([]);
-      setSearching(false);
-      return;
-    }
-
-    const filteredContracts = (data || []).filter((contract) => {
-      const status = String(contract.contract_status || "").trim();
-      const remaining = Number(contract.remaining_amount || 0);
-
-      return (
-        remaining > 0 &&
-        status !== "مغلق" &&
-        status !== "closed" &&
-        status !== "تم السداد"
-      );
-    });
-
-    setContracts(filteredContracts);
-    setSearching(false);
+async function searchContracts() {
+  if (!branchId) {
+    alert("تعذر تحديد الفرع");
+    return;
   }
+
+  const rawSearch = search.trim();
+  const normalizedSearch = normalizeNumber(rawSearch);
+  const isNumericSearch = /^\d+$/.test(normalizedSearch);
+
+  if (!rawSearch) {
+    alert("اكتب الاسم أو رقم الهوية أو رقم الجوال أو رقم العقد");
+    return;
+  }
+
+  setSearching(true);
+  setSelectedContract(null);
+
+  let query = supabase
+    .from("finance_contracts")
+    .select("*")
+    .eq("branch_id", branchId);
+
+  if (isNumericSearch) {
+    query = query.or(
+      [
+        `customer_name.ilike.%${rawSearch}%`,
+        `contract_number.eq.${normalizedSearch}`,
+        `customer_national_id.eq.${normalizedSearch}`,
+        `customer_phone.eq.${normalizedSearch}`,
+      ].join(",")
+    );
+  } else {
+    query = query.ilike("customer_name", `%${rawSearch}%`);
+  }
+
+  const { data, error } = await query.order("created_at", {
+    ascending: false,
+  });
+
+  if (error) {
+    alert(error.message);
+    setContracts([]);
+    setSearching(false);
+    return;
+  }
+
+  const filteredContracts = (data || []).filter((contract) => {
+    const status = String(contract.contract_status || "").trim();
+    const remaining = Number(contract.remaining_amount || 0);
+
+    return (
+      remaining > 0 &&
+      status !== "مغلق" &&
+      status !== "closed" &&
+      status !== "تم السداد"
+    );
+  });
+
+  setContracts(filteredContracts);
+  setSearching(false);
+}
 
   function getEmployeeName() {
     if (typeof window === "undefined") return "المدير";
