@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
 import { normalizeNumber, toNumber } from "@/lib/numberUtils";
+
+const SEARCH_LIMIT = 300;
 
 export default function NewPaymentPage() {
   const params = useParams();
@@ -23,10 +25,34 @@ export default function NewPaymentPage() {
   const [searching, setSearching] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loadingContract, setLoadingContract] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
 
   useEffect(() => {
     initializePage();
   }, [branch]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const value = search.trim();
+
+      if (!branchId) return;
+
+      if (value.length >= 2) {
+        smartSearchContracts(false);
+      }
+
+      if (value.length === 0) {
+        setContracts(selectedContract ? [selectedContract] : []);
+        setHasSearched(false);
+      }
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [search, branchId]);
+
+  const canShowSuggestions = useMemo(() => {
+    return contracts.length > 0 && search.trim().length >= 2;
+  }, [contracts, search]);
 
   async function initializePage() {
     const currentBranchId = await getBranchId(branch);
@@ -63,74 +89,82 @@ export default function NewPaymentPage() {
     }
 
     if (data) {
-      setSelectedContract(data);
+      selectContract(data);
       setContracts([data]);
     }
 
     setLoadingContract(false);
   }
-async function searchContracts() {
-  if (!branchId) {
-    alert("تعذر تحديد الفرع");
-    return;
-  }
 
-  const rawSearch = search.trim();
-  const normalizedSearch = normalizeNumber(rawSearch);
-  const isNumericSearch = /^\d+$/.test(normalizedSearch);
+  async function smartSearchContracts(showAlert = true) {
+    if (!branchId) {
+      alert("تعذر تحديد الفرع");
+      return;
+    }
 
-  if (!rawSearch) {
-    alert("اكتب الاسم أو رقم الهوية أو رقم الجوال أو رقم العقد");
-    return;
-  }
+    const rawSearch = search.trim();
+    const normalizedSearch = normalizeNumber(rawSearch);
 
-  setSearching(true);
-  setSelectedContract(null);
+    if (!rawSearch) {
+      if (showAlert) {
+        alert("اكتب الاسم أو رقم الهوية أو رقم الجوال أو رقم العقد");
+      }
+      return;
+    }
 
-  let query = supabase
-    .from("finance_contracts")
-    .select("*")
-    .eq("branch_id", branchId);
+    setSearching(true);
+    setHasSearched(true);
 
-  if (isNumericSearch) {
-    query = query.or(
-      [
-        `customer_name.ilike.%${rawSearch}%`,
-        `contract_number.eq.${normalizedSearch}`,
-        `customer_national_id.eq.${normalizedSearch}`,
-        `customer_phone.eq.${normalizedSearch}`,
-      ].join(",")
-    );
-  } else {
-    query = query.ilike("customer_name", `%${rawSearch}%`);
-  }
+    const { data, error } = await supabase
+      .from("finance_contracts")
+      .select("*")
+      .eq("branch_id", branchId)
+      .order("created_at", { ascending: false })
+      .limit(SEARCH_LIMIT);
 
-  const { data, error } = await query.order("created_at", {
-    ascending: false,
-  });
+    if (error) {
+      alert(error.message);
+      setContracts([]);
+      setSearching(false);
+      return;
+    }
 
-  if (error) {
-    alert(error.message);
-    setContracts([]);
+    const searchValue = normalizeForSearch(rawSearch);
+    const searchNumber = normalizeForSearch(normalizedSearch);
+
+    const results = (data || [])
+      .filter((contract) => isContractPayable(contract))
+      .filter((contract) => {
+        const customerName = normalizeForSearch(contract.customer_name);
+        const customerNationalId = normalizeForSearch(
+          normalizeNumber(String(contract.customer_national_id || ""))
+        );
+        const customerPhone = normalizeForSearch(
+          normalizeNumber(String(contract.customer_phone || ""))
+        );
+        const contractNumber = normalizeForSearch(
+          normalizeNumber(String(contract.contract_number || ""))
+        );
+
+        return (
+          customerName.includes(searchValue) ||
+          customerNationalId.includes(searchNumber) ||
+          customerPhone.includes(searchNumber) ||
+          contractNumber.includes(searchNumber)
+        );
+      })
+      .slice(0, 25);
+
+    setContracts(results);
     setSearching(false);
-    return;
   }
 
-  const filteredContracts = (data || []).filter((contract) => {
-    const status = String(contract.contract_status || "").trim();
-    const remaining = Number(contract.remaining_amount || 0);
-
-    return (
-      remaining > 0 &&
-      status !== "مغلق" &&
-      status !== "closed" &&
-      status !== "تم السداد"
-    );
-  });
-
-  setContracts(filteredContracts);
-  setSearching(false);
-}
+  function selectContract(contract: any) {
+    setSelectedContract(contract);
+    setAmount("");
+    setPaymentType("");
+    setMethod("");
+  }
 
   function getEmployeeName() {
     if (typeof window === "undefined") return "المدير";
@@ -164,11 +198,12 @@ async function searchContracts() {
     return dueDate <= today;
   }
 
-  function getStatusAfterPayment(remainingAmount: number, dueDate?: string | null) {
+  function getStatusAfterPayment(
+    remainingAmount: number,
+    dueDate?: string | null
+  ) {
     if (remainingAmount <= 0) return "تم السداد";
-
     if (isDateDue(dueDate)) return "متأخر";
-
     return "نشط";
   }
 
@@ -300,11 +335,11 @@ async function searchContracts() {
         },
       ]);
 
-      alert("تم تسجيل السداد بنجاح");
-
       await refreshSelectedContract(selectedContract.id);
 
-      router.push(`/finance/${branch}/contracts/${selectedContract.id}`);
+      alert("تم تسجيل السداد بنجاح");
+
+      router.push(`/finance/${branch}/payments/receipt/${paymentData.id}`);
     } finally {
       setSaving(false);
     }
@@ -331,18 +366,21 @@ async function searchContracts() {
         </header>
 
         <section style={card}>
-          <div style={searchRow}>
+          <div className="payment-search-row" style={searchRow}>
             <input
               style={input}
               placeholder="بحث بالاسم أو رقم الهوية أو رقم الجوال أو رقم العقد"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") searchContracts();
+                if (e.key === "Enter") smartSearchContracts(true);
               }}
             />
 
-            <button style={searchButton} onClick={searchContracts}>
+            <button
+              style={searchButton}
+              onClick={() => smartSearchContracts(true)}
+            >
               {searching ? "..." : "بحث"}
             </button>
           </div>
@@ -351,34 +389,43 @@ async function searchContracts() {
             <div style={emptyBox}>جاري تحميل العقد المحدد...</div>
           )}
 
-          {contracts.length === 0 && search.trim() && !searching && (
-            <div style={emptyBox}>لا توجد عقود مطابقة قابلة للسداد</div>
-          )}
+          {hasSearched &&
+            contracts.length === 0 &&
+            search.trim() &&
+            !searching && (
+              <div style={emptyBox}>لا توجد عقود مطابقة قابلة للسداد</div>
+            )}
 
-          <div style={contractsList}>
-            {contracts.map((contract) => (
-              <button
-                key={contract.id}
-                style={
-                  selectedContract?.id === contract.id
-                    ? selectedContractButton
-                    : contractButton
-                }
-                onClick={() => {
-                  setSelectedContract(contract);
-                  setAmount("");
-                  setPaymentType("");
-                  setMethod("");
-                }}
-              >
-                <strong>عقد رقم {contract.contract_number || "-"}</strong>
-                <span>{contract.customer_name || "-"}</span>
-                <small>
-                  المتبقي {formatMoney(contract.remaining_amount)} ر.س
-                </small>
-              </button>
-            ))}
-          </div>
+          {canShowSuggestions && (
+            <div style={suggestionsBox}>
+              {contracts.map((contract) => (
+                <button
+                  key={contract.id}
+                  style={
+                    selectedContract?.id === contract.id
+                      ? selectedSuggestionButton
+                      : suggestionButton
+                  }
+                  onClick={() => selectContract(contract)}
+                >
+                  <div style={suggestionTop}>
+                    <strong>{contract.customer_name || "-"}</strong>
+                    <span style={contractNumberBadge}>
+                      عقد {contract.contract_number || "-"}
+                    </span>
+                  </div>
+
+                  <div style={suggestionMeta}>
+                    <span>هوية: {contract.customer_national_id || "-"}</span>
+                    <span>جوال: {contract.customer_phone || "-"}</span>
+                    <span>
+                      المتبقي: {formatMoney(contract.remaining_amount)} ر.س
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
         </section>
 
         {selectedContract && (
@@ -398,6 +445,10 @@ async function searchContracts() {
               <Row
                 label="رقم الهوية"
                 value={selectedContract.customer_national_id}
+              />
+              <Row
+                label="رقم الجوال"
+                value={selectedContract.customer_phone}
               />
               <Row
                 label="مبلغ الدين"
@@ -500,8 +551,31 @@ function Row({ label, value }: any) {
   );
 }
 
+function normalizeForSearch(value: any) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[أإآا]/g, "ا")
+    .replace(/[ة]/g, "ه")
+    .replace(/[ى]/g, "ي")
+    .replace(/\s+/g, " ");
+}
+
+function isContractPayable(contract: any) {
+  const status = String(contract.contract_status || "").trim();
+  const remaining = Number(contract.remaining_amount || 0);
+
+  return (
+    remaining > 0 &&
+    status !== "مغلق" &&
+    status !== "closed" &&
+    status !== "تم السداد"
+  );
+}
+
 function formatMoney(value: any) {
   const number = Number(value || 0);
+
   return number.toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -624,28 +698,54 @@ const searchButton: CSSProperties = {
   fontWeight: 900,
 };
 
-const contractsList: CSSProperties = {
+const suggestionsBox: CSSProperties = {
   display: "grid",
   gap: 10,
+  marginTop: 10,
 };
 
-const contractButton: CSSProperties = {
+const suggestionButton: CSSProperties = {
   width: "100%",
-  padding: 14,
+  border: "1px solid #e2e8f0",
   background: "#f8fbff",
-  border: "1px solid #d9e3f5",
-  borderRadius: 14,
-  fontSize: 16,
+  borderRadius: 16,
+  padding: 14,
   cursor: "pointer",
   textAlign: "right",
   display: "grid",
-  gap: 5,
+  gap: 8,
 };
 
-const selectedContractButton: CSSProperties = {
-  ...contractButton,
+const selectedSuggestionButton: CSSProperties = {
+  ...suggestionButton,
   border: "1px solid #2563eb",
   background: "#eff6ff",
+};
+
+const suggestionTop: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 10,
+  flexWrap: "wrap",
+  alignItems: "center",
+};
+
+const contractNumberBadge: CSSProperties = {
+  background: "#dbeafe",
+  color: "#1d4ed8",
+  borderRadius: 999,
+  padding: "5px 10px",
+  fontWeight: 900,
+  fontSize: 13,
+};
+
+const suggestionMeta: CSSProperties = {
+  display: "flex",
+  gap: 10,
+  flexWrap: "wrap",
+  color: "#64748b",
+  fontSize: 13,
+  fontWeight: 800,
 };
 
 const emptyBox: CSSProperties = {
