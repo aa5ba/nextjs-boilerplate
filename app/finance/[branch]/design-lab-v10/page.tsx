@@ -317,7 +317,7 @@ export default function DesignLabV10Page() {
           padding: 24px;
           margin-bottom: 16px;
           overflow: hidden;
-          border: 1px solid rgba(255,255,255,0.28);
+          border: 1px solid rgba(255,255,255,0.14);
           background:
             linear-gradient(
               105deg,
@@ -327,7 +327,7 @@ export default function DesignLabV10Page() {
               #25aee8 82%,
               #68dce4 100%
             );
-          box-shadow: 0 18px 42px rgba(15,23,42,0.18);
+          box-shadow: 0 8px 22px rgba(15,23,42,0.08);
         }
 
         .hero-left-area {
@@ -422,7 +422,7 @@ export default function DesignLabV10Page() {
           font-weight: 900;
           cursor: pointer;
           font-family: var(--font-almarai), sans-serif;
-          box-shadow: 0 12px 24px rgba(22,163,74,0.26);
+          box-shadow: 0 10px 20px rgba(22,163,74,0.22);
           display: inline-flex;
           align-items: center;
           justify-content: center;
@@ -438,20 +438,20 @@ export default function DesignLabV10Page() {
 
         .main-workstation-button:hover {
           transform: translateY(-1px);
-          box-shadow: 0 14px 28px rgba(22,163,74,0.32);
+          box-shadow: 0 12px 24px rgba(22,163,74,0.26);
         }
 
         .hero-title-box {
-  position: absolute;
-  inset: 0;
-  z-index: 4;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  pointer-events: none;
-  padding: 0 320px;
-}
+          position: absolute;
+          inset: 0;
+          z-index: 4;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          text-align: center;
+          pointer-events: none;
+          padding: 0 320px;
+        }
 
         .hero-title {
           margin: 0;
@@ -460,7 +460,7 @@ export default function DesignLabV10Page() {
           line-height: 1.35;
           font-weight: 900;
           letter-spacing: -0.6px;
-          text-shadow: 0 8px 22px rgba(15,23,42,0.22);
+          text-shadow: 0 8px 22px rgba(15,23,42,0.18);
         }
 
         .hero-circle {
@@ -475,7 +475,7 @@ export default function DesignLabV10Page() {
           height: 210px;
           right: -70px;
           top: -80px;
-          background: rgba(255,255,255,0.08);
+          background: rgba(255,255,255,0.07);
         }
 
         .circle-two {
@@ -483,7 +483,7 @@ export default function DesignLabV10Page() {
           height: 260px;
           right: 130px;
           bottom: -170px;
-          background: rgba(255,255,255,0.055);
+          background: rgba(255,255,255,0.045);
         }
 
         .circle-three {
@@ -491,7 +491,7 @@ export default function DesignLabV10Page() {
           height: 150px;
           left: 360px;
           top: -95px;
-          background: rgba(255,255,255,0.045);
+          background: rgba(255,255,255,0.035);
         }
 
         .circle-four {
@@ -499,7 +499,7 @@ export default function DesignLabV10Page() {
           height: 120px;
           right: 410px;
           bottom: -70px;
-          border: 1px solid rgba(255,255,255,0.16);
+          border: 1px solid rgba(255,255,255,0.12);
           background: transparent;
         }
 
@@ -509,8 +509,8 @@ export default function DesignLabV10Page() {
           right: 30px;
           width: 88px;
           height: 60px;
-          opacity: 0.36;
-          background-image: radial-gradient(rgba(255,255,255,0.50) 2px, transparent 2px);
+          opacity: 0.30;
+          background-image: radial-gradient(rgba(255,255,255,0.42) 2px, transparent 2px);
           background-size: 14px 14px;
           z-index: 2;
         }
@@ -519,7 +519,7 @@ export default function DesignLabV10Page() {
           position: absolute;
           width: 10px;
           height: 10px;
-          border: 1px solid rgba(255,255,255,0.46);
+          border: 1px solid rgba(255,255,255,0.40);
           transform: rotate(45deg);
           z-index: 2;
         }
