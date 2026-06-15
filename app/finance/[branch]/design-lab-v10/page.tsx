@@ -82,7 +82,7 @@ export default function DesignLabV10Page() {
 
   const branch = params.branch as string;
 
-  const [employeeName, setEmployeeName] = useState("الموظف");
+  const [employeeName, setEmployeeName] = useState("أحمد محمد");
 
   useEffect(() => {
     loadEmployeeName();
@@ -103,10 +103,9 @@ export default function DesignLabV10Page() {
     if (oldUser) {
       try {
         const parsed = JSON.parse(oldUser);
-        setEmployeeName(parsed?.full_name || parsed?.username || "الموظف");
-        return;
+        setEmployeeName(parsed?.full_name || parsed?.username || "أحمد محمد");
       } catch {
-        setEmployeeName("الموظف");
+        setEmployeeName("أحمد محمد");
       }
     }
   }
@@ -126,9 +125,10 @@ export default function DesignLabV10Page() {
       <div className="page-overlay">
         <div className="container">
           <header className="modern-hero">
-            <div className="hero-soft-wave" />
-            <div className="hero-wave-one" />
-            <div className="hero-wave-two" />
+            <div className="hero-curve curve-one" />
+            <div className="hero-curve curve-two" />
+            <div className="hero-curve curve-three" />
+            <div className="hero-curve curve-four" />
             <div className="hero-dots" />
             <div className="hero-diamond diamond-one" />
             <div className="hero-diamond diamond-two" />
@@ -136,15 +136,15 @@ export default function DesignLabV10Page() {
             <div className="hero-left-area">
               <div className="employee-top-row">
                 <div className="employee-icon">
-                  <span>♡</span>
+                  <UserIcon />
                 </div>
 
                 <div className="employee-name">{employeeName}</div>
 
-                <div className="employee-small-divider" />
+                <div className="employee-divider-small" />
 
                 <button className="logout-inline-button" onClick={logout}>
-                  <span className="logout-icon">↪</span>
+                  <LogoutIcon />
                   <span>تسجيل الخروج</span>
                 </button>
               </div>
@@ -153,7 +153,7 @@ export default function DesignLabV10Page() {
                 className="main-workstation-button"
                 onClick={() => router.push(`/finance/${branch}`)}
               >
-                <span className="home-icon">⌂</span>
+                <HomeIcon />
                 <span>محطة العمل الرئيسية</span>
               </button>
             </div>
@@ -166,30 +166,10 @@ export default function DesignLabV10Page() {
           </header>
 
           <section className="stats-grid">
-            <StatCard
-              title="العقود النشطة"
-              value="145"
-              icon="📄"
-              color="#4f46e5"
-            />
-            <StatCard
-              title="العملاء"
-              value="812"
-              icon="👥"
-              color="#0f766e"
-            />
-            <StatCard
-              title="السداد اليوم"
-              value="28"
-              icon="💳"
-              color="#16a34a"
-            />
-            <StatCard
-              title="المنتجات"
-              value="53"
-              icon="📦"
-              color="#ea580c"
-            />
+            <StatCard title="العقود النشطة" value="145" icon="📄" color="#4f46e5" />
+            <StatCard title="العملاء" value="812" icon="👥" color="#0f766e" />
+            <StatCard title="السداد اليوم" value="28" icon="💳" color="#16a34a" />
+            <StatCard title="المنتجات" value="53" icon="📦" color="#ea580c" />
           </section>
 
           <section className="search-card">
@@ -316,73 +296,68 @@ export default function DesignLabV10Page() {
           padding: 24px;
           margin-bottom: 16px;
           overflow: hidden;
-          border: 1px solid rgba(255,255,255,0.30);
+          border: 1px solid rgba(255,255,255,0.28);
           background:
             linear-gradient(
               105deg,
-              #061b45 0%,
-              #0b2f76 23%,
-              #0d63d7 55%,
-              #1aa7e8 78%,
-              #70dce7 100%
+              #071c48 0%,
+              #0a327d 29%,
+              #0d65d9 58%,
+              #25aee8 82%,
+              #68dce4 100%
             );
           box-shadow: 0 18px 42px rgba(15,23,42,0.18);
-          display: flex;
-          align-items: center;
-          justify-content: center;
         }
 
         .hero-left-area {
           position: absolute;
-          top: 30px;
-          left: 26px;
+          left: 30px;
+          top: 34px;
+          width: 465px;
           z-index: 5;
-          width: 285px;
           direction: ltr;
         }
 
         .employee-top-row {
+          height: 42px;
           display: flex;
           align-items: center;
-          gap: 14px;
-          color: #ffffff;
+          gap: 16px;
           direction: ltr;
+          color: #ffffff;
         }
 
         .employee-icon {
-          width: 34px;
-          height: 34px;
+          width: 38px;
+          height: 38px;
           border-radius: 50%;
-          border: 1px solid rgba(255,255,255,0.28);
+          border: 1.5px solid rgba(255,255,255,0.35);
           background: rgba(255,255,255,0.06);
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 19px;
           color: rgba(255,255,255,0.95);
-          box-shadow: 0 8px 18px rgba(15,23,42,0.12);
           flex: 0 0 auto;
         }
 
-        .employee-icon span {
-          transform: rotate(180deg);
-          opacity: 0.95;
+        .employee-icon svg {
+          width: 22px;
+          height: 22px;
         }
 
         .employee-name {
           color: #ffffff;
-          font-size: 16px;
+          font-size: 17px;
           font-weight: 900;
           white-space: nowrap;
-          text-shadow: 0 6px 16px rgba(15,23,42,0.20);
           direction: rtl;
+          text-shadow: 0 7px 18px rgba(15,23,42,0.22);
         }
 
-        .employee-small-divider {
+        .employee-divider-small {
           width: 1px;
-          height: 32px;
+          height: 38px;
           background: rgba(255,255,255,0.38);
-          margin: 0 4px;
           flex: 0 0 auto;
         }
 
@@ -394,7 +369,7 @@ export default function DesignLabV10Page() {
           font-weight: 800;
           display: flex;
           align-items: center;
-          gap: 8px;
+          gap: 9px;
           cursor: pointer;
           font-family: var(--font-almarai), sans-serif;
           padding: 0;
@@ -402,35 +377,42 @@ export default function DesignLabV10Page() {
           direction: rtl;
         }
 
+        .logout-inline-button svg {
+          width: 24px;
+          height: 24px;
+          stroke-width: 2.1;
+        }
+
         .logout-inline-button:hover {
           color: #ffffff;
           text-decoration: underline;
         }
 
-        .logout-icon {
-          font-size: 23px;
-          line-height: 1;
-        }
-
         .main-workstation-button {
-          margin-top: 30px;
-          min-width: 205px;
-          border: 1px solid rgba(255,255,255,0.26);
-          background: linear-gradient(135deg,#6ee779,#22c55e 55%,#16a34a);
+          margin-top: 28px;
+          min-width: 245px;
+          height: 50px;
+          border: 1px solid rgba(255,255,255,0.28);
+          background: linear-gradient(135deg,#70e87b,#22c55e 55%,#16a34a);
           color: #ffffff;
           border-radius: 999px;
-          padding: 13px 20px;
+          padding: 0 24px;
           font-size: 15px;
           font-weight: 900;
           cursor: pointer;
           font-family: var(--font-almarai), sans-serif;
           box-shadow: 0 12px 24px rgba(22,163,74,0.26);
-          display: flex;
+          display: inline-flex;
           align-items: center;
           justify-content: center;
-          gap: 9px;
+          gap: 11px;
           white-space: nowrap;
           direction: rtl;
+        }
+
+        .main-workstation-button svg {
+          width: 24px;
+          height: 24px;
         }
 
         .main-workstation-button:hover {
@@ -438,86 +420,88 @@ export default function DesignLabV10Page() {
           box-shadow: 0 14px 28px rgba(22,163,74,0.32);
         }
 
-        .home-icon {
-          font-size: 22px;
-          line-height: 1;
-        }
-
         .hero-main-divider {
           position: absolute;
-          left: 330px;
+          left: 505px;
           top: 34px;
-          height: 96px;
           width: 1px;
-          background: rgba(255,255,255,0.34);
+          height: 104px;
+          background: rgba(255,255,255,0.35);
           z-index: 4;
         }
 
         .hero-title-box {
-          position: relative;
+          position: absolute;
+          left: 520px;
+          right: 40px;
+          top: 0;
+          bottom: 0;
           z-index: 4;
+          display: flex;
+          align-items: center;
+          justify-content: center;
           text-align: center;
-          padding: 0 260px 0 330px;
         }
 
         .hero-title {
           margin: 0;
           color: #ffffff;
-          font-size: 34px;
+          font-size: 35px;
           line-height: 1.35;
           font-weight: 900;
-          letter-spacing: -0.5px;
-          text-shadow: 0 8px 22px rgba(15,23,42,0.20);
+          letter-spacing: -0.6px;
+          text-shadow: 0 8px 22px rgba(15,23,42,0.22);
         }
 
-        .hero-soft-wave {
+        .hero-curve {
           position: absolute;
-          right: -80px;
-          bottom: -112px;
-          width: 60%;
-          height: 230px;
           border-radius: 50%;
-          border-top: 1px solid rgba(255,255,255,0.32);
-          background: linear-gradient(
-            90deg,
-            rgba(255,255,255,0.02),
-            rgba(255,255,255,0.14)
-          );
-          transform: rotate(-8deg);
+          pointer-events: none;
           z-index: 1;
         }
 
-        .hero-wave-one {
-          position: absolute;
-          right: 170px;
-          bottom: -140px;
+        .curve-one {
+          right: -120px;
+          bottom: -130px;
+          width: 58%;
+          height: 230px;
+          border-top: 1px solid rgba(255,255,255,0.34);
+          transform: rotate(-8deg);
+        }
+
+        .curve-two {
+          right: 70px;
+          bottom: -148px;
           width: 62%;
           height: 250px;
-          border-radius: 50%;
-          border-top: 1px solid rgba(255,255,255,0.24);
-          background: rgba(255,255,255,0.055);
-          transform: rotate(-6deg);
-          z-index: 1;
+          border-top: 1px solid rgba(255,255,255,0.22);
+          transform: rotate(-7deg);
         }
 
-        .hero-wave-two {
-          position: absolute;
-          right: 290px;
-          bottom: -152px;
-          width: 55%;
-          height: 240px;
-          border-radius: 50%;
-          border-top: 1px solid rgba(255,255,255,0.18);
+        .curve-three {
+          right: 185px;
+          bottom: -160px;
+          width: 60%;
+          height: 265px;
+          border-top: 1px solid rgba(255,255,255,0.16);
+          transform: rotate(-5deg);
+        }
+
+        .curve-four {
+          right: 250px;
+          bottom: -172px;
+          width: 58%;
+          height: 280px;
+          border-top: 1px solid rgba(255,255,255,0.12);
           transform: rotate(-4deg);
-          z-index: 1;
         }
 
         .hero-dots {
           position: absolute;
           top: 25px;
           right: 30px;
-          width: 84px;
-          height: 58px;
+          width: 88px;
+          height: 60px;
           opacity: 0.42;
           background-image: radial-gradient(rgba(255,255,255,0.62) 2px, transparent 2px);
           background-size: 14px 14px;
@@ -535,12 +519,12 @@ export default function DesignLabV10Page() {
 
         .diamond-one {
           top: 38px;
-          right: 335px;
+          right: 315px;
         }
 
         .diamond-two {
-          top: 66px;
-          right: 395px;
+          top: 63px;
+          right: 372px;
         }
 
         .stats-grid {
@@ -760,21 +744,14 @@ export default function DesignLabV10Page() {
             min-height: auto;
             padding: 18px;
             display: grid;
-            gap: 18px;
-            justify-content: initial;
+            gap: 16px;
           }
 
           .hero-left-area {
             position: relative;
-            top: auto;
             left: auto;
+            top: auto;
             width: 100%;
-            display: grid;
-            justify-content: center;
-          }
-
-          .hero-main-divider {
-            display: none;
           }
 
           .employee-top-row {
@@ -783,15 +760,26 @@ export default function DesignLabV10Page() {
           }
 
           .main-workstation-button {
-            margin: 14px auto 0;
+            margin: 16px auto 0;
+            display: flex;
+          }
+
+          .hero-main-divider {
+            display: none;
           }
 
           .hero-title-box {
+            position: relative;
+            left: auto;
+            right: auto;
+            top: auto;
+            bottom: auto;
+            width: 100%;
             padding: 0;
           }
 
           .hero-title {
-            font-size: 26px;
+            font-size: 27px;
           }
         }
 
@@ -805,12 +793,16 @@ export default function DesignLabV10Page() {
             padding: 16px;
           }
 
-          .employee-small-divider {
+          .employee-divider-small {
             display: none;
           }
 
           .employee-top-row {
-            gap: 10px;
+            gap: 11px;
+          }
+
+          .employee-name {
+            font-size: 15px;
           }
 
           .logout-inline-button {
@@ -820,11 +812,11 @@ export default function DesignLabV10Page() {
           .main-workstation-button {
             width: 100%;
             min-width: auto;
-            padding: 12px 14px;
+            height: 48px;
           }
 
           .hero-title {
-            font-size: 23px;
+            font-size: 24px;
           }
 
           .stats-grid,
@@ -836,6 +828,76 @@ export default function DesignLabV10Page() {
         }
       `}</style>
     </main>
+  );
+}
+
+function UserIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M12 12.2a4.2 4.2 0 1 0 0-8.4 4.2 4.2 0 0 0 0 8.4Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M4.8 20.2c.8-3.5 3.6-5.4 7.2-5.4s6.4 1.9 7.2 5.4"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function LogoutIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M9.5 7V5.8c0-1 .8-1.8 1.8-1.8h6.1c1 0 1.8.8 1.8 1.8v12.4c0 1-.8 1.8-1.8 1.8h-6.1c-1 0-1.8-.8-1.8-1.8V17"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M4.8 12h9.5"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M7.8 8.8 4.6 12l3.2 3.2"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function HomeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M3.8 11.2 12 4.5l8.2 6.7"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M6.2 10.4v9.1h11.6v-9.1"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M10 19.5v-5.2h4v5.2"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
