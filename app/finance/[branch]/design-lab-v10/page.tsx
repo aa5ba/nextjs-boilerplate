@@ -125,10 +125,11 @@ export default function DesignLabV10Page() {
       <div className="page-overlay">
         <div className="container">
           <header className="modern-hero">
-            <div className="hero-curve curve-one" />
-            <div className="hero-curve curve-two" />
-            <div className="hero-curve curve-three" />
-            <div className="hero-curve curve-four" />
+            <div className="hero-circle circle-one" />
+            <div className="hero-circle circle-two" />
+            <div className="hero-circle circle-three" />
+            <div className="hero-circle circle-four" />
+
             <div className="hero-dots" />
             <div className="hero-diamond diamond-one" />
             <div className="hero-diamond diamond-two" />
@@ -158,18 +159,36 @@ export default function DesignLabV10Page() {
               </button>
             </div>
 
-            <div className="hero-main-divider" />
-
             <div className="hero-title-box">
               <h1 className="hero-title">إدارة طلبات الصرف</h1>
             </div>
           </header>
 
           <section className="stats-grid">
-            <StatCard title="العقود النشطة" value="145" icon="📄" color="#4f46e5" />
-            <StatCard title="العملاء" value="812" icon="👥" color="#0f766e" />
-            <StatCard title="السداد اليوم" value="28" icon="💳" color="#16a34a" />
-            <StatCard title="المنتجات" value="53" icon="📦" color="#ea580c" />
+            <StatCard
+              title="العقود النشطة"
+              value="145"
+              icon="📄"
+              color="#4f46e5"
+            />
+            <StatCard
+              title="العملاء"
+              value="812"
+              icon="👥"
+              color="#0f766e"
+            />
+            <StatCard
+              title="السداد اليوم"
+              value="28"
+              icon="💳"
+              color="#16a34a"
+            />
+            <StatCard
+              title="المنتجات"
+              value="53"
+              icon="📦"
+              color="#ea580c"
+            />
           </section>
 
           <section className="search-card">
@@ -211,7 +230,9 @@ export default function DesignLabV10Page() {
                 <strong>آخر العمليات</strong>
               </div>
 
-              <div className="activity-item">تم إنشاء عقد جديد للعميل أحمد محمد</div>
+              <div className="activity-item">
+                تم إنشاء عقد جديد للعميل أحمد محمد
+              </div>
               <div className="activity-item">تم تسجيل سداد بمبلغ 5,000 ريال</div>
               <div className="activity-item">تم خصم 20 بطاقة من المخزون</div>
             </div>
@@ -301,7 +322,7 @@ export default function DesignLabV10Page() {
             linear-gradient(
               105deg,
               #071c48 0%,
-              #0a327d 29%,
+              #0a327d 28%,
               #0d65d9 58%,
               #25aee8 82%,
               #68dce4 100%
@@ -420,19 +441,9 @@ export default function DesignLabV10Page() {
           box-shadow: 0 14px 28px rgba(22,163,74,0.32);
         }
 
-        .hero-main-divider {
-          position: absolute;
-          left: 505px;
-          top: 34px;
-          width: 1px;
-          height: 104px;
-          background: rgba(255,255,255,0.35);
-          z-index: 4;
-        }
-
         .hero-title-box {
           position: absolute;
-          left: 520px;
+          left: 450px;
           right: 40px;
           top: 0;
           bottom: 0;
@@ -453,47 +464,44 @@ export default function DesignLabV10Page() {
           text-shadow: 0 8px 22px rgba(15,23,42,0.22);
         }
 
-        .hero-curve {
+        .hero-circle {
           position: absolute;
           border-radius: 50%;
           pointer-events: none;
           z-index: 1;
         }
 
-        .curve-one {
-          right: -120px;
-          bottom: -130px;
-          width: 58%;
-          height: 230px;
-          border-top: 1px solid rgba(255,255,255,0.34);
-          transform: rotate(-8deg);
+        .circle-one {
+          width: 210px;
+          height: 210px;
+          right: -70px;
+          top: -80px;
+          background: rgba(255,255,255,0.08);
         }
 
-        .curve-two {
-          right: 70px;
-          bottom: -148px;
-          width: 62%;
-          height: 250px;
-          border-top: 1px solid rgba(255,255,255,0.22);
-          transform: rotate(-7deg);
+        .circle-two {
+          width: 260px;
+          height: 260px;
+          right: 130px;
+          bottom: -170px;
+          background: rgba(255,255,255,0.055);
         }
 
-        .curve-three {
-          right: 185px;
-          bottom: -160px;
-          width: 60%;
-          height: 265px;
-          border-top: 1px solid rgba(255,255,255,0.16);
-          transform: rotate(-5deg);
+        .circle-three {
+          width: 150px;
+          height: 150px;
+          left: 360px;
+          top: -95px;
+          background: rgba(255,255,255,0.045);
         }
 
-        .curve-four {
-          right: 250px;
-          bottom: -172px;
-          width: 58%;
-          height: 280px;
-          border-top: 1px solid rgba(255,255,255,0.12);
-          transform: rotate(-4deg);
+        .circle-four {
+          width: 120px;
+          height: 120px;
+          right: 410px;
+          bottom: -70px;
+          border: 1px solid rgba(255,255,255,0.16);
+          background: transparent;
         }
 
         .hero-dots {
@@ -502,17 +510,17 @@ export default function DesignLabV10Page() {
           right: 30px;
           width: 88px;
           height: 60px;
-          opacity: 0.42;
-          background-image: radial-gradient(rgba(255,255,255,0.62) 2px, transparent 2px);
+          opacity: 0.36;
+          background-image: radial-gradient(rgba(255,255,255,0.50) 2px, transparent 2px);
           background-size: 14px 14px;
           z-index: 2;
         }
 
         .hero-diamond {
           position: absolute;
-          width: 11px;
-          height: 11px;
-          border: 1px solid rgba(255,255,255,0.62);
+          width: 10px;
+          height: 10px;
+          border: 1px solid rgba(255,255,255,0.46);
           transform: rotate(45deg);
           z-index: 2;
         }
@@ -762,10 +770,6 @@ export default function DesignLabV10Page() {
           .main-workstation-button {
             margin: 16px auto 0;
             display: flex;
-          }
-
-          .hero-main-divider {
-            display: none;
           }
 
           .hero-title-box {
