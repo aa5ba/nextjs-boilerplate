@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { CSSProperties } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 const sections = [
@@ -266,7 +267,7 @@ function StatCard({
   );
 }
 
-const page: React.CSSProperties = {
+const page: CSSProperties = {
   minHeight: "100vh",
   backgroundColor: "#f6f9ff",
   backgroundImage: `
@@ -282,56 +283,56 @@ const page: React.CSSProperties = {
   fontFamily: "var(--font-almarai), sans-serif",
 };
 
-const pageOverlay: React.CSSProperties = {
+const pageOverlay: CSSProperties = {
   minHeight: "100vh",
   padding: 18,
   background:
     "linear-gradient(180deg,rgba(255,255,255,0.20) 0%,rgba(248,250,252,0.58) 100%)",
 };
 
-const container: React.CSSProperties = {
+const container: CSSProperties = {
   width: "100%",
   maxWidth: 1180,
   margin: "auto",
 };
 
-const hero: React.CSSProperties = {
+const hero: CSSProperties = {
   position: "relative",
   minHeight: 160,
   background:
-    "linear-gradient(135deg,rgba(37,99,235,0.95),rgba(14,165,233,0.90) 52%,rgba(124,58,237,0.88))",
-  border: "1px solid rgba(255,255,255,0.30)",
+    "linear-gradient(135deg,rgba(15,23,42,0.97),rgba(30,64,175,0.94) 48%,rgba(14,116,144,0.92))",
+  border: "1px solid rgba(255,255,255,0.22)",
   borderRadius: 24,
   padding: 24,
   marginBottom: 16,
-  boxShadow: "0 18px 42px rgba(37,99,235,0.20)",
+  boxShadow: "0 18px 42px rgba(15,23,42,0.20)",
   overflow: "hidden",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
 };
 
-const heroSoftCircleOne: React.CSSProperties = {
+const heroSoftCircleOne: CSSProperties = {
   position: "absolute",
   top: -85,
   right: -70,
   width: 220,
   height: 220,
   borderRadius: "50%",
-  background: "rgba(255,255,255,0.14)",
+  background: "rgba(56,189,248,0.14)",
 };
 
-const heroSoftCircleTwo: React.CSSProperties = {
+const heroSoftCircleTwo: CSSProperties = {
   position: "absolute",
   bottom: -95,
   left: 150,
   width: 260,
   height: 260,
   borderRadius: "50%",
-  background: "rgba(255,255,255,0.10)",
+  background: "rgba(129,140,248,0.13)",
 };
 
-const employeeBox: React.CSSProperties = {
+const employeeBox: CSSProperties = {
   position: "absolute",
   top: 18,
   left: 18,
@@ -342,21 +343,21 @@ const employeeBox: React.CSSProperties = {
   zIndex: 2,
 };
 
-const employeeNameBox: React.CSSProperties = {
-  background: "rgba(255,255,255,0.18)",
-  border: "1px solid rgba(255,255,255,0.26)",
+const employeeNameBox: CSSProperties = {
+  background: "rgba(255,255,255,0.12)",
+  border: "1px solid rgba(255,255,255,0.20)",
   color: "#ffffff",
   borderRadius: 12,
   padding: "9px 10px",
   fontSize: 14,
   fontWeight: 900,
-  boxShadow: "0 8px 18px rgba(15,23,42,0.10)",
+  boxShadow: "0 8px 18px rgba(15,23,42,0.12)",
 };
 
-const logoutButton: React.CSSProperties = {
-  border: "1px solid rgba(255,255,255,0.26)",
-  background: "rgba(255,255,255,0.14)",
-  color: "#ffffff",
+const logoutButton: CSSProperties = {
+  border: "1px solid rgba(255,255,255,0.20)",
+  background: "rgba(255,255,255,0.10)",
+  color: "#fee2e2",
   borderRadius: 12,
   padding: "9px 10px",
   fontSize: 13,
@@ -364,30 +365,30 @@ const logoutButton: React.CSSProperties = {
   cursor: "pointer",
 };
 
-const mainWorkstationButton: React.CSSProperties = {
-  border: "1px solid rgba(255,255,255,0.32)",
-  background: "linear-gradient(135deg,#ffffff,#e0f2fe)",
-  color: "#1d4ed8",
+const mainWorkstationButton: CSSProperties = {
+  border: "1px solid rgba(255,255,255,0.24)",
+  background: "linear-gradient(135deg,#64748b,#334155)",
+  color: "#ffffff",
   borderRadius: 12,
   padding: "10px 14px",
   fontSize: 14,
   fontWeight: 900,
   cursor: "pointer",
-  boxShadow: "0 8px 18px rgba(15,23,42,0.14)",
+  boxShadow: "0 8px 18px rgba(15,23,42,0.18)",
 };
 
-const centerTitleBox: React.CSSProperties = {
+const centerTitleBox: CSSProperties = {
   textAlign: "center",
   padding: "0 210px",
   position: "relative",
   zIndex: 1,
 };
 
-const badge: React.CSSProperties = {
+const badge: CSSProperties = {
   display: "inline-block",
-  background: "rgba(255,255,255,0.20)",
-  color: "#ffffff",
-  border: "1px solid rgba(255,255,255,0.30)",
+  background: "rgba(255,255,255,0.13)",
+  color: "#e0f2fe",
+  border: "1px solid rgba(224,242,254,0.24)",
   borderRadius: 999,
   padding: "6px 12px",
   fontWeight: 900,
@@ -395,7 +396,7 @@ const badge: React.CSSProperties = {
   marginBottom: 8,
 };
 
-const pageTitle: React.CSSProperties = {
+const pageTitle: CSSProperties = {
   margin: 0,
   color: "#ffffff",
   fontSize: 30,
@@ -404,21 +405,21 @@ const pageTitle: React.CSSProperties = {
   letterSpacing: "-0.4px",
 };
 
-const pageSubTitle: React.CSSProperties = {
+const pageSubTitle: CSSProperties = {
   margin: "7px 0 0",
-  color: "#eef6ff",
+  color: "#dbeafe",
   fontSize: 14,
   lineHeight: 1.7,
 };
 
-const statsGrid: React.CSSProperties = {
+const statsGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit,minmax(210px,1fr))",
   gap: 12,
   marginBottom: 14,
 };
 
-const statCard: React.CSSProperties = {
+const statCard: CSSProperties = {
   background: "rgba(255,255,255,0.96)",
   border: "1px solid rgba(226,232,240,0.90)",
   borderRadius: 22,
@@ -427,24 +428,24 @@ const statCard: React.CSSProperties = {
   boxShadow: "0 12px 28px rgba(37,99,235,0.07)",
 };
 
-const statIcon: React.CSSProperties = {
+const statIcon: CSSProperties = {
   fontSize: 30,
 };
 
-const statValue: React.CSSProperties = {
+const statValue: CSSProperties = {
   fontSize: 30,
   fontWeight: 900,
   color: "#0f172a",
   marginTop: 8,
 };
 
-const statTitle: React.CSSProperties = {
+const statTitle: CSSProperties = {
   color: "#64748b",
   fontWeight: 800,
   marginTop: 5,
 };
 
-const searchCard: React.CSSProperties = {
+const searchCard: CSSProperties = {
   background: "rgba(255,255,255,0.96)",
   border: "1px solid #dbeafe",
   borderRadius: 20,
@@ -457,12 +458,12 @@ const searchCard: React.CSSProperties = {
   boxShadow: "0 10px 25px rgba(37,99,235,0.05)",
 };
 
-const searchIcon: React.CSSProperties = {
+const searchIcon: CSSProperties = {
   color: "#60a5fa",
   fontSize: 20,
 };
 
-const searchInput: React.CSSProperties = {
+const searchInput: CSSProperties = {
   width: "100%",
   border: "none",
   outline: "none",
@@ -472,14 +473,14 @@ const searchInput: React.CSSProperties = {
   fontFamily: "var(--font-almarai), sans-serif",
 };
 
-const quickGrid: React.CSSProperties = {
+const quickGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))",
   gap: 10,
   marginBottom: 14,
 };
 
-const quickButton: React.CSSProperties = {
+const quickButton: CSSProperties = {
   background: "linear-gradient(135deg,#ffffff,#f8fbff)",
   border: "1px solid #dbeafe",
   borderRadius: 18,
@@ -491,14 +492,14 @@ const quickButton: React.CSSProperties = {
   boxShadow: "0 8px 20px rgba(37,99,235,0.06)",
 };
 
-const twoColumnGrid: React.CSSProperties = {
+const twoColumnGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))",
   gap: 12,
   marginBottom: 14,
 };
 
-const panel: React.CSSProperties = {
+const panel: CSSProperties = {
   background: "rgba(255,255,255,0.96)",
   border: "1px solid rgba(226,232,240,0.92)",
   borderRadius: 22,
@@ -506,7 +507,7 @@ const panel: React.CSSProperties = {
   boxShadow: "0 12px 28px rgba(37,99,235,0.06)",
 };
 
-const sectionHeader: React.CSSProperties = {
+const sectionHeader: CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: 9,
@@ -515,7 +516,7 @@ const sectionHeader: React.CSSProperties = {
   marginBottom: 13,
 };
 
-const noticeItem: React.CSSProperties = {
+const noticeItem: CSSProperties = {
   background: "#fff7ed",
   border: "1px solid #fed7aa",
   color: "#9a3412",
@@ -528,7 +529,7 @@ const noticeItem: React.CSSProperties = {
   lineHeight: 1.7,
 };
 
-const noticeDot: React.CSSProperties = {
+const noticeDot: CSSProperties = {
   width: 8,
   height: 8,
   borderRadius: "50%",
@@ -536,7 +537,7 @@ const noticeDot: React.CSSProperties = {
   flex: "0 0 auto",
 };
 
-const activityItem: React.CSSProperties = {
+const activityItem: CSSProperties = {
   background: "#f8fafc",
   border: "1px solid #e2e8f0",
   color: "#475569",
@@ -546,17 +547,17 @@ const activityItem: React.CSSProperties = {
   lineHeight: 1.7,
 };
 
-const sectionsPanel: React.CSSProperties = {
+const sectionsPanel: CSSProperties = {
   ...panel,
 };
 
-const grid: React.CSSProperties = {
+const grid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit,minmax(250px,1fr))",
   gap: 12,
 };
 
-const card: React.CSSProperties = {
+const card: CSSProperties = {
   width: "100%",
   minHeight: 92,
   background: "linear-gradient(135deg,#ffffff,#fbfdff)",
@@ -570,13 +571,13 @@ const card: React.CSSProperties = {
   boxShadow: "0 8px 20px rgba(37,99,235,0.04)",
 };
 
-const cardRight: React.CSSProperties = {
+const cardRight: CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: 12,
 };
 
-const iconBox: React.CSSProperties = {
+const iconBox: CSSProperties = {
   width: 50,
   height: 50,
   borderRadius: 16,
@@ -587,30 +588,30 @@ const iconBox: React.CSSProperties = {
   flex: "0 0 auto",
 };
 
-const cardTitle: React.CSSProperties = {
+const cardTitle: CSSProperties = {
   fontWeight: 900,
   fontSize: 16,
   color: "#0f172a",
 };
 
-const cardDesc: React.CSSProperties = {
+const cardDesc: CSSProperties = {
   color: "#64748b",
   fontSize: 13,
   marginTop: 5,
 };
 
-const arrow: React.CSSProperties = {
+const arrow: CSSProperties = {
   color: "#94a3b8",
   fontSize: 28,
 };
 
-const bottomBackWrapper: React.CSSProperties = {
+const bottomBackWrapper: CSSProperties = {
   display: "flex",
   justifyContent: "center",
   marginTop: 16,
 };
 
-const backButton: React.CSSProperties = {
+const backButton: CSSProperties = {
   border: "1px solid rgba(255,255,255,.20)",
   background: "linear-gradient(135deg,#64748b,#334155)",
   color: "#ffffff",
