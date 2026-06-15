@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
 
 export default function FinanceContractDetailsPage() {
   const params = useParams();
+  const router = useRouter();
 
   const branch = params.branch as string;
   const contractId = params.id as string;
@@ -190,6 +191,15 @@ export default function FinanceContractDetailsPage() {
     alert("تم إغلاق العقد كسداد كامل");
   }
 
+  function openCustomerProfile() {
+    if (!contract?.customer_id) {
+      alert("لا يوجد رقم عميل مرتبط بهذا العقد");
+      return;
+    }
+
+    router.push(`/finance/${branch}/customers/${contract.customer_id}`);
+  }
+
   function getCustomerName() {
     return (
       contract?.finance_customers?.full_name ||
@@ -317,7 +327,14 @@ export default function FinanceContractDetailsPage() {
         <section style={card}>
           <h2 style={sectionTitle}>بيانات العميل</h2>
 
-          <Row label="العميل" value={getCustomerName()} />
+          <Row
+            label="العميل"
+            value={
+              <button style={customerNameButton} onClick={openCustomerProfile}>
+                {getCustomerName()}
+              </button>
+            }
+          />
           <Row label="رقم الهوية" value={getCustomerNationalId()} />
           <Row label="تاريخ الميلاد بالهجري" value={getCustomerBirthHijri()} />
           <Row label="رقم الجوال" value={getCustomerPhone()} />
@@ -430,7 +447,7 @@ export default function FinanceContractDetailsPage() {
                   <button
                     style={receiptButton}
                     onClick={() =>
-                      (window.location.href = `/finance/${branch}/payments/receipt/${payment.id}`)
+                      router.push(`/finance/${branch}/payments/receipt/${payment.id}`)
                     }
                     disabled={payment.is_cancelled}
                   >
@@ -456,7 +473,7 @@ export default function FinanceContractDetailsPage() {
               icon="💳"
               title="تسجيل سداد"
               onClick={() =>
-                (window.location.href = `/finance/${branch}/payments/new?contract=${contractId}`)
+                router.push(`/finance/${branch}/payments/new?contract=${contractId}`)
               }
             />
           )}
@@ -465,7 +482,7 @@ export default function FinanceContractDetailsPage() {
             icon="✏️"
             title="تعديل العقد"
             onClick={() =>
-              (window.location.href = `/finance/${branch}/contracts/edit/${contractId}`)
+              router.push(`/finance/${branch}/contracts/edit/${contractId}`)
             }
           />
 
@@ -473,7 +490,7 @@ export default function FinanceContractDetailsPage() {
             icon="🖨️"
             title="طباعة العقد"
             onClick={() =>
-              (window.location.href = `/finance/${branch}/contracts/print/${contractId}`)
+              router.push(`/finance/${branch}/contracts/print/${contractId}`)
             }
           />
 
@@ -482,7 +499,7 @@ export default function FinanceContractDetailsPage() {
               icon="🧾"
               title="طباعة العقد والسند"
               onClick={() =>
-                (window.location.href = `/finance/${branch}/new-request/print/${contractId}/${note.id}`)
+                router.push(`/finance/${branch}/new-request/print/${contractId}/${note.id}`)
               }
             />
           )}
@@ -492,7 +509,7 @@ export default function FinanceContractDetailsPage() {
               icon="📑"
               title="طباعة السند"
               onClick={() =>
-                (window.location.href = `/finance/${branch}/contracts/promissory-note/print/${note.id}`)
+                router.push(`/finance/${branch}/contracts/promissory-note/print/${note.id}`)
               }
             />
           )}
@@ -502,7 +519,7 @@ export default function FinanceContractDetailsPage() {
               icon="📄"
               title="طباعة المخالصة"
               onClick={() =>
-                (window.location.href = `/finance/${branch}/contracts/clearance/${contractId}`)
+                router.push(`/finance/${branch}/contracts/clearance/${contractId}`)
               }
             />
           )}
@@ -512,12 +529,18 @@ export default function FinanceContractDetailsPage() {
           )}
         </section>
 
-        <button
-          style={backButton}
-          onClick={() => (window.location.href = `/finance/${branch}/contracts`)}
-        >
-          الرجوع للعقود
-        </button>
+        <div style={backWrapper}>
+          <button style={backButton} onClick={() => router.back()}>
+            رجوع
+          </button>
+
+          <button
+            style={backButton}
+            onClick={() => router.push(`/finance/${branch}`)}
+          >
+            محطة العمل الرئيسية
+          </button>
+        </div>
       </div>
     </main>
   );
@@ -527,7 +550,7 @@ function Row({ label, value }: any) {
   return (
     <div style={row}>
       <span>{label}</span>
-      <strong>{value || "-"}</strong>
+      <strong style={rowValue}>{value || "-"}</strong>
     </div>
   );
 }
@@ -623,6 +646,22 @@ const row = {
   gap: 12,
   padding: "12px 0",
   borderBottom: "1px solid #eef2f7",
+};
+
+const rowValue = {
+  textAlign: "left" as const,
+};
+
+const customerNameButton = {
+  background: "transparent",
+  border: "none",
+  padding: 0,
+  color: "#0d47a1",
+  fontSize: 16,
+  fontWeight: "bold",
+  cursor: "pointer",
+  textDecoration: "underline",
+  fontFamily: "inherit",
 };
 
 const emptyBox = {
@@ -734,18 +773,28 @@ const cancelledStatus = {
   whiteSpace: "nowrap" as const,
 };
 
+const backWrapper = {
+  display: "flex",
+  justifyContent: "flex-start",
+  gap: 10,
+  marginTop: 18,
+  flexWrap: "wrap" as const,
+};
+
 const backButton = {
-  width: "100%",
-  padding: 16,
-  background: "#16a34a",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 8,
+  padding: "11px 18px",
+  background: "linear-gradient(135deg,#64748b,#334155)",
   color: "#ffffff",
   border: "none",
-  borderRadius: 14,
-  fontSize: 17,
+  borderRadius: 12,
+  fontSize: 14,
   fontWeight: "bold",
-  marginTop: 18,
   cursor: "pointer",
-  boxShadow: "0 4px 12px rgba(22,163,74,0.25)",
+  boxShadow: "0 6px 14px rgba(51,65,85,0.22)",
 };
 
 const loadingBox = {
