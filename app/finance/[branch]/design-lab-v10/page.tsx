@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 const sections = [
@@ -81,24 +82,33 @@ export default function DesignLabV10Page() {
 
   const branch = params.branch as string;
 
-  function getEmployeeName() {
-    if (typeof window === "undefined") return "الموظف";
+  const [employeeName, setEmployeeName] = useState("الموظف");
+
+  useEffect(() => {
+    loadEmployeeName();
+  }, []);
+
+  function loadEmployeeName() {
+    if (typeof window === "undefined") return;
 
     const newName = localStorage.getItem("finance_user_name");
-    if (newName) return newName;
+
+    if (newName) {
+      setEmployeeName(newName);
+      return;
+    }
 
     const oldUser = localStorage.getItem("finance_user");
 
     if (oldUser) {
       try {
         const parsed = JSON.parse(oldUser);
-        return parsed?.full_name || parsed?.username || "الموظف";
+        setEmployeeName(parsed?.full_name || parsed?.username || "الموظف");
+        return;
       } catch {
-        return "الموظف";
+        setEmployeeName("الموظف");
       }
     }
-
-    return "الموظف";
   }
 
   function logout() {
@@ -116,8 +126,11 @@ export default function DesignLabV10Page() {
       <div style={pageOverlay}>
         <div style={container}>
           <header style={hero}>
+            <div style={heroSoftCircleOne} />
+            <div style={heroSoftCircleTwo} />
+
             <div style={employeeBox}>
-              <div style={employeeName}>{getEmployeeName()}</div>
+              <div style={employeeNameBox}>{employeeName}</div>
 
               <button style={logoutButton} onClick={logout}>
                 تسجيل الخروج
@@ -255,9 +268,14 @@ function StatCard({
 
 const page: React.CSSProperties = {
   minHeight: "100vh",
-  backgroundColor: "#f4f7fb",
-  backgroundImage:
-    "linear-gradient(rgba(244,247,251,0.88),rgba(244,247,251,0.92)), url('/finance-bg-2.png')",
+  backgroundColor: "#f6f9ff",
+  backgroundImage: `
+    radial-gradient(circle at 12% 18%, rgba(59,130,246,0.16) 0, transparent 28%),
+    radial-gradient(circle at 88% 12%, rgba(168,85,247,0.13) 0, transparent 26%),
+    radial-gradient(circle at 80% 88%, rgba(34,197,94,0.11) 0, transparent 28%),
+    linear-gradient(rgba(246,249,255,0.72),rgba(246,249,255,0.82)),
+    url('/backgrounds/v13-finance-bg-1.png')
+  `,
   backgroundSize: "cover",
   backgroundPosition: "center",
   backgroundAttachment: "fixed",
@@ -268,7 +286,7 @@ const pageOverlay: React.CSSProperties = {
   minHeight: "100vh",
   padding: 18,
   background:
-    "linear-gradient(180deg,rgba(244,247,251,0.50) 0%,rgba(248,250,252,0.72) 100%)",
+    "linear-gradient(180deg,rgba(255,255,255,0.20) 0%,rgba(248,250,252,0.58) 100%)",
 };
 
 const container: React.CSSProperties = {
@@ -280,16 +298,37 @@ const container: React.CSSProperties = {
 const hero: React.CSSProperties = {
   position: "relative",
   minHeight: 160,
-  background: "linear-gradient(135deg,rgba(15,23,42,0.96),rgba(30,58,138,0.94))",
-  border: "1px solid rgba(255,255,255,0.14)",
+  background:
+    "linear-gradient(135deg,rgba(37,99,235,0.95),rgba(14,165,233,0.90) 52%,rgba(124,58,237,0.88))",
+  border: "1px solid rgba(255,255,255,0.30)",
   borderRadius: 24,
   padding: 24,
   marginBottom: 16,
-  boxShadow: "0 14px 35px rgba(15,23,42,0.16)",
+  boxShadow: "0 18px 42px rgba(37,99,235,0.20)",
   overflow: "hidden",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
+};
+
+const heroSoftCircleOne: React.CSSProperties = {
+  position: "absolute",
+  top: -85,
+  right: -70,
+  width: 220,
+  height: 220,
+  borderRadius: "50%",
+  background: "rgba(255,255,255,0.14)",
+};
+
+const heroSoftCircleTwo: React.CSSProperties = {
+  position: "absolute",
+  bottom: -95,
+  left: 150,
+  width: 260,
+  height: 260,
+  borderRadius: "50%",
+  background: "rgba(255,255,255,0.10)",
 };
 
 const employeeBox: React.CSSProperties = {
@@ -300,23 +339,24 @@ const employeeBox: React.CSSProperties = {
   display: "grid",
   gap: 8,
   textAlign: "center",
+  zIndex: 2,
 };
 
-const employeeName: React.CSSProperties = {
-  background: "rgba(255,255,255,0.11)",
-  border: "1px solid rgba(255,255,255,0.16)",
+const employeeNameBox: React.CSSProperties = {
+  background: "rgba(255,255,255,0.18)",
+  border: "1px solid rgba(255,255,255,0.26)",
   color: "#ffffff",
   borderRadius: 12,
   padding: "9px 10px",
   fontSize: 14,
   fontWeight: 900,
-  boxShadow: "0 8px 18px rgba(15,23,42,0.12)",
+  boxShadow: "0 8px 18px rgba(15,23,42,0.10)",
 };
 
 const logoutButton: React.CSSProperties = {
-  border: "1px solid rgba(255,255,255,0.18)",
-  background: "rgba(255,255,255,0.08)",
-  color: "#fecaca",
+  border: "1px solid rgba(255,255,255,0.26)",
+  background: "rgba(255,255,255,0.14)",
+  color: "#ffffff",
   borderRadius: 12,
   padding: "9px 10px",
   fontSize: 13,
@@ -325,27 +365,29 @@ const logoutButton: React.CSSProperties = {
 };
 
 const mainWorkstationButton: React.CSSProperties = {
-  border: "1px solid rgba(255,255,255,.20)",
-  background: "linear-gradient(135deg,#64748b,#334155)",
-  color: "#ffffff",
+  border: "1px solid rgba(255,255,255,0.32)",
+  background: "linear-gradient(135deg,#ffffff,#e0f2fe)",
+  color: "#1d4ed8",
   borderRadius: 12,
   padding: "10px 14px",
   fontSize: 14,
   fontWeight: 900,
   cursor: "pointer",
-  boxShadow: "0 8px 18px rgba(15,23,42,.20)",
+  boxShadow: "0 8px 18px rgba(15,23,42,0.14)",
 };
 
 const centerTitleBox: React.CSSProperties = {
   textAlign: "center",
   padding: "0 210px",
+  position: "relative",
+  zIndex: 1,
 };
 
 const badge: React.CSSProperties = {
   display: "inline-block",
-  background: "rgba(219,234,254,0.13)",
-  color: "#dbeafe",
-  border: "1px solid rgba(219,234,254,0.20)",
+  background: "rgba(255,255,255,0.20)",
+  color: "#ffffff",
+  border: "1px solid rgba(255,255,255,0.30)",
   borderRadius: 999,
   padding: "6px 12px",
   fontWeight: 900,
@@ -356,14 +398,15 @@ const badge: React.CSSProperties = {
 const pageTitle: React.CSSProperties = {
   margin: 0,
   color: "#ffffff",
-  fontSize: 28,
+  fontSize: 30,
   lineHeight: 1.35,
   fontWeight: 900,
+  letterSpacing: "-0.4px",
 };
 
 const pageSubTitle: React.CSSProperties = {
   margin: "7px 0 0",
-  color: "#dbeafe",
+  color: "#eef6ff",
   fontSize: 14,
   lineHeight: 1.7,
 };
@@ -376,12 +419,12 @@ const statsGrid: React.CSSProperties = {
 };
 
 const statCard: React.CSSProperties = {
-  background: "rgba(255,255,255,0.94)",
-  border: "1px solid #e2e8f0",
+  background: "rgba(255,255,255,0.96)",
+  border: "1px solid rgba(226,232,240,0.90)",
   borderRadius: 22,
   padding: 20,
   textAlign: "center",
-  boxShadow: "0 10px 25px rgba(15,23,42,0.05)",
+  boxShadow: "0 12px 28px rgba(37,99,235,0.07)",
 };
 
 const statIcon: React.CSSProperties = {
@@ -402,8 +445,8 @@ const statTitle: React.CSSProperties = {
 };
 
 const searchCard: React.CSSProperties = {
-  background: "rgba(255,255,255,0.94)",
-  border: "1px solid #e2e8f0",
+  background: "rgba(255,255,255,0.96)",
+  border: "1px solid #dbeafe",
   borderRadius: 20,
   padding: "0 14px",
   minHeight: 58,
@@ -411,11 +454,11 @@ const searchCard: React.CSSProperties = {
   alignItems: "center",
   gap: 10,
   marginBottom: 14,
-  boxShadow: "0 10px 25px rgba(15,23,42,0.04)",
+  boxShadow: "0 10px 25px rgba(37,99,235,0.05)",
 };
 
 const searchIcon: React.CSSProperties = {
-  color: "#94a3b8",
+  color: "#60a5fa",
   fontSize: 20,
 };
 
@@ -437,15 +480,15 @@ const quickGrid: React.CSSProperties = {
 };
 
 const quickButton: React.CSSProperties = {
-  background: "rgba(255,255,255,0.94)",
-  border: "1px solid #e2e8f0",
+  background: "linear-gradient(135deg,#ffffff,#f8fbff)",
+  border: "1px solid #dbeafe",
   borderRadius: 18,
   padding: 15,
   fontWeight: 900,
   fontSize: 15,
-  color: "#0f172a",
+  color: "#1e3a8a",
   cursor: "pointer",
-  boxShadow: "0 8px 20px rgba(15,23,42,0.04)",
+  boxShadow: "0 8px 20px rgba(37,99,235,0.06)",
 };
 
 const twoColumnGrid: React.CSSProperties = {
@@ -456,11 +499,11 @@ const twoColumnGrid: React.CSSProperties = {
 };
 
 const panel: React.CSSProperties = {
-  background: "rgba(255,255,255,0.94)",
-  border: "1px solid #e2e8f0",
+  background: "rgba(255,255,255,0.96)",
+  border: "1px solid rgba(226,232,240,0.92)",
   borderRadius: 22,
   padding: 18,
-  boxShadow: "0 10px 25px rgba(15,23,42,0.05)",
+  boxShadow: "0 12px 28px rgba(37,99,235,0.06)",
 };
 
 const sectionHeader: React.CSSProperties = {
@@ -473,9 +516,9 @@ const sectionHeader: React.CSSProperties = {
 };
 
 const noticeItem: React.CSSProperties = {
-  background: "#fffbeb",
-  border: "1px solid #fde68a",
-  color: "#92400e",
+  background: "#fff7ed",
+  border: "1px solid #fed7aa",
+  color: "#9a3412",
   borderRadius: 14,
   padding: 13,
   marginBottom: 9,
@@ -489,7 +532,7 @@ const noticeDot: React.CSSProperties = {
   width: 8,
   height: 8,
   borderRadius: "50%",
-  background: "#f59e0b",
+  background: "#fb923c",
   flex: "0 0 auto",
 };
 
@@ -516,7 +559,7 @@ const grid: React.CSSProperties = {
 const card: React.CSSProperties = {
   width: "100%",
   minHeight: 92,
-  background: "#ffffff",
+  background: "linear-gradient(135deg,#ffffff,#fbfdff)",
   border: "1px solid #e2e8f0",
   borderRadius: 20,
   padding: 16,
@@ -524,7 +567,7 @@ const card: React.CSSProperties = {
   justifyContent: "space-between",
   alignItems: "center",
   cursor: "pointer",
-  boxShadow: "0 8px 20px rgba(15,23,42,0.04)",
+  boxShadow: "0 8px 20px rgba(37,99,235,0.04)",
 };
 
 const cardRight: React.CSSProperties = {
