@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 
 const sections = [
   {
@@ -77,111 +77,157 @@ const sections = [
 
 export default function DesignLabV10Page() {
   const params = useParams();
+  const router = useRouter();
+
   const branch = params.branch as string;
+
+  function getEmployeeName() {
+    if (typeof window === "undefined") return "الموظف";
+
+    const newName = localStorage.getItem("finance_user_name");
+    if (newName) return newName;
+
+    const oldUser = localStorage.getItem("finance_user");
+
+    if (oldUser) {
+      try {
+        const parsed = JSON.parse(oldUser);
+        return parsed?.full_name || parsed?.username || "الموظف";
+      } catch {
+        return "الموظف";
+      }
+    }
+
+    return "الموظف";
+  }
+
+  function logout() {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("finance_user");
+      localStorage.removeItem("finance_user_name");
+      localStorage.removeItem("finance_branch_user");
+    }
+
+    router.push(`/finance/${branch}/login`);
+  }
 
   return (
     <main dir="rtl" style={page}>
-      <div style={container}>
-        <section style={hero}>
-          <div>
-            <span style={badge}>نموذج ١٠ — Modern Soft</span>
-            <h1 style={heroTitle}>محطة العمل</h1>
-            <p style={heroSub}>مؤسسة سداد و أرقام</p>
-          </div>
+      <div style={pageOverlay}>
+        <div style={container}>
+          <header style={hero}>
+            <div style={employeeBox}>
+              <div style={employeeName}>{getEmployeeName()}</div>
 
-          <div style={todayBox}>
-            <span>ملخص اليوم</span>
-            <strong>نظام يعمل بهدوء ووضوح</strong>
-          </div>
-        </section>
-
-        <section style={statsGrid}>
-          <StatCard title="العقود النشطة" value="145" icon="📄" color="#4f46e5" />
-          <StatCard title="العملاء" value="812" icon="👥" color="#0f766e" />
-          <StatCard title="السداد اليوم" value="28" icon="💳" color="#16a34a" />
-          <StatCard title="المنتجات" value="53" icon="📦" color="#ea580c" />
-        </section>
-
-        <section style={searchCard}>
-          <span style={searchIcon}>🔎</span>
-          <input style={searchInput} placeholder="البحث السريع عن عميل، عقد، هوية، جوال..." />
-        </section>
-
-        <section style={quickGrid}>
-          <button style={quickButton}>➕ طلب جديد</button>
-          <button style={quickButton}>💳 تسجيل سداد</button>
-          <button style={quickButton}>📦 إضافة مخزون</button>
-          <button style={quickButton}>🧾 فاتورة مصروف</button>
-        </section>
-
-        <section style={twoColumnGrid}>
-          <div style={panel}>
-            <div style={sectionHeader}>
-              <span>🚨</span>
-              <strong>تنبيهات هادئة</strong>
-            </div>
-
-            <div style={noticeItem}>
-              <span style={noticeDot} />
-              يوجد 3 منتجات قاربت على النفاد
-            </div>
-
-            <div style={noticeItem}>
-              <span style={noticeDot} />
-              يوجد 12 عقداً مستحقاً خلال الأسبوع
-            </div>
-          </div>
-
-          <div style={panel}>
-            <div style={sectionHeader}>
-              <span>🕒</span>
-              <strong>آخر العمليات</strong>
-            </div>
-
-            <div style={activityItem}>تم إنشاء عقد جديد للعميل أحمد محمد</div>
-            <div style={activityItem}>تم تسجيل سداد بمبلغ 5,000 ريال</div>
-            <div style={activityItem}>تم خصم 20 بطاقة من المخزون</div>
-          </div>
-        </section>
-
-        <section style={sectionsPanel}>
-          <div style={sectionHeader}>
-            <span>⚡</span>
-            <strong>أقسام محطة العمل</strong>
-          </div>
-
-          <div style={grid}>
-            {sections.map((item) => (
-              <button key={item.title} style={card}>
-                <div style={cardRight}>
-                  <div
-                    style={{
-                      ...iconBox,
-                      background: item.bg,
-                      color: item.color,
-                    }}
-                  >
-                    {item.icon}
-                  </div>
-
-                  <div>
-                    <div style={cardTitle}>{item.title}</div>
-                    <div style={cardDesc}>{item.desc}</div>
-                  </div>
-                </div>
-
-                <span style={arrow}>‹</span>
+              <button style={logoutButton} onClick={logout}>
+                تسجيل الخروج
               </button>
-            ))}
-          </div>
-        </section>
 
-        <button
-          style={backButton}
-          onClick={() => (window.location.href = `/finance/${branch}`)}
-        >
-          الرجوع للصفحة الرئيسية
-        </button>
+              <button
+                style={mainWorkstationButton}
+                onClick={() => router.push(`/finance/${branch}`)}
+              >
+                محطة العمل الرئيسية
+              </button>
+            </div>
+
+            <div style={centerTitleBox}>
+              <span style={badge}>نموذج تصميم تجريبي</span>
+              <h1 style={pageTitle}>طلب جديد</h1>
+              <p style={pageSubTitle}>تجربة الهيدر والخلفية قبل اعتمادها</p>
+            </div>
+          </header>
+
+          <section style={statsGrid}>
+            <StatCard title="العقود النشطة" value="145" icon="📄" color="#4f46e5" />
+            <StatCard title="العملاء" value="812" icon="👥" color="#0f766e" />
+            <StatCard title="السداد اليوم" value="28" icon="💳" color="#16a34a" />
+            <StatCard title="المنتجات" value="53" icon="📦" color="#ea580c" />
+          </section>
+
+          <section style={searchCard}>
+            <span style={searchIcon}>🔎</span>
+            <input
+              style={searchInput}
+              placeholder="البحث السريع عن عميل، عقد، هوية، جوال..."
+            />
+          </section>
+
+          <section style={quickGrid}>
+            <button style={quickButton}>➕ طلب جديد</button>
+            <button style={quickButton}>💳 تسجيل سداد</button>
+            <button style={quickButton}>📦 إضافة مخزون</button>
+            <button style={quickButton}>🧾 فاتورة مصروف</button>
+          </section>
+
+          <section style={twoColumnGrid}>
+            <div style={panel}>
+              <div style={sectionHeader}>
+                <span>🚨</span>
+                <strong>تنبيهات هادئة</strong>
+              </div>
+
+              <div style={noticeItem}>
+                <span style={noticeDot} />
+                يوجد 3 منتجات قاربت على النفاد
+              </div>
+
+              <div style={noticeItem}>
+                <span style={noticeDot} />
+                يوجد 12 عقدًا مستحقًا خلال الأسبوع
+              </div>
+            </div>
+
+            <div style={panel}>
+              <div style={sectionHeader}>
+                <span>🕒</span>
+                <strong>آخر العمليات</strong>
+              </div>
+
+              <div style={activityItem}>تم إنشاء عقد جديد للعميل أحمد محمد</div>
+              <div style={activityItem}>تم تسجيل سداد بمبلغ 5,000 ريال</div>
+              <div style={activityItem}>تم خصم 20 بطاقة من المخزون</div>
+            </div>
+          </section>
+
+          <section style={sectionsPanel}>
+            <div style={sectionHeader}>
+              <span>⚡</span>
+              <strong>أقسام محطة العمل</strong>
+            </div>
+
+            <div style={grid}>
+              {sections.map((item) => (
+                <button key={item.title} style={card}>
+                  <div style={cardRight}>
+                    <div
+                      style={{
+                        ...iconBox,
+                        background: item.bg,
+                        color: item.color,
+                      }}
+                    >
+                      {item.icon}
+                    </div>
+
+                    <div>
+                      <div style={cardTitle}>{item.title}</div>
+                      <div style={cardDesc}>{item.desc}</div>
+                    </div>
+                  </div>
+
+                  <span style={arrow}>‹</span>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <div style={bottomBackWrapper}>
+            <button style={backButton} onClick={() => router.back()}>
+              ← الرجوع
+            </button>
+          </div>
+        </div>
       </div>
     </main>
   );
@@ -209,10 +255,20 @@ function StatCard({
 
 const page: React.CSSProperties = {
   minHeight: "100vh",
-  background:
-    "linear-gradient(180deg,#f4f7fb 0%,#eef4fb 45%,#f8fafc 100%)",
-  padding: 18,
+  backgroundColor: "#f4f7fb",
+  backgroundImage:
+    "linear-gradient(rgba(244,247,251,0.88),rgba(244,247,251,0.92)), url('/finance-bg-2.png')",
+  backgroundSize: "cover",
+  backgroundPosition: "center",
+  backgroundAttachment: "fixed",
   fontFamily: "var(--font-almarai), sans-serif",
+};
+
+const pageOverlay: React.CSSProperties = {
+  minHeight: "100vh",
+  padding: 18,
+  background:
+    "linear-gradient(180deg,rgba(244,247,251,0.50) 0%,rgba(248,250,252,0.72) 100%)",
 };
 
 const container: React.CSSProperties = {
@@ -222,53 +278,94 @@ const container: React.CSSProperties = {
 };
 
 const hero: React.CSSProperties = {
-  background: "linear-gradient(135deg,#ffffff,#f8fafc)",
-  border: "1px solid #e2e8f0",
-  borderRadius: 28,
-  padding: 26,
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: 16,
-  flexWrap: "wrap",
+  position: "relative",
+  minHeight: 160,
+  background: "linear-gradient(135deg,rgba(15,23,42,0.96),rgba(30,58,138,0.94))",
+  border: "1px solid rgba(255,255,255,0.14)",
+  borderRadius: 24,
+  padding: 24,
   marginBottom: 16,
-  boxShadow: "0 14px 35px rgba(15,23,42,0.06)",
+  boxShadow: "0 14px 35px rgba(15,23,42,0.16)",
+  overflow: "hidden",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+};
+
+const employeeBox: React.CSSProperties = {
+  position: "absolute",
+  top: 18,
+  left: 18,
+  width: 190,
+  display: "grid",
+  gap: 8,
+  textAlign: "center",
+};
+
+const employeeName: React.CSSProperties = {
+  background: "rgba(255,255,255,0.11)",
+  border: "1px solid rgba(255,255,255,0.16)",
+  color: "#ffffff",
+  borderRadius: 12,
+  padding: "9px 10px",
+  fontSize: 14,
+  fontWeight: 900,
+  boxShadow: "0 8px 18px rgba(15,23,42,0.12)",
+};
+
+const logoutButton: React.CSSProperties = {
+  border: "1px solid rgba(255,255,255,0.18)",
+  background: "rgba(255,255,255,0.08)",
+  color: "#fecaca",
+  borderRadius: 12,
+  padding: "9px 10px",
+  fontSize: 13,
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
+const mainWorkstationButton: React.CSSProperties = {
+  border: "1px solid rgba(255,255,255,.20)",
+  background: "linear-gradient(135deg,#64748b,#334155)",
+  color: "#ffffff",
+  borderRadius: 12,
+  padding: "10px 14px",
+  fontSize: 14,
+  fontWeight: 900,
+  cursor: "pointer",
+  boxShadow: "0 8px 18px rgba(15,23,42,.20)",
+};
+
+const centerTitleBox: React.CSSProperties = {
+  textAlign: "center",
+  padding: "0 210px",
 };
 
 const badge: React.CSSProperties = {
   display: "inline-block",
-  background: "#eff6ff",
-  color: "#2563eb",
-  border: "1px solid #dbeafe",
+  background: "rgba(219,234,254,0.13)",
+  color: "#dbeafe",
+  border: "1px solid rgba(219,234,254,0.20)",
   borderRadius: 999,
-  padding: "7px 12px",
+  padding: "6px 12px",
   fontWeight: 900,
-  fontSize: 13,
-  marginBottom: 10,
+  fontSize: 12,
+  marginBottom: 8,
 };
 
-const heroTitle: React.CSSProperties = {
+const pageTitle: React.CSSProperties = {
   margin: 0,
-  color: "#0f172a",
-  fontSize: 38,
+  color: "#ffffff",
+  fontSize: 28,
   lineHeight: 1.35,
   fontWeight: 900,
 };
 
-const heroSub: React.CSSProperties = {
-  margin: "8px 0 0",
-  color: "#64748b",
-  fontSize: 17,
-};
-
-const todayBox: React.CSSProperties = {
-  background: "#f8fafc",
-  border: "1px solid #e2e8f0",
-  borderRadius: 20,
-  padding: 16,
-  display: "grid",
-  gap: 6,
-  color: "#64748b",
+const pageSubTitle: React.CSSProperties = {
+  margin: "7px 0 0",
+  color: "#dbeafe",
+  fontSize: 14,
+  lineHeight: 1.7,
 };
 
 const statsGrid: React.CSSProperties = {
@@ -279,7 +376,7 @@ const statsGrid: React.CSSProperties = {
 };
 
 const statCard: React.CSSProperties = {
-  background: "#ffffff",
+  background: "rgba(255,255,255,0.94)",
   border: "1px solid #e2e8f0",
   borderRadius: 22,
   padding: 20,
@@ -305,7 +402,7 @@ const statTitle: React.CSSProperties = {
 };
 
 const searchCard: React.CSSProperties = {
-  background: "#ffffff",
+  background: "rgba(255,255,255,0.94)",
   border: "1px solid #e2e8f0",
   borderRadius: 20,
   padding: "0 14px",
@@ -340,7 +437,7 @@ const quickGrid: React.CSSProperties = {
 };
 
 const quickButton: React.CSSProperties = {
-  background: "#ffffff",
+  background: "rgba(255,255,255,0.94)",
   border: "1px solid #e2e8f0",
   borderRadius: 18,
   padding: 15,
@@ -359,7 +456,7 @@ const twoColumnGrid: React.CSSProperties = {
 };
 
 const panel: React.CSSProperties = {
-  background: "#ffffff",
+  background: "rgba(255,255,255,0.94)",
   border: "1px solid #e2e8f0",
   borderRadius: 22,
   padding: 18,
@@ -464,16 +561,20 @@ const arrow: React.CSSProperties = {
   fontSize: 28,
 };
 
-const backButton: React.CSSProperties = {
-  width: "100%",
+const bottomBackWrapper: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "center",
   marginTop: 16,
-  padding: 16,
-  background: "#16a34a",
-  color: "white",
-  border: "none",
-  borderRadius: 16,
-  fontSize: 17,
+};
+
+const backButton: React.CSSProperties = {
+  border: "1px solid rgba(255,255,255,.20)",
+  background: "linear-gradient(135deg,#64748b,#334155)",
+  color: "#ffffff",
+  borderRadius: 12,
+  padding: "10px 14px",
+  fontSize: 14,
   fontWeight: 900,
   cursor: "pointer",
-  boxShadow: "0 12px 25px rgba(22,163,74,0.18)",
+  boxShadow: "0 8px 18px rgba(15,23,42,.20)",
 };
