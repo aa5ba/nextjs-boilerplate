@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
 
 export default function FinanceCustomerProfilePage() {
   const params = useParams();
+  const router = useRouter();
 
   const branch = params.branch as string;
   const customerId = params.id as string;
@@ -32,6 +34,37 @@ export default function FinanceCustomerProfilePage() {
   useEffect(() => {
     loadData();
   }, [branch, customerId]);
+
+  const allContracts = useMemo(
+    () => [...activeContracts, ...closedContracts],
+    [activeContracts, closedContracts]
+  );
+
+  const totalRemaining = useMemo(() => {
+    return activeContracts.reduce(
+      (sum, contract) => sum + Number(contract?.remaining_amount || 0),
+      0
+    );
+  }, [activeContracts]);
+
+  const totalPaid = useMemo(() => {
+    return allContracts.reduce(
+      (sum, contract) => sum + Number(contract?.paid_amount || 0),
+      0
+    );
+  }, [allContracts]);
+
+  const hasLateContract = useMemo(() => {
+    return activeContracts.some((contract) => contract?.contract_status === "متأخر");
+  }, [activeContracts]);
+
+  const customerStatus = hasLateContract
+    ? "يوجد تأخير"
+    : activeContracts.length > 0
+    ? "عميل نشط"
+    : closedContracts.length > 0
+    ? "عميل سابق"
+    : "لا توجد عقود";
 
   async function loadData() {
     setLoading(true);
@@ -222,6 +255,21 @@ export default function FinanceCustomerProfilePage() {
     });
   }
 
+  function formatMoney(value: any) {
+    return Number(value || 0).toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+
+  function openContract(contractId: string) {
+    router.push(`/finance/${branch}/contracts/${contractId}`);
+  }
+
+  function openPromissoryNote(noteId: string) {
+    router.push(`/finance/${branch}/contracts/promissory-note/print/${noteId}`);
+  }
+
   if (loading) {
     return (
       <main dir="rtl" style={page}>
@@ -230,188 +278,348 @@ export default function FinanceCustomerProfilePage() {
     );
   }
 
+  if (!customer) {
+    return (
+      <main dir="rtl" style={page}>
+        <div style={container}>
+          <div style={emptyPageCard}>
+            <h2 style={{ margin: 0 }}>لم يتم العثور على العميل</h2>
+            <p style={emptyPageText}>قد يكون العميل غير موجود أو لا يتبع هذا الفرع.</p>
+            <button style={bottomBackButton} onClick={() => router.back()}>
+              رجوع
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main dir="rtl" style={page}>
       <div style={container}>
-        <div style={header}>
-          <h1 style={{ margin: 0 }}>{customer?.full_name || "ملف العميل"}</h1>
-        </div>
+        <header style={header}>
+          <div style={headerTop}>
+            <button
+              style={navButton}
+              onClick={() => router.push(`/finance/${branch}`)}
+            >
+              محطة العمل الرئيسية
+            </button>
+          </div>
 
-        <section style={card}>
-          <h2 style={sectionTitle}>بيانات العميل</h2>
+          <div style={heroContent}>
+            <div style={avatarCircle}>
+              {(customer?.full_name || "ع").trim().slice(0, 1)}
+            </div>
 
-          <EditableRow
-            label="الاسم كاملاً"
-            value={fullName}
-            editing={editing}
-            onChange={setFullName}
+            <div style={heroInfo}>
+              <p style={headerLabel}>ملف العميل</p>
+              <h1 style={headerTitle}>{customer?.full_name || "ملف العميل"}</h1>
+              <p style={headerSub}>
+                رقم الهوية: {customer?.national_id || "-"} · الجوال:{" "}
+                {customer?.phone || "-"}
+              </p>
+            </div>
+
+            <div
+              style={{
+                ...statusPill,
+                ...(hasLateContract ? statusPillLate : statusPillGood),
+              }}
+            >
+              {customerStatus}
+            </div>
+          </div>
+        </header>
+
+        <section style={statsGrid}>
+          <StatCard
+            icon="📄"
+            title="العقود النشطة"
+            value={activeContracts.length}
+            hint="نشط / متأخر"
           />
 
-          <EditableRow
-            label="رقم الهوية"
-            value={nationalId}
-            editing={editing}
-            onChange={(value: string) => setNationalId(normalizeDigits(value))}
-            inputMode="numeric"
-            maxLength={10}
+          <StatCard
+            icon="✅"
+            title="العقود السابقة"
+            value={closedContracts.length}
+            hint="مسدد / ملغي"
           />
 
-          <EditableRow
-            label="تاريخ الميلاد بالهجري"
-            value={birthHijri}
-            editing={editing}
-            onChange={setBirthHijri}
+          <StatCard
+            icon="💰"
+            title="إجمالي المسدد"
+            value={`${formatMoney(totalPaid)} ر.س`}
+            hint="حسب العقود المسجلة"
           />
 
-          <EditableRow
-            label="رقم الجوال"
-            value={phone}
-            editing={editing}
-            onChange={(value: string) => setPhone(normalizeDigits(value))}
-            inputMode="numeric"
-            maxLength={10}
+          <StatCard
+            icon="⚠️"
+            title="إجمالي المتبقي"
+            value={`${formatMoney(totalRemaining)} ر.س`}
+            hint="للعقود الحالية"
           />
+        </section>
 
-          <EditableRow
-            label="العمل"
-            value={workName}
-            editing={editing}
-            onChange={setWorkName}
-          />
+        <section style={mainGrid}>
+          <section style={card}>
+            <div style={cardHeader}>
+              <div>
+                <p style={cardKicker}>البيانات الأساسية</p>
+                <h2 style={sectionTitle}>بيانات العميل</h2>
+              </div>
 
-          <EditableRow
-            label="العنوان"
-            value={address}
-            editing={editing}
-            onChange={setAddress}
-          />
+              {!editing && (
+                <button style={editMiniButton} onClick={() => setEditing(true)}>
+                  تعديل البيانات
+                </button>
+              )}
+            </div>
 
-          <Row label="الراتب" value={customer?.salary || "-"} />
-          <Row label="البنك" value={customer?.bank || "-"} />
-          <Row label="الوسيط" value={customer?.broker || "-"} />
-          <Row
-            label="مجموعة العملاء"
-            value={customer?.finance_customer_groups?.name || "-"}
-          />
+            <div style={infoGrid}>
+              <EditableInfo
+                label="الاسم كاملاً"
+                value={fullName}
+                editing={editing}
+                onChange={setFullName}
+              />
 
-          <div style={editActions}>
-            {editing ? (
-              <>
+              <EditableInfo
+                label="رقم الهوية"
+                value={nationalId}
+                editing={editing}
+                onChange={(value: string) => setNationalId(normalizeDigits(value))}
+                inputMode="numeric"
+                maxLength={10}
+              />
+
+              <EditableInfo
+                label="تاريخ الميلاد بالهجري"
+                value={birthHijri}
+                editing={editing}
+                onChange={setBirthHijri}
+              />
+
+              <EditableInfo
+                label="رقم الجوال"
+                value={phone}
+                editing={editing}
+                onChange={(value: string) => setPhone(normalizeDigits(value))}
+                inputMode="numeric"
+                maxLength={10}
+              />
+
+              <EditableInfo
+                label="العمل"
+                value={workName}
+                editing={editing}
+                onChange={setWorkName}
+              />
+
+              <EditableInfo
+                label="العنوان"
+                value={address}
+                editing={editing}
+                onChange={setAddress}
+              />
+
+              <InfoItem label="الراتب" value={customer?.salary || "-"} />
+              <InfoItem label="البنك" value={customer?.bank || "-"} />
+              <InfoItem label="الوسيط" value={customer?.broker || "-"} />
+              <InfoItem
+                label="مجموعة العملاء"
+                value={customer?.finance_customer_groups?.name || "-"}
+              />
+            </div>
+
+            {editing && (
+              <div style={editActions}>
                 <button style={saveButton} onClick={saveCustomer} disabled={saving}>
                   {saving ? "جاري الحفظ..." : "حفظ التعديلات"}
                 </button>
 
-                <button style={cancelEditButton} onClick={cancelEditing} disabled={saving}>
+                <button
+                  style={cancelEditButton}
+                  onClick={cancelEditing}
+                  disabled={saving}
+                >
                   إلغاء التعديل
                 </button>
-              </>
-            ) : (
-              <button style={editButton} onClick={() => setEditing(true)}>
-                تعديل بيانات العميل
-              </button>
-            )}
-          </div>
-        </section>
-
-        <section style={card}>
-          <h2 style={sectionTitle}>العقود الحالية</h2>
-
-          {activeContracts.length === 0 ? (
-            <div style={emptyBox}>لا توجد عقود حالية</div>
-          ) : (
-            activeContracts.map((contract) => (
-              <button
-                key={contract.id}
-                style={itemButton}
-                onClick={() =>
-                  (window.location.href = `/finance/${branch}/contracts/${contract.id}`)
-                }
-              >
-                📄 عقد رقم {contract.contract_number} -{" "}
-                {contract.contract_status} - المتبقي{" "}
-                {contract.remaining_amount || 0} ر.س
-              </button>
-            ))
-          )}
-        </section>
-
-        <section style={card}>
-          <h2 style={sectionTitle}>العقود السابقة</h2>
-
-          {closedContracts.length === 0 ? (
-            <div style={emptyBox}>لا توجد عقود سابقة</div>
-          ) : (
-            closedContracts.map((contract) => (
-              <button
-                key={contract.id}
-                style={itemButton}
-                onClick={() =>
-                  (window.location.href = `/finance/${branch}/contracts/${contract.id}`)
-                }
-              >
-                ✅ عقد رقم {contract.contract_number} -{" "}
-                {contract.contract_status} - المسدد {contract.paid_amount || 0}{" "}
-                ر.س
-              </button>
-            ))
-          )}
-        </section>
-
-        <section style={card}>
-          <h2 style={sectionTitle}>السندات</h2>
-
-          {notes.length === 0 ? (
-            <div style={emptyBox}>لا توجد سندات مرتبطة بالعميل</div>
-          ) : (
-            notes.map((note) => (
-              <button
-                key={note.id}
-                style={itemButton}
-                onClick={() =>
-                  (window.location.href = `/finance/${branch}/contracts/promissory-note/print/${note.id}`)
-                }
-              >
-                🧾 سند رقم {note.note_number} - {note.amount || 0} ر.س -{" "}
-                {note.status || "-"}
-              </button>
-            ))
-          )}
-        </section>
-
-        <section style={card}>
-          <h2 style={sectionTitle}>سجل العمليات</h2>
-
-          {activities.length === 0 ? (
-            <div style={emptyBox}>لا توجد عمليات حتى الآن</div>
-          ) : (
-            activities.map((activity) => (
-              <div key={activity.id} style={activityRow}>
-                <span>{activity.activity_type || "-"}</span>
-                <span>{activity.status || "-"}</span>
-                <span>{formatDate(activity.created_at)}</span>
               </div>
-            ))
-          )}
+            )}
+          </section>
+
+          <aside style={sideCard}>
+            <p style={cardKicker}>مختصر العميل</p>
+            <h2 style={sideTitle}>{customerStatus}</h2>
+
+            <div style={sideList}>
+              <InfoLine label="عدد السندات" value={notes.length} />
+              <InfoLine label="عدد العمليات" value={activities.length} />
+              <InfoLine
+                label="المجموعة"
+                value={customer?.finance_customer_groups?.name || "-"}
+              />
+              <InfoLine label="آخر تحديث" value={formatDate(customer?.updated_at)} />
+            </div>
+          </aside>
         </section>
 
-        <button style={backButton} onClick={() => window.history.back()}>
-          الرجوع للعملاء
-        </button>
+        <section style={twoColumnsGrid}>
+          <section style={card}>
+            <div style={cardHeader}>
+              <div>
+                <p style={cardKicker}>العقود</p>
+                <h2 style={sectionTitle}>العقود الحالية</h2>
+              </div>
+              <span style={countBadge}>{activeContracts.length}</span>
+            </div>
+
+            {activeContracts.length === 0 ? (
+              <div style={emptyBox}>لا توجد عقود حالية</div>
+            ) : (
+              <div style={listBox}>
+                {activeContracts.map((contract) => (
+                  <ContractItem
+                    key={contract.id}
+                    contract={contract}
+                    type="active"
+                    onClick={() => openContract(contract.id)}
+                    formatMoney={formatMoney}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section style={card}>
+            <div style={cardHeader}>
+              <div>
+                <p style={cardKicker}>الأرشيف</p>
+                <h2 style={sectionTitle}>العقود السابقة</h2>
+              </div>
+              <span style={countBadge}>{closedContracts.length}</span>
+            </div>
+
+            {closedContracts.length === 0 ? (
+              <div style={emptyBox}>لا توجد عقود سابقة</div>
+            ) : (
+              <div style={listBox}>
+                {closedContracts.map((contract) => (
+                  <ContractItem
+                    key={contract.id}
+                    contract={contract}
+                    type="closed"
+                    onClick={() => openContract(contract.id)}
+                    formatMoney={formatMoney}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        </section>
+
+        <section style={twoColumnsGrid}>
+          <section style={card}>
+            <div style={cardHeader}>
+              <div>
+                <p style={cardKicker}>السندات</p>
+                <h2 style={sectionTitle}>السندات المرتبطة</h2>
+              </div>
+              <span style={countBadge}>{notes.length}</span>
+            </div>
+
+            {notes.length === 0 ? (
+              <div style={emptyBox}>لا توجد سندات مرتبطة بالعميل</div>
+            ) : (
+              <div style={listBox}>
+                {notes.map((note) => (
+                  <button
+                    key={note.id}
+                    style={noteItem}
+                    onClick={() => openPromissoryNote(note.id)}
+                  >
+                    <div>
+                      <strong>🧾 سند رقم {note.note_number || "-"}</strong>
+                      <span style={itemSubText}>
+                        الحالة: {note.status || "-"} · المبلغ:{" "}
+                        {formatMoney(note.amount)} ر.س
+                      </span>
+                    </div>
+                    <span style={openHint}>فتح</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section style={card}>
+            <div style={cardHeader}>
+              <div>
+                <p style={cardKicker}>السجل</p>
+                <h2 style={sectionTitle}>سجل العمليات</h2>
+              </div>
+              <span style={countBadge}>{activities.length}</span>
+            </div>
+
+            {activities.length === 0 ? (
+              <div style={emptyBox}>لا توجد عمليات حتى الآن</div>
+            ) : (
+              <div style={activityList}>
+                {activities.map((activity) => (
+                  <div key={activity.id} style={activityItem}>
+                    <div>
+                      <strong>{activity.activity_type || "-"}</strong>
+                      <p style={activityDesc}>{activity.description || "-"}</p>
+                    </div>
+
+                    <div style={activityMeta}>
+                      <span>{activity.status || "-"}</span>
+                      <small>{formatDate(activity.created_at)}</small>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </section>
+
+        <div style={bottomBackWrapper}>
+          <button style={bottomBackButton} onClick={() => router.back()}>
+            رجوع
+          </button>
+        </div>
       </div>
+
+      <GlobalResponsiveStyles />
     </main>
   );
 }
 
-function Row({ label, value }: any) {
+function StatCard({ icon, title, value, hint }: any) {
   return (
-    <div style={row}>
-      <span>{label}</span>
-      <strong>{value || "-"}</strong>
+    <div style={statCard}>
+      <div style={statIcon}>{icon}</div>
+      <div>
+        <span style={statTitle}>{title}</span>
+        <strong style={statValue}>{value}</strong>
+        <small style={statHint}>{hint}</small>
+      </div>
     </div>
   );
 }
 
-function EditableRow({
+function InfoItem({ label, value }: any) {
+  return (
+    <div style={infoItem}>
+      <span style={infoLabel}>{label}</span>
+      <strong style={infoValue}>{value || "-"}</strong>
+    </div>
+  );
+}
+
+function EditableInfo({
   label,
   value,
   editing,
@@ -420,8 +628,8 @@ function EditableRow({
   maxLength,
 }: any) {
   return (
-    <div style={row}>
-      <span>{label}</span>
+    <div style={infoItem}>
+      <span style={infoLabel}>{label}</span>
 
       {editing ? (
         <input
@@ -432,153 +640,544 @@ function EditableRow({
           onChange={(e) => onChange(e.target.value)}
         />
       ) : (
-        <strong>{value || "-"}</strong>
+        <strong style={infoValue}>{value || "-"}</strong>
       )}
     </div>
   );
 }
 
-const page = {
+function InfoLine({ label, value }: any) {
+  return (
+    <div style={infoLine}>
+      <span>{label}</span>
+      <strong>{value || "-"}</strong>
+    </div>
+  );
+}
+
+function ContractItem({ contract, type, onClick, formatMoney }: any) {
+  const isLate = contract?.contract_status === "متأخر";
+
+  return (
+    <button style={contractItem} onClick={onClick}>
+      <div style={contractItemTop}>
+        <strong>
+          {type === "active" ? "📄" : "✅"} عقد رقم{" "}
+          {contract.contract_number || "-"}
+        </strong>
+
+        <span
+          style={{
+            ...contractStatusBadge,
+            ...(isLate ? contractStatusLate : contractStatusNormal),
+          }}
+        >
+          {contract.contract_status || "-"}
+        </span>
+      </div>
+
+      <div style={contractItemGrid}>
+        <span>المسدد: {formatMoney(contract.paid_amount)} ر.س</span>
+        <span>المتبقي: {formatMoney(contract.remaining_amount)} ر.س</span>
+        <span>الاستحقاق: {contract.payment_due_date || "-"}</span>
+      </div>
+    </button>
+  );
+}
+
+function GlobalResponsiveStyles() {
+  return (
+    <style jsx global>{`
+      * {
+        box-sizing: border-box;
+      }
+
+      @media (max-width: 760px) {
+        .hide-on-mobile {
+          display: none !important;
+        }
+      }
+    `}</style>
+  );
+}
+
+const page: CSSProperties = {
   minHeight: "100vh",
-  background: "#eef5ff",
+  background: "#f4f7fb",
   padding: 20,
   fontFamily: "var(--font-almarai), sans-serif",
+  color: "#0f172a",
 };
 
-const container = {
+const container: CSSProperties = {
   width: "100%",
-  maxWidth: 1100,
+  maxWidth: 1150,
   margin: "auto",
 };
 
-const header = {
-  background: "linear-gradient(135deg,#0d47a1,#1976d2)",
+const header: CSSProperties = {
+  background: "linear-gradient(135deg,#0f172a,#1e3a8a)",
   color: "white",
-  padding: 28,
+  padding: 24,
   borderRadius: 24,
+  marginBottom: 18,
+  boxShadow: "0 14px 30px rgba(15,23,42,.16)",
+};
+
+const headerTop: CSSProperties = {
+  display: "flex",
+  justifyContent: "flex-end",
   marginBottom: 18,
 };
 
-const card = {
-  background: "white",
-  border: "1px solid #d9e3f5",
-  borderRadius: 18,
-  padding: 20,
+const navButton: CSSProperties = {
+  border: "1px solid rgba(255,255,255,.20)",
+  background: "linear-gradient(135deg,#64748b,#334155)",
+  color: "#ffffff",
+  borderRadius: 12,
+  padding: "10px 14px",
+  fontSize: 14,
+  fontWeight: 900,
+  cursor: "pointer",
+  boxShadow: "0 8px 18px rgba(15,23,42,.20)",
+};
+
+const heroContent: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 18,
+  flexWrap: "wrap",
+};
+
+const avatarCircle: CSSProperties = {
+  width: 72,
+  height: 72,
+  borderRadius: 24,
+  background: "rgba(255,255,255,.14)",
+  border: "1px solid rgba(255,255,255,.22)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  color: "#ffffff",
+  fontSize: 32,
+  fontWeight: 900,
+};
+
+const heroInfo: CSSProperties = {
+  flex: 1,
+  minWidth: 240,
+};
+
+const headerLabel: CSSProperties = {
+  margin: 0,
+  color: "#bfdbfe",
+  fontWeight: 900,
+  fontSize: 14,
+};
+
+const headerTitle: CSSProperties = {
+  margin: "4px 0",
+  fontSize: 34,
+  lineHeight: 1.4,
+};
+
+const headerSub: CSSProperties = {
+  margin: 0,
+  color: "#dbeafe",
+  lineHeight: 1.8,
+};
+
+const statusPill: CSSProperties = {
+  borderRadius: 999,
+  padding: "9px 14px",
+  fontWeight: 900,
+  whiteSpace: "nowrap",
+};
+
+const statusPillGood: CSSProperties = {
+  background: "#dcfce7",
+  color: "#166534",
+};
+
+const statusPillLate: CSSProperties = {
+  background: "#ffedd5",
+  color: "#9a3412",
+};
+
+const statsGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
+  gap: 14,
+  marginBottom: 18,
+};
+
+const statCard: CSSProperties = {
+  background: "#ffffff",
+  border: "1px solid #e2e8f0",
+  borderRadius: 22,
+  padding: 18,
+  display: "flex",
+  alignItems: "center",
+  gap: 14,
+  boxShadow: "0 8px 20px rgba(15,23,42,.05)",
+};
+
+const statIcon: CSSProperties = {
+  width: 50,
+  height: 50,
+  borderRadius: 16,
+  background: "#eff6ff",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: 24,
+};
+
+const statTitle: CSSProperties = {
+  display: "block",
+  color: "#64748b",
+  fontSize: 13,
+  fontWeight: 900,
+};
+
+const statValue: CSSProperties = {
+  display: "block",
+  color: "#0f172a",
+  fontSize: 22,
+  marginTop: 3,
+};
+
+const statHint: CSSProperties = {
+  display: "block",
+  color: "#94a3b8",
+  marginTop: 3,
+  fontWeight: 800,
+};
+
+const mainGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(0,2fr) minmax(280px,.8fr)",
+  gap: 16,
   marginBottom: 16,
 };
 
-const row = {
+const twoColumnsGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit,minmax(320px,1fr))",
+  gap: 16,
+  marginBottom: 16,
+};
+
+const card: CSSProperties = {
+  background: "#ffffff",
+  border: "1px solid #e2e8f0",
+  borderRadius: 22,
+  padding: 18,
+  boxShadow: "0 8px 20px rgba(15,23,42,.05)",
+};
+
+const sideCard: CSSProperties = {
+  background: "linear-gradient(135deg,#ffffff,#f8fafc)",
+  border: "1px solid #e2e8f0",
+  borderRadius: 22,
+  padding: 18,
+  boxShadow: "0 8px 20px rgba(15,23,42,.05)",
+};
+
+const cardHeader: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 12,
+  marginBottom: 14,
+  flexWrap: "wrap",
+};
+
+const cardKicker: CSSProperties = {
+  margin: 0,
+  color: "#2563eb",
+  fontWeight: 900,
+  fontSize: 13,
+};
+
+const sectionTitle: CSSProperties = {
+  margin: "4px 0 0",
+  fontSize: 22,
+  color: "#0f172a",
+};
+
+const sideTitle: CSSProperties = {
+  margin: "6px 0 16px",
+  fontSize: 24,
+  color: "#0f172a",
+};
+
+const sideList: CSSProperties = {
+  display: "grid",
+  gap: 10,
+};
+
+const infoLine: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
-  alignItems: "center",
+  gap: 10,
+  padding: "10px 0",
+  borderBottom: "1px solid #e2e8f0",
+  color: "#334155",
+};
+
+const infoGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit,minmax(230px,1fr))",
   gap: 12,
-  padding: "12px 0",
-  borderBottom: "1px solid #eef2f7",
 };
 
-const sectionTitle = {
-  marginTop: 0,
-  fontSize: 20,
-  color: "#0d47a1",
+const infoItem: CSSProperties = {
+  background: "#f8fafc",
+  border: "1px solid #e2e8f0",
+  borderRadius: 16,
+  padding: 14,
+  minHeight: 82,
+  display: "flex",
+  flexDirection: "column",
+  justifyContent: "center",
+  gap: 8,
 };
 
-const editInput = {
-  width: "55%",
-  minWidth: 180,
+const infoLabel: CSSProperties = {
+  color: "#64748b",
+  fontSize: 13,
+  fontWeight: 900,
+};
+
+const infoValue: CSSProperties = {
+  color: "#0f172a",
+  fontSize: 16,
+  lineHeight: 1.7,
+};
+
+const editInput: CSSProperties = {
+  width: "100%",
   height: 42,
-  borderRadius: 10,
-  border: "1px solid #d9e3f5",
+  borderRadius: 12,
+  border: "1px solid #cbd5e1",
+  background: "#ffffff",
   padding: "0 12px",
   fontSize: 15,
-  boxSizing: "border-box" as const,
+  outline: "none",
+  fontFamily: "inherit",
 };
 
-const editActions = {
+const editActions: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))",
   gap: 10,
-  marginTop: 18,
+  marginTop: 16,
 };
 
-const editButton = {
-  width: "100%",
-  padding: 14,
-  background: "#0d47a1",
-  color: "white",
+const editMiniButton: CSSProperties = {
   border: "none",
-  borderRadius: 14,
-  fontSize: 16,
-  fontWeight: "bold",
+  background: "#dbeafe",
+  color: "#1d4ed8",
+  borderRadius: 12,
+  padding: "10px 14px",
+  fontSize: 14,
+  fontWeight: 900,
   cursor: "pointer",
 };
 
-const saveButton = {
-  width: "100%",
+const saveButton: CSSProperties = {
   padding: 14,
   background: "#166534",
-  color: "white",
+  color: "#ffffff",
   border: "none",
   borderRadius: 14,
-  fontSize: 16,
-  fontWeight: "bold",
+  fontSize: 15,
+  fontWeight: 900,
   cursor: "pointer",
 };
 
-const cancelEditButton = {
-  width: "100%",
+const cancelEditButton: CSSProperties = {
   padding: 14,
-  background: "#e5e7eb",
-  color: "#0d47a1",
+  background: "#f1f5f9",
+  color: "#334155",
   border: "1px solid #cbd5e1",
   borderRadius: 14,
-  fontSize: 16,
-  fontWeight: "bold",
+  fontSize: 15,
+  fontWeight: 900,
   cursor: "pointer",
 };
 
-const emptyBox = {
+const countBadge: CSSProperties = {
+  minWidth: 34,
+  height: 34,
+  borderRadius: 999,
+  background: "#eff6ff",
+  color: "#1d4ed8",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontWeight: 900,
+};
+
+const listBox: CSSProperties = {
+  display: "grid",
+  gap: 10,
+};
+
+const contractItem: CSSProperties = {
+  width: "100%",
+  border: "1px solid #e2e8f0",
+  background: "#f8fafc",
+  borderRadius: 16,
+  padding: 14,
+  cursor: "pointer",
+  textAlign: "right",
+  display: "grid",
+  gap: 10,
+  fontFamily: "inherit",
+};
+
+const contractItemTop: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 10,
+};
+
+const contractItemGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))",
+  gap: 8,
+  color: "#475569",
+  fontSize: 13,
+  fontWeight: 800,
+};
+
+const contractStatusBadge: CSSProperties = {
+  borderRadius: 999,
+  padding: "6px 10px",
+  fontSize: 12,
+  fontWeight: 900,
+  whiteSpace: "nowrap",
+};
+
+const contractStatusNormal: CSSProperties = {
+  background: "#dcfce7",
+  color: "#166534",
+};
+
+const contractStatusLate: CSSProperties = {
+  background: "#ffedd5",
+  color: "#9a3412",
+};
+
+const noteItem: CSSProperties = {
+  width: "100%",
+  border: "1px solid #e2e8f0",
+  background: "#f8fafc",
+  borderRadius: 16,
+  padding: 14,
+  cursor: "pointer",
+  textAlign: "right",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 10,
+  fontFamily: "inherit",
+};
+
+const itemSubText: CSSProperties = {
+  display: "block",
+  color: "#64748b",
+  fontSize: 13,
+  marginTop: 7,
+  fontWeight: 800,
+};
+
+const openHint: CSSProperties = {
+  color: "#1d4ed8",
+  fontWeight: 900,
+};
+
+const activityList: CSSProperties = {
+  display: "grid",
+  gap: 10,
+};
+
+const activityItem: CSSProperties = {
+  border: "1px solid #e2e8f0",
+  background: "#f8fafc",
+  borderRadius: 16,
+  padding: 14,
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  alignItems: "flex-start",
+};
+
+const activityDesc: CSSProperties = {
+  margin: "7px 0 0",
+  color: "#64748b",
+  lineHeight: 1.7,
+  fontSize: 13,
+};
+
+const activityMeta: CSSProperties = {
+  display: "grid",
+  gap: 6,
+  textAlign: "left",
+  color: "#64748b",
+  fontWeight: 900,
+  whiteSpace: "nowrap",
+};
+
+const emptyBox: CSSProperties = {
   background: "#f8fbff",
   border: "1px dashed #cbd5e1",
-  borderRadius: 14,
-  padding: 18,
-  textAlign: "center" as const,
+  borderRadius: 16,
+  padding: 20,
+  textAlign: "center",
   color: "#6b7280",
+  fontWeight: 800,
 };
 
-const itemButton = {
-  width: "100%",
-  padding: 14,
-  background: "#f8fbff",
-  border: "1px solid #d9e3f5",
-  borderRadius: 14,
-  fontSize: 16,
-  cursor: "pointer",
-  marginBottom: 10,
-  textAlign: "right" as const,
-};
-
-const activityRow = {
-  display: "grid",
-  gridTemplateColumns: "1.5fr 1fr 1.5fr",
-  gap: 12,
-  padding: 14,
-  borderBottom: "1px solid #eef2f7",
-};
-
-const backButton = {
-  width: "100%",
-  padding: 16,
-  background: "#e5e7eb",
-  color: "#0d47a1",
-  border: "1px solid #cbd5e1",
-  borderRadius: 14,
-  fontSize: 17,
-  fontWeight: "bold",
+const bottomBackWrapper: CSSProperties = {
+  display: "flex",
+  justifyContent: "center",
   marginTop: 18,
 };
 
-const loadingBox = {
-  textAlign: "center" as const,
+const bottomBackButton: CSSProperties = {
+  border: "1px solid rgba(255,255,255,.20)",
+  background: "linear-gradient(135deg,#64748b,#334155)",
+  color: "#ffffff",
+  borderRadius: 12,
+  padding: "10px 14px",
+  fontSize: 14,
+  fontWeight: 900,
+  cursor: "pointer",
+  boxShadow: "0 8px 18px rgba(15,23,42,.20)",
+};
+
+const emptyPageCard: CSSProperties = {
+  marginTop: 80,
+  background: "#ffffff",
+  border: "1px solid #e2e8f0",
+  borderRadius: 22,
+  padding: 28,
+  textAlign: "center",
+  boxShadow: "0 8px 20px rgba(15,23,42,.05)",
+};
+
+const emptyPageText: CSSProperties = {
+  color: "#64748b",
+  lineHeight: 1.8,
+};
+
+const loadingBox: CSSProperties = {
+  textAlign: "center",
   paddingTop: 80,
   fontSize: 18,
+  color: "#0f172a",
 };
