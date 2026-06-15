@@ -28,12 +28,18 @@ export default function FinanceCustomersPage() {
     loadGroups();
   }, [branch]);
 
-  const totalPages = Math.max(1, Math.ceil(groups.length / ITEMS_PER_PAGE));
+  const sortedGroups = useMemo(() => {
+    return [...groups].sort((a, b) =>
+      String(a.name || "").localeCompare(String(b.name || ""), "ar")
+    );
+  }, [groups]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedGroups.length / ITEMS_PER_PAGE));
 
   const paginatedGroups = useMemo(() => {
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    return groups.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-  }, [groups, currentPage]);
+    return sortedGroups.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [sortedGroups, currentPage]);
 
   function go(path: string) {
     router.push(`/finance/${branch}/${path}`);
@@ -41,6 +47,30 @@ export default function FinanceCustomersPage() {
 
   function openExternalVerification(url: string) {
     window.open(url, "_blank", "noopener,noreferrer");
+  }
+
+  async function loadGroups() {
+    const branchId = await getBranchId(branch);
+
+    if (!branchId) {
+      setGroups([]);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("finance_customer_groups")
+      .select("*")
+      .eq("branch_id", branchId)
+      .order("name", { ascending: true });
+
+    if (error) {
+      console.error(error);
+      setGroups([]);
+      return;
+    }
+
+    setGroups(data || []);
+    setCurrentPage(1);
   }
 
   async function verifyCustomerByNationalId() {
@@ -74,43 +104,140 @@ export default function FinanceCustomersPage() {
     setVerificationResult(data?.[0] || null);
   }
 
-  async function loadGroups() {
-    const branchId = await getBranchId(branch);
+  async function editGroup(group: any) {
+    const newName = window.prompt("اكتب اسم المجموعة الجديد", group.name || "");
 
-    if (!branchId) {
-      setGroups([]);
+    if (!newName) return;
+
+    const cleanName = newName.trim();
+
+    if (!cleanName) {
+      alert("اسم المجموعة لا يمكن أن يكون فارغًا.");
       return;
     }
 
-    const { data } = await supabase
+    const { error } = await supabase
       .from("finance_customer_groups")
-      .select("*")
-      .eq("branch_id", branchId)
-      .order("created_at", { ascending: false });
+      .update({ name: cleanName })
+      .eq("id", group.id);
 
-    setGroups(data || []);
-    setCurrentPage(1);
+    if (error) {
+      console.error(error);
+      alert("حدث خطأ أثناء تعديل المجموعة.");
+      return;
+    }
+
+    await loadGroups();
+  }
+
+  async function deleteGroup(group: any) {
+    const confirmed = window.confirm(
+      `هل أنت متأكد من حذف مجموعة "${group.name}"؟`
+    );
+
+    if (!confirmed) return;
+
+    const { error } = await supabase
+      .from("finance_customer_groups")
+      .delete()
+      .eq("id", group.id);
+
+    if (error) {
+      console.error(error);
+      alert(
+        "تعذر حذف المجموعة. قد تكون مرتبطة بعملاء داخل النظام، وفي هذه الحالة يجب نقل العملاء أو حذف الارتباط أولًا."
+      );
+      return;
+    }
+
+    await loadGroups();
+  }
+
+  function openVerificationModal() {
+    setShowVerificationModal(true);
+    setVerificationNationalId("");
+    setVerificationResult(null);
+    setVerificationError("");
   }
 
   return (
     <main dir="rtl" style={page}>
       <div style={container}>
         <div style={header}>
-          <h1 style={{ margin: 0 }}>العملاء</h1>
+          <div>
+            <h1 style={headerTitle}>العملاء</h1>
+            <p style={headerSubtitle}>
+              إدارة العملاء والمجموعات والتحقق من سجل العميل داخل جميع الفروع.
+            </p>
+          </div>
         </div>
+
+        <section style={verificationHighlight}>
+          <div>
+            <h2 style={verificationHighlightTitle}>التحقق من العميل</h2>
+            <p style={verificationHighlightText}>
+              تحقق من ناجز أو سمة، أو افحص أنشطة العميل السابقة داخل جميع الفروع
+              برقم الهوية دون إظهار بيانات الفروع.
+            </p>
+          </div>
+
+          <button style={verificationMainButton} onClick={openVerificationModal}>
+            <span style={verificationMainIcon}>🛡️</span>
+            التحقق من العميل
+          </button>
+        </section>
+
+        <section style={sectionHeader}>
+          <div>
+            <h2 style={sectionHeading}>مجموعات العملاء</h2>
+            <p style={sectionDescription}>
+              اختر مجموعة لعرض العملاء، أو عدّل اسم المجموعة، أو احذفها عند الحاجة.
+            </p>
+          </div>
+
+          <button style={smallAddButton} onClick={() => go("customers/groups")}>
+            إنشاء / تعديل مجموعة
+          </button>
+        </section>
 
         <section style={groupsSection}>
           {groups.length === 0 ? (
             <div style={emptyGroupCard}>لا توجد مجموعات عملاء حتى الآن</div>
           ) : (
-            paginatedGroups.map((group) => (
-              <button
-                key={group.id}
-                style={groupCard}
-                onClick={() => go(`customers/groups/${group.id}`)}
-              >
-                {group.name}
-              </button>
+            paginatedGroups.map((group, index) => (
+              <div key={group.id} style={groupCard}>
+                <button
+                  style={groupOpenArea}
+                  onClick={() => go(`customers/groups/${group.id}`)}
+                >
+                  <span style={groupNumber}>
+                    {String((currentPage - 1) * ITEMS_PER_PAGE + index + 1).padStart(
+                      2,
+                      "0"
+                    )}
+                  </span>
+
+                  <span style={groupName}>{group.name}</span>
+
+                  <span style={groupHint}>اضغط لفتح المجموعة</span>
+                </button>
+
+                <div style={groupActions}>
+                  <button
+                    style={editGroupButton}
+                    onClick={() => editGroup(group)}
+                  >
+                    تعديل
+                  </button>
+
+                  <button
+                    style={deleteGroupButton}
+                    onClick={() => deleteGroup(group)}
+                  >
+                    حذف
+                  </button>
+                </div>
+              </div>
             ))
           )}
         </section>
@@ -176,21 +303,6 @@ export default function FinanceCustomersPage() {
             </span>
           </button>
 
-          <button
-            style={actionButton}
-            onClick={() => {
-              setShowVerificationModal(true);
-              setVerificationNationalId("");
-              setVerificationResult(null);
-              setVerificationError("");
-            }}
-          >
-            <span style={buttonContent}>
-              <span style={buttonIcon}>🛡️</span>
-              التحقق من العميل
-            </span>
-          </button>
-
           <button style={actionButton}>
             <span style={buttonContent}>
               <span style={buttonIcon}>✏️</span>
@@ -251,7 +363,7 @@ export default function FinanceCustomersPage() {
             </div>
 
             <div style={internalVerificationBox}>
-              <h3 style={sectionTitle}>التحقق من أنشطة العميل السابقة</h3>
+              <h3 style={internalTitle}>التحقق من أنشطة العميل السابقة</h3>
 
               <label style={label}>رقم الهوية</label>
               <input
@@ -359,28 +471,189 @@ const container = {
 };
 
 const header = {
-  background: "linear-gradient(135deg,#0d47a1,#1976d2)",
+  background: "linear-gradient(135deg,#0f172a,#1e3a8a)",
   color: "white",
   padding: 28,
   borderRadius: 24,
   marginBottom: 18,
+  boxShadow: "0 18px 35px rgba(15,23,42,0.18)",
+};
+
+const headerTitle = {
+  margin: 0,
+  fontSize: 30,
+  fontWeight: 900,
+};
+
+const headerSubtitle = {
+  margin: "10px 0 0",
+  color: "#dbeafe",
+  fontSize: 15,
+  lineHeight: 1.8,
+};
+
+const verificationHighlight = {
+  background: "linear-gradient(135deg,#eff6ff,#ffffff)",
+  border: "1px solid #bfdbfe",
+  borderRadius: 22,
+  padding: 20,
+  marginBottom: 18,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 16,
+  boxShadow: "0 10px 26px rgba(30,64,175,0.08)",
+};
+
+const verificationHighlightTitle = {
+  margin: 0,
+  color: "#0f172a",
+  fontSize: 22,
+  fontWeight: 900,
+};
+
+const verificationHighlightText = {
+  margin: "8px 0 0",
+  color: "#475569",
+  fontSize: 14,
+  lineHeight: 1.8,
+};
+
+const verificationMainButton = {
+  minWidth: 210,
+  border: "none",
+  background: "linear-gradient(135deg,#1d4ed8,#1e3a8a)",
+  color: "#ffffff",
+  borderRadius: 18,
+  padding: "15px 20px",
+  fontWeight: 900,
+  fontSize: 16,
+  cursor: "pointer",
+  boxShadow: "0 12px 26px rgba(29,78,216,0.28)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 10,
+};
+
+const verificationMainIcon = {
+  fontSize: 22,
+};
+
+const sectionHeader = {
+  background: "#ffffff",
+  border: "1px solid #d9e3f5",
+  borderRadius: 20,
+  padding: 18,
+  marginBottom: 14,
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 14,
+};
+
+const sectionHeading = {
+  margin: 0,
+  color: "#0f172a",
+  fontSize: 22,
+  fontWeight: 900,
+};
+
+const sectionDescription = {
+  margin: "8px 0 0",
+  color: "#64748b",
+  fontSize: 14,
+};
+
+const smallAddButton = {
+  border: "none",
+  background: "#0d47a1",
+  color: "#ffffff",
+  borderRadius: 14,
+  padding: "12px 16px",
+  fontSize: 14,
+  fontWeight: 900,
+  cursor: "pointer",
+  whiteSpace: "nowrap" as const,
 };
 
 const groupsSection = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))",
+  gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))",
   gap: 14,
   marginBottom: 18,
 };
 
 const groupCard = {
-  background: "white",
+  background: "#ffffff",
   border: "1px solid #d9e3f5",
-  borderRadius: 18,
-  padding: 20,
-  fontSize: 17,
-  fontWeight: "bold",
-  textAlign: "center" as const,
+  borderRadius: 20,
+  overflow: "hidden",
+  boxShadow: "0 8px 20px rgba(15,23,42,0.05)",
+};
+
+const groupOpenArea = {
+  width: "100%",
+  border: "none",
+  background: "#ffffff",
+  padding: 18,
+  cursor: "pointer",
+  textAlign: "right" as const,
+  display: "flex",
+  flexDirection: "column" as const,
+  gap: 8,
+};
+
+const groupNumber = {
+  width: 42,
+  height: 30,
+  borderRadius: 999,
+  background: "#eff6ff",
+  color: "#1d4ed8",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: 13,
+  fontWeight: 900,
+};
+
+const groupName = {
+  color: "#0f172a",
+  fontSize: 18,
+  fontWeight: 900,
+};
+
+const groupHint = {
+  color: "#64748b",
+  fontSize: 13,
+};
+
+const groupActions = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: 8,
+  borderTop: "1px solid #e2e8f0",
+  padding: 10,
+  background: "#f8fafc",
+};
+
+const editGroupButton = {
+  border: "1px solid #bfdbfe",
+  background: "#eff6ff",
+  color: "#1e40af",
+  borderRadius: 12,
+  padding: "10px 12px",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
+const deleteGroupButton = {
+  border: "1px solid #fecaca",
+  background: "#fef2f2",
+  color: "#991b1b",
+  borderRadius: 12,
+  padding: "10px 12px",
+  fontWeight: 900,
   cursor: "pointer",
 };
 
@@ -408,6 +681,7 @@ const actionButton = {
   fontSize: 16,
   fontWeight: "bold",
   cursor: "pointer",
+  boxShadow: "0 8px 18px rgba(15,23,42,0.04)",
 };
 
 const paginationBox = {
@@ -436,16 +710,16 @@ const paginationText = {
 
 const backButton = {
   width: "100%",
-  padding: 16,
-  background: "#16a34a",
+  padding: 15,
+  background: "linear-gradient(135deg,#64748b,#334155)",
   color: "#ffffff",
   border: "none",
   borderRadius: 14,
-  fontSize: 17,
+  fontSize: 16,
   fontWeight: "bold",
   marginTop: 18,
   cursor: "pointer",
-  boxShadow: "0 4px 12px rgba(22,163,74,0.25)",
+  boxShadow: "0 8px 18px rgba(51,65,85,0.22)",
 };
 
 const buttonContent = {
@@ -538,7 +812,7 @@ const internalVerificationBox = {
   background: "#f8fafc",
 };
 
-const sectionTitle = {
+const internalTitle = {
   margin: "0 0 14px",
   fontSize: 18,
   color: "#0f172a",
