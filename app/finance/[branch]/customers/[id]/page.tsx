@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
@@ -55,7 +55,9 @@ export default function FinanceCustomerProfilePage() {
   }, [allContracts]);
 
   const hasLateContract = useMemo(() => {
-    return activeContracts.some((contract) => contract?.contract_status === "متأخر");
+    return activeContracts.some(
+      (contract) => contract?.contract_status === "متأخر"
+    );
   }, [activeContracts]);
 
   const customerStatus = hasLateContract
@@ -284,10 +286,15 @@ export default function FinanceCustomerProfilePage() {
         <div style={container}>
           <div style={emptyPageCard}>
             <h2 style={{ margin: 0 }}>لم يتم العثور على العميل</h2>
-            <p style={emptyPageText}>قد يكون العميل غير موجود أو لا يتبع هذا الفرع.</p>
-            <button style={bottomBackButton} onClick={() => router.back()}>
-              رجوع
-            </button>
+            <p style={emptyPageText}>
+              قد يكون العميل غير موجود أو لا يتبع هذا الفرع.
+            </p>
+
+            <div style={bottomBackWrapper}>
+              <button style={backButton} onClick={() => router.back()}>
+                ← الرجوع
+              </button>
+            </div>
           </div>
         </div>
       </main>
@@ -300,7 +307,7 @@ export default function FinanceCustomerProfilePage() {
         <header style={header}>
           <div style={headerTop}>
             <button
-              style={navButton}
+              style={backButton}
               onClick={() => router.push(`/finance/${branch}`)}
             >
               محطة العمل الرئيسية
@@ -586,8 +593,8 @@ export default function FinanceCustomerProfilePage() {
         </section>
 
         <div style={bottomBackWrapper}>
-          <button style={bottomBackButton} onClick={() => router.back()}>
-            رجوع
+          <button style={backButton} onClick={() => router.back()}>
+            ← الرجوع
           </button>
         </div>
       </div>
@@ -730,7 +737,7 @@ const headerTop: CSSProperties = {
   marginBottom: 18,
 };
 
-const navButton: CSSProperties = {
+const backButton: CSSProperties = {
   border: "1px solid rgba(255,255,255,.20)",
   background: "linear-gradient(135deg,#64748b,#334155)",
   color: "#ffffff",
@@ -1146,18 +1153,6 @@ const bottomBackWrapper: CSSProperties = {
   display: "flex",
   justifyContent: "center",
   marginTop: 18,
-};
-
-const bottomBackButton: CSSProperties = {
-  border: "1px solid rgba(255,255,255,.20)",
-  background: "linear-gradient(135deg,#64748b,#334155)",
-  color: "#ffffff",
-  borderRadius: 12,
-  padding: "10px 14px",
-  fontSize: 14,
-  fontWeight: 900,
-  cursor: "pointer",
-  boxShadow: "0 8px 18px rgba(15,23,42,.20)",
 };
 
 const emptyPageCard: CSSProperties = {
