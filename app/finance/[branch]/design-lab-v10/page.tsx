@@ -442,17 +442,16 @@ export default function DesignLabV10Page() {
         }
 
         .hero-title-box {
-          position: absolute;
-          left: 450px;
-          right: 40px;
-          top: 0;
-          bottom: 0;
-          z-index: 4;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          text-align: center;
-        }
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  pointer-events: none;
+  padding: 0 320px;
+}
 
         .hero-title {
           margin: 0;
