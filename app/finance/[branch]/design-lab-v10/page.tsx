@@ -128,39 +128,39 @@ export default function DesignLabV10Page() {
             <div className="hero-circle circle-one" />
             <div className="hero-circle circle-two" />
             <div className="hero-circle circle-three" />
-            <div className="hero-circle circle-four" />
-
             <div className="hero-dots" />
-            <div className="hero-diamond diamond-one" />
-            <div className="hero-diamond diamond-two" />
 
-            <div className="hero-left-area">
-              <div className="employee-top-row">
-                <div className="employee-icon">
-                  <UserIcon />
+            <div className="hero-content">
+              <div className="hero-user-card">
+                <div className="employee-top-row">
+                  <div className="employee-icon">
+                    <UserIcon />
+                  </div>
+
+                  <div className="employee-name">{employeeName}</div>
+
+                  <div className="employee-divider-small" />
+
+                  <button className="logout-inline-button" onClick={logout}>
+                    <LogoutIcon />
+                    <span>تسجيل الخروج</span>
+                  </button>
                 </div>
 
-                <div className="employee-name">{employeeName}</div>
-
-                <div className="employee-divider-small" />
-
-                <button className="logout-inline-button" onClick={logout}>
-                  <LogoutIcon />
-                  <span>تسجيل الخروج</span>
+                <button
+                  className="main-workstation-button"
+                  onClick={() => router.push(`/finance/${branch}`)}
+                >
+                  <HomeIcon />
+                  <span>محطة العمل الرئيسية</span>
                 </button>
               </div>
 
-              <button
-                className="main-workstation-button"
-                onClick={() => router.push(`/finance/${branch}`)}
-              >
-                <HomeIcon />
-                <span>محطة العمل الرئيسية</span>
-              </button>
-            </div>
+              <div className="hero-title-box">
+                <h1 className="hero-title">إدارة طلبات الصرف</h1>
+              </div>
 
-            <div className="hero-title-box">
-              <h1 className="hero-title">إدارة طلبات الصرف</h1>
+              <div className="hero-spacer" />
             </div>
           </header>
 
@@ -314,36 +314,50 @@ export default function DesignLabV10Page() {
           position: relative;
           min-height: 160px;
           border-radius: 24px;
-          padding: 24px;
+          padding: 22px 26px;
           margin-bottom: 16px;
           overflow: hidden;
-          border: 1px solid rgba(255,255,255,0.14);
+          border: none;
+          outline: none;
           background:
+            radial-gradient(circle at 15% 18%, rgba(255,255,255,0.08) 0, transparent 24%),
+            radial-gradient(circle at 86% 18%, rgba(255,255,255,0.11) 0, transparent 26%),
             linear-gradient(
               105deg,
               #071c48 0%,
-              #0a327d 28%,
-              #0d65d9 58%,
-              #25aee8 82%,
-              #68dce4 100%
+              #0a327d 30%,
+              #0d65d9 60%,
+              #23a8e4 82%,
+              #6edce4 100%
             );
-          box-shadow: 0 8px 22px rgba(15,23,42,0.08);
+          box-shadow: none;
+          isolation: isolate;
         }
 
-        .hero-left-area {
-          position: absolute;
-          left: 30px;
-          top: 34px;
-          width: 465px;
-          z-index: 5;
+        .hero-content {
+          position: relative;
+          z-index: 3;
+          min-height: 116px;
+          display: grid;
+          grid-template-columns: 340px 1fr 340px;
+          align-items: center;
+          gap: 16px;
           direction: ltr;
+        }
+
+        .hero-user-card {
+          width: 330px;
+          display: grid;
+          gap: 26px;
+          direction: ltr;
+          justify-self: start;
         }
 
         .employee-top-row {
           height: 42px;
           display: flex;
           align-items: center;
-          gap: 16px;
+          gap: 14px;
           direction: ltr;
           color: #ffffff;
         }
@@ -352,12 +366,12 @@ export default function DesignLabV10Page() {
           width: 38px;
           height: 38px;
           border-radius: 50%;
-          border: 1.5px solid rgba(255,255,255,0.35);
+          border: 1.5px solid rgba(255,255,255,0.34);
           background: rgba(255,255,255,0.06);
           display: flex;
           align-items: center;
           justify-content: center;
-          color: rgba(255,255,255,0.95);
+          color: rgba(255,255,255,0.96);
           flex: 0 0 auto;
         }
 
@@ -372,20 +386,20 @@ export default function DesignLabV10Page() {
           font-weight: 900;
           white-space: nowrap;
           direction: rtl;
-          text-shadow: 0 7px 18px rgba(15,23,42,0.22);
+          text-shadow: 0 4px 10px rgba(15,23,42,0.18);
         }
 
         .employee-divider-small {
           width: 1px;
-          height: 38px;
-          background: rgba(255,255,255,0.38);
+          height: 34px;
+          background: rgba(255,255,255,0.30);
           flex: 0 0 auto;
         }
 
         .logout-inline-button {
           border: none;
           background: transparent;
-          color: rgba(255,255,255,0.92);
+          color: rgba(255,255,255,0.90);
           font-size: 15px;
           font-weight: 800;
           display: flex;
@@ -410,11 +424,10 @@ export default function DesignLabV10Page() {
         }
 
         .main-workstation-button {
-          margin-top: 28px;
-          min-width: 245px;
+          width: 245px;
           height: 50px;
-          border: 1px solid rgba(255,255,255,0.28);
-          background: linear-gradient(135deg,#70e87b,#22c55e 55%,#16a34a);
+          border: none;
+          background: linear-gradient(135deg,#72e77d,#22c55e 58%,#16a34a);
           color: #ffffff;
           border-radius: 999px;
           padding: 0 24px;
@@ -422,13 +435,14 @@ export default function DesignLabV10Page() {
           font-weight: 900;
           cursor: pointer;
           font-family: var(--font-almarai), sans-serif;
-          box-shadow: 0 10px 20px rgba(22,163,74,0.22);
+          box-shadow: 0 8px 18px rgba(22,163,74,0.20);
           display: inline-flex;
           align-items: center;
           justify-content: center;
           gap: 11px;
           white-space: nowrap;
           direction: rtl;
+          transition: transform 0.15s ease, box-shadow 0.15s ease;
         }
 
         .main-workstation-button svg {
@@ -438,19 +452,18 @@ export default function DesignLabV10Page() {
 
         .main-workstation-button:hover {
           transform: translateY(-1px);
-          box-shadow: 0 12px 24px rgba(22,163,74,0.26);
+          box-shadow: 0 10px 22px rgba(22,163,74,0.24);
         }
 
         .hero-title-box {
-          position: absolute;
-          inset: 0;
+          position: relative;
           z-index: 4;
           display: flex;
           align-items: center;
           justify-content: center;
           text-align: center;
+          direction: rtl;
           pointer-events: none;
-          padding: 0 320px;
         }
 
         .hero-title {
@@ -460,7 +473,13 @@ export default function DesignLabV10Page() {
           line-height: 1.35;
           font-weight: 900;
           letter-spacing: -0.6px;
-          text-shadow: 0 8px 22px rgba(15,23,42,0.18);
+          text-shadow: 0 5px 14px rgba(15,23,42,0.14);
+          white-space: nowrap;
+        }
+
+        .hero-spacer {
+          width: 330px;
+          height: 1px;
         }
 
         .hero-circle {
@@ -473,65 +492,37 @@ export default function DesignLabV10Page() {
         .circle-one {
           width: 210px;
           height: 210px;
-          right: -70px;
-          top: -80px;
-          background: rgba(255,255,255,0.07);
+          right: -78px;
+          top: -85px;
+          background: rgba(255,255,255,0.075);
         }
 
         .circle-two {
-          width: 260px;
-          height: 260px;
-          right: 130px;
-          bottom: -170px;
+          width: 245px;
+          height: 245px;
+          right: 145px;
+          bottom: -178px;
           background: rgba(255,255,255,0.045);
         }
 
         .circle-three {
           width: 150px;
           height: 150px;
-          left: 360px;
-          top: -95px;
+          left: 380px;
+          top: -96px;
           background: rgba(255,255,255,0.035);
-        }
-
-        .circle-four {
-          width: 120px;
-          height: 120px;
-          right: 410px;
-          bottom: -70px;
-          border: 1px solid rgba(255,255,255,0.12);
-          background: transparent;
         }
 
         .hero-dots {
           position: absolute;
-          top: 25px;
-          right: 30px;
-          width: 88px;
-          height: 60px;
-          opacity: 0.30;
-          background-image: radial-gradient(rgba(255,255,255,0.42) 2px, transparent 2px);
+          top: 28px;
+          right: 34px;
+          width: 84px;
+          height: 58px;
+          opacity: 0.24;
+          background-image: radial-gradient(rgba(255,255,255,0.40) 2px, transparent 2px);
           background-size: 14px 14px;
           z-index: 2;
-        }
-
-        .hero-diamond {
-          position: absolute;
-          width: 10px;
-          height: 10px;
-          border: 1px solid rgba(255,255,255,0.40);
-          transform: rotate(45deg);
-          z-index: 2;
-        }
-
-        .diamond-one {
-          top: 38px;
-          right: 315px;
-        }
-
-        .diamond-two {
-          top: 63px;
-          right: 372px;
         }
 
         .stats-grid {
@@ -750,15 +741,19 @@ export default function DesignLabV10Page() {
           .modern-hero {
             min-height: auto;
             padding: 18px;
-            display: grid;
-            gap: 16px;
           }
 
-          .hero-left-area {
-            position: relative;
-            left: auto;
-            top: auto;
+          .hero-content {
+            min-height: auto;
+            grid-template-columns: 1fr;
+            gap: 18px;
+          }
+
+          .hero-user-card {
             width: 100%;
+            justify-self: center;
+            justify-items: center;
+            gap: 16px;
           }
 
           .employee-top-row {
@@ -767,22 +762,16 @@ export default function DesignLabV10Page() {
           }
 
           .main-workstation-button {
-            margin: 16px auto 0;
-            display: flex;
-          }
-
-          .hero-title-box {
-            position: relative;
-            left: auto;
-            right: auto;
-            top: auto;
-            bottom: auto;
-            width: 100%;
-            padding: 0;
+            width: 245px;
           }
 
           .hero-title {
             font-size: 27px;
+            white-space: normal;
+          }
+
+          .hero-spacer {
+            display: none;
           }
         }
 
