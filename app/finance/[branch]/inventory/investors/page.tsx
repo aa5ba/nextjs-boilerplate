@@ -17,6 +17,7 @@ export default function InvestorsPage() {
 
   const branch = params.branch as string;
 
+  const [authChecked, setAuthChecked] = useState(false);
   const [screen, setScreen] = useState<ScreenType>("desktop");
   const [employeeName, setEmployeeName] = useState("الموظف");
 
@@ -53,10 +54,34 @@ export default function InvestorsPage() {
   }, []);
 
   useEffect(() => {
+    initializePage();
+  }, [branch]);
+
+  async function initializePage() {
+    const isLoggedIn = checkLogin();
+
+    if (!isLoggedIn) return;
+
     loadEmployeeName();
     loadCurrentUserPermissions();
-    loadInvestors();
-  }, [branch]);
+    await loadInvestors();
+  }
+
+  function checkLogin() {
+    if (typeof window === "undefined") return false;
+
+    const savedUser = localStorage.getItem("finance_user");
+    const savedBranchUser = localStorage.getItem("finance_branch_user");
+    const savedUserName = localStorage.getItem("finance_user_name");
+
+    if (!savedUser && !savedBranchUser && !savedUserName) {
+      router.replace(`/finance/${branch}/login`);
+      return false;
+    }
+
+    setAuthChecked(true);
+    return true;
+  }
 
   function loadEmployeeName() {
     if (typeof window === "undefined") return;
@@ -68,7 +93,9 @@ export default function InvestorsPage() {
       return;
     }
 
-    const oldUser = localStorage.getItem("finance_user");
+    const oldUser =
+      localStorage.getItem("finance_user") ||
+      localStorage.getItem("finance_branch_user");
 
     if (oldUser) {
       try {
@@ -87,17 +114,18 @@ export default function InvestorsPage() {
       localStorage.removeItem("finance_branch_user");
     }
 
-    router.push(`/finance/${branch}/login`);
+    router.replace(`/finance/${branch}/login`);
   }
 
   function loadCurrentUserPermissions() {
     const savedUser =
       typeof window !== "undefined"
-        ? localStorage.getItem("finance_user")
+        ? localStorage.getItem("finance_user") ||
+          localStorage.getItem("finance_branch_user")
         : null;
 
     if (!savedUser) {
-      setRoles(["مدير رئيسي"]);
+      setRoles([]);
       setPermissions([]);
       return;
     }
@@ -107,7 +135,7 @@ export default function InvestorsPage() {
       setRoles(user.roles || []);
       setPermissions(user.permissions || []);
     } catch {
-      setRoles(["مدير رئيسي"]);
+      setRoles([]);
       setPermissions([]);
     }
   }
@@ -254,6 +282,10 @@ export default function InvestorsPage() {
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
     return filteredInvestors.slice(start, start + ITEMS_PER_PAGE);
   }, [filteredInvestors, currentPage]);
+
+  if (!authChecked) {
+    return null;
+  }
 
   return (
     <main dir="rtl" style={getPageStyle(isMobile)}>
