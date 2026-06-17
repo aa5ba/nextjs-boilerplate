@@ -21,11 +21,14 @@ type Note = {
 };
 
 type TabType = "branch" | "private";
+type ScreenType = "mobile" | "tablet" | "desktop";
 
 export default function FinanceNotesPage() {
   const params = useParams();
   const router = useRouter();
   const branch = params.branch as string;
+
+  const [screen, setScreen] = useState<ScreenType>("desktop");
 
   const [branchId, setBranchId] = useState<string | null>(null);
   const [localUserKey, setLocalUserKey] = useState("");
@@ -42,6 +45,29 @@ export default function FinanceNotesPage() {
   const [title, setTitle] = useState("");
   const [note, setNote] = useState("");
   const [reminderDate, setReminderDate] = useState("");
+
+  const isMobile = screen === "mobile";
+  const isTablet = screen === "tablet";
+  const isCompact = isMobile || isTablet;
+
+  useEffect(() => {
+    function updateScreen() {
+      const width = window.innerWidth;
+
+      if (width < 640) {
+        setScreen("mobile");
+      } else if (width < 980) {
+        setScreen("tablet");
+      } else {
+        setScreen("desktop");
+      }
+    }
+
+    updateScreen();
+    window.addEventListener("resize", updateScreen);
+
+    return () => window.removeEventListener("resize", updateScreen);
+  }, []);
 
   useEffect(() => {
     initPage();
@@ -140,7 +166,7 @@ export default function FinanceNotesPage() {
       note: note.trim(),
       visibility: activeTab,
       reminder_date: reminderDate ? reminderDate : null,
-      created_by_name: "مستخدم",
+      created_by_name: employeeName || "مستخدم",
       status: "active",
       note_date: new Date().toISOString().slice(0, 10),
       updated_at: new Date().toISOString(),
@@ -234,24 +260,26 @@ export default function FinanceNotesPage() {
   ).length;
 
   return (
-    <main dir="rtl" style={page}>
-      <div style={container}>
-        <section style={hero}>
+    <main dir="rtl" style={getPageStyle(isMobile)}>
+      <div style={getContainerStyle(isCompact)}>
+        <section style={getHeroStyle(isMobile)}>
           <div style={heroCircleOne} />
           <div style={heroCircleTwo} />
           <div style={heroCircleThree} />
           <div style={heroDots} />
 
-          <div style={heroContent}>
-            <div style={heroUserCard}>
-              <div style={employeeTopRow}>
+          <div style={getHeroContentStyle(screen)}>
+            <div style={getHeroUserCardStyle(screen)}>
+              <div style={getEmployeeTopRowStyle(screen)}>
                 <div style={employeeIcon}>
                   <UserIcon />
                 </div>
 
-                <div style={employeeNameStyle}>{employeeName}</div>
+                <div style={getEmployeeNameStyle(isMobile)}>
+                  {employeeName}
+                </div>
 
-                <div style={employeeDividerSmall} />
+                {!isMobile && <div style={employeeDividerSmall} />}
 
                 <button style={logoutInlineButton} onClick={logout}>
                   <LogoutIcon />
@@ -260,7 +288,7 @@ export default function FinanceNotesPage() {
               </div>
 
               <button
-                style={mainWorkstationButton}
+                style={getMainWorkstationButtonStyle(isMobile)}
                 onClick={() => router.push(`/finance/${branch}`)}
               >
                 <HomeIcon />
@@ -268,13 +296,13 @@ export default function FinanceNotesPage() {
               </button>
             </div>
 
-            <div style={heroTitleBox}>
-              <h1 style={titleStyle}>الملاحظات</h1>
+            <div style={getHeroTitleBoxStyle(screen)}>
+              <h1 style={getTitleStyle(screen)}>الملاحظات</h1>
             </div>
 
-            <div style={heroActionBox}>
+            <div style={getHeroActionBoxStyle(screen)}>
               <button
-                style={addButton}
+                style={getAddButtonStyle(isMobile)}
                 onClick={() => {
                   resetForm();
                   setShowForm(true);
@@ -286,7 +314,7 @@ export default function FinanceNotesPage() {
           </div>
         </section>
 
-        <section style={tabsCard}>
+        <section style={getTabsCardStyle(isMobile)}>
           <button
             style={activeTab === "branch" ? activeTabBtn : tabBtn}
             onClick={() => {
@@ -382,7 +410,7 @@ export default function FinanceNotesPage() {
             </h2>
 
             <input
-              style={searchInput}
+              style={getSearchInputStyle(isMobile)}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="بحث..."
@@ -477,9 +505,7 @@ function formatDateTime(date: string) {
 
   const d = new Date(date);
 
-  return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()} ${d
-    .getHours()
-    .toString()}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
 function UserIcon() {
@@ -552,71 +578,301 @@ function HomeIcon() {
   );
 }
 
-const page: React.CSSProperties = {
-  minHeight: "100vh",
-  backgroundColor: "#f6f9ff",
-  backgroundImage: `
-    radial-gradient(circle at 12% 18%, rgba(59,130,246,0.16) 0, transparent 28%),
-    radial-gradient(circle at 88% 12%, rgba(168,85,247,0.10) 0, transparent 25%),
-    radial-gradient(circle at 80% 88%, rgba(34,197,94,0.10) 0, transparent 28%),
-    linear-gradient(rgba(246,249,255,0.72),rgba(246,249,255,0.82)),
-    url('/backgrounds/v13-finance-bg-1.png')
-  `,
-  backgroundSize: "cover",
-  backgroundPosition: "center",
-  backgroundAttachment: "fixed",
-  padding: 18,
-  fontFamily: "var(--font-almarai), sans-serif",
-};
+function getPageStyle(isMobile: boolean): React.CSSProperties {
+  return {
+    minHeight: "100vh",
+    backgroundColor: "#f6f9ff",
+    backgroundImage: `
+      radial-gradient(circle at 12% 18%, rgba(59,130,246,0.16) 0, transparent 28%),
+      radial-gradient(circle at 88% 12%, rgba(168,85,247,0.10) 0, transparent 25%),
+      radial-gradient(circle at 80% 88%, rgba(34,197,94,0.10) 0, transparent 28%),
+      linear-gradient(rgba(246,249,255,0.72),rgba(246,249,255,0.82)),
+      url('/backgrounds/v13-finance-bg-1.png')
+    `,
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+    backgroundAttachment: isMobile ? "scroll" : "fixed",
+    padding: isMobile ? 10 : 18,
+    fontFamily: "var(--font-almarai), sans-serif",
+  };
+}
 
-const container: React.CSSProperties = {
-  width: "100%",
-  maxWidth: 1100,
-  margin: "auto",
-};
+function getContainerStyle(isCompact: boolean): React.CSSProperties {
+  return {
+    width: "100%",
+    maxWidth: isCompact ? 980 : 1180,
+    margin: "auto",
+  };
+}
 
-const hero: React.CSSProperties = {
-  position: "relative",
-  minHeight: 160,
-  borderRadius: 24,
-  padding: "22px 26px",
-  marginBottom: 14,
-  overflow: "hidden",
-  border: "none",
-  outline: "none",
-  background:
-    "radial-gradient(circle at 15% 18%, rgba(255,255,255,0.08) 0, transparent 24%), radial-gradient(circle at 86% 18%, rgba(255,255,255,0.11) 0, transparent 26%), linear-gradient(105deg,#071c48 0%,#0a327d 30%,#0d65d9 60%,#23a8e4 82%,#6edce4 100%)",
-  boxShadow: "none",
-  isolation: "isolate",
-};
+function getHeroStyle(isMobile: boolean): React.CSSProperties {
+  return {
+    position: "relative",
+    minHeight: isMobile ? "auto" : 160,
+    borderRadius: isMobile ? 20 : 24,
+    padding: isMobile ? "18px 14px" : "22px 26px",
+    marginBottom: 14,
+    overflow: "hidden",
+    border: "none",
+    outline: "none",
+    background:
+      "radial-gradient(circle at 15% 18%, rgba(255,255,255,0.08) 0, transparent 24%), radial-gradient(circle at 86% 18%, rgba(255,255,255,0.11) 0, transparent 26%), linear-gradient(105deg,#071c48 0%,#0a327d 30%,#0d65d9 60%,#23a8e4 82%,#6edce4 100%)",
+    boxShadow: "none",
+    isolation: "isolate",
+  };
+}
 
-const heroContent: React.CSSProperties = {
-  position: "relative",
-  zIndex: 3,
-  minHeight: 116,
-  display: "grid",
-  gridTemplateColumns: "315px 1fr 315px",
-  alignItems: "center",
-  gap: 16,
-  direction: "ltr",
-};
+function getHeroContentStyle(screen: ScreenType): React.CSSProperties {
+  if (screen === "mobile") {
+    return {
+      position: "relative",
+      zIndex: 3,
+      minHeight: "auto",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "stretch",
+      justifyContent: "center",
+      gap: 16,
+      direction: "rtl",
+    };
+  }
 
-const heroUserCard: React.CSSProperties = {
-  width: 315,
-  display: "grid",
-  gap: 24,
-  direction: "ltr",
-  justifySelf: "start",
-};
+  if (screen === "tablet") {
+    return {
+      position: "relative",
+      zIndex: 3,
+      minHeight: "auto",
+      display: "grid",
+      gridTemplateColumns: "1fr",
+      alignItems: "center",
+      justifyItems: "center",
+      gap: 18,
+      direction: "rtl",
+    };
+  }
 
-const employeeTopRow: React.CSSProperties = {
-  height: 42,
-  display: "flex",
-  alignItems: "center",
-  gap: 14,
-  direction: "ltr",
-  color: "#ffffff",
-};
+  return {
+    position: "relative",
+    zIndex: 3,
+    minHeight: 116,
+    display: "grid",
+    gridTemplateColumns: "minmax(250px, 315px) 1fr minmax(220px, 315px)",
+    alignItems: "center",
+    gap: 16,
+    direction: "ltr",
+  };
+}
+
+function getHeroUserCardStyle(screen: ScreenType): React.CSSProperties {
+  if (screen === "mobile") {
+    return {
+      width: "100%",
+      display: "grid",
+      gap: 12,
+      direction: "rtl",
+      justifySelf: "center",
+      justifyItems: "center",
+      order: 2,
+    };
+  }
+
+  if (screen === "tablet") {
+    return {
+      width: "100%",
+      maxWidth: 520,
+      display: "grid",
+      gap: 14,
+      direction: "rtl",
+      justifySelf: "center",
+      justifyItems: "center",
+      order: 2,
+    };
+  }
+
+  return {
+    width: "100%",
+    maxWidth: 315,
+    display: "grid",
+    gap: 24,
+    direction: "ltr",
+    justifySelf: "start",
+  };
+}
+
+function getEmployeeTopRowStyle(screen: ScreenType): React.CSSProperties {
+  if (screen === "mobile") {
+    return {
+      minHeight: 42,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      flexWrap: "wrap",
+      gap: 10,
+      direction: "rtl",
+      color: "#ffffff",
+      width: "100%",
+    };
+  }
+
+  if (screen === "tablet") {
+    return {
+      height: 42,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 14,
+      direction: "rtl",
+      color: "#ffffff",
+      width: "100%",
+    };
+  }
+
+  return {
+    height: 42,
+    display: "flex",
+    alignItems: "center",
+    gap: 14,
+    direction: "ltr",
+    color: "#ffffff",
+  };
+}
+
+function getEmployeeNameStyle(isMobile: boolean): React.CSSProperties {
+  return {
+    color: "#ffffff",
+    fontSize: isMobile ? 15 : 17,
+    fontWeight: 900,
+    whiteSpace: "nowrap",
+    direction: "rtl",
+    textShadow: "0 4px 10px rgba(15,23,42,0.18)",
+  };
+}
+
+function getMainWorkstationButtonStyle(isMobile: boolean): React.CSSProperties {
+  return {
+    width: isMobile ? "100%" : 220,
+    maxWidth: isMobile ? 280 : 220,
+    height: 44,
+    border: "none",
+    background: "linear-gradient(135deg,#72e77d,#22c55e 58%,#16a34a)",
+    color: "#ffffff",
+    borderRadius: 999,
+    padding: "0 18px",
+    fontSize: 14,
+    fontWeight: 900,
+    cursor: "pointer",
+    fontFamily: "var(--font-almarai), sans-serif",
+    boxShadow: "0 8px 18px rgba(22,163,74,0.20)",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 9,
+    whiteSpace: "nowrap",
+    direction: "rtl",
+  };
+}
+
+function getHeroTitleBoxStyle(screen: ScreenType): React.CSSProperties {
+  return {
+    position: "relative",
+    zIndex: 4,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    textAlign: "center",
+    direction: "rtl",
+    pointerEvents: "none",
+    order: screen === "desktop" ? 0 : 1,
+  };
+}
+
+function getTitleStyle(screen: ScreenType): React.CSSProperties {
+  return {
+    margin: 0,
+    color: "#ffffff",
+    fontSize: screen === "mobile" ? 26 : screen === "tablet" ? 28 : 30,
+    lineHeight: 1.35,
+    fontWeight: 900,
+    letterSpacing: "-0.4px",
+    textShadow: "0 5px 14px rgba(15,23,42,0.14)",
+    whiteSpace: "nowrap",
+  };
+}
+
+function getHeroActionBoxStyle(screen: ScreenType): React.CSSProperties {
+  if (screen === "mobile") {
+    return {
+      display: "flex",
+      flexDirection: "column",
+      justifyContent: "center",
+      alignItems: "center",
+      gap: 12,
+      direction: "rtl",
+      width: "100%",
+      order: 3,
+    };
+  }
+
+  if (screen === "tablet") {
+    return {
+      display: "flex",
+      flexDirection: "column",
+      justifyContent: "center",
+      alignItems: "center",
+      gap: 12,
+      direction: "rtl",
+      width: "100%",
+      order: 3,
+    };
+  }
+
+  return {
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "center",
+    alignItems: "flex-end",
+    gap: 12,
+    direction: "rtl",
+  };
+}
+
+function getAddButtonStyle(isMobile: boolean): React.CSSProperties {
+  return {
+    width: isMobile ? "100%" : "auto",
+    maxWidth: isMobile ? 280 : "none",
+    background: "white",
+    color: "#0f172a",
+    border: "none",
+    borderRadius: 14,
+    padding: "14px 18px",
+    fontSize: isMobile ? 15 : 16,
+    fontWeight: 800,
+    cursor: "pointer",
+    fontFamily: "var(--font-almarai), sans-serif",
+    boxShadow: "0 8px 18px rgba(15,23,42,0.10)",
+  };
+}
+
+function getTabsCardStyle(isMobile: boolean): React.CSSProperties {
+  return {
+    background: "white",
+    border: "1px solid #e2e8f0",
+    borderRadius: 18,
+    padding: 8,
+    display: "grid",
+    gridTemplateColumns: isMobile ? "1fr" : "repeat(2, 1fr)",
+    gap: 8,
+    marginBottom: 14,
+  };
+}
+
+function getSearchInputStyle(isMobile: boolean): React.CSSProperties {
+  return {
+    ...input,
+    maxWidth: isMobile ? "100%" : 320,
+  };
+}
 
 const employeeIcon: React.CSSProperties = {
   width: 38,
@@ -629,15 +885,6 @@ const employeeIcon: React.CSSProperties = {
   justifyContent: "center",
   color: "rgba(255,255,255,0.96)",
   flex: "0 0 auto",
-};
-
-const employeeNameStyle: React.CSSProperties = {
-  color: "#ffffff",
-  fontSize: 17,
-  fontWeight: 900,
-  whiteSpace: "nowrap",
-  direction: "rtl",
-  textShadow: "0 4px 10px rgba(15,23,42,0.18)",
 };
 
 const employeeDividerSmall: React.CSSProperties = {
@@ -661,70 +908,6 @@ const logoutInlineButton: React.CSSProperties = {
   padding: 0,
   whiteSpace: "nowrap",
   direction: "rtl",
-};
-
-const mainWorkstationButton: React.CSSProperties = {
-  width: 220,
-  height: 44,
-  border: "none",
-  background: "linear-gradient(135deg,#72e77d,#22c55e 58%,#16a34a)",
-  color: "#ffffff",
-  borderRadius: 999,
-  padding: "0 18px",
-  fontSize: 14,
-  fontWeight: 900,
-  cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
-  boxShadow: "0 8px 18px rgba(22,163,74,0.20)",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 9,
-  whiteSpace: "nowrap",
-  direction: "rtl",
-};
-
-const heroTitleBox: React.CSSProperties = {
-  position: "relative",
-  zIndex: 4,
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
-  justifyContent: "center",
-  textAlign: "center",
-  direction: "rtl",
-  pointerEvents: "none",
-};
-
-const titleStyle: React.CSSProperties = {
-  margin: 0,
-  color: "#ffffff",
-  fontSize: 30,
-  lineHeight: 1.35,
-  fontWeight: 900,
-  letterSpacing: "-0.4px",
-  textShadow: "0 5px 14px rgba(15,23,42,0.14)",
-  whiteSpace: "nowrap",
-};
-
-const heroActionBox: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  justifyContent: "center",
-  alignItems: "flex-end",
-  gap: 12,
-  direction: "rtl",
-};
-
-const addButton: React.CSSProperties = {
-  background: "white",
-  color: "#0f172a",
-  border: "none",
-  borderRadius: 14,
-  padding: "14px 18px",
-  fontSize: 16,
-  fontWeight: 800,
-  cursor: "pointer",
 };
 
 const heroCircleOne: React.CSSProperties = {
@@ -776,17 +959,6 @@ const heroDots: React.CSSProperties = {
   zIndex: 2,
 };
 
-const tabsCard: React.CSSProperties = {
-  background: "white",
-  border: "1px solid #e2e8f0",
-  borderRadius: 18,
-  padding: 8,
-  display: "grid",
-  gridTemplateColumns: "repeat(2, 1fr)",
-  gap: 8,
-  marginBottom: 14,
-};
-
 const tabBtn: React.CSSProperties = {
   border: "none",
   background: "#f8fafc",
@@ -799,6 +971,7 @@ const tabBtn: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const activeTabBtn: React.CSSProperties = {
@@ -822,6 +995,7 @@ const formHeader: React.CSSProperties = {
   alignItems: "center",
   gap: 10,
   marginBottom: 12,
+  flexWrap: "wrap",
 };
 
 const formTitle: React.CSSProperties = {
@@ -837,6 +1011,7 @@ const closeBtn: React.CSSProperties = {
   borderRadius: 12,
   padding: "10px 14px",
   cursor: "pointer",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const formGrid: React.CSSProperties = {
@@ -860,6 +1035,7 @@ const input: React.CSSProperties = {
   fontSize: 15,
   boxSizing: "border-box",
   background: "white",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const textarea: React.CSSProperties = {
@@ -880,6 +1056,7 @@ const saveButton: React.CSSProperties = {
   fontSize: 17,
   fontWeight: 800,
   cursor: "pointer",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const contentCard: React.CSSProperties = {
@@ -903,11 +1080,6 @@ const listTitle: React.CSSProperties = {
   margin: 0,
   color: "#0f172a",
   fontSize: 22,
-};
-
-const searchInput: React.CSSProperties = {
-  ...input,
-  maxWidth: 320,
 };
 
 const notesList: React.CSSProperties = {
@@ -958,6 +1130,7 @@ const publicBadge: React.CSSProperties = {
   padding: "6px 10px",
   fontSize: 13,
   fontWeight: 800,
+  whiteSpace: "nowrap",
 };
 
 const privateBadge: React.CSSProperties = {
@@ -967,6 +1140,7 @@ const privateBadge: React.CSSProperties = {
   padding: "6px 10px",
   fontSize: 13,
   fontWeight: 800,
+  whiteSpace: "nowrap",
 };
 
 const noteText: React.CSSProperties = {
@@ -990,6 +1164,7 @@ const editBtn: React.CSSProperties = {
   borderRadius: 10,
   padding: "9px 12px",
   cursor: "pointer",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const doneBtn: React.CSSProperties = {
@@ -999,6 +1174,7 @@ const doneBtn: React.CSSProperties = {
   borderRadius: 10,
   padding: "9px 12px",
   cursor: "pointer",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const deleteBtn: React.CSSProperties = {
@@ -1008,6 +1184,7 @@ const deleteBtn: React.CSSProperties = {
   borderRadius: 10,
   padding: "9px 12px",
   cursor: "pointer",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const emptyBox: React.CSSProperties = {
@@ -1035,4 +1212,5 @@ const backButton: React.CSSProperties = {
   fontWeight: 900,
   cursor: "pointer",
   boxShadow: "0 5px 14px rgba(22,163,74,0.22)",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
