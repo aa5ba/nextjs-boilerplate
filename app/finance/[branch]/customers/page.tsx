@@ -24,6 +24,7 @@ export default function FinanceCustomersPage() {
 
   const [groups, setGroups] = useState<any[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
+  const [groupsLoading, setGroupsLoading] = useState(true);
 
   const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [verificationNationalId, setVerificationNationalId] = useState("");
@@ -114,11 +115,18 @@ export default function FinanceCustomersPage() {
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
+  function normalizeGroupName(value: string) {
+    return value.trim().replace(/\s+/g, " ").toLowerCase();
+  }
+
   async function loadGroups() {
+    setGroupsLoading(true);
+
     const branchId = await getBranchId(branch);
 
     if (!branchId) {
       setGroups([]);
+      setGroupsLoading(false);
       return;
     }
 
@@ -130,12 +138,15 @@ export default function FinanceCustomersPage() {
 
     if (error) {
       console.error(error);
+      alert("تعذر تحميل مجموعات العملاء.");
       setGroups([]);
+      setGroupsLoading(false);
       return;
     }
 
     setGroups(data || []);
     setCurrentPage(1);
+    setGroupsLoading(false);
   }
 
   async function verifyCustomerByNationalId() {
@@ -180,10 +191,21 @@ export default function FinanceCustomersPage() {
 
     if (!newName) return;
 
-    const cleanName = newName.trim();
+    const cleanName = newName.trim().replace(/\s+/g, " ");
 
     if (!cleanName) {
       alert("اسم المجموعة لا يمكن أن يكون فارغًا.");
+      return;
+    }
+
+    const duplicatedGroup = groups.find(
+      (item) =>
+        item.id !== group.id &&
+        normalizeGroupName(item.name || "") === normalizeGroupName(cleanName)
+    );
+
+    if (duplicatedGroup) {
+      alert("توجد مجموعة أخرى بنفس الاسم داخل هذا الفرع.");
       return;
     }
 
@@ -233,6 +255,24 @@ export default function FinanceCustomersPage() {
 
     try {
       setGroupActionLoading(true);
+
+      const { data: linkedCustomers, error: linkedCustomersError } = await supabase
+        .from("finance_customers")
+        .select("id")
+        .eq("branch_id", branchId)
+        .eq("group_id", group.id)
+        .limit(1);
+
+      if (linkedCustomersError) {
+        console.error(linkedCustomersError);
+        alert("تعذر التحقق من ارتباط المجموعة بالعملاء.");
+        return;
+      }
+
+      if ((linkedCustomers || []).length > 0) {
+        alert("لا يمكن حذف المجموعة لأنها مرتبطة بعملاء. انقل العملاء أولًا ثم احذف المجموعة.");
+        return;
+      }
 
       const { error } = await supabase
         .from("finance_customer_groups")
@@ -328,7 +368,9 @@ export default function FinanceCustomersPage() {
         </section>
 
         <section style={groupsSection}>
-          {groups.length === 0 ? (
+          {groupsLoading ? (
+            <div style={emptyGroupCard}>جاري تحميل مجموعات العملاء...</div>
+          ) : groups.length === 0 ? (
             <div style={emptyGroupCard}>لا توجد مجموعات عملاء حتى الآن</div>
           ) : (
             paginatedGroups.map((group, index) => (
