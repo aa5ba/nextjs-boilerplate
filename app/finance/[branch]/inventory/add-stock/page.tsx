@@ -15,6 +15,7 @@ export default function AddStockPage() {
 
   const branch = params.branch as string;
 
+  const [authChecked, setAuthChecked] = useState(false);
   const [screen, setScreen] = useState<ScreenType>("desktop");
   const [employeeName, setEmployeeName] = useState("الموظف");
 
@@ -53,9 +54,33 @@ export default function AddStockPage() {
   }, []);
 
   useEffect(() => {
-    loadEmployeeName();
-    loadData();
+    initializePage();
   }, [branch]);
+
+  async function initializePage() {
+    const isLoggedIn = checkLogin();
+
+    if (!isLoggedIn) return;
+
+    loadEmployeeName();
+    await loadData();
+  }
+
+  function checkLogin() {
+    if (typeof window === "undefined") return false;
+
+    const savedUser = localStorage.getItem("finance_user");
+    const savedBranchUser = localStorage.getItem("finance_branch_user");
+    const savedUserName = localStorage.getItem("finance_user_name");
+
+    if (!savedUser && !savedBranchUser && !savedUserName) {
+      router.replace(`/finance/${branch}/login`);
+      return false;
+    }
+
+    setAuthChecked(true);
+    return true;
+  }
 
   function loadEmployeeName() {
     if (typeof window === "undefined") return;
@@ -67,7 +92,9 @@ export default function AddStockPage() {
       return;
     }
 
-    const oldUser = localStorage.getItem("finance_user");
+    const oldUser =
+      localStorage.getItem("finance_user") ||
+      localStorage.getItem("finance_branch_user");
 
     if (oldUser) {
       try {
@@ -86,7 +113,7 @@ export default function AddStockPage() {
       localStorage.removeItem("finance_branch_user");
     }
 
-    router.push(`/finance/${branch}/login`);
+    router.replace(`/finance/${branch}/login`);
   }
 
   async function loadData() {
@@ -256,6 +283,10 @@ export default function AddStockPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  if (!authChecked) {
+    return null;
   }
 
   return (
