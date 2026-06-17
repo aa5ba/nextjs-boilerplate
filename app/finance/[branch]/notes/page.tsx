@@ -270,12 +270,19 @@ export default function FinanceNotesPage() {
 
             <div style={heroTitleBox}>
               <h1 style={titleStyle}>الملاحظات</h1>
-              <p style={subtitle}>
-                ملاحظات عامة للجميع، وملاحظات خاصة تظهر لك فقط.
-              </p>
             </div>
 
             <div style={heroActionBox}>
+              <div style={securityBadge} title="الموقع آمن">
+                <span style={securityLockIcon}>
+                  <LockIcon />
+                </span>
+
+                <span style={securityGreenIcon}>
+                  <SecureCheckIcon />
+                </span>
+              </div>
+
               <button
                 style={addButton}
                 onClick={() => {
@@ -485,7 +492,7 @@ function formatDateTime(date: string) {
 
 function UserIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path
         d="M12 12.2a4.2 4.2 0 1 0 0-8.4 4.2 4.2 0 0 0 0 8.4Z"
         stroke="currentColor"
@@ -503,7 +510,7 @@ function UserIcon() {
 
 function LogoutIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path
         d="M9.5 7V5.8c0-1 .8-1.8 1.8-1.8h6.1c1 0 1.8.8 1.8 1.8v12.4c0 1-.8 1.8-1.8 1.8h-6.1c-1 0-1.8-.8-1.8-1.8V17"
         stroke="currentColor"
@@ -529,7 +536,7 @@ function LogoutIcon() {
 
 function HomeIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path
         d="M3.8 11.2 12 4.5l8.2 6.7"
         stroke="currentColor"
@@ -547,6 +554,38 @@ function HomeIcon() {
         d="M10 19.5v-5.2h4v5.2"
         stroke="currentColor"
         strokeWidth="2"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function LockIcon() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M7.5 10V8.2C7.5 5.7 9.5 3.8 12 3.8s4.5 1.9 4.5 4.4V10"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M6.6 10h10.8c1 0 1.8.8 1.8 1.8v6.6c0 1-.8 1.8-1.8 1.8H6.6c-1 0-1.8-.8-1.8-1.8v-6.6c0-1 .8-1.8 1.8-1.8Z"
+        stroke="currentColor"
+        strokeWidth="2"
+      />
+    </svg>
+  );
+}
+
+function SecureCheckIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M20 6 9 17l-5-5"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
         strokeLinejoin="round"
       />
     </svg>
@@ -596,16 +635,16 @@ const heroContent: React.CSSProperties = {
   zIndex: 3,
   minHeight: 116,
   display: "grid",
-  gridTemplateColumns: "330px 1fr 330px",
+  gridTemplateColumns: "315px 1fr 315px",
   alignItems: "center",
   gap: 16,
   direction: "ltr",
 };
 
 const heroUserCard: React.CSSProperties = {
-  width: 330,
+  width: 315,
   display: "grid",
-  gap: 26,
+  gap: 24,
   direction: "ltr",
   justifySelf: "start",
 };
@@ -665,14 +704,14 @@ const logoutInlineButton: React.CSSProperties = {
 };
 
 const mainWorkstationButton: React.CSSProperties = {
-  width: 245,
-  height: 50,
+  width: 220,
+  height: 44,
   border: "none",
   background: "linear-gradient(135deg,#72e77d,#22c55e 58%,#16a34a)",
   color: "#ffffff",
   borderRadius: 999,
-  padding: "0 24px",
-  fontSize: 15,
+  padding: "0 18px",
+  fontSize: 14,
   fontWeight: 900,
   cursor: "pointer",
   fontFamily: "var(--font-almarai), sans-serif",
@@ -680,7 +719,7 @@ const mainWorkstationButton: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
-  gap: 11,
+  gap: 9,
   whiteSpace: "nowrap",
   direction: "rtl",
 };
@@ -700,26 +739,52 @@ const heroTitleBox: React.CSSProperties = {
 const titleStyle: React.CSSProperties = {
   margin: 0,
   color: "#ffffff",
-  fontSize: 35,
+  fontSize: 30,
   lineHeight: 1.35,
   fontWeight: 900,
-  letterSpacing: "-0.6px",
+  letterSpacing: "-0.4px",
   textShadow: "0 5px 14px rgba(15,23,42,0.14)",
   whiteSpace: "nowrap",
 };
 
-const subtitle: React.CSSProperties = {
-  margin: "8px 0 0",
-  color: "rgba(255,255,255,0.86)",
-  lineHeight: 1.7,
-  fontWeight: 700,
-};
-
 const heroActionBox: React.CSSProperties = {
   display: "flex",
-  justifyContent: "flex-end",
-  alignItems: "center",
+  flexDirection: "column",
+  justifyContent: "center",
+  alignItems: "flex-end",
+  gap: 12,
   direction: "rtl",
+};
+
+const securityBadge: React.CSSProperties = {
+  minWidth: 64,
+  height: 30,
+  borderRadius: 999,
+  background: "rgba(255,255,255,0.13)",
+  border: "1px solid rgba(255,255,255,0.18)",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 7,
+  backdropFilter: "blur(4px)",
+};
+
+const securityLockIcon: React.CSSProperties = {
+  color: "#cbd5e1",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+};
+
+const securityGreenIcon: React.CSSProperties = {
+  width: 18,
+  height: 18,
+  borderRadius: "50%",
+  background: "rgba(34,197,94,0.16)",
+  color: "#22c55e",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
 };
 
 const addButton: React.CSSProperties = {
@@ -1033,12 +1098,12 @@ const backWrapper: React.CSSProperties = {
 
 const backButton: React.CSSProperties = {
   padding: "11px 18px",
-  background: "linear-gradient(135deg,#64748b,#334155)",
+  background: "linear-gradient(135deg,#22c55e,#15803d)",
   color: "#ffffff",
   border: "none",
   borderRadius: 12,
   fontSize: 14,
   fontWeight: 900,
   cursor: "pointer",
-  boxShadow: "0 5px 14px rgba(51,65,85,0.22)",
+  boxShadow: "0 5px 14px rgba(22,163,74,0.22)",
 };
