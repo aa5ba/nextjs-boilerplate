@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
@@ -9,6 +9,24 @@ import { getBranchId } from "@/lib/getBranchId";
 const ITEMS_PER_PAGE = 25;
 
 type ScreenType = "mobile" | "tablet" | "desktop";
+
+type InventoryMovement = {
+  id: string;
+  branch_id: string;
+  product_id?: string | null;
+  investor_id?: string | null;
+  movement_type?: string | null;
+  quantity?: number | string | null;
+  before_quantity?: number | string | null;
+  after_quantity?: number | string | null;
+  created_at?: string | null;
+  finance_products?: {
+    product_name?: string | null;
+  } | null;
+  finance_investors?: {
+    investor_name?: string | null;
+  } | null;
+};
 
 export default function InventoryMovementsPage() {
   const params = useParams();
@@ -20,13 +38,20 @@ export default function InventoryMovementsPage() {
   const [screen, setScreen] = useState<ScreenType>("desktop");
   const [employeeName, setEmployeeName] = useState("الموظف");
 
-  const [movements, setMovements] = useState<any[]>([]);
+  const [branchId, setBranchId] = useState<string | null>(null);
+  const [movements, setMovements] = useState<InventoryMovement[]>([]);
+  const [totalMovements, setTotalMovements] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(true);
 
   const isMobile = screen === "mobile";
   const isTablet = screen === "tablet";
   const isCompact = isMobile || isTablet;
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(totalMovements / ITEMS_PER_PAGE)
+  );
 
   useEffect(() => {
     function updateScreen() {
@@ -48,23 +73,65 @@ export default function InventoryMovementsPage() {
   }, []);
 
   useEffect(() => {
-    initializePage();
+    let cancelled = false;
+
+    async function run() {
+      await initializePage(() => cancelled);
+    }
+
+    run();
+
+    return () => {
+      cancelled = true;
+    };
   }, [branch]);
 
-  const totalPages = Math.max(1, Math.ceil(movements.length / ITEMS_PER_PAGE));
+  useEffect(() => {
+    if (!authChecked || !branchId) return;
 
-  const paginatedMovements = useMemo(() => {
-    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    return movements.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-  }, [movements, currentPage]);
+    let cancelled = false;
 
-  async function initializePage() {
+    async function run() {
+      await loadMovements(branchId, currentPage, () => cancelled);
+    }
+
+    run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authChecked, branchId, currentPage]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  async function initializePage(isCancelled: () => boolean) {
     const isLoggedIn = checkLogin();
 
-    if (!isLoggedIn) return;
+    if (!isLoggedIn || isCancelled()) return;
 
     loadEmployeeName();
-    await loadMovements();
+
+    setLoading(true);
+    setMovements([]);
+    setTotalMovements(0);
+    setCurrentPage(1);
+    setBranchId(null);
+
+    const currentBranchId = await getBranchId(branch);
+
+    if (isCancelled()) return;
+
+    if (!currentBranchId) {
+      setLoading(false);
+      alert("تعذر تحديد الفرع");
+      return;
+    }
+
+    setBranchId(currentBranchId);
   }
 
   function checkLogin() {
@@ -86,24 +153,33 @@ export default function InventoryMovementsPage() {
   function loadEmployeeName() {
     if (typeof window === "undefined") return;
 
-    const newName = localStorage.getItem("finance_user_name");
+    const directName = localStorage.getItem("finance_user_name");
 
-    if (newName) {
-      setEmployeeName(newName);
+    if (directName) {
+      setEmployeeName(directName);
       return;
     }
 
-    const oldUser =
+    const savedUser =
       localStorage.getItem("finance_user") ||
       localStorage.getItem("finance_branch_user");
 
-    if (oldUser) {
-      try {
-        const parsed = JSON.parse(oldUser);
-        setEmployeeName(parsed?.full_name || parsed?.username || "الموظف");
-      } catch {
-        setEmployeeName("الموظف");
-      }
+    if (!savedUser) {
+      setEmployeeName("الموظف");
+      return;
+    }
+
+    try {
+      const parsedUser = JSON.parse(savedUser);
+
+      setEmployeeName(
+        parsedUser?.full_name ||
+          parsedUser?.username ||
+          parsedUser?.name ||
+          "الموظف"
+      );
+    } catch {
+      setEmployeeName("الموظف");
     }
   }
 
@@ -117,40 +193,65 @@ export default function InventoryMovementsPage() {
     router.replace(`/finance/${branch}/login`);
   }
 
-  async function loadMovements() {
+  async function loadMovements(
+    currentBranchId: string,
+    requestedPage: number,
+    isCancelled: () => boolean = () => false
+  ) {
     setLoading(true);
 
-    const branchId = await getBranchId(branch);
+    const from = (requestedPage - 1) * ITEMS_PER_PAGE;
+    const to = from + ITEMS_PER_PAGE - 1;
 
-    if (!branchId) {
-      setMovements([]);
-      setCurrentPage(1);
-      setLoading(false);
-      return;
-    }
-
-    const { data, error } = await supabase
+    const { data, error, count } = await supabase
       .from("finance_inventory_movements")
       .select(
         `
-        *,
-        finance_products(product_name),
-        finance_investors(investor_name)
-      `
+          id,
+          branch_id,
+          product_id,
+          investor_id,
+          movement_type,
+          quantity,
+          before_quantity,
+          after_quantity,
+          created_at,
+          finance_products(product_name),
+          finance_investors(investor_name)
+        `,
+        {
+          count: "exact",
+        }
       )
-      .eq("branch_id", branchId)
-      .order("created_at", { ascending: false });
+      .eq("branch_id", currentBranchId)
+      .order("created_at", { ascending: false })
+      .range(from, to);
+
+    if (isCancelled()) return;
 
     if (error) {
       alert(error.message || "تعذر تحميل سجل الحركات");
       setMovements([]);
-      setCurrentPage(1);
+      setTotalMovements(0);
       setLoading(false);
       return;
     }
 
-    setMovements(data || []);
-    setCurrentPage(1);
+    const currentTotal = count || 0;
+    const calculatedTotalPages = Math.max(
+      1,
+      Math.ceil(currentTotal / ITEMS_PER_PAGE)
+    );
+
+    if (requestedPage > calculatedTotalPages) {
+      setTotalMovements(currentTotal);
+      setCurrentPage(calculatedTotalPages);
+      setLoading(false);
+      return;
+    }
+
+    setMovements((data || []) as InventoryMovement[]);
+    setTotalMovements(currentTotal);
     setLoading(false);
   }
 
@@ -180,13 +281,18 @@ export default function InventoryMovementsPage() {
 
                 {!isMobile && <div style={employeeDividerSmall} />}
 
-                <button style={logoutInlineButton} onClick={logout}>
+                <button
+                  type="button"
+                  style={logoutInlineButton}
+                  onClick={logout}
+                >
                   <LogoutIcon />
                   <span>تسجيل الخروج</span>
                 </button>
               </div>
 
               <button
+                type="button"
                 style={getMainWorkstationButtonStyle(isMobile)}
                 onClick={() => router.push(`/finance/${branch}`)}
               >
@@ -207,10 +313,10 @@ export default function InventoryMovementsPage() {
           <div style={listHeader}>
             <h2 style={sectionTitle}>حركات المخزون</h2>
 
-            {!loading && movements.length > 0 && (
+            {!loading && totalMovements > 0 && (
               <span style={pageInfo}>
-                صفحة {currentPage} من {totalPages} - عرض{" "}
-                {paginatedMovements.length} من {movements.length}
+                صفحة {currentPage} من {totalPages} - عرض {movements.length} من{" "}
+                {totalMovements}
               </span>
             )}
           </div>
@@ -230,37 +336,44 @@ export default function InventoryMovementsPage() {
           ) : movements.length === 0 ? (
             <div style={emptyBox}>لا توجد حركات حتى الآن</div>
           ) : (
-            paginatedMovements.map((movement) => (
+            movements.map((movement) => (
               <div key={movement.id} style={tableRow}>
                 <strong style={movementType}>
                   {movement.movement_type || "-"}
                 </strong>
 
-                <span>{movement.finance_products?.product_name || "-"}</span>
+                <span>
+                  {movement.finance_products?.product_name || "-"}
+                </span>
 
-                <span>{movement.finance_investors?.investor_name || "-"}</span>
+                <span>
+                  {movement.finance_investors?.investor_name || "-"}
+                </span>
 
-                <strong>{movement.quantity || 0}</strong>
+                <strong>{Number(movement.quantity || 0)}</strong>
 
-                <span>{movement.before_quantity || 0}</span>
+                <span>{Number(movement.before_quantity || 0)}</span>
 
-                <span>{movement.after_quantity || 0}</span>
+                <span>{Number(movement.after_quantity || 0)}</span>
 
                 <span>{formatDate(movement.created_at)}</span>
               </div>
             ))
           )}
 
-          {!loading && movements.length > ITEMS_PER_PAGE && (
+          {!loading && totalMovements > ITEMS_PER_PAGE && (
             <div style={paginationBox}>
               <button
+                type="button"
                 style={{
                   ...paginationButton,
                   opacity: currentPage === 1 ? 0.5 : 1,
                   cursor: currentPage === 1 ? "not-allowed" : "pointer",
                 }}
-                disabled={currentPage === 1}
-                onClick={() => setCurrentPage((page) => Math.max(page - 1, 1))}
+                disabled={currentPage === 1 || loading}
+                onClick={() =>
+                  setCurrentPage((page) => Math.max(page - 1, 1))
+                }
               >
                 السابق
               </button>
@@ -270,15 +383,20 @@ export default function InventoryMovementsPage() {
               </span>
 
               <button
+                type="button"
                 style={{
                   ...paginationButton,
                   opacity: currentPage === totalPages ? 0.5 : 1,
                   cursor:
-                    currentPage === totalPages ? "not-allowed" : "pointer",
+                    currentPage === totalPages
+                      ? "not-allowed"
+                      : "pointer",
                 }}
-                disabled={currentPage === totalPages}
+                disabled={currentPage === totalPages || loading}
                 onClick={() =>
-                  setCurrentPage((page) => Math.min(page + 1, totalPages))
+                  setCurrentPage((page) =>
+                    Math.min(page + 1, totalPages)
+                  )
                 }
               >
                 التالي
@@ -289,10 +407,11 @@ export default function InventoryMovementsPage() {
 
         <div style={backWrapper}>
           <button
+            type="button"
             style={backButton}
-            onClick={() => router.push(`/finance/${branch}/inventory`)}
+            onClick={() => router.back()}
           >
-            الرجوع للمخزون
+            الرجوع
           </button>
         </div>
       </div>
@@ -300,10 +419,16 @@ export default function InventoryMovementsPage() {
   );
 }
 
-function formatDate(date: string) {
+function formatDate(date?: string | null) {
   if (!date) return "-";
 
-  return new Date(date).toLocaleString("ar-SA-u-ca-gregory", {
+  const parsedDate = new Date(date);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "-";
+  }
+
+  return parsedDate.toLocaleString("ar-SA-u-ca-gregory", {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -314,7 +439,13 @@ function formatDate(date: string) {
 
 function UserIcon() {
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M12 12.2a4.2 4.2 0 1 0 0-8.4 4.2 4.2 0 0 0 0 8.4Z"
         stroke="currentColor"
@@ -332,7 +463,13 @@ function UserIcon() {
 
 function LogoutIcon() {
   return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M9.5 7V5.8c0-1 .8-1.8 1.8-1.8h6.1c1 0 1.8.8 1.8 1.8v12.4c0 1-.8 1.8-1.8 1.8h-6.1c-1 0-1.8-.8-1.8-1.8V17"
         stroke="currentColor"
@@ -358,7 +495,13 @@ function LogoutIcon() {
 
 function HomeIcon() {
   return (
-    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="21"
+      height="21"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M3.8 11.2 12 4.5l8.2 6.7"
         stroke="currentColor"
@@ -460,7 +603,8 @@ function getHeroContentStyle(screen: ScreenType): CSSProperties {
     zIndex: 3,
     minHeight: 116,
     display: "grid",
-    gridTemplateColumns: "minmax(250px, 315px) 1fr minmax(220px, 315px)",
+    gridTemplateColumns:
+      "minmax(250px, 315px) 1fr minmax(220px, 315px)",
     alignItems: "center",
     gap: 16,
     direction: "ltr",
@@ -552,13 +696,16 @@ function getEmployeeNameStyle(isMobile: boolean): CSSProperties {
   };
 }
 
-function getMainWorkstationButtonStyle(isMobile: boolean): CSSProperties {
+function getMainWorkstationButtonStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     width: isMobile ? "100%" : 220,
     maxWidth: isMobile ? 280 : 220,
     height: 44,
     border: "none",
-    background: "linear-gradient(135deg,#72e77d,#22c55e 58%,#16a34a)",
+    background:
+      "linear-gradient(135deg,#72e77d,#22c55e 58%,#16a34a)",
     color: "#ffffff",
     borderRadius: 999,
     padding: "0 18px",
@@ -595,7 +742,8 @@ function getTitleStyle(screen: ScreenType): CSSProperties {
   return {
     margin: 0,
     color: "#ffffff",
-    fontSize: screen === "mobile" ? 26 : screen === "tablet" ? 28 : 30,
+    fontSize:
+      screen === "mobile" ? 26 : screen === "tablet" ? 28 : 30,
     lineHeight: 1.35,
     fontWeight: 900,
     letterSpacing: "-0.4px",
