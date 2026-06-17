@@ -1,12 +1,44 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
 
+const ITEMS_PER_PAGE = 25;
+
 type ScreenType = "mobile" | "tablet" | "desktop";
+
+type Investor = {
+  id: string;
+  branch_id: string;
+  investor_name: string | null;
+  national_id: string | null;
+  phone: string | null;
+  notes: string | null;
+  is_active: boolean;
+  created_at: string | null;
+};
+
+type InventoryItem = {
+  id: string;
+  branch_id: string;
+  investor_id: string | null;
+  product_id: string | null;
+  quantity: number | string | null;
+  updated_at: string | null;
+  finance_products:
+    | {
+        product_name: string | null;
+        product_category: string | null;
+      }
+    | {
+        product_name: string | null;
+        product_category: string | null;
+      }[]
+    | null;
+};
 
 export default function InvestorDetailsPage() {
   const params = useParams();
@@ -15,14 +47,25 @@ export default function InvestorDetailsPage() {
   const branch = params.branch as string;
   const investorId = params.id as string;
 
+  const statusLoadingRef = useRef(false);
+
   const [authChecked, setAuthChecked] = useState(false);
   const [screen, setScreen] = useState<ScreenType>("desktop");
   const [employeeName, setEmployeeName] = useState("الموظف");
 
-  const [investor, setInvestor] = useState<any>(null);
-  const [inventory, setInventory] = useState<any[]>([]);
+  const [branchId, setBranchId] = useState<string | null>(null);
+  const [investor, setInvestor] = useState<Investor | null>(null);
+
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [productsCount, setProductsCount] = useState(0);
+  const [totalQuantity, setTotalQuantity] = useState(0);
   const [contractsCount, setContractsCount] = useState(0);
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalInventoryRows, setTotalInventoryRows] = useState(0);
+
   const [loading, setLoading] = useState(true);
+  const [inventoryLoading, setInventoryLoading] = useState(false);
   const [statusLoading, setStatusLoading] = useState(false);
 
   const [permissions, setPermissions] = useState<string[]>([]);
@@ -31,6 +74,11 @@ export default function InvestorDetailsPage() {
   const isMobile = screen === "mobile";
   const isTablet = screen === "tablet";
   const isCompact = isMobile || isTablet;
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(totalInventoryRows / ITEMS_PER_PAGE)
+  );
 
   useEffect(() => {
     function updateScreen() {
@@ -52,17 +100,80 @@ export default function InvestorDetailsPage() {
   }, []);
 
   useEffect(() => {
-    initializePage();
+    let cancelled = false;
+
+    async function run() {
+      await initializePage(() => cancelled);
+    }
+
+    run();
+
+    return () => {
+      cancelled = true;
+    };
   }, [branch, investorId]);
 
-  async function initializePage() {
+  useEffect(() => {
+    if (!authChecked || !branchId || !investor?.id) return;
+
+    let cancelled = false;
+
+    async function run() {
+      await loadInventoryPage(
+        branchId,
+        currentPage,
+        () => cancelled
+      );
+    }
+
+    run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authChecked, branchId, investor?.id, currentPage]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  async function initializePage(isCancelled: () => boolean) {
+    setLoading(true);
+    setInventoryLoading(false);
+    setBranchId(null);
+    setInvestor(null);
+    setInventory([]);
+    setProductsCount(0);
+    setTotalQuantity(0);
+    setContractsCount(0);
+    setTotalInventoryRows(0);
+    setCurrentPage(1);
+
     const isLoggedIn = checkLogin();
 
-    if (!isLoggedIn) return;
+    if (!isLoggedIn || isCancelled()) return;
 
     loadEmployeeName();
     loadCurrentUserPermissions();
-    await loadInvestor();
+
+    const currentBranchId = await getBranchId(branch);
+
+    if (isCancelled()) return;
+
+    if (!currentBranchId) {
+      setLoading(false);
+      alert("تعذر تحديد الفرع");
+      return;
+    }
+
+    setBranchId(currentBranchId);
+
+    await loadInvestorMainData(
+      currentBranchId,
+      isCancelled
+    );
   }
 
   function checkLogin() {
@@ -84,24 +195,33 @@ export default function InvestorDetailsPage() {
   function loadEmployeeName() {
     if (typeof window === "undefined") return;
 
-    const newName = localStorage.getItem("finance_user_name");
+    const directName = localStorage.getItem("finance_user_name");
 
-    if (newName) {
-      setEmployeeName(newName);
+    if (directName) {
+      setEmployeeName(directName);
       return;
     }
 
-    const oldUser =
+    const savedUser =
       localStorage.getItem("finance_user") ||
       localStorage.getItem("finance_branch_user");
 
-    if (oldUser) {
-      try {
-        const parsed = JSON.parse(oldUser);
-        setEmployeeName(parsed?.full_name || parsed?.username || "الموظف");
-      } catch {
-        setEmployeeName("الموظف");
-      }
+    if (!savedUser) {
+      setEmployeeName("الموظف");
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(savedUser);
+
+      setEmployeeName(
+        parsed?.full_name ||
+          parsed?.username ||
+          parsed?.name ||
+          "الموظف"
+      );
+    } catch {
+      setEmployeeName("الموظف");
     }
   }
 
@@ -110,122 +230,266 @@ export default function InvestorDetailsPage() {
       localStorage.removeItem("finance_user");
       localStorage.removeItem("finance_user_name");
       localStorage.removeItem("finance_branch_user");
+      localStorage.removeItem("finance_role");
     }
 
     router.replace(`/finance/${branch}/login`);
   }
 
   function loadCurrentUserPermissions() {
+    if (typeof window === "undefined") {
+      setRoles([]);
+      setPermissions([]);
+      return;
+    }
+
     const savedUser =
-      typeof window !== "undefined"
-        ? localStorage.getItem("finance_user") ||
-          localStorage.getItem("finance_branch_user")
-        : null;
+      localStorage.getItem("finance_user") ||
+      localStorage.getItem("finance_branch_user");
+
+    const legacyRole = localStorage.getItem("finance_role");
 
     if (!savedUser) {
-      setRoles([]);
+      setRoles(legacyRole ? [legacyRole] : []);
       setPermissions([]);
       return;
     }
 
     try {
       const user = JSON.parse(savedUser);
-      setRoles(user.roles || []);
-      setPermissions(user.permissions || []);
+
+      const currentRoles: string[] = Array.isArray(user?.roles)
+        ? user.roles.filter(
+            (role: unknown): role is string =>
+              typeof role === "string"
+          )
+        : typeof user?.role === "string"
+        ? [user.role]
+        : [];
+
+      const currentPermissions: string[] = Array.isArray(
+        user?.permissions
+      )
+        ? user.permissions.filter(
+            (permission: unknown): permission is string =>
+              typeof permission === "string"
+          )
+        : [];
+
+      if (legacyRole && !currentRoles.includes(legacyRole)) {
+        currentRoles.push(legacyRole);
+      }
+
+      setRoles(currentRoles);
+      setPermissions(currentPermissions);
     } catch {
-      setRoles([]);
+      setRoles(legacyRole ? [legacyRole] : []);
       setPermissions([]);
     }
   }
 
   function hasPermission(permissionKey: string) {
     return (
+      roles.includes("main_admin") ||
+      roles.includes("branch_manager") ||
       roles.includes("مدير رئيسي") ||
       roles.includes("مدير") ||
       permissions.includes(permissionKey)
     );
   }
 
-  async function loadInvestor() {
-    setLoading(true);
+  async function loadInvestorMainData(
+    currentBranchId: string,
+    isCancelled: () => boolean = () => false
+  ) {
+    try {
+      const { data: investorData, error: investorError } =
+        await supabase
+          .from("finance_investors")
+          .select(
+            `
+              id,
+              branch_id,
+              investor_name,
+              national_id,
+              phone,
+              notes,
+              is_active,
+              created_at
+            `
+          )
+          .eq("id", investorId)
+          .eq("branch_id", currentBranchId)
+          .maybeSingle();
 
-    const branchId = await getBranchId(branch);
+      if (isCancelled()) return;
 
-    if (!branchId) {
+      if (investorError) {
+        alert(
+          investorError.message ||
+            "تعذر تحميل بيانات المستثمر"
+        );
+
+        setInvestor(null);
+        return;
+      }
+
+      if (!investorData) {
+        setInvestor(null);
+        return;
+      }
+
+      const [
+        contractsResult,
+        inventorySummaryResult,
+      ] = await Promise.all([
+        supabase
+          .from("finance_contracts")
+          .select("id", {
+            count: "exact",
+            head: true,
+          })
+          .eq("branch_id", currentBranchId)
+          .eq("investor_id", investorId),
+
+        supabase.rpc(
+          "get_finance_investor_inventory_summary",
+          {
+            p_branch_id: currentBranchId,
+            p_investor_id: investorId,
+          }
+        ),
+      ]);
+
+      if (isCancelled()) return;
+
+      if (contractsResult.error) {
+        alert(
+          contractsResult.error.message ||
+            "تعذر تحميل عدد العقود"
+        );
+      }
+
+      if (inventorySummaryResult.error) {
+        alert(
+          inventorySummaryResult.error.message ||
+            "تعذر تحميل ملخص مخزون المستثمر"
+        );
+      }
+
+      const summary = inventorySummaryResult.data?.[0];
+
+      setInvestor(investorData as Investor);
+      setContractsCount(contractsResult.count || 0);
+      setProductsCount(
+        Number(summary?.products_count || 0)
+      );
+      setTotalQuantity(
+        Number(summary?.total_quantity || 0)
+      );
+    } catch {
+      alert("حدث خطأ غير متوقع أثناء تحميل بيانات المستثمر");
       setInvestor(null);
-      setInventory([]);
-      setContractsCount(0);
-      setLoading(false);
-      return;
+    } finally {
+      if (!isCancelled()) {
+        setLoading(false);
+      }
     }
+  }
 
-    const { data: investorData, error: investorError } = await supabase
-      .from("finance_investors")
-      .select("*")
-      .eq("id", investorId)
-      .eq("branch_id", branchId)
-      .maybeSingle();
+  async function loadInventoryPage(
+    currentBranchId: string,
+    requestedPage: number,
+    isCancelled: () => boolean = () => false
+  ) {
+    setInventoryLoading(true);
 
-    if (investorError) {
-      alert(investorError.message || "تعذر تحميل بيانات المستثمر");
-      setInvestor(null);
-      setInventory([]);
-      setContractsCount(0);
-      setLoading(false);
-      return;
+    try {
+      const from =
+        (requestedPage - 1) * ITEMS_PER_PAGE;
+      const to = from + ITEMS_PER_PAGE - 1;
+
+      const { data, error, count } = await supabase
+        .from("finance_inventory")
+        .select(
+          `
+            id,
+            branch_id,
+            investor_id,
+            product_id,
+            quantity,
+            updated_at,
+            finance_products(
+              product_name,
+              product_category
+            )
+          `,
+          {
+            count: "exact",
+          }
+        )
+        .eq("branch_id", currentBranchId)
+        .eq("investor_id", investorId)
+        .order("updated_at", {
+          ascending: false,
+        })
+        .range(from, to);
+
+      if (isCancelled()) return;
+
+      if (error) {
+        alert(
+          error.message ||
+            "تعذر تحميل منتجات المستثمر"
+        );
+
+        setInventory([]);
+        setTotalInventoryRows(0);
+        return;
+      }
+
+      const currentTotal = count || 0;
+
+      const calculatedTotalPages = Math.max(
+        1,
+        Math.ceil(currentTotal / ITEMS_PER_PAGE)
+      );
+
+      if (requestedPage > calculatedTotalPages) {
+        setTotalInventoryRows(currentTotal);
+        setCurrentPage(calculatedTotalPages);
+        return;
+      }
+
+      setInventory((data || []) as InventoryItem[]);
+      setTotalInventoryRows(currentTotal);
+    } catch {
+      if (!isCancelled()) {
+        alert(
+          "حدث خطأ غير متوقع أثناء تحميل منتجات المستثمر"
+        );
+
+        setInventory([]);
+        setTotalInventoryRows(0);
+      }
+    } finally {
+      if (!isCancelled()) {
+        setInventoryLoading(false);
+      }
     }
-
-    const { data: inventoryData, error: inventoryError } = await supabase
-      .from("finance_inventory")
-      .select(
-        `
-        *,
-        finance_products(product_name, product_category)
-      `
-      )
-      .eq("branch_id", branchId)
-      .eq("investor_id", investorId)
-      .order("updated_at", { ascending: false });
-
-    if (inventoryError) {
-      alert(inventoryError.message || "تعذر تحميل منتجات المستثمر");
-      setInvestor(investorData);
-      setInventory([]);
-      setContractsCount(0);
-      setLoading(false);
-      return;
-    }
-
-    const { count, error: contractsError } = await supabase
-      .from("finance_contracts")
-      .select("id", { count: "exact", head: true })
-      .eq("branch_id", branchId)
-      .eq("investor_id", investorId);
-
-    if (contractsError) {
-      alert(contractsError.message || "تعذر تحميل عدد العقود");
-      setInvestor(investorData);
-      setInventory(inventoryData || []);
-      setContractsCount(0);
-      setLoading(false);
-      return;
-    }
-
-    setInvestor(investorData);
-    setInventory(inventoryData || []);
-    setContractsCount(count || 0);
-    setLoading(false);
   }
 
   async function toggleInvestorStatus() {
-    if (statusLoading) return;
+    if (statusLoadingRef.current || statusLoading) return;
+
+    if (!checkLogin()) return;
 
     if (!hasPermission("toggle_investor")) {
       alert("لا تملك صلاحية تعطيل أو تفعيل المستثمرين");
       return;
     }
 
-    if (!investor) return;
+    if (!investor || !branchId) return;
 
     const confirmed = confirm(
       investor.is_active
@@ -235,49 +499,51 @@ export default function InvestorDetailsPage() {
 
     if (!confirmed) return;
 
-    const branchId = await getBranchId(branch);
-
-    if (!branchId) {
-      alert("تعذر تحديد الفرع");
-      return;
-    }
+    statusLoadingRef.current = true;
+    setStatusLoading(true);
 
     try {
-      setStatusLoading(true);
+      const newStatus = !investor.is_active;
 
       const { error } = await supabase
         .from("finance_investors")
         .update({
-          is_active: !investor.is_active,
+          is_active: newStatus,
         })
         .eq("id", investorId)
         .eq("branch_id", branchId);
 
       if (error) {
-        alert(error.message || "تعذر تعديل حالة المستثمر");
+        alert(
+          error.message ||
+            "تعذر تعديل حالة المستثمر"
+        );
         return;
       }
 
-      await loadInvestor();
+      setInvestor((currentInvestor) =>
+        currentInvestor
+          ? {
+              ...currentInvestor,
+              is_active: newStatus,
+            }
+          : currentInvestor
+      );
+    } catch {
+      alert("حدث خطأ غير متوقع أثناء تعديل حالة المستثمر");
     } finally {
+      statusLoadingRef.current = false;
       setStatusLoading(false);
     }
   }
 
-  function formatDate(date: string) {
-    if (!date) return "-";
+  function getProductData(item: InventoryItem) {
+    if (Array.isArray(item.finance_products)) {
+      return item.finance_products[0] || null;
+    }
 
-    return new Date(date).toLocaleDateString("ar-SA-u-ca-gregory", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
+    return item.finance_products;
   }
-
-  const totalQuantity = inventory.reduce(
-    (sum, item) => sum + Number(item.quantity || 0),
-    0
-  );
 
   if (!authChecked) {
     return null;
@@ -303,17 +569,28 @@ export default function InvestorDetailsPage() {
                   {employeeName}
                 </div>
 
-                {!isMobile && <div style={employeeDividerSmall} />}
+                {!isMobile && (
+                  <div style={employeeDividerSmall} />
+                )}
 
-                <button style={logoutInlineButton} onClick={logout}>
+                <button
+                  type="button"
+                  style={logoutInlineButton}
+                  onClick={logout}
+                >
                   <LogoutIcon />
                   <span>تسجيل الخروج</span>
                 </button>
               </div>
 
               <button
-                style={getMainWorkstationButtonStyle(isMobile)}
-                onClick={() => router.push(`/finance/${branch}`)}
+                type="button"
+                style={getMainWorkstationButtonStyle(
+                  isMobile
+                )}
+                onClick={() =>
+                  router.push(`/finance/${branch}`)
+                }
               >
                 <HomeIcon />
                 <span>محطة العمل الرئيسية</span>
@@ -321,7 +598,9 @@ export default function InvestorDetailsPage() {
             </div>
 
             <div style={getHeroTitleBoxStyle(screen)}>
-              <h1 style={getTitleStyle(screen)}>ملف المستثمر</h1>
+              <h1 style={getTitleStyle(screen)}>
+                ملف المستثمر
+              </h1>
             </div>
 
             <div style={getHeroActionBoxStyle(screen)} />
@@ -329,50 +608,87 @@ export default function InvestorDetailsPage() {
         </header>
 
         {loading ? (
-          <div style={loadingBox}>جاري تحميل بيانات المستثمر...</div>
+          <div style={loadingBox}>
+            جاري تحميل بيانات المستثمر...
+          </div>
         ) : !investor ? (
           <>
-            <div style={loadingBox}>لم يتم العثور على المستثمر</div>
+            <div style={loadingBox}>
+              لم يتم العثور على المستثمر
+            </div>
 
             <div style={backWrapper}>
               <button
+                type="button"
                 style={backButton}
-                onClick={() =>
-                  router.push(`/finance/${branch}/inventory/investors`)
-                }
+                onClick={() => router.back()}
               >
-                الرجوع للمستثمرين
+                الرجوع
               </button>
             </div>
           </>
         ) : (
           <>
             <section style={investorHeroCard}>
-              <div>
-                <h2 style={investorHeroTitle}>
-                  {investor.investor_name || "-"}
-                </h2>
-              </div>
+              <h2 style={investorHeroTitle}>
+                {investor.investor_name || "-"}
+              </h2>
 
-              <span style={investor.is_active ? activeBadge : inactiveBadge}>
+              <span
+                style={
+                  investor.is_active
+                    ? activeBadge
+                    : inactiveBadge
+                }
+              >
                 {investor.is_active ? "نشط" : "معطل"}
               </span>
             </section>
 
             <section style={summaryGrid}>
-              <SummaryBox title="عدد المنتجات" value={inventory.length} />
-              <SummaryBox title="إجمالي المخزون" value={totalQuantity} />
-              <SummaryBox title="عدد العقود" value={contractsCount} />
+              <SummaryBox
+                title="عدد المنتجات"
+                value={productsCount}
+              />
+
+              <SummaryBox
+                title="إجمالي المخزون"
+                value={totalQuantity}
+              />
+
+              <SummaryBox
+                title="عدد العقود"
+                value={contractsCount}
+              />
             </section>
 
             <section style={card}>
               <h2 style={sectionTitle}>بيانات المستثمر</h2>
 
-              <Row label="اسم المستثمر" value={investor.investor_name || "-"} />
-              <Row label="رقم الهوية" value={investor.national_id || "-"} />
-              <Row label="رقم الجوال" value={investor.phone || "-"} />
-              <Row label="الملاحظات" value={investor.notes || "-"} />
-              <Row label="تاريخ الإنشاء" value={formatDate(investor.created_at)} />
+              <Row
+                label="اسم المستثمر"
+                value={investor.investor_name || "-"}
+              />
+
+              <Row
+                label="رقم الهوية"
+                value={investor.national_id || "-"}
+              />
+
+              <Row
+                label="رقم الجوال"
+                value={investor.phone || "-"}
+              />
+
+              <Row
+                label="الملاحظات"
+                value={investor.notes || "-"}
+              />
+
+              <Row
+                label="تاريخ الإنشاء"
+                value={formatDate(investor.created_at)}
+              />
             </section>
 
             <section style={actionsSection}>
@@ -398,7 +714,16 @@ export default function InvestorDetailsPage() {
 
               {hasPermission("toggle_investor") && (
                 <button
-                  style={investor.is_active ? dangerButton : activateButton}
+                  type="button"
+                  style={{
+                    ...(investor.is_active
+                      ? dangerButton
+                      : activateButton),
+                    opacity: statusLoading ? 0.65 : 1,
+                    cursor: statusLoading
+                      ? "not-allowed"
+                      : "pointer",
+                  }}
                   onClick={toggleInvestorStatus}
                   disabled={statusLoading}
                 >
@@ -412,7 +737,20 @@ export default function InvestorDetailsPage() {
             </section>
 
             <section style={card}>
-              <h2 style={sectionTitle}>منتجات المستثمر</h2>
+              <div style={productsHeader}>
+                <h2 style={sectionTitle}>
+                  منتجات المستثمر
+                </h2>
+
+                {!inventoryLoading &&
+                  totalInventoryRows > 0 && (
+                    <span style={pageInfo}>
+                      صفحة {currentPage} من {totalPages} -
+                      عرض {inventory.length} من{" "}
+                      {totalInventoryRows}
+                    </span>
+                  )}
+              </div>
 
               <div style={tableHeader}>
                 <span>المنتج</span>
@@ -421,28 +759,110 @@ export default function InvestorDetailsPage() {
                 <span>آخر تحديث</span>
               </div>
 
-              {inventory.length === 0 ? (
-                <div style={emptyBox}>لا توجد منتجات مرتبطة بهذا المستثمر</div>
+              {inventoryLoading ? (
+                <div style={emptyBox}>
+                  جاري تحميل المنتجات...
+                </div>
+              ) : inventory.length === 0 ? (
+                <div style={emptyBox}>
+                  لا توجد منتجات مرتبطة بهذا المستثمر
+                </div>
               ) : (
-                inventory.map((item) => (
-                  <div key={item.id} style={tableRow}>
-                    <span>{item.finance_products?.product_name || "-"}</span>
-                    <span>{item.finance_products?.product_category || "-"}</span>
-                    <strong>{item.quantity || 0}</strong>
-                    <span>{formatDate(item.updated_at)}</span>
-                  </div>
-                ))
+                inventory.map((item) => {
+                  const product = getProductData(item);
+
+                  return (
+                    <div key={item.id} style={tableRow}>
+                      <span>
+                        {product?.product_name || "-"}
+                      </span>
+
+                      <span>
+                        {product?.product_category || "-"}
+                      </span>
+
+                      <strong>
+                        {Number(item.quantity || 0)}
+                      </strong>
+
+                      <span>
+                        {formatDate(item.updated_at)}
+                      </span>
+                    </div>
+                  );
+                })
               )}
+
+              {!inventoryLoading &&
+                totalInventoryRows > ITEMS_PER_PAGE && (
+                  <div style={paginationBox}>
+                    <button
+                      type="button"
+                      style={{
+                        ...paginationButton,
+                        opacity:
+                          currentPage === 1 ? 0.5 : 1,
+                        cursor:
+                          currentPage === 1
+                            ? "not-allowed"
+                            : "pointer",
+                      }}
+                      disabled={
+                        currentPage === 1 ||
+                        inventoryLoading
+                      }
+                      onClick={() =>
+                        setCurrentPage((page) =>
+                          Math.max(page - 1, 1)
+                        )
+                      }
+                    >
+                      السابق
+                    </button>
+
+                    <span style={paginationText}>
+                      صفحة {currentPage} من {totalPages}
+                    </span>
+
+                    <button
+                      type="button"
+                      style={{
+                        ...paginationButton,
+                        opacity:
+                          currentPage === totalPages
+                            ? 0.5
+                            : 1,
+                        cursor:
+                          currentPage === totalPages
+                            ? "not-allowed"
+                            : "pointer",
+                      }}
+                      disabled={
+                        currentPage === totalPages ||
+                        inventoryLoading
+                      }
+                      onClick={() =>
+                        setCurrentPage((page) =>
+                          Math.min(
+                            page + 1,
+                            totalPages
+                          )
+                        )
+                      }
+                    >
+                      التالي
+                    </button>
+                  </div>
+                )}
             </section>
 
             <div style={backWrapper}>
               <button
+                type="button"
                 style={backButton}
-                onClick={() =>
-                  router.push(`/finance/${branch}/inventory/investors`)
-                }
+                onClick={() => router.back()}
               >
-                الرجوع للمستثمرين
+                الرجوع
               </button>
             </div>
           </>
@@ -452,7 +872,32 @@ export default function InvestorDetailsPage() {
   );
 }
 
-function Row({ label, value }: any) {
+function formatDate(date?: string | null) {
+  if (!date) return "-";
+
+  const parsedDate = new Date(date);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "-";
+  }
+
+  return parsedDate.toLocaleDateString(
+    "ar-SA-u-ca-gregory",
+    {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    }
+  );
+}
+
+function Row({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | number;
+}) {
   return (
     <div style={row}>
       <span>{label}</span>
@@ -461,7 +906,13 @@ function Row({ label, value }: any) {
   );
 }
 
-function SummaryBox({ title, value }: any) {
+function SummaryBox({
+  title,
+  value,
+}: {
+  title: string;
+  value: string | number;
+}) {
   return (
     <div style={summaryBox}>
       <span>{title}</span>
@@ -470,9 +921,19 @@ function SummaryBox({ title, value }: any) {
   );
 }
 
-function ActionButton({ title, onClick }: any) {
+function ActionButton({
+  title,
+  onClick,
+}: {
+  title: string;
+  onClick: () => void;
+}) {
   return (
-    <button style={actionButton} onClick={onClick}>
+    <button
+      type="button"
+      style={actionButton}
+      onClick={onClick}
+    >
       {title}
     </button>
   );
@@ -480,7 +941,13 @@ function ActionButton({ title, onClick }: any) {
 
 function UserIcon() {
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M12 12.2a4.2 4.2 0 1 0 0-8.4 4.2 4.2 0 0 0 0 8.4Z"
         stroke="currentColor"
@@ -498,7 +965,13 @@ function UserIcon() {
 
 function LogoutIcon() {
   return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M9.5 7V5.8c0-1 .8-1.8 1.8-1.8h6.1c1 0 1.8.8 1.8 1.8v12.4c0 1-.8 1.8-1.8 1.8h-6.1c-1 0-1.8-.8-1.8-1.8V17"
         stroke="currentColor"
@@ -524,7 +997,13 @@ function LogoutIcon() {
 
 function HomeIcon() {
   return (
-    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="21"
+      height="21"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M3.8 11.2 12 4.5l8.2 6.7"
         stroke="currentColor"
@@ -561,13 +1040,17 @@ function getPageStyle(isMobile: boolean): CSSProperties {
     `,
     backgroundSize: "cover",
     backgroundPosition: "center",
-    backgroundAttachment: isMobile ? "scroll" : "fixed",
+    backgroundAttachment: isMobile
+      ? "scroll"
+      : "fixed",
     padding: isMobile ? 10 : 18,
     fontFamily: "var(--font-almarai), sans-serif",
   };
 }
 
-function getContainerStyle(isCompact: boolean): CSSProperties {
+function getContainerStyle(
+  isCompact: boolean
+): CSSProperties {
   return {
     width: "100%",
     maxWidth: isCompact ? 980 : 1180,
@@ -575,12 +1058,16 @@ function getContainerStyle(isCompact: boolean): CSSProperties {
   };
 }
 
-function getHeroStyle(isMobile: boolean): CSSProperties {
+function getHeroStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     position: "relative",
     minHeight: isMobile ? "auto" : 160,
     borderRadius: isMobile ? 20 : 24,
-    padding: isMobile ? "18px 14px" : "22px 26px",
+    padding: isMobile
+      ? "18px 14px"
+      : "22px 26px",
     marginBottom: 14,
     overflow: "hidden",
     border: "none",
@@ -592,7 +1079,9 @@ function getHeroStyle(isMobile: boolean): CSSProperties {
   };
 }
 
-function getHeroContentStyle(screen: ScreenType): CSSProperties {
+function getHeroContentStyle(
+  screen: ScreenType
+): CSSProperties {
   if (screen === "mobile") {
     return {
       position: "relative",
@@ -626,14 +1115,17 @@ function getHeroContentStyle(screen: ScreenType): CSSProperties {
     zIndex: 3,
     minHeight: 116,
     display: "grid",
-    gridTemplateColumns: "minmax(250px, 315px) 1fr minmax(220px, 315px)",
+    gridTemplateColumns:
+      "minmax(250px, 315px) 1fr minmax(220px, 315px)",
     alignItems: "center",
     gap: 16,
     direction: "ltr",
   };
 }
 
-function getHeroUserCardStyle(screen: ScreenType): CSSProperties {
+function getHeroUserCardStyle(
+  screen: ScreenType
+): CSSProperties {
   if (screen === "mobile") {
     return {
       width: "100%",
@@ -669,7 +1161,9 @@ function getHeroUserCardStyle(screen: ScreenType): CSSProperties {
   };
 }
 
-function getEmployeeTopRowStyle(screen: ScreenType): CSSProperties {
+function getEmployeeTopRowStyle(
+  screen: ScreenType
+): CSSProperties {
   if (screen === "mobile") {
     return {
       minHeight: 42,
@@ -707,32 +1201,40 @@ function getEmployeeTopRowStyle(screen: ScreenType): CSSProperties {
   };
 }
 
-function getEmployeeNameStyle(isMobile: boolean): CSSProperties {
+function getEmployeeNameStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     color: "#ffffff",
     fontSize: isMobile ? 15 : 17,
     fontWeight: 900,
     whiteSpace: "nowrap",
     direction: "rtl",
-    textShadow: "0 4px 10px rgba(15,23,42,0.18)",
+    textShadow:
+      "0 4px 10px rgba(15,23,42,0.18)",
   };
 }
 
-function getMainWorkstationButtonStyle(isMobile: boolean): CSSProperties {
+function getMainWorkstationButtonStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     width: isMobile ? "100%" : 220,
     maxWidth: isMobile ? 280 : 220,
     height: 44,
     border: "none",
-    background: "linear-gradient(135deg,#72e77d,#22c55e 58%,#16a34a)",
+    background:
+      "linear-gradient(135deg,#72e77d,#22c55e 58%,#16a34a)",
     color: "#ffffff",
     borderRadius: 999,
     padding: "0 18px",
     fontSize: 14,
     fontWeight: 900,
     cursor: "pointer",
-    fontFamily: "var(--font-almarai), sans-serif",
-    boxShadow: "0 8px 18px rgba(22,163,74,0.20)",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
+    boxShadow:
+      "0 8px 18px rgba(22,163,74,0.20)",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
@@ -742,7 +1244,9 @@ function getMainWorkstationButtonStyle(isMobile: boolean): CSSProperties {
   };
 }
 
-function getHeroTitleBoxStyle(screen: ScreenType): CSSProperties {
+function getHeroTitleBoxStyle(
+  screen: ScreenType
+): CSSProperties {
   return {
     position: "relative",
     zIndex: 4,
@@ -757,29 +1261,34 @@ function getHeroTitleBoxStyle(screen: ScreenType): CSSProperties {
   };
 }
 
-function getTitleStyle(screen: ScreenType): CSSProperties {
+function getTitleStyle(
+  screen: ScreenType
+): CSSProperties {
   return {
     margin: 0,
     color: "#ffffff",
-    fontSize: screen === "mobile" ? 26 : screen === "tablet" ? 28 : 30,
+    fontSize:
+      screen === "mobile"
+        ? 26
+        : screen === "tablet"
+        ? 28
+        : 30,
     lineHeight: 1.35,
     fontWeight: 900,
     letterSpacing: "-0.4px",
-    textShadow: "0 5px 14px rgba(15,23,42,0.14)",
+    textShadow:
+      "0 5px 14px rgba(15,23,42,0.14)",
     whiteSpace: "nowrap",
   };
 }
 
-function getHeroActionBoxStyle(screen: ScreenType): CSSProperties {
-  if (screen === "mobile") {
-    return {
-      display: "none",
-      width: "100%",
-      order: 3,
-    };
-  }
-
-  if (screen === "tablet") {
+function getHeroActionBoxStyle(
+  screen: ScreenType
+): CSSProperties {
+  if (
+    screen === "mobile" ||
+    screen === "tablet"
+  ) {
     return {
       display: "none",
       width: "100%",
@@ -801,7 +1310,8 @@ const employeeIcon: CSSProperties = {
   width: 38,
   height: 38,
   borderRadius: "50%",
-  border: "1.5px solid rgba(255,255,255,0.34)",
+  border:
+    "1.5px solid rgba(255,255,255,0.34)",
   background: "rgba(255,255,255,0.06)",
   display: "flex",
   alignItems: "center",
@@ -827,7 +1337,8 @@ const logoutInlineButton: CSSProperties = {
   alignItems: "center",
   gap: 9,
   cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
   padding: 0,
   whiteSpace: "nowrap",
   direction: "rtl",
@@ -892,7 +1403,8 @@ const investorHeroCard: CSSProperties = {
   justifyContent: "space-between",
   alignItems: "center",
   gap: 14,
-  boxShadow: "0 8px 20px rgba(15,23,42,0.04)",
+  boxShadow:
+    "0 8px 20px rgba(15,23,42,0.04)",
 };
 
 const investorHeroTitle: CSSProperties = {
@@ -904,7 +1416,8 @@ const investorHeroTitle: CSSProperties = {
 
 const summaryGrid: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
+  gridTemplateColumns:
+    "repeat(auto-fit,minmax(220px,1fr))",
   gap: 14,
   marginBottom: 16,
 };
@@ -918,7 +1431,8 @@ const summaryBox: CSSProperties = {
   justifyContent: "space-between",
   color: "#0d47a1",
   fontWeight: "bold",
-  boxShadow: "0 8px 20px rgba(15,23,42,0.04)",
+  boxShadow:
+    "0 8px 20px rgba(15,23,42,0.04)",
 };
 
 const card: CSSProperties = {
@@ -928,13 +1442,29 @@ const card: CSSProperties = {
   padding: 20,
   marginBottom: 16,
   overflowX: "auto",
-  boxShadow: "0 8px 20px rgba(15,23,42,0.04)",
+  boxShadow:
+    "0 8px 20px rgba(15,23,42,0.04)",
 };
 
 const sectionTitle: CSSProperties = {
-  marginTop: 0,
+  margin: 0,
   color: "#0d47a1",
   fontSize: 22,
+};
+
+const productsHeader: CSSProperties = {
+  minWidth: 850,
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+  marginBottom: 14,
+};
+
+const pageInfo: CSSProperties = {
+  color: "#64748b",
+  fontSize: 14,
+  fontWeight: "bold",
 };
 
 const row: CSSProperties = {
@@ -947,7 +1477,8 @@ const row: CSSProperties = {
 
 const actionsSection: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
+  gridTemplateColumns:
+    "repeat(auto-fit,minmax(220px,1fr))",
   gap: 14,
   marginBottom: 16,
 };
@@ -962,7 +1493,8 @@ const actionButton: CSSProperties = {
   fontSize: 16,
   fontWeight: "bold",
   cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const dangerButton: CSSProperties = {
@@ -975,7 +1507,8 @@ const dangerButton: CSSProperties = {
   fontSize: 16,
   fontWeight: "bold",
   cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const activateButton: CSSProperties = {
@@ -988,12 +1521,14 @@ const activateButton: CSSProperties = {
   fontSize: 16,
   fontWeight: "bold",
   cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const tableHeader: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "2fr 1.5fr 1fr 1.5fr",
+  gridTemplateColumns:
+    "2fr 1.5fr 1fr 1.5fr",
   gap: 12,
   minWidth: 850,
   background: "#f4f8ff",
@@ -1006,7 +1541,8 @@ const tableHeader: CSSProperties = {
 
 const tableRow: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "2fr 1.5fr 1fr 1.5fr",
+  gridTemplateColumns:
+    "2fr 1.5fr 1fr 1.5fr",
   gap: 12,
   minWidth: 850,
   padding: 14,
@@ -1042,6 +1578,33 @@ const inactiveBadge: CSSProperties = {
   whiteSpace: "nowrap",
 };
 
+const paginationBox: CSSProperties = {
+  minWidth: 850,
+  marginTop: 18,
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "center",
+  gap: 12,
+};
+
+const paginationButton: CSSProperties = {
+  padding: "11px 18px",
+  background: "#0d47a1",
+  color: "white",
+  border: "none",
+  borderRadius: 12,
+  fontSize: 15,
+  fontWeight: "bold",
+  cursor: "pointer",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const paginationText: CSSProperties = {
+  color: "#0f172a",
+  fontWeight: "bold",
+};
+
 const backWrapper: CSSProperties = {
   display: "flex",
   justifyContent: "center",
@@ -1050,15 +1613,18 @@ const backWrapper: CSSProperties = {
 
 const backButton: CSSProperties = {
   padding: "11px 18px",
-  background: "linear-gradient(135deg,#22c55e,#15803d)",
+  background:
+    "linear-gradient(135deg,#22c55e,#15803d)",
   color: "#ffffff",
   border: "none",
   borderRadius: 12,
   fontSize: 14,
   fontWeight: 900,
   cursor: "pointer",
-  boxShadow: "0 5px 14px rgba(22,163,74,0.22)",
-  fontFamily: "var(--font-almarai), sans-serif",
+  boxShadow:
+    "0 5px 14px rgba(22,163,74,0.22)",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const loadingBox: CSSProperties = {
@@ -1069,5 +1635,6 @@ const loadingBox: CSSProperties = {
   textAlign: "center",
   color: "#0d47a1",
   fontWeight: "bold",
-  boxShadow: "0 8px 20px rgba(15,23,42,0.04)",
+  boxShadow:
+    "0 8px 20px rgba(15,23,42,0.04)",
 };
