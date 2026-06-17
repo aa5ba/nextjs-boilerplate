@@ -1,14 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
 import { normalizeNumber, toNumber } from "@/lib/numberUtils";
 import { getOrganizationSettings } from "@/lib/getOrganizationSettings";
 
+type ScreenType = "mobile" | "tablet" | "desktop";
+
 export default function EditContractPage() {
   const params = useParams();
+  const router = useRouter();
+
   const branch = params.branch as string;
   const contractId = params.id as string;
 
@@ -33,6 +37,31 @@ export default function EditContractPage() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  const [screen, setScreen] = useState<ScreenType>("desktop");
+
+  const isMobile = screen === "mobile";
+  const isTablet = screen === "tablet";
+  const isCompact = isMobile || isTablet;
+
+  useEffect(() => {
+    function handleResize() {
+      const width = window.innerWidth;
+
+      if (width < 640) {
+        setScreen("mobile");
+      } else if (width < 1024) {
+        setScreen("tablet");
+      } else {
+        setScreen("desktop");
+      }
+    }
+
+    handleResize();
+    window.addEventListener("resize", handleResize);
+
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   useEffect(() => {
     loadData();
@@ -213,7 +242,7 @@ export default function EditContractPage() {
       ]);
 
       alert("تم حفظ تعديل العقد بنجاح");
-      window.location.href = `/finance/${branch}/contracts/${contractId}`;
+      router.push(`/finance/${branch}/contracts/${contractId}`);
     } catch (error: any) {
       alert(error.message || "حدث خطأ أثناء تعديل العقد");
     } finally {
@@ -392,18 +421,68 @@ export default function EditContractPage() {
 
   if (loading) {
     return (
-      <main dir="rtl" style={page}>
-        <div style={loadingBox}>جاري تحميل العقد...</div>
+      <main dir="rtl" style={getPageStyle(isCompact)}>
+        <div style={getContainerStyle(isCompact)}>
+          <header style={getHeroStyle(isCompact)}>
+            <div style={heroCircleOne} />
+            <div style={heroCircleTwo} />
+            <div style={heroCircleThree} />
+            <div style={heroDots} />
+
+            <div style={getHeroContentStyle(isCompact)}>
+              <div>
+                <h1 style={getHeroTitleStyle(isMobile)}>تعديل العقد</h1>
+              </div>
+
+              <div style={getHeroActionsStyle(isCompact)}>
+                <button style={backButton} onClick={() => router.back()}>
+                  رجوع
+                </button>
+
+                <button
+                  style={mainWorkstationButton}
+                  onClick={() => router.push(`/finance/${branch}`)}
+                >
+                  محطة العمل الرئيسية
+                </button>
+              </div>
+            </div>
+          </header>
+
+          <div style={loadingBox}>جاري تحميل العقد...</div>
+        </div>
       </main>
     );
   }
 
   return (
-    <main dir="rtl" style={page}>
-      <div style={container}>
-        <div style={header}>
-          <h1 style={{ margin: 0 }}>✏️ تعديل العقد</h1>
-        </div>
+    <main dir="rtl" style={getPageStyle(isCompact)}>
+      <div style={getContainerStyle(isCompact)}>
+        <header style={getHeroStyle(isCompact)}>
+          <div style={heroCircleOne} />
+          <div style={heroCircleTwo} />
+          <div style={heroCircleThree} />
+          <div style={heroDots} />
+
+          <div style={getHeroContentStyle(isCompact)}>
+            <div>
+              <h1 style={getHeroTitleStyle(isMobile)}>تعديل العقد</h1>
+            </div>
+
+            <div style={getHeroActionsStyle(isCompact)}>
+              <button style={backButton} onClick={() => router.back()}>
+                رجوع
+              </button>
+
+              <button
+                style={mainWorkstationButton}
+                onClick={() => router.push(`/finance/${branch}`)}
+              >
+                محطة العمل الرئيسية
+              </button>
+            </div>
+          </div>
+        </header>
 
         <section style={card}>
           <h2 style={sectionTitle}>المخزون والطرف الأول</h2>
@@ -518,59 +597,167 @@ export default function EditContractPage() {
             {saving ? "جاري الحفظ..." : "حفظ التعديلات"}
           </button>
         </section>
-
-        <button
-          style={backButton}
-          onClick={() =>
-            (window.location.href = `/finance/${branch}/contracts/${contractId}`)
-          }
-        >
-          الرجوع للعقد
-        </button>
       </div>
     </main>
   );
 }
 
-const page = {
-  minHeight: "100vh",
-  background: "#eef5ff",
-  padding: 20,
-  fontFamily: "var(--font-almarai), sans-serif",
+function getPageStyle(isCompact: boolean) {
+  return {
+    minHeight: "100vh",
+    padding: isCompact ? 14 : 22,
+    fontFamily: "var(--font-almarai), sans-serif",
+    backgroundImage:
+      "radial-gradient(circle at top right, rgba(37, 99, 235, 0.16), transparent 34%), radial-gradient(circle at bottom left, rgba(14, 165, 233, 0.14), transparent 30%), linear-gradient(180deg, rgba(248, 250, 252, 0.94), rgba(226, 232, 240, 0.94)), url('/backgrounds/v13-finance-bg-1.png')",
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+    backgroundAttachment: "fixed",
+  };
+}
+
+function getContainerStyle(isCompact: boolean) {
+  return {
+    width: "100%",
+    maxWidth: 980,
+    margin: "0 auto",
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: isCompact ? 14 : 18,
+  };
+}
+
+function getHeroStyle(isCompact: boolean) {
+  return {
+    position: "relative" as const,
+    overflow: "hidden",
+    borderRadius: isCompact ? 22 : 28,
+    padding: isCompact ? 18 : 26,
+    color: "#ffffff",
+    background:
+      "linear-gradient(135deg, #0f172a 0%, #1e3a8a 48%, #0891b2 100%)",
+    boxShadow: "0 22px 55px rgba(15, 23, 42, 0.28)",
+    border: "1px solid rgba(255, 255, 255, 0.16)",
+  };
+}
+
+function getHeroContentStyle(isCompact: boolean) {
+  return {
+    position: "relative" as const,
+    zIndex: 2,
+    display: "flex",
+    flexDirection: isCompact ? ("column" as const) : ("row" as const),
+    justifyContent: "space-between",
+    alignItems: isCompact ? "stretch" : "center",
+    gap: 16,
+  };
+}
+
+function getHeroTitleStyle(isMobile: boolean) {
+  return {
+    margin: 0,
+    fontSize: isMobile ? 24 : 32,
+    fontWeight: 900,
+    letterSpacing: "-0.02em",
+  };
+}
+
+function getHeroActionsStyle(isCompact: boolean) {
+  return {
+    display: "flex",
+    flexDirection: isCompact ? ("column" as const) : ("row" as const),
+    gap: 10,
+    alignItems: "stretch",
+  };
+}
+
+const heroCircleOne = {
+  position: "absolute" as const,
+  width: 180,
+  height: 180,
+  borderRadius: "50%",
+  background: "rgba(255, 255, 255, 0.08)",
+  top: -70,
+  right: -55,
 };
 
-const container = {
-  width: "100%",
-  maxWidth: 900,
-  margin: "auto",
+const heroCircleTwo = {
+  position: "absolute" as const,
+  width: 150,
+  height: 150,
+  borderRadius: "50%",
+  background: "rgba(14, 165, 233, 0.18)",
+  bottom: -70,
+  left: 90,
 };
 
-const header = {
-  background: "linear-gradient(135deg,#0d47a1,#1976d2)",
-  color: "white",
-  padding: 28,
-  borderRadius: 24,
-  marginBottom: 18,
+const heroCircleThree = {
+  position: "absolute" as const,
+  width: 90,
+  height: 90,
+  borderRadius: "50%",
+  background: "rgba(255, 255, 255, 0.07)",
+  top: 30,
+  left: 25,
+};
+
+const heroDots = {
+  position: "absolute" as const,
+  inset: 0,
+  opacity: 0.18,
+  backgroundImage:
+    "radial-gradient(rgba(255,255,255,0.72) 1px, transparent 1px)",
+  backgroundSize: "18px 18px",
+};
+
+const backButton = {
+  border: "none",
+  borderRadius: 14,
+  padding: "12px 18px",
+  color: "#ffffff",
+  background: "linear-gradient(135deg, #64748b, #334155)",
+  fontSize: 15,
+  fontWeight: 900,
+  cursor: "pointer",
+  boxShadow: "0 10px 24px rgba(51, 65, 85, 0.28)",
+};
+
+const mainWorkstationButton = {
+  border: "none",
+  borderRadius: 14,
+  padding: "12px 18px",
+  color: "#ffffff",
+  background: "linear-gradient(135deg, #16a34a, #15803d)",
+  fontSize: 15,
+  fontWeight: 900,
+  cursor: "pointer",
+  boxShadow: "0 10px 24px rgba(22, 163, 74, 0.28)",
 };
 
 const card = {
-  background: "white",
-  border: "1px solid #d9e3f5",
-  borderRadius: 18,
+  background: "rgba(255, 255, 255, 0.94)",
+  border: "1px solid rgba(226, 232, 240, 0.95)",
+  borderRadius: 22,
   padding: 20,
-  marginBottom: 16,
+  marginBottom: 0,
+  boxShadow: "0 18px 45px rgba(15, 23, 42, 0.08)",
+  backdropFilter: "blur(10px)",
 };
 
 const sectionTitle = {
-  marginTop: 0,
-  color: "#0d47a1",
+  margin: "0 0 16px",
+  color: "#0f172a",
+  fontSize: 21,
+  fontWeight: 900,
 };
 
 const input = {
   width: "100%",
+  boxSizing: "border-box" as const,
   padding: 14,
   borderRadius: 14,
-  border: "1px solid #d9e3f5",
+  border: "1px solid #dbe3ef",
+  background: "#f8fafc",
+  color: "#0f172a",
   fontSize: 16,
   marginBottom: 12,
 };
@@ -578,38 +765,37 @@ const input = {
 const textarea = {
   width: "100%",
   minHeight: 100,
+  boxSizing: "border-box" as const,
   padding: 14,
   borderRadius: 14,
-  border: "1px solid #d9e3f5",
+  border: "1px solid #dbe3ef",
+  background: "#f8fafc",
+  color: "#0f172a",
   fontSize: 16,
   marginBottom: 12,
+  resize: "vertical" as const,
 };
 
 const saveButton = {
   width: "100%",
   padding: 16,
-  background: "#0d47a1",
+  background: "linear-gradient(135deg, #2563eb, #0891b2)",
   color: "white",
   border: "none",
   borderRadius: 14,
   fontSize: 17,
-  fontWeight: "bold",
-};
-
-const backButton = {
-  width: "100%",
-  padding: 16,
-  background: "#e5e7eb",
-  color: "#0d47a1",
-  border: "1px solid #cbd5e1",
-  borderRadius: 14,
-  fontSize: 17,
-  fontWeight: "bold",
-  marginTop: 18,
+  fontWeight: 900,
+  cursor: "pointer",
+  boxShadow: "0 12px 26px rgba(37, 99, 235, 0.22)",
 };
 
 const loadingBox = {
+  background: "rgba(255, 255, 255, 0.94)",
+  border: "1px solid rgba(226, 232, 240, 0.95)",
+  borderRadius: 18,
+  padding: 24,
   textAlign: "center" as const,
-  paddingTop: 80,
-  fontSize: 18,
+  color: "#1e3a8a",
+  fontWeight: 900,
+  boxShadow: "0 18px 45px rgba(15, 23, 42, 0.08)",
 };
