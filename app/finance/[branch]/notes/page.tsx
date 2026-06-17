@@ -30,6 +30,7 @@ export default function FinanceNotesPage() {
   const [branchId, setBranchId] = useState<string | null>(null);
   const [localUserKey, setLocalUserKey] = useState("");
   const [notes, setNotes] = useState<Note[]>([]);
+  const [employeeName, setEmployeeName] = useState("الموظف");
 
   const [activeTab, setActiveTab] = useState<TabType>("branch");
   const [search, setSearch] = useState("");
@@ -48,6 +49,7 @@ export default function FinanceNotesPage() {
 
   async function initPage() {
     setLoading(true);
+    loadEmployeeName();
 
     const currentBranchId = await getBranchId(branch);
     setBranchId(currentBranchId);
@@ -63,6 +65,38 @@ export default function FinanceNotesPage() {
 
     await loadNotes(currentBranchId, key);
     setLoading(false);
+  }
+
+  function loadEmployeeName() {
+    if (typeof window === "undefined") return;
+
+    const newName = localStorage.getItem("finance_user_name");
+
+    if (newName) {
+      setEmployeeName(newName);
+      return;
+    }
+
+    const oldUser = localStorage.getItem("finance_user");
+
+    if (oldUser) {
+      try {
+        const parsed = JSON.parse(oldUser);
+        setEmployeeName(parsed?.full_name || parsed?.username || "الموظف");
+      } catch {
+        setEmployeeName("الموظف");
+      }
+    }
+  }
+
+  function logout() {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("finance_user");
+      localStorage.removeItem("finance_user_name");
+      localStorage.removeItem("finance_branch_user");
+    }
+
+    router.push(`/finance/${branch}/login`);
   }
 
   async function loadNotes(currentBranchId = branchId, currentKey = localUserKey) {
@@ -203,23 +237,56 @@ export default function FinanceNotesPage() {
     <main dir="rtl" style={page}>
       <div style={container}>
         <section style={hero}>
-          <div>
-            <p style={eyebrow}>محطة العمل</p>
-            <h1 style={titleStyle}>الملاحظات</h1>
-            <p style={subtitle}>
-              ملاحظات عامة للجميع، وملاحظات خاصة تظهر لك فقط.
-            </p>
-          </div>
+          <div style={heroCircleOne} />
+          <div style={heroCircleTwo} />
+          <div style={heroCircleThree} />
+          <div style={heroDots} />
 
-          <button
-            style={addButton}
-            onClick={() => {
-              resetForm();
-              setShowForm(true);
-            }}
-          >
-            + إضافة ملاحظة
-          </button>
+          <div style={heroContent}>
+            <div style={heroUserCard}>
+              <div style={employeeTopRow}>
+                <div style={employeeIcon}>
+                  <UserIcon />
+                </div>
+
+                <div style={employeeNameStyle}>{employeeName}</div>
+
+                <div style={employeeDividerSmall} />
+
+                <button style={logoutInlineButton} onClick={logout}>
+                  <LogoutIcon />
+                  <span>تسجيل الخروج</span>
+                </button>
+              </div>
+
+              <button
+                style={mainWorkstationButton}
+                onClick={() => router.push(`/finance/${branch}`)}
+              >
+                <HomeIcon />
+                <span>محطة العمل الرئيسية</span>
+              </button>
+            </div>
+
+            <div style={heroTitleBox}>
+              <h1 style={titleStyle}>الملاحظات</h1>
+              <p style={subtitle}>
+                ملاحظات عامة للجميع، وملاحظات خاصة تظهر لك فقط.
+              </p>
+            </div>
+
+            <div style={heroActionBox}>
+              <button
+                style={addButton}
+                onClick={() => {
+                  resetForm();
+                  setShowForm(true);
+                }}
+              >
+                + إضافة ملاحظة
+              </button>
+            </div>
+          </div>
         </section>
 
         <section style={tabsCard}>
@@ -416,9 +483,89 @@ function formatDateTime(date: string) {
   return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
+function UserIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M12 12.2a4.2 4.2 0 1 0 0-8.4 4.2 4.2 0 0 0 0 8.4Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M4.8 20.2c.8-3.5 3.6-5.4 7.2-5.4s6.4 1.9 7.2 5.4"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function LogoutIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M9.5 7V5.8c0-1 .8-1.8 1.8-1.8h6.1c1 0 1.8.8 1.8 1.8v12.4c0 1-.8 1.8-1.8 1.8h-6.1c-1 0-1.8-.8-1.8-1.8V17"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M4.8 12h9.5"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M7.8 8.8 4.6 12l3.2 3.2"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function HomeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M3.8 11.2 12 4.5l8.2 6.7"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M6.2 10.4v9.1h11.6v-9.1"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M10 19.5v-5.2h4v5.2"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 const page: React.CSSProperties = {
   minHeight: "100vh",
-  background: "#f4f7fb",
+  backgroundColor: "#f6f9ff",
+  backgroundImage: `
+    radial-gradient(circle at 12% 18%, rgba(59,130,246,0.16) 0, transparent 28%),
+    radial-gradient(circle at 88% 12%, rgba(168,85,247,0.10) 0, transparent 25%),
+    radial-gradient(circle at 80% 88%, rgba(34,197,94,0.10) 0, transparent 28%),
+    linear-gradient(rgba(246,249,255,0.72),rgba(246,249,255,0.82)),
+    url('/backgrounds/v13-finance-bg-1.png')
+  `,
+  backgroundSize: "cover",
+  backgroundPosition: "center",
+  backgroundAttachment: "fixed",
   padding: 18,
   fontFamily: "var(--font-almarai), sans-serif",
 };
@@ -430,33 +577,149 @@ const container: React.CSSProperties = {
 };
 
 const hero: React.CSSProperties = {
-  background: "linear-gradient(135deg,#0f172a,#1e3a8a)",
-  color: "white",
+  position: "relative",
+  minHeight: 160,
   borderRadius: 24,
-  padding: 24,
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: 14,
-  flexWrap: "wrap",
+  padding: "22px 26px",
   marginBottom: 14,
+  overflow: "hidden",
+  border: "none",
+  outline: "none",
+  background:
+    "radial-gradient(circle at 15% 18%, rgba(255,255,255,0.08) 0, transparent 24%), radial-gradient(circle at 86% 18%, rgba(255,255,255,0.11) 0, transparent 26%), linear-gradient(105deg,#071c48 0%,#0a327d 30%,#0d65d9 60%,#23a8e4 82%,#6edce4 100%)",
+  boxShadow: "none",
+  isolation: "isolate",
 };
 
-const eyebrow: React.CSSProperties = {
-  margin: 0,
-  opacity: 0.75,
-  fontSize: 14,
+const heroContent: React.CSSProperties = {
+  position: "relative",
+  zIndex: 3,
+  minHeight: 116,
+  display: "grid",
+  gridTemplateColumns: "330px 1fr 330px",
+  alignItems: "center",
+  gap: 16,
+  direction: "ltr",
+};
+
+const heroUserCard: React.CSSProperties = {
+  width: 330,
+  display: "grid",
+  gap: 26,
+  direction: "ltr",
+  justifySelf: "start",
+};
+
+const employeeTopRow: React.CSSProperties = {
+  height: 42,
+  display: "flex",
+  alignItems: "center",
+  gap: 14,
+  direction: "ltr",
+  color: "#ffffff",
+};
+
+const employeeIcon: React.CSSProperties = {
+  width: 38,
+  height: 38,
+  borderRadius: "50%",
+  border: "1.5px solid rgba(255,255,255,0.34)",
+  background: "rgba(255,255,255,0.06)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  color: "rgba(255,255,255,0.96)",
+  flex: "0 0 auto",
+};
+
+const employeeNameStyle: React.CSSProperties = {
+  color: "#ffffff",
+  fontSize: 17,
+  fontWeight: 900,
+  whiteSpace: "nowrap",
+  direction: "rtl",
+  textShadow: "0 4px 10px rgba(15,23,42,0.18)",
+};
+
+const employeeDividerSmall: React.CSSProperties = {
+  width: 1,
+  height: 34,
+  background: "rgba(255,255,255,0.30)",
+  flex: "0 0 auto",
+};
+
+const logoutInlineButton: React.CSSProperties = {
+  border: "none",
+  background: "transparent",
+  color: "rgba(255,255,255,0.90)",
+  fontSize: 15,
+  fontWeight: 800,
+  display: "flex",
+  alignItems: "center",
+  gap: 9,
+  cursor: "pointer",
+  fontFamily: "var(--font-almarai), sans-serif",
+  padding: 0,
+  whiteSpace: "nowrap",
+  direction: "rtl",
+};
+
+const mainWorkstationButton: React.CSSProperties = {
+  width: 245,
+  height: 50,
+  border: "none",
+  background: "linear-gradient(135deg,#72e77d,#22c55e 58%,#16a34a)",
+  color: "#ffffff",
+  borderRadius: 999,
+  padding: "0 24px",
+  fontSize: 15,
+  fontWeight: 900,
+  cursor: "pointer",
+  fontFamily: "var(--font-almarai), sans-serif",
+  boxShadow: "0 8px 18px rgba(22,163,74,0.20)",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 11,
+  whiteSpace: "nowrap",
+  direction: "rtl",
+};
+
+const heroTitleBox: React.CSSProperties = {
+  position: "relative",
+  zIndex: 4,
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  textAlign: "center",
+  direction: "rtl",
+  pointerEvents: "none",
 };
 
 const titleStyle: React.CSSProperties = {
-  margin: "6px 0",
-  fontSize: 30,
+  margin: 0,
+  color: "#ffffff",
+  fontSize: 35,
+  lineHeight: 1.35,
+  fontWeight: 900,
+  letterSpacing: "-0.6px",
+  textShadow: "0 5px 14px rgba(15,23,42,0.14)",
+  whiteSpace: "nowrap",
 };
 
 const subtitle: React.CSSProperties = {
-  margin: 0,
-  opacity: 0.9,
+  margin: "8px 0 0",
+  color: "rgba(255,255,255,0.86)",
   lineHeight: 1.7,
+  fontWeight: 700,
+};
+
+const heroActionBox: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "flex-end",
+  alignItems: "center",
+  direction: "rtl",
 };
 
 const addButton: React.CSSProperties = {
@@ -468,6 +731,55 @@ const addButton: React.CSSProperties = {
   fontSize: 16,
   fontWeight: 800,
   cursor: "pointer",
+};
+
+const heroCircleOne: React.CSSProperties = {
+  position: "absolute",
+  width: 210,
+  height: 210,
+  right: -78,
+  top: -85,
+  borderRadius: "50%",
+  background: "rgba(255,255,255,0.075)",
+  pointerEvents: "none",
+  zIndex: 1,
+};
+
+const heroCircleTwo: React.CSSProperties = {
+  position: "absolute",
+  width: 245,
+  height: 245,
+  right: 145,
+  bottom: -178,
+  borderRadius: "50%",
+  background: "rgba(255,255,255,0.045)",
+  pointerEvents: "none",
+  zIndex: 1,
+};
+
+const heroCircleThree: React.CSSProperties = {
+  position: "absolute",
+  width: 150,
+  height: 150,
+  left: 380,
+  top: -96,
+  borderRadius: "50%",
+  background: "rgba(255,255,255,0.035)",
+  pointerEvents: "none",
+  zIndex: 1,
+};
+
+const heroDots: React.CSSProperties = {
+  position: "absolute",
+  top: 28,
+  right: 34,
+  width: 84,
+  height: 58,
+  opacity: 0.24,
+  backgroundImage:
+    "radial-gradient(rgba(255,255,255,0.40) 2px, transparent 2px)",
+  backgroundSize: "14px 14px",
+  zIndex: 2,
 };
 
 const tabsCard: React.CSSProperties = {
