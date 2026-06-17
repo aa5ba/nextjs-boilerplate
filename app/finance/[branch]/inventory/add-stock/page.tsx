@@ -54,16 +54,29 @@ export default function AddStockPage() {
   }, []);
 
   useEffect(() => {
-    initializePage();
+    let cancelled = false;
+
+    async function run() {
+      await initializePage(() => cancelled);
+    }
+
+    run();
+
+    return () => {
+      cancelled = true;
+    };
   }, [branch]);
 
-  async function initializePage() {
+  async function initializePage(isCancelled: () => boolean) {
     const isLoggedIn = checkLogin();
 
-    if (!isLoggedIn) return;
+    if (!isLoggedIn || isCancelled()) return;
 
     loadEmployeeName();
-    await loadData();
+
+    if (isCancelled()) return;
+
+    await loadData(isCancelled);
   }
 
   function checkLogin() {
@@ -116,10 +129,16 @@ export default function AddStockPage() {
     router.replace(`/finance/${branch}/login`);
   }
 
-  async function loadData() {
+  async function loadData(isCancelled: () => boolean) {
     setLoading(true);
+    setInvestors([]);
+    setProducts([]);
+    setInvestorId("");
+    setProductId("");
 
     const branchId = await getBranchId(branch);
+
+    if (isCancelled()) return;
 
     if (!branchId) {
       setInvestors([]);
@@ -134,6 +153,8 @@ export default function AddStockPage() {
       .eq("branch_id", branchId)
       .eq("is_active", true)
       .order("created_at", { ascending: false });
+
+    if (isCancelled()) return;
 
     if (investorsError) {
       alert(investorsError.message || "تعذر تحميل المستثمرين");
@@ -150,6 +171,8 @@ export default function AddStockPage() {
       .eq("is_active", true)
       .order("created_at", { ascending: false });
 
+    if (isCancelled()) return;
+
     if (productsError) {
       alert(productsError.message || "تعذر تحميل المنتجات");
       setInvestors(investorsData || []);
@@ -165,6 +188,8 @@ export default function AddStockPage() {
 
   async function saveStock() {
     if (saving) return;
+
+    if (!checkLogin()) return;
 
     if (!investorId || !productId || !quantity) {
       alert("أكمل البيانات");
@@ -384,7 +409,15 @@ export default function AddStockPage() {
             disabled={saving}
           />
 
-          <button style={primaryButton} onClick={saveStock} disabled={saving}>
+          <button
+            style={{
+              ...primaryButton,
+              opacity: loading || saving ? 0.65 : 1,
+              cursor: loading || saving ? "not-allowed" : "pointer",
+            }}
+            onClick={saveStock}
+            disabled={loading || saving}
+          >
             {saving ? "جاري الحفظ..." : "حفظ الكمية"}
           </button>
         </section>
