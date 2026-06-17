@@ -17,6 +17,7 @@ export default function InvestorReportPage() {
   const branch = params.branch as string;
   const investorFromUrl = searchParams.get("investor") || "";
 
+  const [authChecked, setAuthChecked] = useState(false);
   const [screen, setScreen] = useState<ScreenType>("desktop");
   const [employeeName, setEmployeeName] = useState("الموظف");
 
@@ -57,8 +58,7 @@ export default function InvestorReportPage() {
   }, []);
 
   useEffect(() => {
-    loadEmployeeName();
-    loadInitial();
+    initializePage();
   }, [branch]);
 
   useEffect(() => {
@@ -66,6 +66,31 @@ export default function InvestorReportPage() {
       loadReport();
     }
   }, [branchId, investorId]);
+
+  async function initializePage() {
+    const isLoggedIn = checkLogin();
+
+    if (!isLoggedIn) return;
+
+    loadEmployeeName();
+    await loadInitial();
+  }
+
+  function checkLogin() {
+    if (typeof window === "undefined") return false;
+
+    const savedUser = localStorage.getItem("finance_user");
+    const savedBranchUser = localStorage.getItem("finance_branch_user");
+    const savedUserName = localStorage.getItem("finance_user_name");
+
+    if (!savedUser && !savedBranchUser && !savedUserName) {
+      router.replace(`/finance/${branch}/login`);
+      return false;
+    }
+
+    setAuthChecked(true);
+    return true;
+  }
 
   function loadEmployeeName() {
     if (typeof window === "undefined") return;
@@ -77,7 +102,9 @@ export default function InvestorReportPage() {
       return;
     }
 
-    const oldUser = localStorage.getItem("finance_user");
+    const oldUser =
+      localStorage.getItem("finance_user") ||
+      localStorage.getItem("finance_branch_user");
 
     if (oldUser) {
       try {
@@ -96,7 +123,7 @@ export default function InvestorReportPage() {
       localStorage.removeItem("finance_branch_user");
     }
 
-    router.push(`/finance/${branch}/login`);
+    router.replace(`/finance/${branch}/login`);
   }
 
   async function loadInitial() {
@@ -204,6 +231,10 @@ export default function InvestorReportPage() {
   const totalReturn = items
     .filter((x) => x.movement_type === "إرجاع")
     .reduce((sum, x) => sum + Number(x.quantity || 0), 0);
+
+  if (!authChecked) {
+    return null;
+  }
 
   return (
     <main dir="rtl" style={getPageStyle(isMobile)}>
@@ -743,15 +774,7 @@ function getTitleStyle(screen: ScreenType): CSSProperties {
 }
 
 function getHeroActionBoxStyle(screen: ScreenType): CSSProperties {
-  if (screen === "mobile") {
-    return {
-      display: "none",
-      width: "100%",
-      order: 3,
-    };
-  }
-
-  if (screen === "tablet") {
+  if (screen === "mobile" || screen === "tablet") {
     return {
       display: "none",
       width: "100%",
