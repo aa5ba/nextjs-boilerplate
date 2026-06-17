@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
@@ -9,15 +9,24 @@ import { normalizeNumber } from "@/lib/numberUtils";
 
 type ScreenType = "mobile" | "tablet" | "desktop";
 
+type UserAccess = {
+  roles: string[];
+  permissions: string[];
+};
+
 export default function NewInvestorPage() {
   const params = useParams();
   const router = useRouter();
 
   const branch = params.branch as string;
 
+  const savingRef = useRef(false);
+
   const [authChecked, setAuthChecked] = useState(false);
   const [screen, setScreen] = useState<ScreenType>("desktop");
   const [employeeName, setEmployeeName] = useState("الموظف");
+
+  const [branchId, setBranchId] = useState<string | null>(null);
 
   const [investorName, setInvestorName] = useState("");
   const [nationalId, setNationalId] = useState("");
@@ -54,30 +63,58 @@ export default function NewInvestorPage() {
   }, []);
 
   useEffect(() => {
-    initializePage();
+    let cancelled = false;
+
+    async function run() {
+      await initializePage(() => cancelled);
+    }
+
+    run();
+
+    return () => {
+      cancelled = true;
+    };
   }, [branch]);
 
-  async function initializePage() {
+  async function initializePage(isCancelled: () => boolean) {
+    setPermissionLoaded(false);
+    setAccessDenied(false);
+    setBranchId(null);
+
     const isLoggedIn = checkLogin();
 
-    if (!isLoggedIn) return;
+    if (!isLoggedIn || isCancelled()) return;
 
     loadEmployeeName();
 
     const userAccess = loadCurrentUserPermissions();
 
-    if (
-      !hasPermissionFromAccess(
-        userAccess.roles,
-        userAccess.permissions,
-        "add_investor"
-      )
-    ) {
+    if (isCancelled()) return;
+
+    const canAddInvestor = hasPermissionFromAccess(
+      userAccess.roles,
+      userAccess.permissions,
+      "add_investor"
+    );
+
+    if (!canAddInvestor) {
       setAccessDenied(true);
       setPermissionLoaded(true);
       return;
     }
 
+    const currentBranchId = await getBranchId(branch);
+
+    if (isCancelled()) return;
+
+    if (!currentBranchId) {
+      setAccessDenied(false);
+      setPermissionLoaded(true);
+      alert("تعذر تحديد الفرع");
+      return;
+    }
+
+    setBranchId(currentBranchId);
     setAccessDenied(false);
     setPermissionLoaded(true);
   }
@@ -101,24 +138,33 @@ export default function NewInvestorPage() {
   function loadEmployeeName() {
     if (typeof window === "undefined") return;
 
-    const newName = localStorage.getItem("finance_user_name");
+    const directName = localStorage.getItem("finance_user_name");
 
-    if (newName) {
-      setEmployeeName(newName);
+    if (directName) {
+      setEmployeeName(directName);
       return;
     }
 
-    const oldUser =
+    const savedUser =
       localStorage.getItem("finance_user") ||
       localStorage.getItem("finance_branch_user");
 
-    if (oldUser) {
-      try {
-        const parsed = JSON.parse(oldUser);
-        setEmployeeName(parsed?.full_name || parsed?.username || "الموظف");
-      } catch {
-        setEmployeeName("الموظف");
-      }
+    if (!savedUser) {
+      setEmployeeName("الموظف");
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(savedUser);
+
+      setEmployeeName(
+        parsed?.full_name ||
+          parsed?.username ||
+          parsed?.name ||
+          "الموظف"
+      );
+    } catch {
+      setEmployeeName("الموظف");
     }
   }
 
@@ -127,19 +173,14 @@ export default function NewInvestorPage() {
       localStorage.removeItem("finance_user");
       localStorage.removeItem("finance_user_name");
       localStorage.removeItem("finance_branch_user");
+      localStorage.removeItem("finance_role");
     }
 
     router.replace(`/finance/${branch}/login`);
   }
 
-  function loadCurrentUserPermissions() {
-    const savedUser =
-      typeof window !== "undefined"
-        ? localStorage.getItem("finance_user") ||
-          localStorage.getItem("finance_branch_user")
-        : null;
-
-    if (!savedUser) {
+  function loadCurrentUserPermissions(): UserAccess {
+    if (typeof window === "undefined") {
       setRoles([]);
       setPermissions([]);
 
@@ -149,10 +190,38 @@ export default function NewInvestorPage() {
       };
     }
 
+    const savedUser =
+      localStorage.getItem("finance_user") ||
+      localStorage.getItem("finance_branch_user");
+
+    const legacyRole = localStorage.getItem("finance_role");
+
+    if (!savedUser) {
+      const currentRoles = legacyRole ? [legacyRole] : [];
+
+      setRoles(currentRoles);
+      setPermissions([]);
+
+      return {
+        roles: currentRoles,
+        permissions: [],
+      };
+    }
+
     try {
       const user = JSON.parse(savedUser);
-      const currentRoles = user.roles || [];
-      const currentPermissions = user.permissions || [];
+
+      const currentRoles = Array.isArray(user?.roles)
+        ? user.roles
+        : [user?.role].filter(Boolean);
+
+      const currentPermissions = Array.isArray(user?.permissions)
+        ? user.permissions
+        : [];
+
+      if (legacyRole && !currentRoles.includes(legacyRole)) {
+        currentRoles.push(legacyRole);
+      }
 
       setRoles(currentRoles);
       setPermissions(currentPermissions);
@@ -162,11 +231,13 @@ export default function NewInvestorPage() {
         permissions: currentPermissions,
       };
     } catch {
-      setRoles([]);
+      const currentRoles = legacyRole ? [legacyRole] : [];
+
+      setRoles(currentRoles);
       setPermissions([]);
 
       return {
-        roles: [],
+        roles: currentRoles,
         permissions: [],
       };
     }
@@ -178,6 +249,8 @@ export default function NewInvestorPage() {
     permissionKey: string
   ) {
     return (
+      currentRoles.includes("main_admin") ||
+      currentRoles.includes("branch_manager") ||
       currentRoles.includes("مدير رئيسي") ||
       currentRoles.includes("مدير") ||
       currentPermissions.includes(permissionKey)
@@ -185,28 +258,35 @@ export default function NewInvestorPage() {
   }
 
   function hasPermission(permissionKey: string) {
-    return (
-      roles.includes("مدير رئيسي") ||
-      roles.includes("مدير") ||
-      permissions.includes(permissionKey)
-    );
+    return hasPermissionFromAccess(roles, permissions, permissionKey);
+  }
+
+  function resetForm() {
+    setInvestorName("");
+    setNationalId("");
+    setPhone("");
+    setNotes("");
   }
 
   async function saveInvestor() {
-    if (saving) return;
+    if (savingRef.current || saving) return;
+
+    if (!checkLogin()) return;
 
     if (!hasPermission("add_investor")) {
       alert("لا تملك صلاحية إضافة المستثمرين");
       return;
     }
 
-    if (!investorName.trim()) {
+    const cleanInvestorName = investorName.trim();
+    const cleanNationalId = normalizeNumber(nationalId);
+    const cleanPhone = normalizeNumber(phone);
+    const cleanNotes = notes.trim();
+
+    if (!cleanInvestorName) {
       alert("أدخل اسم المستثمر");
       return;
     }
-
-    const cleanNationalId = normalizeNumber(nationalId);
-    const cleanPhone = normalizeNumber(phone);
 
     if (cleanNationalId && cleanNationalId.length !== 10) {
       alert("رقم هوية المستثمر يجب أن يكون 10 أرقام");
@@ -218,28 +298,32 @@ export default function NewInvestorPage() {
       return;
     }
 
-    const branchId = await getBranchId(branch);
+    const currentBranchId = branchId || (await getBranchId(branch));
 
-    if (!branchId) {
+    if (!currentBranchId) {
       alert("تعذر تحديد الفرع");
       return;
     }
 
-    try {
-      setSaving(true);
+    savingRef.current = true;
+    setSaving(true);
 
+    try {
       if (cleanNationalId || cleanPhone) {
         let duplicateQuery = supabase
           .from("finance_investors")
           .select("id, investor_name, national_id, phone")
-          .eq("branch_id", branchId);
+          .eq("branch_id", currentBranchId);
 
         if (cleanNationalId && cleanPhone) {
           duplicateQuery = duplicateQuery.or(
             `national_id.eq.${cleanNationalId},phone.eq.${cleanPhone}`
           );
         } else if (cleanNationalId) {
-          duplicateQuery = duplicateQuery.eq("national_id", cleanNationalId);
+          duplicateQuery = duplicateQuery.eq(
+            "national_id",
+            cleanNationalId
+          );
         } else {
           duplicateQuery = duplicateQuery.eq("phone", cleanPhone);
         }
@@ -248,19 +332,28 @@ export default function NewInvestorPage() {
           await duplicateQuery.limit(1);
 
         if (duplicateError) {
-          alert(duplicateError.message || "تعذر التحقق من تكرار بيانات المستثمر");
+          alert(
+            duplicateError.message ||
+              "تعذر التحقق من تكرار بيانات المستثمر"
+          );
           return;
         }
 
-        if ((duplicateData || []).length > 0) {
-          const duplicateInvestor = duplicateData?.[0];
+        const duplicateInvestor = duplicateData?.[0];
 
-          if (duplicateInvestor?.national_id === cleanNationalId) {
+        if (duplicateInvestor) {
+          if (
+            cleanNationalId &&
+            duplicateInvestor.national_id === cleanNationalId
+          ) {
             alert("يوجد مستثمر بنفس رقم الهوية داخل هذا الفرع");
             return;
           }
 
-          if (duplicateInvestor?.phone === cleanPhone) {
+          if (
+            cleanPhone &&
+            duplicateInvestor.phone === cleanPhone
+          ) {
             alert("يوجد مستثمر بنفس رقم الجوال داخل هذا الفرع");
             return;
           }
@@ -270,25 +363,30 @@ export default function NewInvestorPage() {
         }
       }
 
-      const { error } = await supabase.from("finance_investors").insert([
-        {
-          branch_id: branchId,
-          investor_name: investorName.trim(),
-          national_id: cleanNationalId || null,
-          phone: cleanPhone || null,
-          notes: notes.trim() || null,
-          is_active: true,
-        },
-      ]);
+      const { error: insertError } = await supabase
+        .from("finance_investors")
+        .insert([
+          {
+            branch_id: currentBranchId,
+            investor_name: cleanInvestorName,
+            national_id: cleanNationalId || null,
+            phone: cleanPhone || null,
+            notes: cleanNotes || null,
+            is_active: true,
+          },
+        ]);
 
-      if (error) {
-        alert(error.message);
+      if (insertError) {
+        alert(insertError.message || "تعذر حفظ المستثمر");
         return;
       }
+
+      resetForm();
 
       alert("تم حفظ المستثمر بنجاح");
       router.push(`/finance/${branch}/inventory/investors`);
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
@@ -319,13 +417,18 @@ export default function NewInvestorPage() {
 
                 {!isMobile && <div style={employeeDividerSmall} />}
 
-                <button style={logoutInlineButton} onClick={logout}>
+                <button
+                  type="button"
+                  style={logoutInlineButton}
+                  onClick={logout}
+                >
                   <LogoutIcon />
                   <span>تسجيل الخروج</span>
                 </button>
               </div>
 
               <button
+                type="button"
                 style={getMainWorkstationButtonStyle(isMobile)}
                 onClick={() => router.push(`/finance/${branch}`)}
               >
@@ -346,18 +449,23 @@ export default function NewInvestorPage() {
           <div style={loadingBox}>جاري التحقق من الصلاحيات...</div>
         ) : accessDenied ? (
           <section style={deniedCard}>
-            <h1 style={{ marginTop: 0 }}>🚫 لا تملك صلاحية الوصول</h1>
-            <p>ليس لديك صلاحية إضافة المستثمرين.</p>
+            <h2 style={{ marginTop: 0 }}>لا تملك صلاحية الوصول</h2>
+            <p style={{ marginBottom: 0 }}>
+              ليس لديك صلاحية إضافة المستثمرين.
+            </p>
 
             <div style={backWrapper}>
               <button
+                type="button"
                 style={backButton}
-                onClick={() => router.push(`/finance/${branch}/inventory`)}
+                onClick={() => router.back()}
               >
-                الرجوع للمخزون
+                الرجوع
               </button>
             </div>
           </section>
+        ) : !branchId ? (
+          <div style={loadingBox}>تعذر تجهيز بيانات الفرع</div>
         ) : (
           <>
             <section style={card}>
@@ -365,7 +473,9 @@ export default function NewInvestorPage() {
                 style={input}
                 placeholder="اسم المستثمر"
                 value={investorName}
-                onChange={(e) => setInvestorName(e.target.value)}
+                onChange={(event) =>
+                  setInvestorName(event.target.value)
+                }
                 disabled={saving}
               />
 
@@ -375,7 +485,11 @@ export default function NewInvestorPage() {
                 maxLength={10}
                 placeholder="رقم هوية المستثمر"
                 value={nationalId}
-                onChange={(e) => setNationalId(normalizeNumber(e.target.value))}
+                onChange={(event) =>
+                  setNationalId(
+                    normalizeNumber(event.target.value).slice(0, 10)
+                  )
+                }
                 disabled={saving}
               />
 
@@ -385,7 +499,11 @@ export default function NewInvestorPage() {
                 maxLength={10}
                 placeholder="رقم الجوال"
                 value={phone}
-                onChange={(e) => setPhone(normalizeNumber(e.target.value))}
+                onChange={(event) =>
+                  setPhone(
+                    normalizeNumber(event.target.value).slice(0, 10)
+                  )
+                }
                 disabled={saving}
               />
 
@@ -393,21 +511,36 @@ export default function NewInvestorPage() {
                 style={textarea}
                 placeholder="ملاحظات"
                 value={notes}
-                onChange={(e) => setNotes(e.target.value)}
+                onChange={(event) => setNotes(event.target.value)}
                 disabled={saving}
               />
 
-              <button style={primaryButton} onClick={saveInvestor} disabled={saving}>
+              <button
+                type="button"
+                style={{
+                  ...primaryButton,
+                  opacity: saving ? 0.65 : 1,
+                  cursor: saving ? "not-allowed" : "pointer",
+                }}
+                onClick={saveInvestor}
+                disabled={saving}
+              >
                 {saving ? "جاري الحفظ..." : "حفظ المستثمر"}
               </button>
             </section>
 
             <div style={backWrapper}>
               <button
-                style={backButton}
-                onClick={() => router.push(`/finance/${branch}/inventory`)}
+                type="button"
+                style={{
+                  ...backButton,
+                  opacity: saving ? 0.65 : 1,
+                  cursor: saving ? "not-allowed" : "pointer",
+                }}
+                onClick={() => router.back()}
+                disabled={saving}
               >
-                الرجوع للمخزون
+                الرجوع
               </button>
             </div>
           </>
@@ -419,7 +552,13 @@ export default function NewInvestorPage() {
 
 function UserIcon() {
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M12 12.2a4.2 4.2 0 1 0 0-8.4 4.2 4.2 0 0 0 0 8.4Z"
         stroke="currentColor"
@@ -437,7 +576,13 @@ function UserIcon() {
 
 function LogoutIcon() {
   return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M9.5 7V5.8c0-1 .8-1.8 1.8-1.8h6.1c1 0 1.8.8 1.8 1.8v12.4c0 1-.8 1.8-1.8 1.8h-6.1c-1 0-1.8-.8-1.8-1.8V17"
         stroke="currentColor"
@@ -463,7 +608,13 @@ function LogoutIcon() {
 
 function HomeIcon() {
   return (
-    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="21"
+      height="21"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M3.8 11.2 12 4.5l8.2 6.7"
         stroke="currentColor"
@@ -565,7 +716,8 @@ function getHeroContentStyle(screen: ScreenType): CSSProperties {
     zIndex: 3,
     minHeight: 116,
     display: "grid",
-    gridTemplateColumns: "minmax(250px, 315px) 1fr minmax(220px, 315px)",
+    gridTemplateColumns:
+      "minmax(250px, 315px) 1fr minmax(220px, 315px)",
     alignItems: "center",
     gap: 16,
     direction: "ltr",
@@ -657,13 +809,16 @@ function getEmployeeNameStyle(isMobile: boolean): CSSProperties {
   };
 }
 
-function getMainWorkstationButtonStyle(isMobile: boolean): CSSProperties {
+function getMainWorkstationButtonStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     width: isMobile ? "100%" : 220,
     maxWidth: isMobile ? 280 : 220,
     height: 44,
     border: "none",
-    background: "linear-gradient(135deg,#72e77d,#22c55e 58%,#16a34a)",
+    background:
+      "linear-gradient(135deg,#72e77d,#22c55e 58%,#16a34a)",
     color: "#ffffff",
     borderRadius: 999,
     padding: "0 18px",
@@ -681,7 +836,9 @@ function getMainWorkstationButtonStyle(isMobile: boolean): CSSProperties {
   };
 }
 
-function getHeroTitleBoxStyle(screen: ScreenType): CSSProperties {
+function getHeroTitleBoxStyle(
+  screen: ScreenType
+): CSSProperties {
   return {
     position: "relative",
     zIndex: 4,
@@ -700,7 +857,12 @@ function getTitleStyle(screen: ScreenType): CSSProperties {
   return {
     margin: 0,
     color: "#ffffff",
-    fontSize: screen === "mobile" ? 26 : screen === "tablet" ? 28 : 30,
+    fontSize:
+      screen === "mobile"
+        ? 26
+        : screen === "tablet"
+        ? 28
+        : 30,
     lineHeight: 1.35,
     fontWeight: 900,
     letterSpacing: "-0.4px",
@@ -709,16 +871,10 @@ function getTitleStyle(screen: ScreenType): CSSProperties {
   };
 }
 
-function getHeroActionBoxStyle(screen: ScreenType): CSSProperties {
-  if (screen === "mobile") {
-    return {
-      display: "none",
-      width: "100%",
-      order: 3,
-    };
-  }
-
-  if (screen === "tablet") {
+function getHeroActionBoxStyle(
+  screen: ScreenType
+): CSSProperties {
+  if (screen === "mobile" || screen === "tablet") {
     return {
       display: "none",
       width: "100%",
@@ -886,7 +1042,8 @@ const backWrapper: CSSProperties = {
 
 const backButton: CSSProperties = {
   padding: "11px 18px",
-  background: "linear-gradient(135deg,#22c55e,#15803d)",
+  background:
+    "linear-gradient(135deg,#22c55e,#15803d)",
   color: "#ffffff",
   border: "none",
   borderRadius: 12,
