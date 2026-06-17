@@ -40,9 +40,10 @@ export default function InvestorsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalInvestors, setTotalInvestors] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [statusLoadingId, setStatusLoadingId] = useState<string | null>(
-    null
-  );
+
+  const [statusLoadingId, setStatusLoadingId] = useState<
+    string | null
+  >(null);
 
   const [permissions, setPermissions] = useState<string[]>([]);
   const [roles, setRoles] = useState<string[]>([]);
@@ -172,9 +173,11 @@ export default function InvestorsPage() {
     }
 
     const savedUser = localStorage.getItem("finance_user");
+
     const savedBranchUser = localStorage.getItem(
       "finance_branch_user"
     );
+
     const savedUserName = localStorage.getItem(
       "finance_user_name"
     );
@@ -258,7 +261,9 @@ export default function InvestorsPage() {
     try {
       const user = JSON.parse(savedUser);
 
-      const currentRoles: string[] = Array.isArray(user?.roles)
+      const currentRoles: string[] = Array.isArray(
+        user?.roles
+      )
         ? user.roles.filter(
             (role: unknown): role is string =>
               typeof role === "string"
@@ -316,10 +321,12 @@ export default function InvestorsPage() {
     try {
       const from =
         (requestedPage - 1) * ITEMS_PER_PAGE;
+
       const to = from + ITEMS_PER_PAGE - 1;
 
       const cleanSearch =
         sanitizeSearchValue(searchValue);
+
       const normalizedSearch =
         normalizeNumber(cleanSearch);
 
@@ -371,6 +378,7 @@ export default function InvestorsPage() {
           investorsError.message ||
             "تعذر تحميل المستثمرين"
         );
+
         setInvestors([]);
         setTotalInvestors(0);
         return;
@@ -419,6 +427,7 @@ export default function InvestorsPage() {
           inventoryError.message ||
             "تعذر تحميل بيانات مخزون المستثمرين"
         );
+
         setInvestors([]);
         setTotalInvestors(currentTotal);
         return;
@@ -484,6 +493,7 @@ export default function InvestorsPage() {
         alert(
           "حدث خطأ غير متوقع أثناء تحميل المستثمرين"
         );
+
         setInvestors([]);
         setTotalInvestors(0);
       }
