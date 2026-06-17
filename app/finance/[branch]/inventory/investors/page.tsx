@@ -28,7 +28,7 @@ export default function InvestorsPage() {
   const params = useParams();
   const router = useRouter();
 
-  const branch = params.branch as string;
+  const branch = String(params.branch ?? "");
 
   const [authChecked, setAuthChecked] = useState(false);
   const [screen, setScreen] = useState<ScreenType>("desktop");
@@ -40,7 +40,9 @@ export default function InvestorsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalInvestors, setTotalInvestors] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [statusLoadingId, setStatusLoadingId] = useState<string | null>(null);
+  const [statusLoadingId, setStatusLoadingId] = useState<string | null>(
+    null
+  );
 
   const [permissions, setPermissions] = useState<string[]>([]);
   const [roles, setRoles] = useState<string[]>([]);
@@ -70,7 +72,9 @@ export default function InvestorsPage() {
     updateScreen();
     window.addEventListener("resize", updateScreen);
 
-    return () => window.removeEventListener("resize", updateScreen);
+    return () => {
+      window.removeEventListener("resize", updateScreen);
+    };
   }, []);
 
   useEffect(() => {
@@ -80,7 +84,7 @@ export default function InvestorsPage() {
       await initializePage(() => cancelled);
     }
 
-    run();
+    void run();
 
     return () => {
       cancelled = true;
@@ -92,20 +96,24 @@ export default function InvestorsPage() {
   }, [search]);
 
   useEffect(() => {
-    if (!authChecked || !branchId) return;
+    const currentBranchId = branchId;
+
+    if (!authChecked || !currentBranchId) {
+      return;
+    }
 
     let cancelled = false;
 
     async function run() {
       await loadInvestors(
-        branchId,
+        currentBranchId,
         currentPage,
         search,
         () => cancelled
       );
     }
 
-    run();
+    void run();
 
     return () => {
       cancelled = true;
@@ -118,10 +126,14 @@ export default function InvestorsPage() {
     }
   }, [currentPage, totalPages]);
 
-  async function initializePage(isCancelled: () => boolean) {
+  async function initializePage(
+    isCancelled: () => boolean
+  ) {
     const isLoggedIn = checkLogin();
 
-    if (!isLoggedIn || isCancelled()) return;
+    if (!isLoggedIn || isCancelled()) {
+      return;
+    }
 
     loadEmployeeName();
     loadCurrentUserPermissions();
@@ -132,25 +144,40 @@ export default function InvestorsPage() {
     setTotalInvestors(0);
     setCurrentPage(1);
 
-    const currentBranchId = await getBranchId(branch);
+    try {
+      const currentBranchId = await getBranchId(branch);
 
-    if (isCancelled()) return;
+      if (isCancelled()) {
+        return;
+      }
 
-    if (!currentBranchId) {
-      setLoading(false);
-      alert("تعذر تحديد الفرع");
-      return;
+      if (!currentBranchId) {
+        setLoading(false);
+        alert("تعذر تحديد الفرع");
+        return;
+      }
+
+      setBranchId(currentBranchId);
+    } catch {
+      if (!isCancelled()) {
+        setLoading(false);
+        alert("حدث خطأ أثناء تحديد الفرع");
+      }
     }
-
-    setBranchId(currentBranchId);
   }
 
   function checkLogin() {
-    if (typeof window === "undefined") return false;
+    if (typeof window === "undefined") {
+      return false;
+    }
 
     const savedUser = localStorage.getItem("finance_user");
-    const savedBranchUser = localStorage.getItem("finance_branch_user");
-    const savedUserName = localStorage.getItem("finance_user_name");
+    const savedBranchUser = localStorage.getItem(
+      "finance_branch_user"
+    );
+    const savedUserName = localStorage.getItem(
+      "finance_user_name"
+    );
 
     if (!savedUser && !savedBranchUser && !savedUserName) {
       router.replace(`/finance/${branch}/login`);
@@ -162,9 +189,13 @@ export default function InvestorsPage() {
   }
 
   function loadEmployeeName() {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined") {
+      return;
+    }
 
-    const directName = localStorage.getItem("finance_user_name");
+    const directName = localStorage.getItem(
+      "finance_user_name"
+    );
 
     if (directName) {
       setEmployeeName(directName);
@@ -199,20 +230,27 @@ export default function InvestorsPage() {
       localStorage.removeItem("finance_user");
       localStorage.removeItem("finance_user_name");
       localStorage.removeItem("finance_branch_user");
+      localStorage.removeItem("finance_role");
     }
 
     router.replace(`/finance/${branch}/login`);
   }
 
   function loadCurrentUserPermissions() {
+    if (typeof window === "undefined") {
+      setRoles([]);
+      setPermissions([]);
+      return;
+    }
+
     const savedUser =
-      typeof window !== "undefined"
-        ? localStorage.getItem("finance_user") ||
-          localStorage.getItem("finance_branch_user")
-        : null;
+      localStorage.getItem("finance_user") ||
+      localStorage.getItem("finance_branch_user");
+
+    const legacyRole = localStorage.getItem("finance_role");
 
     if (!savedUser) {
-      setRoles([]);
+      setRoles(legacyRole ? [legacyRole] : []);
       setPermissions([]);
       return;
     }
@@ -220,10 +258,35 @@ export default function InvestorsPage() {
     try {
       const user = JSON.parse(savedUser);
 
-      setRoles(user.roles || [user.role].filter(Boolean));
-      setPermissions(user.permissions || []);
+      const currentRoles: string[] = Array.isArray(user?.roles)
+        ? user.roles.filter(
+            (role: unknown): role is string =>
+              typeof role === "string"
+          )
+        : typeof user?.role === "string"
+          ? [user.role]
+          : [];
+
+      const currentPermissions: string[] = Array.isArray(
+        user?.permissions
+      )
+        ? user.permissions.filter(
+            (permission: unknown): permission is string =>
+              typeof permission === "string"
+          )
+        : [];
+
+      if (
+        legacyRole &&
+        !currentRoles.includes(legacyRole)
+      ) {
+        currentRoles.push(legacyRole);
+      }
+
+      setRoles(currentRoles);
+      setPermissions(currentPermissions);
     } catch {
-      setRoles([]);
+      setRoles(legacyRole ? [legacyRole] : []);
       setPermissions([]);
     }
   }
@@ -250,165 +313,214 @@ export default function InvestorsPage() {
   ) {
     setLoading(true);
 
-    const from = (requestedPage - 1) * ITEMS_PER_PAGE;
-    const to = from + ITEMS_PER_PAGE - 1;
+    try {
+      const from =
+        (requestedPage - 1) * ITEMS_PER_PAGE;
+      const to = from + ITEMS_PER_PAGE - 1;
 
-    const cleanSearch = sanitizeSearchValue(searchValue);
-    const normalizedSearch = normalizeNumber(cleanSearch);
+      const cleanSearch =
+        sanitizeSearchValue(searchValue);
+      const normalizedSearch =
+        normalizeNumber(cleanSearch);
 
-    let query = supabase
-      .from("finance_investors")
-      .select(
-        `
-          id,
-          branch_id,
-          investor_name,
-          national_id,
-          phone,
-          notes,
-          is_active,
-          created_at
-        `,
+      let query = supabase
+        .from("finance_investors")
+        .select(
+          `
+            id,
+            branch_id,
+            investor_name,
+            national_id,
+            phone,
+            notes,
+            is_active,
+            created_at
+          `,
+          {
+            count: "exact",
+          }
+        )
+        .eq("branch_id", currentBranchId)
+        .order("created_at", {
+          ascending: false,
+        })
+        .range(from, to);
+
+      if (cleanSearch) {
+        query = query.or(
+          [
+            `investor_name.ilike.%${cleanSearch}%`,
+            `national_id.ilike.%${normalizedSearch}%`,
+            `phone.ilike.%${normalizedSearch}%`,
+          ].join(",")
+        );
+      }
+
+      const {
+        data: investorsData,
+        error: investorsError,
+        count,
+      } = await query;
+
+      if (isCancelled()) {
+        return;
+      }
+
+      if (investorsError) {
+        alert(
+          investorsError.message ||
+            "تعذر تحميل المستثمرين"
+        );
+        setInvestors([]);
+        setTotalInvestors(0);
+        return;
+      }
+
+      const currentTotal = count || 0;
+
+      const calculatedTotalPages = Math.max(
+        1,
+        Math.ceil(currentTotal / ITEMS_PER_PAGE)
+      );
+
+      if (requestedPage > calculatedTotalPages) {
+        setTotalInvestors(currentTotal);
+        setCurrentPage(calculatedTotalPages);
+        return;
+      }
+
+      const currentInvestors = investorsData || [];
+
+      const investorIds = currentInvestors.map(
+        (investor) => investor.id
+      );
+
+      if (investorIds.length === 0) {
+        setInvestors([]);
+        setTotalInvestors(currentTotal);
+        return;
+      }
+
+      const {
+        data: inventoryData,
+        error: inventoryError,
+      } = await supabase
+        .from("finance_inventory")
+        .select("investor_id, product_id, quantity")
+        .eq("branch_id", currentBranchId)
+        .in("investor_id", investorIds);
+
+      if (isCancelled()) {
+        return;
+      }
+
+      if (inventoryError) {
+        alert(
+          inventoryError.message ||
+            "تعذر تحميل بيانات مخزون المستثمرين"
+        );
+        setInvestors([]);
+        setTotalInvestors(currentTotal);
+        return;
+      }
+
+      const inventoryByInvestor = new Map<
+        string,
         {
-          count: "exact",
+          products: Set<string>;
+          totalQuantity: number;
         }
-      )
-      .eq("branch_id", currentBranchId)
-      .order("created_at", { ascending: false })
-      .range(from, to);
+      >();
 
-    if (cleanSearch) {
-      query = query.or(
-        [
-          `investor_name.ilike.%${cleanSearch}%`,
-          `national_id.ilike.%${normalizedSearch}%`,
-          `phone.ilike.%${normalizedSearch}%`,
-        ].join(",")
-      );
-    }
+      (inventoryData || []).forEach((item) => {
+        const investorId = item.investor_id;
 
-    const {
-      data: investorsData,
-      error: investorsError,
-      count,
-    } = await query;
+        if (!investorId) {
+          return;
+        }
 
-    if (isCancelled()) return;
+        const current =
+          inventoryByInvestor.get(investorId) || {
+            products: new Set<string>(),
+            totalQuantity: 0,
+          };
 
-    if (investorsError) {
-      alert(investorsError.message || "تعذر تحميل المستثمرين");
-      setInvestors([]);
-      setTotalInvestors(0);
-      setLoading(false);
-      return;
-    }
+        if (item.product_id) {
+          current.products.add(item.product_id);
+        }
 
-    const currentTotal = count || 0;
-    const calculatedTotalPages = Math.max(
-      1,
-      Math.ceil(currentTotal / ITEMS_PER_PAGE)
-    );
+        current.totalQuantity += Number(
+          item.quantity || 0
+        );
 
-    if (requestedPage > calculatedTotalPages) {
-      setTotalInvestors(currentTotal);
-      setCurrentPage(calculatedTotalPages);
-      setLoading(false);
-      return;
-    }
+        inventoryByInvestor.set(
+          investorId,
+          current
+        );
+      });
 
-    const currentInvestors = investorsData || [];
-    const investorIds = currentInvestors.map((investor) => investor.id);
+      const enrichedInvestors: InvestorRow[] =
+        currentInvestors.map((investor) => {
+          const summary =
+            inventoryByInvestor.get(investor.id);
 
-    if (investorIds.length === 0) {
-      setInvestors([]);
-      setTotalInvestors(currentTotal);
-      setLoading(false);
-      return;
-    }
+          return {
+            ...investor,
+            productsCount:
+              summary?.products.size || 0,
+            totalQuantity:
+              summary?.totalQuantity || 0,
+          };
+        });
 
-    const { data: inventoryData, error: inventoryError } = await supabase
-      .from("finance_inventory")
-      .select("investor_id, product_id, quantity")
-      .eq("branch_id", currentBranchId)
-      .in("investor_id", investorIds);
-
-    if (isCancelled()) return;
-
-    if (inventoryError) {
-      alert(
-        inventoryError.message ||
-          "تعذر تحميل بيانات مخزون المستثمرين"
-      );
-      setInvestors([]);
-      setTotalInvestors(currentTotal);
-      setLoading(false);
-      return;
-    }
-
-    const inventoryByInvestor = new Map<
-      string,
-      {
-        products: Set<string>;
-        totalQuantity: number;
-      }
-    >();
-
-    (inventoryData || []).forEach((item) => {
-      const investorId = item.investor_id;
-
-      if (!investorId) return;
-
-      const current =
-        inventoryByInvestor.get(investorId) || {
-          products: new Set<string>(),
-          totalQuantity: 0,
-        };
-
-      if (item.product_id) {
-        current.products.add(item.product_id);
+      if (isCancelled()) {
+        return;
       }
 
-      current.totalQuantity += Number(item.quantity || 0);
-
-      inventoryByInvestor.set(investorId, current);
-    });
-
-    const enrichedInvestors: InvestorRow[] = currentInvestors.map(
-      (investor) => {
-        const summary = inventoryByInvestor.get(investor.id);
-
-        return {
-          ...investor,
-          productsCount: summary?.products.size || 0,
-          totalQuantity: summary?.totalQuantity || 0,
-        };
+      setInvestors(enrichedInvestors);
+      setTotalInvestors(currentTotal);
+    } catch {
+      if (!isCancelled()) {
+        alert(
+          "حدث خطأ غير متوقع أثناء تحميل المستثمرين"
+        );
+        setInvestors([]);
+        setTotalInvestors(0);
       }
-    );
-
-    if (isCancelled()) return;
-
-    setInvestors(enrichedInvestors);
-    setTotalInvestors(currentTotal);
-    setLoading(false);
+    } finally {
+      if (!isCancelled()) {
+        setLoading(false);
+      }
+    }
   }
 
-  async function toggleInvestorStatus(investor: InvestorRow) {
-    if (statusLoadingId) return;
-
-    if (!checkLogin()) return;
-
-    if (!hasPermission("toggle_investor")) {
-      alert("لا تملك صلاحية تعطيل أو تفعيل المستثمرين");
+  async function toggleInvestorStatus(
+    investor: InvestorRow
+  ) {
+    if (statusLoadingId) {
       return;
     }
 
-    const confirmed = confirm(
+    if (!checkLogin()) {
+      return;
+    }
+
+    if (!hasPermission("toggle_investor")) {
+      alert(
+        "لا تملك صلاحية تعطيل أو تفعيل المستثمرين"
+      );
+      return;
+    }
+
+    const confirmed = window.confirm(
       investor.is_active
         ? "هل تريد تعطيل هذا المستثمر؟"
         : "هل تريد تفعيل هذا المستثمر؟"
     );
 
-    if (!confirmed) return;
+    if (!confirmed) {
+      return;
+    }
 
     const currentBranchId =
       branchId || (await getBranchId(branch));
@@ -430,7 +542,10 @@ export default function InvestorsPage() {
         .eq("branch_id", currentBranchId);
 
       if (error) {
-        alert(error.message || "تعذر تعديل حالة المستثمر");
+        alert(
+          error.message ||
+            "تعذر تعديل حالة المستثمر"
+        );
         return;
       }
 
@@ -438,6 +553,10 @@ export default function InvestorsPage() {
         currentBranchId,
         currentPage,
         search
+      );
+    } catch {
+      alert(
+        "حدث خطأ غير متوقع أثناء تعديل حالة المستثمر"
       );
     } finally {
       setStatusLoadingId(null);
@@ -468,7 +587,9 @@ export default function InvestorsPage() {
                   {employeeName}
                 </div>
 
-                {!isMobile && <div style={employeeDividerSmall} />}
+                {!isMobile && (
+                  <div style={employeeDividerSmall} />
+                )}
 
                 <button
                   type="button"
@@ -482,8 +603,12 @@ export default function InvestorsPage() {
 
               <button
                 type="button"
-                style={getMainWorkstationButtonStyle(isMobile)}
-                onClick={() => router.push(`/finance/${branch}`)}
+                style={getMainWorkstationButtonStyle(
+                  isMobile
+                )}
+                onClick={() =>
+                  router.push(`/finance/${branch}`)
+                }
               >
                 <HomeIcon />
                 <span>محطة العمل الرئيسية</span>
@@ -491,7 +616,9 @@ export default function InvestorsPage() {
             </div>
 
             <div style={getHeroTitleBoxStyle(screen)}>
-              <h1 style={getTitleStyle(screen)}>المستثمرون</h1>
+              <h1 style={getTitleStyle(screen)}>
+                المستثمرون
+              </h1>
             </div>
 
             <div style={getHeroActionBoxStyle(screen)} />
@@ -499,12 +626,21 @@ export default function InvestorsPage() {
         </header>
 
         <section style={card}>
-          <div style={isCompact ? topActionsCompact : topActions}>
+          <div
+            style={
+              isCompact
+                ? topActionsCompact
+                : topActions
+            }
+          >
             <input
+              type="search"
               style={searchInput}
               placeholder="البحث باسم المستثمر أو الهوية أو الجوال"
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) =>
+                setSearch(event.target.value)
+              }
             />
 
             {hasPermission("add_investor") && (
@@ -525,12 +661,15 @@ export default function InvestorsPage() {
 
         <section style={card}>
           <div style={listHeader}>
-            <h2 style={sectionTitle}>قائمة المستثمرين</h2>
+            <h2 style={sectionTitle}>
+              قائمة المستثمرين
+            </h2>
 
             {!loading && totalInvestors > 0 && (
               <span style={pageInfo}>
-                صفحة {currentPage} من {totalPages} - عرض{" "}
-                {investors.length} من {totalInvestors}
+                صفحة {currentPage} من {totalPages} -
+                عرض {investors.length} من{" "}
+                {totalInvestors}
               </span>
             )}
           </div>
@@ -546,13 +685,21 @@ export default function InvestorsPage() {
           </div>
 
           {loading ? (
-            <div style={emptyBox}>جاري تحميل المستثمرين...</div>
+            <div style={emptyBox}>
+              جاري تحميل المستثمرين...
+            </div>
           ) : investors.length === 0 ? (
-            <div style={emptyBox}>لا يوجد مستثمرون</div>
+            <div style={emptyBox}>
+              لا يوجد مستثمرون
+            </div>
           ) : (
             investors.map((investor) => (
-              <div key={investor.id} style={tableRow}>
-                <span
+              <div
+                key={investor.id}
+                style={tableRow}
+              >
+                <button
+                  type="button"
                   style={investorNameLink}
                   onClick={() =>
                     router.push(
@@ -561,19 +708,32 @@ export default function InvestorsPage() {
                   }
                 >
                   {investor.investor_name || "-"}
+                </button>
+
+                <span>
+                  {investor.national_id || "-"}
                 </span>
 
-                <span>{investor.national_id || "-"}</span>
-                <span>{investor.phone || "-"}</span>
+                <span>
+                  {investor.phone || "-"}
+                </span>
+
                 <span>{investor.productsCount}</span>
-                <strong>{investor.totalQuantity}</strong>
+
+                <strong>
+                  {investor.totalQuantity}
+                </strong>
 
                 <span
                   style={
-                    investor.is_active ? activeBadge : inactiveBadge
+                    investor.is_active
+                      ? activeBadge
+                      : inactiveBadge
                   }
                 >
-                  {investor.is_active ? "نشط" : "معطل"}
+                  {investor.is_active
+                    ? "نشط"
+                    : "معطل"}
                 </span>
 
                 <div style={actionsCell}>
@@ -603,26 +763,34 @@ export default function InvestorsPage() {
                     </button>
                   )}
 
-                  {hasPermission("toggle_investor") && (
+                  {hasPermission(
+                    "toggle_investor"
+                  ) && (
                     <button
                       type="button"
                       style={{
                         ...smallDangerButton,
-                        opacity: statusLoadingId ? 0.6 : 1,
+                        opacity: statusLoadingId
+                          ? 0.6
+                          : 1,
                         cursor: statusLoadingId
                           ? "not-allowed"
                           : "pointer",
                       }}
                       onClick={() =>
-                        toggleInvestorStatus(investor)
+                        void toggleInvestorStatus(
+                          investor
+                        )
                       }
-                      disabled={!!statusLoadingId}
+                      disabled={Boolean(
+                        statusLoadingId
+                      )}
                     >
                       {statusLoadingId === investor.id
                         ? "جاري..."
                         : investor.is_active
-                        ? "تعطيل"
-                        : "تفعيل"}
+                          ? "تعطيل"
+                          : "تفعيل"}
                     </button>
                   )}
                 </div>
@@ -630,56 +798,67 @@ export default function InvestorsPage() {
             ))
           )}
 
-          {!loading && totalInvestors > ITEMS_PER_PAGE && (
-            <div style={paginationBox}>
-              <button
-                type="button"
-                style={{
-                  ...paginationButton,
-                  opacity: currentPage === 1 ? 0.5 : 1,
-                  cursor:
-                    currentPage === 1
-                      ? "not-allowed"
-                      : "pointer",
-                }}
-                disabled={currentPage === 1 || loading}
-                onClick={() =>
-                  setCurrentPage((page) =>
-                    Math.max(page - 1, 1)
-                  )
-                }
-              >
-                السابق
-              </button>
+          {!loading &&
+            totalInvestors > ITEMS_PER_PAGE && (
+              <div style={paginationBox}>
+                <button
+                  type="button"
+                  style={{
+                    ...paginationButton,
+                    opacity:
+                      currentPage === 1 ? 0.5 : 1,
+                    cursor:
+                      currentPage === 1
+                        ? "not-allowed"
+                        : "pointer",
+                  }}
+                  disabled={
+                    currentPage === 1 || loading
+                  }
+                  onClick={() =>
+                    setCurrentPage((page) =>
+                      Math.max(page - 1, 1)
+                    )
+                  }
+                >
+                  السابق
+                </button>
 
-              <span style={paginationText}>
-                صفحة {currentPage} من {totalPages}
-              </span>
+                <span style={paginationText}>
+                  صفحة {currentPage} من{" "}
+                  {totalPages}
+                </span>
 
-              <button
-                type="button"
-                style={{
-                  ...paginationButton,
-                  opacity:
-                    currentPage === totalPages ? 0.5 : 1,
-                  cursor:
-                    currentPage === totalPages
-                      ? "not-allowed"
-                      : "pointer",
-                }}
-                disabled={
-                  currentPage === totalPages || loading
-                }
-                onClick={() =>
-                  setCurrentPage((page) =>
-                    Math.min(page + 1, totalPages)
-                  )
-                }
-              >
-                التالي
-              </button>
-            </div>
-          )}
+                <button
+                  type="button"
+                  style={{
+                    ...paginationButton,
+                    opacity:
+                      currentPage === totalPages
+                        ? 0.5
+                        : 1,
+                    cursor:
+                      currentPage === totalPages
+                        ? "not-allowed"
+                        : "pointer",
+                  }}
+                  disabled={
+                    currentPage === totalPages ||
+                    loading
+                  }
+                  onClick={() =>
+                    setCurrentPage((page) =>
+                      Math.min(
+                        page + 1,
+                        totalPages
+                      )
+                    )
+                  }
+                >
+                  التالي
+                </button>
+              </div>
+            )}
         </section>
 
         <div style={backWrapper}>
@@ -710,6 +889,7 @@ function UserIcon() {
         stroke="currentColor"
         strokeWidth="1.8"
       />
+
       <path
         d="M4.8 20.2c.8-3.5 3.6-5.4 7.2-5.4s6.4 1.9 7.2 5.4"
         stroke="currentColor"
@@ -735,12 +915,14 @@ function LogoutIcon() {
         strokeWidth="2"
         strokeLinecap="round"
       />
+
       <path
         d="M4.8 12h9.5"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
       />
+
       <path
         d="M7.8 8.8 4.6 12l3.2 3.2"
         stroke="currentColor"
@@ -768,12 +950,14 @@ function HomeIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+
       <path
         d="M6.2 10.4v9.1h11.6v-9.1"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinejoin="round"
       />
+
       <path
         d="M10 19.5v-5.2h4v5.2"
         stroke="currentColor"
@@ -784,26 +968,28 @@ function HomeIcon() {
   );
 }
 
-function getPageStyle(isMobile: boolean): CSSProperties {
+function getPageStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     minHeight: "100vh",
     backgroundColor: "#f6f9ff",
-    backgroundImage: `
-      radial-gradient(circle at 12% 18%, rgba(59,130,246,0.16) 0, transparent 28%),
-      radial-gradient(circle at 88% 12%, rgba(168,85,247,0.10) 0, transparent 25%),
-      radial-gradient(circle at 80% 88%, rgba(34,197,94,0.10) 0, transparent 28%),
-      linear-gradient(rgba(246,249,255,0.72),rgba(246,249,255,0.82)),
-      url('/backgrounds/v13-finance-bg-1.png')
-    `,
+    backgroundImage:
+      "radial-gradient(circle at 12% 18%, rgba(59,130,246,0.16) 0, transparent 28%), radial-gradient(circle at 88% 12%, rgba(168,85,247,0.10) 0, transparent 25%), radial-gradient(circle at 80% 88%, rgba(34,197,94,0.10) 0, transparent 28%), linear-gradient(rgba(246,249,255,0.72),rgba(246,249,255,0.82)), url('/backgrounds/v13-finance-bg-1.png')",
     backgroundSize: "cover",
     backgroundPosition: "center",
-    backgroundAttachment: isMobile ? "scroll" : "fixed",
+    backgroundAttachment: isMobile
+      ? "scroll"
+      : "fixed",
     padding: isMobile ? 10 : 18,
-    fontFamily: "var(--font-almarai), sans-serif",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
   };
 }
 
-function getContainerStyle(isCompact: boolean): CSSProperties {
+function getContainerStyle(
+  isCompact: boolean
+): CSSProperties {
   return {
     width: "100%",
     maxWidth: isCompact ? 980 : 1180,
@@ -811,12 +997,16 @@ function getContainerStyle(isCompact: boolean): CSSProperties {
   };
 }
 
-function getHeroStyle(isMobile: boolean): CSSProperties {
+function getHeroStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     position: "relative",
     minHeight: isMobile ? "auto" : 160,
     borderRadius: isMobile ? 20 : 24,
-    padding: isMobile ? "18px 14px" : "22px 26px",
+    padding: isMobile
+      ? "18px 14px"
+      : "22px 26px",
     marginBottom: 14,
     overflow: "hidden",
     border: "none",
@@ -959,7 +1149,8 @@ function getEmployeeNameStyle(
     fontWeight: 900,
     whiteSpace: "nowrap",
     direction: "rtl",
-    textShadow: "0 4px 10px rgba(15,23,42,0.18)",
+    textShadow:
+      "0 4px 10px rgba(15,23,42,0.18)",
   };
 }
 
@@ -979,8 +1170,10 @@ function getMainWorkstationButtonStyle(
     fontSize: 14,
     fontWeight: 900,
     cursor: "pointer",
-    fontFamily: "var(--font-almarai), sans-serif",
-    boxShadow: "0 8px 18px rgba(22,163,74,0.20)",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
+    boxShadow:
+      "0 8px 18px rgba(22,163,74,0.20)",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
@@ -1017,12 +1210,13 @@ function getTitleStyle(
       screen === "mobile"
         ? 26
         : screen === "tablet"
-        ? 28
-        : 30,
+          ? 28
+          : 30,
     lineHeight: 1.35,
     fontWeight: 900,
     letterSpacing: "-0.4px",
-    textShadow: "0 5px 14px rgba(15,23,42,0.14)",
+    textShadow:
+      "0 5px 14px rgba(15,23,42,0.14)",
     whiteSpace: "nowrap",
   };
 }
@@ -1030,7 +1224,10 @@ function getTitleStyle(
 function getHeroActionBoxStyle(
   screen: ScreenType
 ): CSSProperties {
-  if (screen === "mobile" || screen === "tablet") {
+  if (
+    screen === "mobile" ||
+    screen === "tablet"
+  ) {
     return {
       display: "none",
       width: "100%",
@@ -1052,7 +1249,8 @@ const employeeIcon: CSSProperties = {
   width: 38,
   height: 38,
   borderRadius: "50%",
-  border: "1.5px solid rgba(255,255,255,0.34)",
+  border:
+    "1.5px solid rgba(255,255,255,0.34)",
   background: "rgba(255,255,255,0.06)",
   display: "flex",
   alignItems: "center",
@@ -1078,7 +1276,8 @@ const logoutInlineButton: CSSProperties = {
   alignItems: "center",
   gap: 9,
   cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
   padding: 0,
   whiteSpace: "nowrap",
   direction: "rtl",
@@ -1140,7 +1339,8 @@ const card: CSSProperties = {
   padding: 20,
   marginBottom: 16,
   overflowX: "auto",
-  boxShadow: "0 8px 20px rgba(15,23,42,0.04)",
+  boxShadow:
+    "0 8px 20px rgba(15,23,42,0.04)",
 };
 
 const topActions: CSSProperties = {
@@ -1164,7 +1364,8 @@ const searchInput: CSSProperties = {
   border: "1px solid #d9e3f5",
   fontSize: 16,
   boxSizing: "border-box",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const addButton: CSSProperties = {
@@ -1177,7 +1378,8 @@ const addButton: CSSProperties = {
   fontSize: 16,
   fontWeight: "bold",
   cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const listHeader: CSSProperties = {
@@ -1227,9 +1429,16 @@ const tableRow: CSSProperties = {
 };
 
 const investorNameLink: CSSProperties = {
+  border: "none",
+  background: "transparent",
+  padding: 0,
+  margin: 0,
   cursor: "pointer",
   color: "#0d47a1",
   fontWeight: "bold",
+  textAlign: "right",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const emptyBox: CSSProperties = {
@@ -1274,18 +1483,23 @@ const smallButton: CSSProperties = {
   padding: "8px 10px",
   fontWeight: "bold",
   cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const smallGrayButton: CSSProperties = {
-  background: "#e5e7eb",
-  color: "#111827",
+  background:
+    "linear-gradient(135deg,#64748b,#334155)",
+  color: "#ffffff",
   border: "none",
   borderRadius: 10,
   padding: "8px 10px",
   fontWeight: "bold",
   cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+  boxShadow:
+    "0 4px 10px rgba(51,65,85,0.16)",
 };
 
 const smallDangerButton: CSSProperties = {
@@ -1296,7 +1510,8 @@ const smallDangerButton: CSSProperties = {
   padding: "8px 10px",
   fontWeight: "bold",
   cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const paginationBox: CSSProperties = {
@@ -1317,7 +1532,8 @@ const paginationButton: CSSProperties = {
   fontSize: 15,
   fontWeight: "bold",
   cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const paginationText: CSSProperties = {
@@ -1334,13 +1550,15 @@ const backWrapper: CSSProperties = {
 const backButton: CSSProperties = {
   padding: "11px 18px",
   background:
-    "linear-gradient(135deg,#22c55e,#15803d)",
+    "linear-gradient(135deg,#64748b,#334155)",
   color: "#ffffff",
   border: "none",
   borderRadius: 12,
   fontSize: 14,
   fontWeight: 900,
   cursor: "pointer",
-  boxShadow: "0 5px 14px rgba(22,163,74,0.22)",
-  fontFamily: "var(--font-almarai), sans-serif",
+  boxShadow:
+    "0 5px 14px rgba(51,65,85,0.22)",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
