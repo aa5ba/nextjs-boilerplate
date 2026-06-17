@@ -1,38 +1,34 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
-
-const LOW_STOCK_LIMIT = 5;
-const ITEMS_PER_PAGE = 25;
+import { normalizeNumber, toNumber } from "@/lib/numberUtils";
 
 type ScreenType = "mobile" | "tablet" | "desktop";
 
-export default function FinanceInventoryPage() {
+export default function AddStockPage() {
   const params = useParams();
   const router = useRouter();
+
   const branch = params.branch as string;
 
   const [authChecked, setAuthChecked] = useState(false);
   const [screen, setScreen] = useState<ScreenType>("desktop");
   const [employeeName, setEmployeeName] = useState("الموظف");
 
-  const [items, setItems] = useState<any[]>([]);
-  const [productsCount, setProductsCount] = useState(0);
-  const [investorsCount, setInvestorsCount] = useState(0);
-  const [totalQuantity, setTotalQuantity] = useState(0);
-  const [negativeCount, setNegativeCount] = useState(0);
-  const [lowCount, setLowCount] = useState(0);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [currentPage, setCurrentPage] = useState(1);
-  const [loading, setLoading] = useState(true);
+  const [investors, setInvestors] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
 
-  const [permissions, setPermissions] = useState<string[]>([]);
-  const [roles, setRoles] = useState<string[]>([]);
+  const [investorId, setInvestorId] = useState("");
+  const [productId, setProductId] = useState("");
+  const [quantity, setQuantity] = useState("");
+  const [notes, setNotes] = useState("");
+
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   const isMobile = screen === "mobile";
   const isTablet = screen === "tablet";
@@ -58,21 +54,29 @@ export default function FinanceInventoryPage() {
   }, []);
 
   useEffect(() => {
-    initializePage();
+    let cancelled = false;
+
+    async function run() {
+      await initializePage(() => cancelled);
+    }
+
+    run();
+
+    return () => {
+      cancelled = true;
+    };
   }, [branch]);
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, statusFilter]);
-
-  async function initializePage() {
+  async function initializePage(isCancelled: () => boolean) {
     const isLoggedIn = checkLogin();
 
-    if (!isLoggedIn) return;
+    if (!isLoggedIn || isCancelled()) return;
 
     loadEmployeeName();
-    loadCurrentUserPermissions();
-    await loadInventory();
+
+    if (isCancelled()) return;
+
+    await loadData(isCancelled);
   }
 
   function checkLogin() {
@@ -125,165 +129,186 @@ export default function FinanceInventoryPage() {
     router.replace(`/finance/${branch}/login`);
   }
 
-  function go(path: string) {
-    router.push(`/finance/${branch}/${path}`);
-  }
+  async function loadData(isCancelled: () => boolean) {
+    setLoading(true);
+    setInvestors([]);
+    setProducts([]);
+    setInvestorId("");
+    setProductId("");
 
-  function loadCurrentUserPermissions() {
-    const savedUser =
-      typeof window !== "undefined"
-        ? localStorage.getItem("finance_user") ||
-          localStorage.getItem("finance_branch_user")
-        : null;
+    const branchId = await getBranchId(branch);
 
-    if (!savedUser) {
-      setRoles([]);
-      setPermissions([]);
+    if (isCancelled()) return;
+
+    if (!branchId) {
+      setInvestors([]);
+      setProducts([]);
+      setLoading(false);
       return;
     }
 
-    try {
-      const user = JSON.parse(savedUser);
-      setRoles(user.roles || []);
-      setPermissions(user.permissions || []);
-    } catch {
-      setRoles([]);
-      setPermissions([]);
+    const { data: investorsData, error: investorsError } = await supabase
+      .from("finance_investors")
+      .select("*")
+      .eq("branch_id", branchId)
+      .eq("is_active", true)
+      .order("created_at", { ascending: false });
+
+    if (isCancelled()) return;
+
+    if (investorsError) {
+      alert(investorsError.message || "تعذر تحميل المستثمرين");
+      setInvestors([]);
+      setProducts([]);
+      setLoading(false);
+      return;
     }
+
+    const { data: productsData, error: productsError } = await supabase
+      .from("finance_products")
+      .select("*")
+      .eq("branch_id", branchId)
+      .eq("is_active", true)
+      .order("created_at", { ascending: false });
+
+    if (isCancelled()) return;
+
+    if (productsError) {
+      alert(productsError.message || "تعذر تحميل المنتجات");
+      setInvestors(investorsData || []);
+      setProducts([]);
+      setLoading(false);
+      return;
+    }
+
+    setInvestors(investorsData || []);
+    setProducts(productsData || []);
+    setLoading(false);
   }
 
-  function hasPermission(permissionKey: string) {
-    return (
-      roles.includes("مدير رئيسي") ||
-      roles.includes("مدير") ||
-      permissions.includes(permissionKey)
-    );
-  }
+  async function saveStock() {
+    if (saving) return;
 
-  function resetInventoryState() {
-    setItems([]);
-    setProductsCount(0);
-    setInvestorsCount(0);
-    setTotalQuantity(0);
-    setNegativeCount(0);
-    setLowCount(0);
-    setCurrentPage(1);
-  }
+    if (!checkLogin()) return;
 
-  async function loadInventory() {
-    setLoading(true);
+    if (!investorId || !productId || !quantity) {
+      alert("أكمل البيانات");
+      return;
+    }
+
+    const qty = toNumber(quantity);
+
+    if (qty <= 0) {
+      alert("أدخل كمية صحيحة");
+      return;
+    }
 
     const branchId = await getBranchId(branch);
 
     if (!branchId) {
-      resetInventoryState();
-      setLoading(false);
+      alert("تعذر تحديد الفرع");
       return;
     }
 
-    const { data: products, error: productsError } = await supabase
-      .from("finance_products")
-      .select("id")
-      .eq("branch_id", branchId)
-      .eq("is_active", true);
+    try {
+      setSaving(true);
 
-    if (productsError) {
-      alert(productsError.message || "تعذر تحميل المنتجات");
-      resetInventoryState();
-      setLoading(false);
-      return;
+      const { data: existingStock, error: stockFetchError } = await supabase
+        .from("finance_inventory")
+        .select("*")
+        .eq("branch_id", branchId)
+        .eq("investor_id", investorId)
+        .eq("product_id", productId)
+        .maybeSingle();
+
+      if (stockFetchError) {
+        alert(stockFetchError.message);
+        return;
+      }
+
+      if (existingStock) {
+        const beforeQty = Number(existingStock.quantity || 0);
+        const afterQty = beforeQty + qty;
+
+        const { error: updateError } = await supabase
+          .from("finance_inventory")
+          .update({
+            quantity: afterQty,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", existingStock.id)
+          .eq("branch_id", branchId);
+
+        if (updateError) {
+          alert(updateError.message);
+          return;
+        }
+
+        const { error: movementError } = await supabase
+          .from("finance_inventory_movements")
+          .insert([
+            {
+              branch_id: branchId,
+              investor_id: investorId,
+              product_id: productId,
+              movement_type: "إضافة",
+              quantity: qty,
+              before_quantity: beforeQty,
+              after_quantity: afterQty,
+              notes: notes.trim() || null,
+              created_by: employeeName || "الموظف",
+            },
+          ]);
+
+        if (movementError) {
+          alert(movementError.message);
+          return;
+        }
+      } else {
+        const { error: insertError } = await supabase
+          .from("finance_inventory")
+          .insert([
+            {
+              branch_id: branchId,
+              investor_id: investorId,
+              product_id: productId,
+              quantity: qty,
+            },
+          ]);
+
+        if (insertError) {
+          alert(insertError.message);
+          return;
+        }
+
+        const { error: movementError } = await supabase
+          .from("finance_inventory_movements")
+          .insert([
+            {
+              branch_id: branchId,
+              investor_id: investorId,
+              product_id: productId,
+              movement_type: "إضافة",
+              quantity: qty,
+              before_quantity: 0,
+              after_quantity: qty,
+              notes: notes.trim() || null,
+              created_by: employeeName || "الموظف",
+            },
+          ]);
+
+        if (movementError) {
+          alert(movementError.message);
+          return;
+        }
+      }
+
+      alert("تمت إضافة الكمية بنجاح");
+      router.push(`/finance/${branch}/inventory`);
+    } finally {
+      setSaving(false);
     }
-
-    const { data: investors, error: investorsError } = await supabase
-      .from("finance_investors")
-      .select("id")
-      .eq("branch_id", branchId)
-      .eq("is_active", true);
-
-    if (investorsError) {
-      alert(investorsError.message || "تعذر تحميل المستثمرين");
-      resetInventoryState();
-      setLoading(false);
-      return;
-    }
-
-    const { data: inventory, error: inventoryError } = await supabase
-      .from("finance_inventory")
-      .select(
-        "*, finance_products(product_name), finance_investors(investor_name)"
-      )
-      .eq("branch_id", branchId)
-      .order("updated_at", { ascending: false });
-
-    if (inventoryError) {
-      alert(inventoryError.message || "تعذر تحميل المخزون");
-      resetInventoryState();
-      setLoading(false);
-      return;
-    }
-
-    const list = inventory || [];
-
-    setProductsCount(products?.length || 0);
-    setInvestorsCount(investors?.length || 0);
-    setItems(list);
-
-    setTotalQuantity(
-      list.reduce((sum, item) => sum + Number(item.quantity || 0), 0)
-    );
-
-    setNegativeCount(
-      list.filter((item) => Number(item.quantity || 0) < 0).length
-    );
-
-    setLowCount(
-      list.filter((item) => {
-        const qty = Number(item.quantity || 0);
-        return qty >= 0 && qty <= LOW_STOCK_LIMIT;
-      }).length
-    );
-
-    setCurrentPage(1);
-    setLoading(false);
   }
-
-  const filteredItems = useMemo(() => {
-    const cleanSearch = searchTerm.trim();
-
-    return items
-      .filter((item) => {
-        const productName = item.finance_products?.product_name || "";
-        const investorName = item.finance_investors?.investor_name || "";
-        const qty = Number(item.quantity || 0);
-        const status = getStockStatus(qty);
-
-        const matchesSearch =
-          !cleanSearch ||
-          productName.includes(cleanSearch) ||
-          investorName.includes(cleanSearch);
-
-        const matchesStatus =
-          statusFilter === "all" || status.key === statusFilter;
-
-        return matchesSearch && matchesStatus;
-      })
-      .sort((a, b) => {
-        const aStatus = getStockStatus(Number(a.quantity || 0)).priority;
-        const bStatus = getStockStatus(Number(b.quantity || 0)).priority;
-
-        return aStatus - bStatus;
-      });
-  }, [items, searchTerm, statusFilter]);
-
-  const totalPages = Math.max(
-    1,
-    Math.ceil(filteredItems.length / ITEMS_PER_PAGE)
-  );
-
-  const paginatedItems = useMemo(() => {
-    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filteredItems.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-  }, [filteredItems, currentPage]);
 
   if (!authChecked) {
     return null;
@@ -327,253 +352,87 @@ export default function FinanceInventoryPage() {
             </div>
 
             <div style={getHeroTitleBoxStyle(screen)}>
-              <h1 style={getTitleStyle(screen)}>المخزون والمنتجات</h1>
+              <h1 style={getTitleStyle(screen)}>إضافة كمية للمخزون</h1>
             </div>
 
             <div style={getHeroActionBoxStyle(screen)} />
           </div>
         </header>
 
-        <section style={summaryGrid}>
-          <SummaryCard icon="🧩" title="عدد المنتجات" value={productsCount} />
-          <SummaryCard icon="📦" title="إجمالي الكمية" value={totalQuantity} />
-          <SummaryCard icon="👤" title="عدد المستثمرين" value={investorsCount} />
-          <SummaryCard icon="🔴" title="منتجات بالسالب" value={negativeCount} />
-          <SummaryCard icon="🟠" title="منتجات منخفضة" value={lowCount} />
-        </section>
+        <section style={card}>
+          <select
+            style={input}
+            value={investorId}
+            onChange={(e) => setInvestorId(e.target.value)}
+            disabled={loading || saving}
+          >
+            <option value="">
+              {loading ? "جاري تحميل المستثمرين..." : "اختر المستثمر"}
+            </option>
+            {investors.map((investor) => (
+              <option key={investor.id} value={investor.id}>
+                {investor.investor_name}
+              </option>
+            ))}
+          </select>
 
-        <section style={actionsSection}>
-          <ActionButton
-            icon="➕"
-            title="إضافة منتج"
-            onClick={() => go("inventory/products/new")}
+          <select
+            style={input}
+            value={productId}
+            onChange={(e) => setProductId(e.target.value)}
+            disabled={loading || saving}
+          >
+            <option value="">
+              {loading ? "جاري تحميل المنتجات..." : "اختر المنتج"}
+            </option>
+            {products.map((product) => (
+              <option key={product.id} value={product.id}>
+                {product.product_name}
+              </option>
+            ))}
+          </select>
+
+          <input
+            style={input}
+            inputMode="numeric"
+            placeholder="الكمية"
+            value={quantity}
+            onChange={(e) => setQuantity(normalizeNumber(e.target.value))}
+            disabled={saving}
           />
 
-          {hasPermission("add_investor") && (
-            <ActionButton
-              icon="👤"
-              title="إضافة مستثمر"
-              onClick={() => go("inventory/investors/new")}
-            />
-          )}
-
-          <ActionButton
-            icon="👥"
-            title="المستثمرين"
-            onClick={() => go("inventory/investors")}
+          <textarea
+            style={textarea}
+            placeholder="ملاحظات"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            disabled={saving}
           />
 
-          <ActionButton
-            icon="📦"
-            title="المنتجات"
-            onClick={() => go("inventory/products")}
-          />
-
-          <ActionButton
-            icon="📦"
-            title="إضافة كمية للمخزون"
-            onClick={() => go("inventory/add-stock")}
-          />
-
-          <ActionButton
-            icon="📋"
-            title="سجل الحركات"
-            onClick={() => go("inventory/movements")}
-          />
-
-          <ActionButton
-            icon="🖨️"
-            title="كشف المنتجات"
-            onClick={() => go("inventory/products-report")}
-          />
-
-          <ActionButton
-            icon="🧾"
-            title="كشف المستثمر"
-            onClick={() => go("inventory/investor-report")}
-          />
-        </section>
-
-        <section style={tableCard}>
-          <div style={tableTop}>
-            <div>
-              <h2 style={sectionTitle}>المخزون الحالي</h2>
-
-              {!loading && filteredItems.length > 0 && (
-                <div style={pageInfo}>
-                  صفحة {currentPage} من {totalPages} - عرض{" "}
-                  {paginatedItems.length} من {filteredItems.length}
-                </div>
-              )}
-            </div>
-
-            <div style={filters}>
-              <input
-                style={searchInput}
-                placeholder="بحث باسم المنتج أو المستثمر"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-
-              <select
-                style={filterSelect}
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                <option value="all">كل الحالات</option>
-                <option value="negative">بالسالب</option>
-                <option value="low">منخفض</option>
-                <option value="normal">طبيعي</option>
-              </select>
-            </div>
-          </div>
-
-          <div style={tableHeader}>
-            <span>المنتج</span>
-            <span>المستثمر</span>
-            <span>الكمية</span>
-            <span>الحالة</span>
-            <span>آخر تحديث</span>
-          </div>
-
-          {loading ? (
-            <div style={emptyBox}>جاري تحميل المخزون...</div>
-          ) : filteredItems.length === 0 ? (
-            <div style={emptyBox}>لا توجد نتائج مطابقة</div>
-          ) : (
-            paginatedItems.map((item) => {
-              const qty = Number(item.quantity || 0);
-              const status = getStockStatus(qty);
-
-              return (
-                <div key={item.id} style={getTableRowStyle(status.key)}>
-                  <span>{item.finance_products?.product_name || "-"}</span>
-                  <span>{item.finance_investors?.investor_name || "-"}</span>
-                  <strong>{qty}</strong>
-                  <span style={getStatusBadgeStyle(status.key)}>
-                    {status.label}
-                  </span>
-                  <span>{formatDate(item.updated_at)}</span>
-                </div>
-              );
-            })
-          )}
-
-          {!loading && filteredItems.length > ITEMS_PER_PAGE && (
-            <div style={paginationBox}>
-              <button
-                style={{
-                  ...paginationButton,
-                  opacity: currentPage === 1 ? 0.5 : 1,
-                  cursor: currentPage === 1 ? "not-allowed" : "pointer",
-                }}
-                disabled={currentPage === 1}
-                onClick={() => setCurrentPage((page) => Math.max(page - 1, 1))}
-              >
-                السابق
-              </button>
-
-              <span style={paginationText}>
-                صفحة {currentPage} من {totalPages}
-              </span>
-
-              <button
-                style={{
-                  ...paginationButton,
-                  opacity: currentPage === totalPages ? 0.5 : 1,
-                  cursor:
-                    currentPage === totalPages ? "not-allowed" : "pointer",
-                }}
-                disabled={currentPage === totalPages}
-                onClick={() =>
-                  setCurrentPage((page) => Math.min(page + 1, totalPages))
-                }
-              >
-                التالي
-              </button>
-            </div>
-          )}
+          <button
+            style={{
+              ...primaryButton,
+              opacity: loading || saving ? 0.65 : 1,
+              cursor: loading || saving ? "not-allowed" : "pointer",
+            }}
+            onClick={saveStock}
+            disabled={loading || saving}
+          >
+            {saving ? "جاري الحفظ..." : "حفظ الكمية"}
+          </button>
         </section>
 
         <div style={backWrapper}>
           <button
             style={backButton}
-            onClick={() => router.push(`/finance/${branch}`)}
+            onClick={() => router.push(`/finance/${branch}/inventory`)}
           >
-            الرجوع للرئيسية
+            الرجوع للمخزون
           </button>
         </div>
       </div>
     </main>
   );
-}
-
-function getStockStatus(quantity: number) {
-  if (quantity < 0) {
-    return {
-      key: "negative",
-      label: "🔴 بالسالب",
-      priority: 1,
-    };
-  }
-
-  if (quantity <= LOW_STOCK_LIMIT) {
-    return {
-      key: "low",
-      label: "🟠 منخفض",
-      priority: 2,
-    };
-  }
-
-  return {
-    key: "normal",
-    label: "🟢 طبيعي",
-    priority: 3,
-  };
-}
-
-function SummaryCard({ icon, title, value }: any) {
-  return (
-    <div style={summaryCard}>
-      <div>
-        <strong>{title}</strong>
-        <span>{value}</span>
-      </div>
-
-      <div style={summaryIcon}>{icon}</div>
-    </div>
-  );
-}
-
-function ActionButton({ icon, title, onClick }: any) {
-  return (
-    <button style={actionButton} onClick={onClick}>
-      <span style={actionIcon}>{icon}</span>
-      <span>{title}</span>
-    </button>
-  );
-}
-
-function formatDate(date: string) {
-  if (!date) return "-";
-
-  return new Date(date).toLocaleDateString("ar-SA-u-ca-gregory", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function getTableRowStyle(status: string) {
-  if (status === "negative") return { ...tableRow, ...negativeRow };
-  if (status === "low") return { ...tableRow, ...lowRow };
-  return tableRow;
-}
-
-function getStatusBadgeStyle(status: string) {
-  if (status === "negative") return statusNegative;
-  if (status === "low") return statusLow;
-  return statusNormal;
 }
 
 function UserIcon() {
@@ -980,208 +839,51 @@ const heroDots: CSSProperties = {
   zIndex: 2,
 };
 
-const summaryGrid: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))",
-  gap: 14,
-  marginBottom: 18,
-};
-
-const summaryCard: CSSProperties = {
-  background: "white",
-  border: "1px solid #d9e3f5",
-  borderRadius: 18,
-  padding: 18,
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-};
-
-const summaryIcon: CSSProperties = {
-  width: 46,
-  height: 46,
-  borderRadius: 14,
-  background: "#eef5ff",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  fontSize: 22,
-};
-
-const actionsSection: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
-  gap: 14,
-  marginBottom: 18,
-};
-
-const actionButton: CSSProperties = {
-  background: "white",
-  border: "1px solid #d9e3f5",
-  borderRadius: 18,
-  padding: 18,
-  fontSize: 16,
-  fontWeight: "bold",
-  cursor: "pointer",
-  color: "#0d47a1",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 10,
-  fontFamily: "var(--font-almarai), sans-serif",
-};
-
-const actionIcon: CSSProperties = {
-  fontSize: 20,
-};
-
-const tableCard: CSSProperties = {
+const card: CSSProperties = {
   background: "white",
   border: "1px solid #d9e3f5",
   borderRadius: 18,
   padding: 20,
-  overflowX: "auto",
+  boxShadow: "0 8px 20px rgba(15,23,42,0.04)",
 };
 
-const tableTop: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 12,
-  alignItems: "center",
-  flexWrap: "wrap",
-  marginBottom: 12,
-};
-
-const sectionTitle: CSSProperties = {
-  margin: 0,
-  color: "#0d47a1",
-};
-
-const pageInfo: CSSProperties = {
-  color: "#64748b",
-  fontSize: 14,
-  fontWeight: "bold",
-  marginTop: 6,
-};
-
-const filters: CSSProperties = {
-  display: "flex",
-  gap: 10,
-  flexWrap: "wrap",
-};
-
-const searchInput: CSSProperties = {
-  minWidth: 240,
-  padding: 12,
-  borderRadius: 12,
-  border: "1px solid #d9e3f5",
-  fontSize: 15,
-  fontFamily: "var(--font-almarai), sans-serif",
-};
-
-const filterSelect: CSSProperties = {
-  padding: 12,
-  borderRadius: 12,
-  border: "1px solid #d9e3f5",
-  fontSize: 15,
-  fontFamily: "var(--font-almarai), sans-serif",
-};
-
-const tableHeader: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "2fr 2fr 1fr 1.2fr 1.5fr",
-  gap: 12,
-  minWidth: 860,
-  background: "#f4f8ff",
-  color: "#0d47a1",
-  fontWeight: "bold",
+const input: CSSProperties = {
+  width: "100%",
   padding: 14,
-  borderRadius: 12,
-  marginBottom: 10,
-};
-
-const tableRow: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "2fr 2fr 1fr 1.2fr 1.5fr",
-  gap: 12,
-  minWidth: 860,
-  padding: 14,
-  borderBottom: "1px solid #eef2f7",
-  alignItems: "center",
-};
-
-const negativeRow: CSSProperties = {
-  background: "#fef2f2",
-};
-
-const lowRow: CSSProperties = {
-  background: "#fffbeb",
-};
-
-const statusNegative: CSSProperties = {
-  background: "#fee2e2",
-  color: "#991b1b",
-  border: "1px solid #fecaca",
-  padding: "6px 10px",
-  borderRadius: 999,
-  fontWeight: "bold",
-  textAlign: "center",
-};
-
-const statusLow: CSSProperties = {
-  background: "#fef3c7",
-  color: "#92400e",
-  border: "1px solid #fde68a",
-  padding: "6px 10px",
-  borderRadius: 999,
-  fontWeight: "bold",
-  textAlign: "center",
-};
-
-const statusNormal: CSSProperties = {
-  background: "#dcfce7",
-  color: "#166534",
-  border: "1px solid #bbf7d0",
-  padding: "6px 10px",
-  borderRadius: 999,
-  fontWeight: "bold",
-  textAlign: "center",
-};
-
-const emptyBox: CSSProperties = {
-  minWidth: 760,
-  background: "#f8fbff",
-  border: "1px dashed #cbd5e1",
   borderRadius: 14,
-  padding: 22,
-  textAlign: "center",
-  color: "#6b7280",
+  border: "1px solid #d9e3f5",
+  fontSize: 16,
+  marginBottom: 12,
+  boxSizing: "border-box",
+  background: "white",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
-const paginationBox: CSSProperties = {
-  minWidth: 860,
-  marginTop: 18,
-  display: "flex",
-  justifyContent: "center",
-  alignItems: "center",
-  gap: 12,
+const textarea: CSSProperties = {
+  width: "100%",
+  minHeight: 100,
+  padding: 14,
+  borderRadius: 14,
+  border: "1px solid #d9e3f5",
+  fontSize: 16,
+  marginBottom: 12,
+  boxSizing: "border-box",
+  background: "white",
+  resize: "vertical",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
-const paginationButton: CSSProperties = {
-  padding: "11px 18px",
+const primaryButton: CSSProperties = {
+  width: "100%",
+  padding: 16,
   background: "#0d47a1",
   color: "white",
   border: "none",
-  borderRadius: 12,
-  fontSize: 15,
+  borderRadius: 14,
+  fontSize: 17,
   fontWeight: "bold",
   cursor: "pointer",
   fontFamily: "var(--font-almarai), sans-serif",
-};
-
-const paginationText: CSSProperties = {
-  color: "#0f172a",
-  fontWeight: "bold",
 };
 
 const backWrapper: CSSProperties = {
