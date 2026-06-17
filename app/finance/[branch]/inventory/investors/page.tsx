@@ -25,7 +25,7 @@ export default function InvestorsPage() {
   const [search, setSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(true);
-  const [statusLoading, setStatusLoading] = useState(false);
+  const [statusLoadingId, setStatusLoadingId] = useState<string | null>(null);
 
   const [permissions, setPermissions] = useState<string[]>([]);
   const [roles, setRoles] = useState<string[]>([]);
@@ -155,6 +155,7 @@ export default function InvestorsPage() {
 
     if (!branchId) {
       setInvestors([]);
+      setCurrentPage(1);
       setLoading(false);
       return;
     }
@@ -168,6 +169,7 @@ export default function InvestorsPage() {
     if (investorsError) {
       alert(investorsError.message || "تعذر تحميل المستثمرين");
       setInvestors([]);
+      setCurrentPage(1);
       setLoading(false);
       return;
     }
@@ -180,6 +182,7 @@ export default function InvestorsPage() {
     if (inventoryError) {
       alert(inventoryError.message || "تعذر تحميل بيانات مخزون المستثمرين");
       setInvestors([]);
+      setCurrentPage(1);
       setLoading(false);
       return;
     }
@@ -211,7 +214,7 @@ export default function InvestorsPage() {
   }
 
   async function toggleInvestorStatus(investor: any) {
-    if (statusLoading) return;
+    if (statusLoadingId) return;
 
     if (!hasPermission("toggle_investor")) {
       alert("لا تملك صلاحية تعطيل أو تفعيل المستثمرين");
@@ -234,7 +237,7 @@ export default function InvestorsPage() {
     }
 
     try {
-      setStatusLoading(true);
+      setStatusLoadingId(investor.id);
 
       const { error } = await supabase
         .from("finance_investors")
@@ -251,7 +254,7 @@ export default function InvestorsPage() {
 
       await loadInvestors();
     } finally {
-      setStatusLoading(false);
+      setStatusLoadingId(null);
     }
   }
 
@@ -277,6 +280,12 @@ export default function InvestorsPage() {
     1,
     Math.ceil(filteredInvestors.length / ITEMS_PER_PAGE)
   );
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const paginatedInvestors = useMemo(() => {
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -433,11 +442,22 @@ export default function InvestorsPage() {
 
                   {hasPermission("toggle_investor") && (
                     <button
-                      style={smallDangerButton}
+                      style={{
+                        ...smallDangerButton,
+                        opacity:
+                          statusLoadingId && statusLoadingId !== investor.id
+                            ? 0.55
+                            : 1,
+                        cursor: statusLoadingId ? "not-allowed" : "pointer",
+                      }}
                       onClick={() => toggleInvestorStatus(investor)}
-                      disabled={statusLoading}
+                      disabled={!!statusLoadingId}
                     >
-                      {investor.is_active ? "تعطيل" : "تفعيل"}
+                      {statusLoadingId === investor.id
+                        ? "جاري..."
+                        : investor.is_active
+                        ? "تعطيل"
+                        : "تفعيل"}
                     </button>
                   )}
                 </div>
