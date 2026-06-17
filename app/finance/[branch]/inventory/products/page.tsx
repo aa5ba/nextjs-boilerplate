@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
@@ -20,9 +20,11 @@ export default function ProductsPage() {
   const [screen, setScreen] = useState<ScreenType>("desktop");
   const [employeeName, setEmployeeName] = useState("الموظف");
 
+  const [branchId, setBranchId] = useState<string | null>(null);
   const [products, setProducts] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const [totalProducts, setTotalProducts] = useState(0);
   const [loading, setLoading] = useState(true);
   const [statusLoadingId, setStatusLoadingId] = useState<string | null>(null);
 
@@ -32,6 +34,8 @@ export default function ProductsPage() {
   const isMobile = screen === "mobile";
   const isTablet = screen === "tablet";
   const isCompact = isMobile || isTablet;
+
+  const totalPages = Math.max(1, Math.ceil(totalProducts / ITEMS_PER_PAGE));
 
   useEffect(() => {
     function updateScreen() {
@@ -70,6 +74,28 @@ export default function ProductsPage() {
     setCurrentPage(1);
   }, [search]);
 
+  useEffect(() => {
+    if (!authChecked || !branchId) return;
+
+    let cancelled = false;
+
+    async function run() {
+      await loadProducts(branchId, () => cancelled);
+    }
+
+    run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authChecked, branchId, currentPage, search]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
   async function initializePage(isCancelled: () => boolean) {
     const isLoggedIn = checkLogin();
 
@@ -78,9 +104,20 @@ export default function ProductsPage() {
     loadEmployeeName();
     loadCurrentUserPermissions();
 
+    const currentBranchId = await getBranchId(branch);
+
     if (isCancelled()) return;
 
-    await loadProducts(isCancelled);
+    if (!currentBranchId) {
+      setBranchId(null);
+      setProducts([]);
+      setTotalProducts(0);
+      setLoading(false);
+      alert("تعذر تحديد الفرع");
+      return;
+    }
+
+    setBranchId(currentBranchId);
   }
 
   function checkLogin() {
@@ -164,87 +201,47 @@ export default function ProductsPage() {
     );
   }
 
-  async function loadProducts(isCancelled: () => boolean = () => false) {
+  function getSearchValue(value: string) {
+    return value.trim().replace(/[(),]/g, " ");
+  }
+
+  async function loadProducts(
+    currentBranchId: string,
+    isCancelled: () => boolean = () => false
+  ) {
     setLoading(true);
-    setProducts([]);
-    setCurrentPage(1);
 
-    const branchId = await getBranchId(branch);
+    const cleanSearch = getSearchValue(search);
+    const from = (currentPage - 1) * ITEMS_PER_PAGE;
+    const to = from + ITEMS_PER_PAGE - 1;
+
+    let query = supabase
+      .from("finance_products_inventory_summary")
+      .select("*", { count: "exact" })
+      .eq("branch_id", currentBranchId)
+      .order("created_at", { ascending: false })
+      .range(from, to);
+
+    if (cleanSearch) {
+      query = query.or(
+        `product_name.ilike.%${cleanSearch}%,product_category.ilike.%${cleanSearch}%`
+      );
+    }
+
+    const { data, error, count } = await query;
 
     if (isCancelled()) return;
 
-    if (!branchId) {
+    if (error) {
+      alert(error.message || "تعذر تحميل المنتجات");
       setProducts([]);
+      setTotalProducts(0);
       setLoading(false);
       return;
     }
 
-    const { data: productsData, error: productsError } = await supabase
-      .from("finance_products")
-      .select("*")
-      .eq("branch_id", branchId)
-      .order("created_at", { ascending: false });
-
-    if (isCancelled()) return;
-
-    if (productsError) {
-      alert(productsError.message || "تعذر تحميل المنتجات");
-      setProducts([]);
-      setLoading(false);
-      return;
-    }
-
-    const { data: inventoryData, error: inventoryError } = await supabase
-      .from("finance_inventory")
-      .select("product_id, investor_id, quantity")
-      .eq("branch_id", branchId);
-
-    if (isCancelled()) return;
-
-    if (inventoryError) {
-      alert(inventoryError.message || "تعذر تحميل بيانات مخزون المنتجات");
-      setProducts([]);
-      setLoading(false);
-      return;
-    }
-
-    const inventoryByProduct = new Map<
-      string,
-      { investors: Set<string>; totalQuantity: number }
-    >();
-
-    (inventoryData || []).forEach((item) => {
-      const productKey = item.product_id;
-
-      if (!productKey) return;
-
-      const current =
-        inventoryByProduct.get(productKey) || {
-          investors: new Set<string>(),
-          totalQuantity: 0,
-        };
-
-      if (item.investor_id) {
-        current.investors.add(item.investor_id);
-      }
-
-      current.totalQuantity += Number(item.quantity || 0);
-
-      inventoryByProduct.set(productKey, current);
-    });
-
-    const enrichedProducts = (productsData || []).map((product) => {
-      const productInventory = inventoryByProduct.get(product.id);
-
-      return {
-        ...product,
-        investorsCount: productInventory?.investors.size || 0,
-        totalQuantity: productInventory?.totalQuantity || 0,
-      };
-    });
-
-    setProducts(enrichedProducts);
-    setCurrentPage(1);
+    setProducts(data || []);
+    setTotalProducts(count || 0);
     setLoading(false);
   }
 
@@ -264,9 +261,9 @@ export default function ProductsPage() {
 
     if (!confirmed) return;
 
-    const branchId = await getBranchId(branch);
+    const currentBranchId = branchId || (await getBranchId(branch));
 
-    if (!branchId) {
+    if (!currentBranchId) {
       alert("تعذر تحديد الفرع");
       return;
     }
@@ -280,45 +277,18 @@ export default function ProductsPage() {
           is_active: !product.is_active,
         })
         .eq("id", product.id)
-        .eq("branch_id", branchId);
+        .eq("branch_id", currentBranchId);
 
       if (error) {
         alert(error.message || "تعذر تعديل حالة المنتج");
         return;
       }
 
-      await loadProducts();
+      await loadProducts(currentBranchId);
     } finally {
       setStatusLoadingId(null);
     }
   }
-
-  const filteredProducts = useMemo(() => {
-    const query = search.trim();
-
-    return products.filter((product) => {
-      const name = product.product_name || "";
-      const category = product.product_category || "";
-
-      return !query || name.includes(query) || category.includes(query);
-    });
-  }, [products, search]);
-
-  const totalPages = Math.max(
-    1,
-    Math.ceil(filteredProducts.length / ITEMS_PER_PAGE)
-  );
-
-  useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages);
-    }
-  }, [currentPage, totalPages]);
-
-  const paginatedProducts = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filteredProducts.slice(start, start + ITEMS_PER_PAGE);
-  }, [filteredProducts, currentPage]);
 
   if (!authChecked) {
     return null;
@@ -375,10 +345,7 @@ export default function ProductsPage() {
               style={searchInput}
               placeholder="البحث باسم المنتج أو التصنيف"
               value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setCurrentPage(1);
-              }}
+              onChange={(e) => setSearch(e.target.value)}
             />
 
             {hasPermission("add_product") && (
@@ -398,10 +365,10 @@ export default function ProductsPage() {
           <div style={listHeader}>
             <h2 style={sectionTitle}>قائمة المنتجات</h2>
 
-            {filteredProducts.length > 0 && (
+            {totalProducts > 0 && (
               <span style={pageInfo}>
-                صفحة {currentPage} من {totalPages} - عرض{" "}
-                {paginatedProducts.length} من {filteredProducts.length}
+                صفحة {currentPage} من {totalPages} - عرض {products.length} من{" "}
+                {totalProducts}
               </span>
             )}
           </div>
@@ -418,10 +385,10 @@ export default function ProductsPage() {
 
           {loading ? (
             <div style={emptyBox}>جاري تحميل المنتجات...</div>
-          ) : paginatedProducts.length === 0 ? (
+          ) : products.length === 0 ? (
             <div style={emptyBox}>لا توجد منتجات</div>
           ) : (
-            paginatedProducts.map((product) => (
+            products.map((product) => (
               <div key={product.id} style={tableRow}>
                 <span
                   style={productNameLink}
@@ -436,8 +403,8 @@ export default function ProductsPage() {
 
                 <span>{product.product_category || "-"}</span>
                 <span>{product.unit_price || 0} ر.س</span>
-                <span>{product.investorsCount || 0}</span>
-                <strong>{product.totalQuantity || 0}</strong>
+                <span>{product.investors_count || 0}</span>
+                <strong>{product.total_quantity || 0}</strong>
 
                 <span style={product.is_active ? activeBadge : inactiveBadge}>
                   {product.is_active ? "نشط" : "معطل"}
@@ -482,7 +449,7 @@ export default function ProductsPage() {
             ))
           )}
 
-          {filteredProducts.length > ITEMS_PER_PAGE && (
+          {totalProducts > ITEMS_PER_PAGE && (
             <div style={paginationBox}>
               <button
                 style={{
