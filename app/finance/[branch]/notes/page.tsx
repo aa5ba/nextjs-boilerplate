@@ -273,16 +273,6 @@ export default function FinanceNotesPage() {
             </div>
 
             <div style={heroActionBox}>
-              <div style={securityBadge} title="الموقع آمن">
-                <span style={securityLockIcon}>
-                  <LockIcon />
-                </span>
-
-                <span style={securityGreenIcon}>
-                  <SecureCheckIcon />
-                </span>
-              </div>
-
               <button
                 style={addButton}
                 onClick={() => {
@@ -487,7 +477,9 @@ function formatDateTime(date: string) {
 
   const d = new Date(date);
 
-  return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()} ${d
+    .getHours()
+    .toString()}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
 function UserIcon() {
@@ -554,38 +546,6 @@ function HomeIcon() {
         d="M10 19.5v-5.2h4v5.2"
         stroke="currentColor"
         strokeWidth="2"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function LockIcon() {
-  return (
-    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M7.5 10V8.2C7.5 5.7 9.5 3.8 12 3.8s4.5 1.9 4.5 4.4V10"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-      <path
-        d="M6.6 10h10.8c1 0 1.8.8 1.8 1.8v6.6c0 1-.8 1.8-1.8 1.8H6.6c-1 0-1.8-.8-1.8-1.8v-6.6c0-1 .8-1.8 1.8-1.8Z"
-        stroke="currentColor"
-        strokeWidth="2"
-      />
-    </svg>
-  );
-}
-
-function SecureCheckIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M20 6 9 17l-5-5"
-        stroke="currentColor"
-        strokeWidth="3"
-        strokeLinecap="round"
         strokeLinejoin="round"
       />
     </svg>
@@ -754,37 +714,6 @@ const heroActionBox: React.CSSProperties = {
   alignItems: "flex-end",
   gap: 12,
   direction: "rtl",
-};
-
-const securityBadge: React.CSSProperties = {
-  minWidth: 64,
-  height: 30,
-  borderRadius: 999,
-  background: "rgba(255,255,255,0.13)",
-  border: "1px solid rgba(255,255,255,0.18)",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 7,
-  backdropFilter: "blur(4px)",
-};
-
-const securityLockIcon: React.CSSProperties = {
-  color: "#cbd5e1",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-};
-
-const securityGreenIcon: React.CSSProperties = {
-  width: 18,
-  height: 18,
-  borderRadius: "50%",
-  background: "rgba(34,197,94,0.16)",
-  color: "#22c55e",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
 };
 
 const addButton: React.CSSProperties = {
