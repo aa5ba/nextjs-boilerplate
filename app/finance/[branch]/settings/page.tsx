@@ -832,17 +832,16 @@ const backWrapper: React.CSSProperties = {
 
 const backButton: React.CSSProperties = {
   padding: "11px 18px",
-  background: "linear-gradient(135deg,#64748b,#334155)",
+  background: "linear-gradient(135deg,#22c55e,#15803d)",
   color: "#ffffff",
-  border: "1px solid rgba(255,255,255,.20)",
+  border: "none",
   borderRadius: 12,
   fontSize: 14,
   fontWeight: 900,
   cursor: "pointer",
-  boxShadow: "0 8px 18px rgba(15,23,42,.20)",
+  boxShadow: "0 5px 14px rgba(22,163,74,0.22)",
   fontFamily: "var(--font-almarai), sans-serif",
 };
-
 const loadingBox: React.CSSProperties = {
   textAlign: "center",
   paddingTop: 80,
