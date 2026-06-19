@@ -1,28 +1,93 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { getBranchId } from "@/lib/getBranchId";
 
 type ScreenType = "mobile" | "tablet" | "desktop";
+
+type FinanceSession = {
+  id?: string | null;
+  user_id?: string | null;
+  full_name?: string | null;
+  username?: string | null;
+  role?: string | null;
+  branch_id?: string | null;
+  branch_slug?: string | null;
+  branch_name?: string | null;
+};
+
+type Customer = {
+  id: string;
+  full_name?: string | null;
+  national_id?: string | null;
+  birth_hijri?: string | null;
+  phone?: string | null;
+  work_name?: string | null;
+  work?: string | null;
+  address?: string | null;
+  salary?: number | string | null;
+  bank?: string | null;
+  broker?: string | null;
+  updated_at?: string | null;
+  finance_customer_groups?: {
+    name?: string | null;
+  } | null;
+};
+
+type Contract = {
+  id: string;
+  contract_number?: string | number | null;
+  contract_status?: string | null;
+  paid_amount?: number | string | null;
+  remaining_amount?: number | string | null;
+  payment_due_date?: string | null;
+};
+
+type PromissoryNote = {
+  id: string;
+  note_number?: string | number | null;
+  status?: string | null;
+  amount?: number | string | null;
+};
+
+type ActivityLog = {
+  id: string;
+  activity_type?: string | null;
+  description?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+};
+
+const SESSION_KEYS = [
+  "finance_user",
+  "finance_branch_user",
+  "finance_user_id",
+  "finance_user_name",
+  "finance_username",
+  "finance_role",
+  "finance_branch_id",
+  "finance_branch_slug",
+  "finance_branch_name",
+  "finance_organization_name",
+];
 
 export default function FinanceCustomerProfilePage() {
   const params = useParams();
   const router = useRouter();
 
-  const branch = params.branch as string;
-  const customerId = params.id as string;
+  const branch = String(params.branch ?? "");
+  const customerId = String(params.id ?? "");
 
   const [screen, setScreen] = useState<ScreenType>("desktop");
   const [employeeName, setEmployeeName] = useState("الموظف");
 
-  const [customer, setCustomer] = useState<any>(null);
-  const [activeContracts, setActiveContracts] = useState<any[]>([]);
-  const [closedContracts, setClosedContracts] = useState<any[]>([]);
-  const [notes, setNotes] = useState<any[]>([]);
-  const [activities, setActivities] = useState<any[]>([]);
+  const [customer, setCustomer] = useState<Customer | null>(null);
+  const [activeContracts, setActiveContracts] = useState<Contract[]>([]);
+  const [closedContracts, setClosedContracts] = useState<Contract[]>([]);
+  const [notes, setNotes] = useState<PromissoryNote[]>([]);
+  const [activities, setActivities] = useState<ActivityLog[]>([]);
 
   const [branchId, setBranchId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -60,8 +125,7 @@ export default function FinanceCustomerProfilePage() {
   }, []);
 
   useEffect(() => {
-    loadEmployeeName();
-    loadData();
+    void initializePage();
   }, [branch, customerId]);
 
   const allContracts = useMemo(
@@ -71,21 +135,21 @@ export default function FinanceCustomerProfilePage() {
 
   const totalRemaining = useMemo(() => {
     return activeContracts.reduce(
-      (sum, contract) => sum + Number(contract?.remaining_amount || 0),
+      (sum, contract) => sum + Number(contract.remaining_amount || 0),
       0
     );
   }, [activeContracts]);
 
   const totalPaid = useMemo(() => {
     return allContracts.reduce(
-      (sum, contract) => sum + Number(contract?.paid_amount || 0),
+      (sum, contract) => sum + Number(contract.paid_amount || 0),
       0
     );
   }, [allContracts]);
 
   const hasLateContract = useMemo(() => {
     return activeContracts.some(
-      (contract) => contract?.contract_status === "متأخر"
+      (contract) => contract.contract_status === "متأخر"
     );
   }, [activeContracts]);
 
@@ -97,146 +161,329 @@ export default function FinanceCustomerProfilePage() {
     ? "عميل سابق"
     : "لا توجد عقود";
 
-  function loadEmployeeName() {
+  function clearSession() {
     if (typeof window === "undefined") return;
 
-    const newName = localStorage.getItem("finance_user_name");
+    SESSION_KEYS.forEach((key) => {
+      localStorage.removeItem(key);
+    });
+  }
 
-    if (newName) {
-      setEmployeeName(newName);
+  function readStoredSession(): FinanceSession | null {
+    if (typeof window === "undefined") return null;
+
+    const rawSession =
+      localStorage.getItem("finance_branch_user") ||
+      localStorage.getItem("finance_user");
+
+    if (rawSession) {
+      try {
+        const parsed = JSON.parse(rawSession) as FinanceSession;
+
+        return {
+          ...parsed,
+          id:
+            parsed.id ||
+            parsed.user_id ||
+            localStorage.getItem("finance_user_id"),
+          full_name:
+            parsed.full_name ||
+            localStorage.getItem("finance_user_name") ||
+            null,
+          username:
+            parsed.username ||
+            localStorage.getItem("finance_username") ||
+            null,
+          role:
+            parsed.role || localStorage.getItem("finance_role") || null,
+          branch_id:
+            parsed.branch_id ||
+            localStorage.getItem("finance_branch_id") ||
+            null,
+          branch_slug:
+            parsed.branch_slug ||
+            localStorage.getItem("finance_branch_slug") ||
+            null,
+          branch_name:
+            parsed.branch_name ||
+            localStorage.getItem("finance_branch_name") ||
+            null,
+        };
+      } catch {
+        return null;
+      }
+    }
+
+    const legacyUserId = localStorage.getItem("finance_user_id");
+    const legacyUsername = localStorage.getItem("finance_username");
+    const legacyBranchId = localStorage.getItem("finance_branch_id");
+    const legacyBranchSlug = localStorage.getItem("finance_branch_slug");
+
+    if (!legacyUserId && !legacyUsername) {
+      return null;
+    }
+
+    return {
+      id: legacyUserId,
+      full_name: localStorage.getItem("finance_user_name"),
+      username: legacyUsername,
+      role: localStorage.getItem("finance_role"),
+      branch_id: legacyBranchId,
+      branch_slug: legacyBranchSlug,
+      branch_name: localStorage.getItem("finance_branch_name"),
+    };
+  }
+
+  async function initializePage() {
+    setLoading(true);
+
+    if (!branch || !customerId) {
+      clearSession();
+      router.replace("/login");
       return;
     }
 
-    const oldUser = localStorage.getItem("finance_user");
+    const storedSession = readStoredSession();
 
-    if (oldUser) {
-      try {
-        const parsed = JSON.parse(oldUser);
-        setEmployeeName(parsed?.full_name || parsed?.username || "الموظف");
-      } catch {
-        setEmployeeName("الموظف");
-      }
+    if (!storedSession) {
+      clearSession();
+      router.replace("/login");
+      return;
     }
+
+    if (
+      storedSession.branch_slug &&
+      storedSession.branch_slug !== branch
+    ) {
+      router.replace(`/finance/${storedSession.branch_slug}`);
+      return;
+    }
+
+    const { data: branchData, error: branchError } = await supabase
+      .from("finance_branches")
+      .select("id, branch_slug, branch_name, organization_name, is_active")
+      .eq("branch_slug", branch)
+      .eq("is_active", true)
+      .maybeSingle();
+
+    if (branchError || !branchData?.id) {
+      clearSession();
+      router.replace("/login");
+      return;
+    }
+
+    const safeBranchId: string = branchData.id;
+
+    if (
+      storedSession.branch_id &&
+      storedSession.branch_id !== safeBranchId
+    ) {
+      if (storedSession.branch_slug) {
+        router.replace(`/finance/${storedSession.branch_slug}`);
+      } else {
+        clearSession();
+        router.replace("/login");
+      }
+
+      return;
+    }
+
+    let userQuery = supabase
+      .from("finance_branch_users")
+      .select("id, full_name, username, role, branch_id, is_active")
+      .eq("branch_id", safeBranchId)
+      .eq("is_active", true);
+
+    if (storedSession.id) {
+      userQuery = userQuery.eq("id", storedSession.id);
+    } else if (storedSession.username) {
+      userQuery = userQuery.eq("username", storedSession.username);
+    } else {
+      clearSession();
+      router.replace("/login");
+      return;
+    }
+
+    const { data: userData, error: userError } =
+      await userQuery.maybeSingle();
+
+    if (userError || !userData?.id) {
+      clearSession();
+      router.replace("/login");
+      return;
+    }
+
+    const resolvedEmployeeName =
+      userData.full_name ||
+      userData.username ||
+      storedSession.full_name ||
+      storedSession.username ||
+      "الموظف";
+
+    setEmployeeName(resolvedEmployeeName);
+    setBranchId(safeBranchId);
+
+    if (typeof window !== "undefined") {
+      localStorage.setItem("finance_user_id", String(userData.id));
+      localStorage.setItem("finance_user_name", resolvedEmployeeName);
+      localStorage.setItem(
+        "finance_username",
+        String(userData.username || storedSession.username || "")
+      );
+      localStorage.setItem(
+        "finance_role",
+        String(userData.role || storedSession.role || "")
+      );
+      localStorage.setItem("finance_branch_id", safeBranchId);
+      localStorage.setItem("finance_branch_slug", branch);
+      localStorage.setItem(
+        "finance_branch_name",
+        String(branchData.branch_name || "")
+      );
+      localStorage.setItem(
+        "finance_organization_name",
+        String(branchData.organization_name || "")
+      );
+    }
+
+    await loadData(safeBranchId);
   }
 
   function logout() {
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("finance_user");
-      localStorage.removeItem("finance_user_name");
-      localStorage.removeItem("finance_branch_user");
-    }
-
-    router.push(`/finance/${branch}/login`);
+    clearSession();
+    router.replace("/login");
   }
 
-  async function loadData() {
-    setLoading(true);
+  function resetPageData() {
+    setCustomer(null);
+    setActiveContracts([]);
+    setClosedContracts([]);
+    setNotes([]);
+    setActivities([]);
+  }
 
-    const currentBranchId = await getBranchId(branch);
-    setBranchId(currentBranchId);
+  async function loadData(currentBranchId: string) {
+    try {
+      setLoading(true);
 
-    if (!currentBranchId) {
-      setCustomer(null);
-      setActiveContracts([]);
-      setClosedContracts([]);
-      setNotes([]);
-      setActivities([]);
+      const safeBranchId: string = currentBranchId;
+
+      const { data: customerData, error: customerError } = await supabase
+        .from("finance_customers")
+        .select("*, finance_customer_groups(name)")
+        .eq("id", customerId)
+        .eq("branch_id", safeBranchId)
+        .maybeSingle();
+
+      if (customerError) {
+        throw new Error(customerError.message);
+      }
+
+      if (!customerData) {
+        resetPageData();
+        return;
+      }
+
+      const [
+        activeResponse,
+        closedResponse,
+        notesResponse,
+        activitiesResponse,
+      ] = await Promise.all([
+        supabase
+          .from("finance_contracts")
+          .select("*")
+          .eq("customer_id", customerId)
+          .eq("branch_id", safeBranchId)
+          .in("contract_status", ["نشط", "متأخر"])
+          .order("created_at", { ascending: false }),
+
+        supabase
+          .from("finance_contracts")
+          .select("*")
+          .eq("customer_id", customerId)
+          .eq("branch_id", safeBranchId)
+          .in("contract_status", ["تم السداد", "ملغي"])
+          .order("created_at", { ascending: false }),
+
+        supabase
+          .from("finance_promissory_notes")
+          .select("*")
+          .eq("customer_id", customerId)
+          .eq("branch_id", safeBranchId)
+          .order("created_at", { ascending: false }),
+
+        supabase
+          .from("finance_activity_logs")
+          .select("*")
+          .eq("customer_id", customerId)
+          .eq("branch_id", safeBranchId)
+          .order("created_at", { ascending: false })
+          .limit(20),
+      ]);
+
+      if (activeResponse.error) {
+        throw new Error(
+          activeResponse.error.message || "تعذر تحميل العقود الحالية"
+        );
+      }
+
+      if (closedResponse.error) {
+        throw new Error(
+          closedResponse.error.message || "تعذر تحميل العقود السابقة"
+        );
+      }
+
+      if (notesResponse.error) {
+        throw new Error(
+          notesResponse.error.message || "تعذر تحميل السندات"
+        );
+      }
+
+      if (activitiesResponse.error) {
+        throw new Error(
+          activitiesResponse.error.message || "تعذر تحميل سجل العمليات"
+        );
+      }
+
+      const typedCustomer = customerData as Customer;
+
+      setCustomer(typedCustomer);
+      setActiveContracts((activeResponse.data || []) as Contract[]);
+      setClosedContracts((closedResponse.data || []) as Contract[]);
+      setNotes((notesResponse.data || []) as PromissoryNote[]);
+      setActivities((activitiesResponse.data || []) as ActivityLog[]);
+
+      setFullName(typedCustomer.full_name || "");
+      setNationalId(typedCustomer.national_id || "");
+      setBirthHijri(typedCustomer.birth_hijri || "");
+      setPhone(typedCustomer.phone || "");
+      setWorkName(
+        typedCustomer.work_name || typedCustomer.work || ""
+      );
+      setAddress(typedCustomer.address || "");
+    } catch (error) {
+      resetPageData();
+
+      const message =
+        error instanceof Error
+          ? error.message
+          : "تعذر تحميل ملف العميل";
+
+      alert(message);
+    } finally {
       setLoading(false);
-      return;
     }
-
-    const { data: customerData, error: customerError } = await supabase
-      .from("finance_customers")
-      .select("*, finance_customer_groups(name)")
-      .eq("id", customerId)
-      .eq("branch_id", currentBranchId)
-      .single();
-
-    if (customerError) {
-      setCustomer(null);
-      setActiveContracts([]);
-      setClosedContracts([]);
-      setNotes([]);
-      setActivities([]);
-      setLoading(false);
-      return;
-    }
-
-    const { data: activeData, error: activeError } = await supabase
-      .from("finance_contracts")
-      .select("*")
-      .eq("customer_id", customerId)
-      .eq("branch_id", currentBranchId)
-      .in("contract_status", ["نشط", "متأخر"])
-      .order("created_at", { ascending: false });
-
-    if (activeError) {
-      alert(activeError.message || "تعذر تحميل العقود الحالية");
-      setLoading(false);
-      return;
-    }
-
-    const { data: closedData, error: closedError } = await supabase
-      .from("finance_contracts")
-      .select("*")
-      .eq("customer_id", customerId)
-      .eq("branch_id", currentBranchId)
-      .in("contract_status", ["تم السداد", "ملغي"])
-      .order("created_at", { ascending: false });
-
-    if (closedError) {
-      alert(closedError.message || "تعذر تحميل العقود السابقة");
-      setLoading(false);
-      return;
-    }
-
-    const { data: notesData, error: notesError } = await supabase
-      .from("finance_promissory_notes")
-      .select("*")
-      .eq("customer_id", customerId)
-      .eq("branch_id", currentBranchId)
-      .order("created_at", { ascending: false });
-
-    if (notesError) {
-      alert(notesError.message || "تعذر تحميل السندات");
-      setLoading(false);
-      return;
-    }
-
-    const { data: activitiesData, error: activitiesError } = await supabase
-      .from("finance_activity_logs")
-      .select("*")
-      .eq("customer_id", customerId)
-      .eq("branch_id", currentBranchId)
-      .order("created_at", { ascending: false })
-      .limit(20);
-
-    if (activitiesError) {
-      alert(activitiesError.message || "تعذر تحميل سجل العمليات");
-      setLoading(false);
-      return;
-    }
-
-    setCustomer(customerData);
-    setActiveContracts(activeData || []);
-    setClosedContracts(closedData || []);
-    setNotes(notesData || []);
-    setActivities(activitiesData || []);
-
-    setFullName(customerData?.full_name || "");
-    setNationalId(customerData?.national_id || "");
-    setBirthHijri(customerData?.birth_hijri || "");
-    setPhone(customerData?.phone || "");
-    setWorkName(customerData?.work_name || customerData?.work || "");
-    setAddress(customerData?.address || "");
-
-    setLoading(false);
   }
 
   function normalizeDigits(value: string) {
     return value
-      .replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d).toString())
-      .replace(/[۰-۹]/g, (d) => "۰۱۲۳۴۵۶۷۸۹".indexOf(d).toString());
+      .replace(/[٠-٩]/g, (digit) =>
+        "٠١٢٣٤٥٦٧٨٩".indexOf(digit).toString()
+      )
+      .replace(/[۰-۹]/g, (digit) =>
+        "۰۱۲۳۴۵۶۷۸۹".indexOf(digit).toString()
+      );
   }
 
   async function saveCustomer() {
@@ -247,15 +494,20 @@ export default function FinanceCustomerProfilePage() {
       return;
     }
 
-    const cleanNationalId = normalizeDigits(nationalId);
-    const cleanPhone = normalizeDigits(phone);
+    const safeBranchId: string = branchId;
+    const cleanFullName = fullName.trim();
+    const cleanNationalId = normalizeDigits(nationalId).trim();
+    const cleanPhone = normalizeDigits(phone).trim();
+    const cleanBirthHijri = birthHijri.trim();
+    const cleanWorkName = workName.trim();
+    const cleanAddress = address.trim();
 
-    if (!fullName.trim()) {
+    if (!cleanFullName) {
       alert("يرجى إدخال اسم العميل");
       return;
     }
 
-    if (cleanNationalId.length !== 10) {
+    if (!/^\d{10}$/.test(cleanNationalId)) {
       alert("رقم الهوية يجب أن يكون 10 أرقام");
       return;
     }
@@ -271,17 +523,16 @@ export default function FinanceCustomerProfilePage() {
       const { error: customerError } = await supabase
         .from("finance_customers")
         .update({
-          full_name: fullName.trim(),
+          full_name: cleanFullName,
           national_id: cleanNationalId,
-          birth_hijri: birthHijri.trim(),
+          birth_hijri: cleanBirthHijri,
           phone: cleanPhone,
-          work_name: workName.trim(),
-          work: workName.trim(),
-          address: address.trim(),
+          work_name: cleanWorkName,
+          address: cleanAddress,
           updated_at: new Date().toISOString(),
         })
         .eq("id", customerId)
-        .eq("branch_id", branchId);
+        .eq("branch_id", safeBranchId);
 
       if (customerError) {
         throw new Error(customerError.message);
@@ -290,15 +541,15 @@ export default function FinanceCustomerProfilePage() {
       const { error: contractsError } = await supabase
         .from("finance_contracts")
         .update({
-          customer_name: fullName.trim(),
+          customer_name: cleanFullName,
           customer_national_id: cleanNationalId,
-          customer_birth_hijri: birthHijri.trim(),
+          customer_birth_hijri: cleanBirthHijri,
           customer_phone: cleanPhone,
-          customer_work_name: workName.trim(),
+          customer_work_name: cleanWorkName,
           updated_at: new Date().toISOString(),
         })
         .eq("customer_id", customerId)
-        .eq("branch_id", branchId);
+        .eq("branch_id", safeBranchId);
 
       if (contractsError) {
         throw new Error(contractsError.message);
@@ -307,35 +558,50 @@ export default function FinanceCustomerProfilePage() {
       const { error: notesError } = await supabase
         .from("finance_promissory_notes")
         .update({
-          debtor_name: fullName.trim(),
+          debtor_name: cleanFullName,
           debtor_national_id: cleanNationalId,
           debtor_phone: cleanPhone,
           updated_at: new Date().toISOString(),
         })
         .eq("customer_id", customerId)
-        .eq("branch_id", branchId);
+        .eq("branch_id", safeBranchId);
 
       if (notesError) {
         throw new Error(notesError.message);
       }
 
-      await supabase.from("finance_activity_logs").insert([
-        {
-          branch_id: branchId,
-          activity_type: "تعديل عميل",
-          description: `تم تعديل بيانات العميل ${fullName.trim()}`,
-          customer_id: customerId,
-          customer_name: fullName.trim(),
-          employee_name: employeeName || "الموظف",
-          status: "تم التعديل",
-        },
-      ]);
+      const { error: activityError } = await supabase
+        .from("finance_activity_logs")
+        .insert([
+          {
+            branch_id: safeBranchId,
+            activity_type: "تعديل عميل",
+            description: `تم تعديل بيانات العميل ${cleanFullName}`,
+            customer_id: customerId,
+            customer_name: cleanFullName,
+            employee_name: employeeName || "الموظف",
+            status: "تم التعديل",
+          },
+        ]);
+
+      if (activityError) {
+        console.error(
+          "تعذر تسجيل عملية تعديل العميل:",
+          activityError.message
+        );
+      }
 
       alert("تم حفظ بيانات العميل بنجاح");
       setEditing(false);
-      await loadData();
-    } catch (error: any) {
-      alert(error.message || "تعذر حفظ بيانات العميل");
+
+      await loadData(safeBranchId);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "تعذر حفظ بيانات العميل";
+
+      alert(message);
     } finally {
       setSaving(false);
     }
@@ -351,16 +617,22 @@ export default function FinanceCustomerProfilePage() {
     setEditing(false);
   }
 
-  function formatDate(date: string) {
+  function formatDate(date?: string | null) {
     if (!date) return "-";
 
-    return new Date(date).toLocaleString("ar-SA", {
+    const parsedDate = new Date(date);
+
+    if (Number.isNaN(parsedDate.getTime())) {
+      return "-";
+    }
+
+    return parsedDate.toLocaleString("ar-SA", {
       dateStyle: "short",
       timeStyle: "short",
     });
   }
 
-  function formatMoney(value: any) {
+  function formatMoney(value: unknown) {
     return Number(value || 0).toLocaleString("en-US", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
@@ -372,445 +644,41 @@ export default function FinanceCustomerProfilePage() {
   }
 
   function openPromissoryNote(noteId: string) {
-    router.push(`/finance/${branch}/contracts/promissory-note/print/${noteId}`);
+    router.push(
+      `/finance/${branch}/contracts/promissory-note/print/${noteId}`
+    );
   }
 
-  if (loading) {
+  function renderPage(content: ReactNode) {
     return (
       <main dir="rtl" style={getPageStyle(isMobile)}>
         <div style={getContainerStyle(isCompact)}>
-          <header style={getHeroStyle(isMobile)}>
-            <div style={heroCircleOne} />
-            <div style={heroCircleTwo} />
-            <div style={heroCircleThree} />
-            <div style={heroDots} />
+          <PageHero
+            screen={screen}
+            employeeName={employeeName}
+            branch={branch}
+            onLogout={logout}
+            onHome={() => router.push(`/finance/${branch}`)}
+          />
 
-            <div style={getHeroContentStyle(screen)}>
-              <div style={getHeroUserCardStyle(screen)}>
-                <div style={getEmployeeTopRowStyle(screen)}>
-                  <div style={employeeIcon}>
-                    <UserIcon />
-                  </div>
-
-                  <div style={getEmployeeNameStyle(isMobile)}>
-                    {employeeName}
-                  </div>
-
-                  {!isMobile && <div style={employeeDividerSmall} />}
-
-                  <button style={logoutInlineButton} onClick={logout}>
-                    <LogoutIcon />
-                    <span>تسجيل الخروج</span>
-                  </button>
-                </div>
-
-                <button
-                  style={getMainWorkstationButtonStyle(isMobile)}
-                  onClick={() => router.push(`/finance/${branch}`)}
-                >
-                  <HomeIcon />
-                  <span>محطة العمل الرئيسية</span>
-                </button>
-              </div>
-
-              <div style={getHeroTitleBoxStyle(screen)}>
-                <h1 style={getTitleStyle(screen)}>ملف العميل</h1>
-              </div>
-
-              <div style={getHeroActionBoxStyle(screen)} />
-            </div>
-          </header>
-
-          <div style={loadingBox}>جاري تحميل ملف العميل...</div>
+          {content}
         </div>
+
+        <GlobalResponsiveStyles />
       </main>
+    );
+  }
+
+  if (loading) {
+    return renderPage(
+      <div style={loadingBox}>جاري تحميل ملف العميل...</div>
     );
   }
 
   if (!customer) {
-    return (
-      <main dir="rtl" style={getPageStyle(isMobile)}>
-        <div style={getContainerStyle(isCompact)}>
-          <header style={getHeroStyle(isMobile)}>
-            <div style={heroCircleOne} />
-            <div style={heroCircleTwo} />
-            <div style={heroCircleThree} />
-            <div style={heroDots} />
-
-            <div style={getHeroContentStyle(screen)}>
-              <div style={getHeroUserCardStyle(screen)}>
-                <div style={getEmployeeTopRowStyle(screen)}>
-                  <div style={employeeIcon}>
-                    <UserIcon />
-                  </div>
-
-                  <div style={getEmployeeNameStyle(isMobile)}>
-                    {employeeName}
-                  </div>
-
-                  {!isMobile && <div style={employeeDividerSmall} />}
-
-                  <button style={logoutInlineButton} onClick={logout}>
-                    <LogoutIcon />
-                    <span>تسجيل الخروج</span>
-                  </button>
-                </div>
-
-                <button
-                  style={getMainWorkstationButtonStyle(isMobile)}
-                  onClick={() => router.push(`/finance/${branch}`)}
-                >
-                  <HomeIcon />
-                  <span>محطة العمل الرئيسية</span>
-                </button>
-              </div>
-
-              <div style={getHeroTitleBoxStyle(screen)}>
-                <h1 style={getTitleStyle(screen)}>ملف العميل</h1>
-              </div>
-
-              <div style={getHeroActionBoxStyle(screen)} />
-            </div>
-          </header>
-
-          <div style={emptyPageCard}>
-            <h2 style={{ margin: 0 }}>لم يتم العثور على العميل</h2>
-            <p style={emptyPageText}>
-              قد يكون العميل غير موجود أو لا يتبع هذا الفرع.
-            </p>
-
-            <div style={bottomBackWrapper}>
-              <button style={backButton} onClick={() => router.back()}>
-                ← الرجوع
-              </button>
-            </div>
-          </div>
-        </div>
-      </main>
-    );
-  }
-
-  return (
-    <main dir="rtl" style={getPageStyle(isMobile)}>
-      <div style={getContainerStyle(isCompact)}>
-        <header style={getHeroStyle(isMobile)}>
-          <div style={heroCircleOne} />
-          <div style={heroCircleTwo} />
-          <div style={heroCircleThree} />
-          <div style={heroDots} />
-
-          <div style={getHeroContentStyle(screen)}>
-            <div style={getHeroUserCardStyle(screen)}>
-              <div style={getEmployeeTopRowStyle(screen)}>
-                <div style={employeeIcon}>
-                  <UserIcon />
-                </div>
-
-                <div style={getEmployeeNameStyle(isMobile)}>
-                  {employeeName}
-                </div>
-
-                {!isMobile && <div style={employeeDividerSmall} />}
-
-                <button style={logoutInlineButton} onClick={logout}>
-                  <LogoutIcon />
-                  <span>تسجيل الخروج</span>
-                </button>
-              </div>
-
-              <button
-                style={getMainWorkstationButtonStyle(isMobile)}
-                onClick={() => router.push(`/finance/${branch}`)}
-              >
-                <HomeIcon />
-                <span>محطة العمل الرئيسية</span>
-              </button>
-            </div>
-
-            <div style={getHeroTitleBoxStyle(screen)}>
-              <h1 style={getTitleStyle(screen)}>ملف العميل</h1>
-            </div>
-
-            <div style={getHeroActionBoxStyle(screen)} />
-          </div>
-        </header>
-
-        <section style={customerHeroCard}>
-          <div style={avatarCircle}>
-            {(customer?.full_name || "ع").trim().slice(0, 1)}
-          </div>
-
-          <div style={heroInfo}>
-            <p style={headerLabel}>ملف العميل</p>
-            <h1 style={headerTitle}>{customer?.full_name || "ملف العميل"}</h1>
-            <p style={headerSub}>
-              رقم الهوية: {customer?.national_id || "-"} · الجوال:{" "}
-              {customer?.phone || "-"}
-            </p>
-          </div>
-
-          <div
-            style={{
-              ...statusPill,
-              ...(hasLateContract ? statusPillLate : statusPillGood),
-            }}
-          >
-            {customerStatus}
-          </div>
-        </section>
-
-        <section style={statsGrid}>
-          <StatCard
-            icon="📄"
-            title="العقود النشطة"
-            value={activeContracts.length}
-            hint="نشط / متأخر"
-          />
-
-          <StatCard
-            icon="✅"
-            title="العقود السابقة"
-            value={closedContracts.length}
-            hint="مسدد / ملغي"
-          />
-
-          <StatCard
-            icon="💰"
-            title="إجمالي المسدد"
-            value={`${formatMoney(totalPaid)} ر.س`}
-            hint="حسب العقود المسجلة"
-          />
-
-          <StatCard
-            icon="⚠️"
-            title="إجمالي المتبقي"
-            value={`${formatMoney(totalRemaining)} ر.س`}
-            hint="للعقود الحالية"
-          />
-        </section>
-
-        <section style={mainGrid}>
-          <section style={card}>
-            <div style={cardHeader}>
-              <div>
-                <p style={cardKicker}>البيانات الأساسية</p>
-                <h2 style={sectionTitle}>بيانات العميل</h2>
-              </div>
-
-              {!editing && (
-                <button style={editMiniButton} onClick={() => setEditing(true)}>
-                  تعديل البيانات
-                </button>
-              )}
-            </div>
-
-            <div style={infoGrid}>
-              <EditableInfo
-                label="الاسم كاملاً"
-                value={fullName}
-                editing={editing}
-                onChange={setFullName}
-              />
-
-              <EditableInfo
-                label="رقم الهوية"
-                value={nationalId}
-                editing={editing}
-                onChange={(value: string) => setNationalId(normalizeDigits(value))}
-                inputMode="numeric"
-                maxLength={10}
-              />
-
-              <EditableInfo
-                label="تاريخ الميلاد بالهجري"
-                value={birthHijri}
-                editing={editing}
-                onChange={setBirthHijri}
-              />
-
-              <EditableInfo
-                label="رقم الجوال"
-                value={phone}
-                editing={editing}
-                onChange={(value: string) => setPhone(normalizeDigits(value))}
-                inputMode="numeric"
-                maxLength={10}
-              />
-
-              <EditableInfo
-                label="العمل"
-                value={workName}
-                editing={editing}
-                onChange={setWorkName}
-              />
-
-              <EditableInfo
-                label="العنوان"
-                value={address}
-                editing={editing}
-                onChange={setAddress}
-              />
-
-              <InfoItem label="الراتب" value={customer?.salary || "-"} />
-              <InfoItem label="البنك" value={customer?.bank || "-"} />
-              <InfoItem label="الوسيط" value={customer?.broker || "-"} />
-              <InfoItem
-                label="مجموعة العملاء"
-                value={customer?.finance_customer_groups?.name || "-"}
-              />
-            </div>
-
-            {editing && (
-              <div style={editActions}>
-                <button style={saveButton} onClick={saveCustomer} disabled={saving}>
-                  {saving ? "جاري الحفظ..." : "حفظ التعديلات"}
-                </button>
-
-                <button
-                  style={cancelEditButton}
-                  onClick={cancelEditing}
-                  disabled={saving}
-                >
-                  إلغاء التعديل
-                </button>
-              </div>
-            )}
-          </section>
-
-          <aside style={sideCard}>
-            <p style={cardKicker}>مختصر العميل</p>
-            <h2 style={sideTitle}>{customerStatus}</h2>
-
-            <div style={sideList}>
-              <InfoLine label="عدد السندات" value={notes.length} />
-              <InfoLine label="عدد العمليات" value={activities.length} />
-              <InfoLine
-                label="المجموعة"
-                value={customer?.finance_customer_groups?.name || "-"}
-              />
-              <InfoLine label="آخر تحديث" value={formatDate(customer?.updated_at)} />
-            </div>
-          </aside>
-        </section>
-
-        <section style={twoColumnsGrid}>
-          <section style={card}>
-            <div style={cardHeader}>
-              <div>
-                <p style={cardKicker}>العقود</p>
-                <h2 style={sectionTitle}>العقود الحالية</h2>
-              </div>
-              <span style={countBadge}>{activeContracts.length}</span>
-            </div>
-
-            {activeContracts.length === 0 ? (
-              <div style={emptyBox}>لا توجد عقود حالية</div>
-            ) : (
-              <div style={listBox}>
-                {activeContracts.map((contract) => (
-                  <ContractItem
-                    key={contract.id}
-                    contract={contract}
-                    type="active"
-                    onClick={() => openContract(contract.id)}
-                    formatMoney={formatMoney}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section style={card}>
-            <div style={cardHeader}>
-              <div>
-                <p style={cardKicker}>الأرشيف</p>
-                <h2 style={sectionTitle}>العقود السابقة</h2>
-              </div>
-              <span style={countBadge}>{closedContracts.length}</span>
-            </div>
-
-            {closedContracts.length === 0 ? (
-              <div style={emptyBox}>لا توجد عقود سابقة</div>
-            ) : (
-              <div style={listBox}>
-                {closedContracts.map((contract) => (
-                  <ContractItem
-                    key={contract.id}
-                    contract={contract}
-                    type="closed"
-                    onClick={() => openContract(contract.id)}
-                    formatMoney={formatMoney}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
-        </section>
-
-        <section style={twoColumnsGrid}>
-          <section style={card}>
-            <div style={cardHeader}>
-              <div>
-                <p style={cardKicker}>السندات</p>
-                <h2 style={sectionTitle}>السندات المرتبطة</h2>
-              </div>
-              <span style={countBadge}>{notes.length}</span>
-            </div>
-
-            {notes.length === 0 ? (
-              <div style={emptyBox}>لا توجد سندات مرتبطة بالعميل</div>
-            ) : (
-              <div style={listBox}>
-                {notes.map((note) => (
-                  <button
-                    key={note.id}
-                    style={noteItem}
-                    onClick={() => openPromissoryNote(note.id)}
-                  >
-                    <div>
-                      <strong>🧾 سند رقم {note.note_number || "-"}</strong>
-                      <span style={itemSubText}>
-                        الحالة: {note.status || "-"} · المبلغ:{" "}
-                        {formatMoney(note.amount)} ر.س
-                      </span>
-                    </div>
-                    <span style={openHint}>فتح</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section style={card}>
-            <div style={cardHeader}>
-              <div>
-                <p style={cardKicker}>السجل</p>
-                <h2 style={sectionTitle}>سجل العمليات</h2>
-              </div>
-              <span style={countBadge}>{activities.length}</span>
-            </div>
-
-            {activities.length === 0 ? (
-              <div style={emptyBox}>لا توجد عمليات حتى الآن</div>
-            ) : (
-              <div style={activityList}>
-                {activities.map((activity) => (
-                  <div key={activity.id} style={activityItem}>
-                    <div>
-                      <strong>{activity.activity_type || "-"}</strong>
-                      <p style={activityDesc}>{activity.description || "-"}</p>
-                    </div>
-
-                    <div style={activityMeta}>
-                      <span>{activity.status || "-"}</span>
-                      <small>{formatDate(activity.created_at)}</small>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-        </section>
+    return renderPage(
+      <div style={emptyPageCard}>
+        <h2 style={{ margin: 0 }}>لم يتم العثور على العميل</h2>
 
         <div style={bottomBackWrapper}>
           <button style={backButton} onClick={() => router.back()}>
@@ -818,26 +686,391 @@ export default function FinanceCustomerProfilePage() {
           </button>
         </div>
       </div>
+    );
+  }
 
-      <GlobalResponsiveStyles />
-    </main>
+  return renderPage(
+    <>
+      <section style={customerHeroCard}>
+        <div style={avatarCircle}>
+          {(customer.full_name || "ع").trim().slice(0, 1)}
+        </div>
+
+        <div style={heroInfo}>
+          <h1 style={headerTitle}>
+            {customer.full_name || "ملف العميل"}
+          </h1>
+
+          <p style={headerSub}>
+            رقم الهوية: {customer.national_id || "-"} · الجوال:{" "}
+            {customer.phone || "-"}
+          </p>
+        </div>
+
+        <div
+          style={{
+            ...statusPill,
+            ...(hasLateContract ? statusPillLate : statusPillGood),
+          }}
+        >
+          {customerStatus}
+        </div>
+      </section>
+
+      <section style={statsGrid}>
+        <StatCard
+          icon="📄"
+          title="العقود النشطة"
+          value={activeContracts.length}
+        />
+
+        <StatCard
+          icon="✅"
+          title="العقود السابقة"
+          value={closedContracts.length}
+        />
+
+        <StatCard
+          icon="💰"
+          title="إجمالي المسدد"
+          value={`${formatMoney(totalPaid)} ر.س`}
+        />
+
+        <StatCard
+          icon="⚠️"
+          title="إجمالي المتبقي"
+          value={`${formatMoney(totalRemaining)} ر.س`}
+        />
+      </section>
+
+      <section style={getMainGridStyle(screen)}>
+        <section style={card}>
+          <div style={cardHeader}>
+            <h2 style={sectionTitle}>بيانات العميل</h2>
+
+            {!editing && (
+              <button
+                style={editMiniButton}
+                onClick={() => setEditing(true)}
+              >
+                تعديل البيانات
+              </button>
+            )}
+          </div>
+
+          <div style={infoGrid}>
+            <EditableInfo
+              label="الاسم كاملاً"
+              value={fullName}
+              editing={editing}
+              onChange={setFullName}
+            />
+
+            <EditableInfo
+              label="رقم الهوية"
+              value={nationalId}
+              editing={editing}
+              onChange={(value) =>
+                setNationalId(normalizeDigits(value))
+              }
+              inputMode="numeric"
+              maxLength={10}
+            />
+
+            <EditableInfo
+              label="تاريخ الميلاد بالهجري"
+              value={birthHijri}
+              editing={editing}
+              onChange={setBirthHijri}
+            />
+
+            <EditableInfo
+              label="رقم الجوال"
+              value={phone}
+              editing={editing}
+              onChange={(value) => setPhone(normalizeDigits(value))}
+              inputMode="numeric"
+              maxLength={10}
+            />
+
+            <EditableInfo
+              label="العمل"
+              value={workName}
+              editing={editing}
+              onChange={setWorkName}
+            />
+
+            <EditableInfo
+              label="العنوان"
+              value={address}
+              editing={editing}
+              onChange={setAddress}
+            />
+
+            <InfoItem label="الراتب" value={customer.salary || "-"} />
+            <InfoItem label="البنك" value={customer.bank || "-"} />
+            <InfoItem label="الوسيط" value={customer.broker || "-"} />
+            <InfoItem
+              label="مجموعة العملاء"
+              value={customer.finance_customer_groups?.name || "-"}
+            />
+          </div>
+
+          {editing && (
+            <div style={editActions}>
+              <button
+                style={saveButton}
+                onClick={saveCustomer}
+                disabled={saving}
+              >
+                {saving ? "جاري الحفظ..." : "حفظ التعديلات"}
+              </button>
+
+              <button
+                style={cancelEditButton}
+                onClick={cancelEditing}
+                disabled={saving}
+              >
+                إلغاء التعديل
+              </button>
+            </div>
+          )}
+        </section>
+
+        <aside style={sideCard}>
+          <h2 style={sideTitle}>{customerStatus}</h2>
+
+          <div style={sideList}>
+            <InfoLine label="عدد السندات" value={notes.length} />
+            <InfoLine label="عدد العمليات" value={activities.length} />
+            <InfoLine
+              label="المجموعة"
+              value={customer.finance_customer_groups?.name || "-"}
+            />
+            <InfoLine
+              label="آخر تحديث"
+              value={formatDate(customer.updated_at)}
+            />
+          </div>
+        </aside>
+      </section>
+
+      <section style={twoColumnsGrid}>
+        <section style={card}>
+          <div style={cardHeader}>
+            <h2 style={sectionTitle}>العقود الحالية</h2>
+            <span style={countBadge}>{activeContracts.length}</span>
+          </div>
+
+          {activeContracts.length === 0 ? (
+            <div style={emptyBox}>لا توجد عقود حالية</div>
+          ) : (
+            <div style={listBox}>
+              {activeContracts.map((contract) => (
+                <ContractItem
+                  key={contract.id}
+                  contract={contract}
+                  type="active"
+                  onClick={() => openContract(contract.id)}
+                  formatMoney={formatMoney}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section style={card}>
+          <div style={cardHeader}>
+            <h2 style={sectionTitle}>العقود السابقة</h2>
+            <span style={countBadge}>{closedContracts.length}</span>
+          </div>
+
+          {closedContracts.length === 0 ? (
+            <div style={emptyBox}>لا توجد عقود سابقة</div>
+          ) : (
+            <div style={listBox}>
+              {closedContracts.map((contract) => (
+                <ContractItem
+                  key={contract.id}
+                  contract={contract}
+                  type="closed"
+                  onClick={() => openContract(contract.id)}
+                  formatMoney={formatMoney}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      </section>
+
+      <section style={twoColumnsGrid}>
+        <section style={card}>
+          <div style={cardHeader}>
+            <h2 style={sectionTitle}>السندات المرتبطة</h2>
+            <span style={countBadge}>{notes.length}</span>
+          </div>
+
+          {notes.length === 0 ? (
+            <div style={emptyBox}>لا توجد سندات مرتبطة بالعميل</div>
+          ) : (
+            <div style={listBox}>
+              {notes.map((note) => (
+                <button
+                  key={note.id}
+                  type="button"
+                  style={noteItem}
+                  onClick={() => openPromissoryNote(note.id)}
+                >
+                  <div>
+                    <strong>
+                      🧾 سند رقم {note.note_number || "-"}
+                    </strong>
+
+                    <span style={itemSubText}>
+                      الحالة: {note.status || "-"} · المبلغ:{" "}
+                      {formatMoney(note.amount)} ر.س
+                    </span>
+                  </div>
+
+                  <span style={openHint}>فتح</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section style={card}>
+          <div style={cardHeader}>
+            <h2 style={sectionTitle}>سجل العمليات</h2>
+            <span style={countBadge}>{activities.length}</span>
+          </div>
+
+          {activities.length === 0 ? (
+            <div style={emptyBox}>لا توجد عمليات حتى الآن</div>
+          ) : (
+            <div style={activityList}>
+              {activities.map((activity) => (
+                <div key={activity.id} style={activityItem}>
+                  <div>
+                    <strong>{activity.activity_type || "-"}</strong>
+
+                    <p style={activityDesc}>
+                      {activity.description || "-"}
+                    </p>
+                  </div>
+
+                  <div style={activityMeta}>
+                    <span>{activity.status || "-"}</span>
+                    <small>{formatDate(activity.created_at)}</small>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </section>
+
+      <div style={bottomBackWrapper}>
+        <button style={backButton} onClick={() => router.back()}>
+          ← الرجوع
+        </button>
+      </div>
+    </>
   );
 }
 
-function StatCard({ icon, title, value, hint }: any) {
+function PageHero({
+  screen,
+  employeeName,
+  onLogout,
+  onHome,
+}: {
+  screen: ScreenType;
+  employeeName: string;
+  branch: string;
+  onLogout: () => void;
+  onHome: () => void;
+}) {
+  const isMobile = screen === "mobile";
+
+  return (
+    <header style={getHeroStyle(isMobile)}>
+      <div style={heroCircleOne} />
+      <div style={heroCircleTwo} />
+      <div style={heroCircleThree} />
+      <div style={heroDots} />
+
+      <div style={getHeroContentStyle(screen)}>
+        <div style={getHeroUserCardStyle(screen)}>
+          <div style={getEmployeeTopRowStyle(screen)}>
+            <div style={employeeIcon}>
+              <UserIcon />
+            </div>
+
+            <div style={getEmployeeNameStyle(isMobile)}>
+              {employeeName}
+            </div>
+
+            {!isMobile && <div style={employeeDividerSmall} />}
+
+            <button
+              type="button"
+              style={logoutInlineButton}
+              onClick={onLogout}
+            >
+              <LogoutIcon />
+              <span>تسجيل الخروج</span>
+            </button>
+          </div>
+
+          <button
+            type="button"
+            style={getMainWorkstationButtonStyle(isMobile)}
+            onClick={onHome}
+          >
+            <HomeIcon />
+            <span>محطة العمل الرئيسية</span>
+          </button>
+        </div>
+
+        <div style={getHeroTitleBoxStyle(screen)}>
+          <h1 style={getTitleStyle(screen)}>ملف العميل</h1>
+        </div>
+
+        <div style={getHeroActionBoxStyle(screen)} />
+      </div>
+    </header>
+  );
+}
+
+function StatCard({
+  icon,
+  title,
+  value,
+}: {
+  icon: string;
+  title: string;
+  value: ReactNode;
+}) {
   return (
     <div style={statCard}>
       <div style={statIcon}>{icon}</div>
+
       <div>
         <span style={statTitle}>{title}</span>
         <strong style={statValue}>{value}</strong>
-        <small style={statHint}>{hint}</small>
       </div>
     </div>
   );
 }
 
-function InfoItem({ label, value }: any) {
+function InfoItem({
+  label,
+  value,
+}: {
+  label: string;
+  value: ReactNode;
+}) {
   return (
     <div style={infoItem}>
       <span style={infoLabel}>{label}</span>
@@ -853,7 +1086,14 @@ function EditableInfo({
   onChange,
   inputMode,
   maxLength,
-}: any) {
+}: {
+  label: string;
+  value: string;
+  editing: boolean;
+  onChange: (value: string) => void;
+  inputMode?: "text" | "numeric" | "decimal" | "tel";
+  maxLength?: number;
+}) {
   return (
     <div style={infoItem}>
       <span style={infoLabel}>{label}</span>
@@ -861,10 +1101,10 @@ function EditableInfo({
       {editing ? (
         <input
           style={editInput}
-          value={value || ""}
+          value={value}
           inputMode={inputMode}
           maxLength={maxLength}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(event) => onChange(event.target.value)}
         />
       ) : (
         <strong style={infoValue}>{value || "-"}</strong>
@@ -873,7 +1113,13 @@ function EditableInfo({
   );
 }
 
-function InfoLine({ label, value }: any) {
+function InfoLine({
+  label,
+  value,
+}: {
+  label: string;
+  value: ReactNode;
+}) {
   return (
     <div style={infoLine}>
       <span>{label}</span>
@@ -882,11 +1128,21 @@ function InfoLine({ label, value }: any) {
   );
 }
 
-function ContractItem({ contract, type, onClick, formatMoney }: any) {
-  const isLate = contract?.contract_status === "متأخر";
+function ContractItem({
+  contract,
+  type,
+  onClick,
+  formatMoney,
+}: {
+  contract: Contract;
+  type: "active" | "closed";
+  onClick: () => void;
+  formatMoney: (value: unknown) => string;
+}) {
+  const isLate = contract.contract_status === "متأخر";
 
   return (
-    <button style={contractItem} onClick={onClick}>
+    <button type="button" style={contractItem} onClick={onClick}>
       <div style={contractItemTop}>
         <strong>
           {type === "active" ? "📄" : "✅"} عقد رقم{" "}
@@ -904,9 +1160,17 @@ function ContractItem({ contract, type, onClick, formatMoney }: any) {
       </div>
 
       <div style={contractItemGrid}>
-        <span>المسدد: {formatMoney(contract.paid_amount)} ر.س</span>
-        <span>المتبقي: {formatMoney(contract.remaining_amount)} ر.س</span>
-        <span>الاستحقاق: {contract.payment_due_date || "-"}</span>
+        <span>
+          المسدد: {formatMoney(contract.paid_amount)} ر.س
+        </span>
+
+        <span>
+          المتبقي: {formatMoney(contract.remaining_amount)} ر.س
+        </span>
+
+        <span>
+          الاستحقاق: {contract.payment_due_date || "-"}
+        </span>
       </div>
     </button>
   );
@@ -919,9 +1183,19 @@ function GlobalResponsiveStyles() {
         box-sizing: border-box;
       }
 
-      @media (max-width: 760px) {
-        .hide-on-mobile {
-          display: none !important;
+      button,
+      input {
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      button:disabled {
+        cursor: not-allowed !important;
+        opacity: 0.65;
+      }
+
+      @media (max-width: 640px) {
+        button {
+          touch-action: manipulation;
         }
       }
     `}</style>
@@ -930,7 +1204,13 @@ function GlobalResponsiveStyles() {
 
 function UserIcon() {
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M12 12.2a4.2 4.2 0 1 0 0-8.4 4.2 4.2 0 0 0 0 8.4Z"
         stroke="currentColor"
@@ -948,7 +1228,13 @@ function UserIcon() {
 
 function LogoutIcon() {
   return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M9.5 7V5.8c0-1 .8-1.8 1.8-1.8h6.1c1 0 1.8.8 1.8 1.8v12.4c0 1-.8 1.8-1.8 1.8h-6.1c-1 0-1.8-.8-1.8-1.8V17"
         stroke="currentColor"
@@ -974,7 +1260,13 @@ function LogoutIcon() {
 
 function HomeIcon() {
   return (
-    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="21"
+      height="21"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M3.8 11.2 12 4.5l8.2 6.7"
         stroke="currentColor"
@@ -1035,7 +1327,6 @@ function getHeroStyle(isMobile: boolean): CSSProperties {
     marginBottom: 14,
     overflow: "hidden",
     border: "none",
-    outline: "none",
     background:
       "radial-gradient(circle at 15% 18%, rgba(255,255,255,0.08) 0, transparent 24%), radial-gradient(circle at 86% 18%, rgba(255,255,255,0.11) 0, transparent 26%), linear-gradient(105deg,#071c48 0%,#0a327d 30%,#0d65d9 60%,#23a8e4 82%,#6edce4 100%)",
     boxShadow: "none",
@@ -1048,7 +1339,6 @@ function getHeroContentStyle(screen: ScreenType): CSSProperties {
     return {
       position: "relative",
       zIndex: 3,
-      minHeight: "auto",
       display: "flex",
       flexDirection: "column",
       alignItems: "stretch",
@@ -1062,7 +1352,6 @@ function getHeroContentStyle(screen: ScreenType): CSSProperties {
     return {
       position: "relative",
       zIndex: 3,
-      minHeight: "auto",
       display: "grid",
       gridTemplateColumns: "1fr",
       alignItems: "center",
@@ -1077,7 +1366,8 @@ function getHeroContentStyle(screen: ScreenType): CSSProperties {
     zIndex: 3,
     minHeight: 116,
     display: "grid",
-    gridTemplateColumns: "minmax(250px, 315px) 1fr minmax(220px, 315px)",
+    gridTemplateColumns:
+      "minmax(250px,315px) 1fr minmax(220px,315px)",
     alignItems: "center",
     gap: 16,
     direction: "ltr",
@@ -1091,7 +1381,6 @@ function getHeroUserCardStyle(screen: ScreenType): CSSProperties {
       display: "grid",
       gap: 12,
       direction: "rtl",
-      justifySelf: "center",
       justifyItems: "center",
       order: 2,
     };
@@ -1104,7 +1393,6 @@ function getHeroUserCardStyle(screen: ScreenType): CSSProperties {
       display: "grid",
       gap: 14,
       direction: "rtl",
-      justifySelf: "center",
       justifyItems: "center",
       order: 2,
     };
@@ -1120,7 +1408,9 @@ function getHeroUserCardStyle(screen: ScreenType): CSSProperties {
   };
 }
 
-function getEmployeeTopRowStyle(screen: ScreenType): CSSProperties {
+function getEmployeeTopRowStyle(
+  screen: ScreenType
+): CSSProperties {
   if (screen === "mobile") {
     return {
       minHeight: 42,
@@ -1158,7 +1448,9 @@ function getEmployeeTopRowStyle(screen: ScreenType): CSSProperties {
   };
 }
 
-function getEmployeeNameStyle(isMobile: boolean): CSSProperties {
+function getEmployeeNameStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     color: "#ffffff",
     fontSize: isMobile ? 15 : 17,
@@ -1169,13 +1461,16 @@ function getEmployeeNameStyle(isMobile: boolean): CSSProperties {
   };
 }
 
-function getMainWorkstationButtonStyle(isMobile: boolean): CSSProperties {
+function getMainWorkstationButtonStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     width: isMobile ? "100%" : 220,
     maxWidth: isMobile ? 280 : 220,
     height: 44,
     border: "none",
-    background: "linear-gradient(135deg,#72e77d,#22c55e 58%,#16a34a)",
+    background:
+      "linear-gradient(135deg,#72e77d,#22c55e 58%,#16a34a)",
     color: "#ffffff",
     borderRadius: 999,
     padding: "0 18px",
@@ -1193,7 +1488,9 @@ function getMainWorkstationButtonStyle(isMobile: boolean): CSSProperties {
   };
 }
 
-function getHeroTitleBoxStyle(screen: ScreenType): CSSProperties {
+function getHeroTitleBoxStyle(
+  screen: ScreenType
+): CSSProperties {
   return {
     position: "relative",
     zIndex: 4,
@@ -1212,25 +1509,20 @@ function getTitleStyle(screen: ScreenType): CSSProperties {
   return {
     margin: 0,
     color: "#ffffff",
-    fontSize: screen === "mobile" ? 26 : screen === "tablet" ? 28 : 30,
+    fontFamily: "var(--font-noto-naskh-arabic), serif",
+    fontSize:
+      screen === "mobile" ? 27 : screen === "tablet" ? 30 : 34,
     lineHeight: 1.35,
     fontWeight: 900,
-    letterSpacing: "-0.4px",
     textShadow: "0 5px 14px rgba(15,23,42,0.14)",
     whiteSpace: "nowrap",
   };
 }
 
-function getHeroActionBoxStyle(screen: ScreenType): CSSProperties {
-  if (screen === "mobile") {
-    return {
-      display: "none",
-      width: "100%",
-      order: 3,
-    };
-  }
-
-  if (screen === "tablet") {
+function getHeroActionBoxStyle(
+  screen: ScreenType
+): CSSProperties {
+  if (screen !== "desktop") {
     return {
       display: "none",
       width: "100%",
@@ -1245,6 +1537,18 @@ function getHeroActionBoxStyle(screen: ScreenType): CSSProperties {
     alignItems: "flex-end",
     gap: 12,
     direction: "rtl",
+  };
+}
+
+function getMainGridStyle(screen: ScreenType): CSSProperties {
+  return {
+    display: "grid",
+    gridTemplateColumns:
+      screen === "desktop"
+        ? "minmax(0,2fr) minmax(280px,.8fr)"
+        : "minmax(0,1fr)",
+    gap: 16,
+    marginBottom: 16,
   };
 }
 
@@ -1265,7 +1569,6 @@ const employeeDividerSmall: CSSProperties = {
   width: 1,
   height: 34,
   background: "rgba(255,255,255,0.30)",
-  flex: "0 0 auto",
 };
 
 const logoutInlineButton: CSSProperties = {
@@ -1362,20 +1665,14 @@ const avatarCircle: CSSProperties = {
 
 const heroInfo: CSSProperties = {
   flex: 1,
-  minWidth: 240,
-};
-
-const headerLabel: CSSProperties = {
-  margin: 0,
-  color: "#bfdbfe",
-  fontWeight: 900,
-  fontSize: 14,
+  minWidth: 220,
 };
 
 const headerTitle: CSSProperties = {
-  margin: "4px 0",
-  fontSize: 34,
+  margin: "0 0 5px",
+  fontSize: 30,
   lineHeight: 1.4,
+  fontFamily: "var(--font-noto-naskh-arabic), serif",
 };
 
 const headerSub: CSSProperties = {
@@ -1403,7 +1700,7 @@ const statusPillLate: CSSProperties = {
 
 const statsGrid: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
+  gridTemplateColumns: "repeat(auto-fit,minmax(210px,1fr))",
   gap: 14,
   marginBottom: 18,
 };
@@ -1444,23 +1741,9 @@ const statValue: CSSProperties = {
   marginTop: 3,
 };
 
-const statHint: CSSProperties = {
-  display: "block",
-  color: "#94a3b8",
-  marginTop: 3,
-  fontWeight: 800,
-};
-
-const mainGrid: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "minmax(0,2fr) minmax(280px,.8fr)",
-  gap: 16,
-  marginBottom: 16,
-};
-
 const twoColumnsGrid: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(320px,1fr))",
+  gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))",
   gap: 16,
   marginBottom: 16,
 };
@@ -1471,6 +1754,7 @@ const card: CSSProperties = {
   borderRadius: 22,
   padding: 18,
   boxShadow: "0 8px 20px rgba(15,23,42,.05)",
+  minWidth: 0,
 };
 
 const sideCard: CSSProperties = {
@@ -1479,6 +1763,7 @@ const sideCard: CSSProperties = {
   borderRadius: 22,
   padding: 18,
   boxShadow: "0 8px 20px rgba(15,23,42,.05)",
+  minWidth: 0,
 };
 
 const cardHeader: CSSProperties = {
@@ -1490,21 +1775,14 @@ const cardHeader: CSSProperties = {
   flexWrap: "wrap",
 };
 
-const cardKicker: CSSProperties = {
-  margin: 0,
-  color: "#2563eb",
-  fontWeight: 900,
-  fontSize: 13,
-};
-
 const sectionTitle: CSSProperties = {
-  margin: "4px 0 0",
+  margin: 0,
   fontSize: 22,
   color: "#0f172a",
 };
 
 const sideTitle: CSSProperties = {
-  margin: "6px 0 16px",
+  margin: "0 0 16px",
   fontSize: 24,
   color: "#0f172a",
 };
@@ -1525,7 +1803,7 @@ const infoLine: CSSProperties = {
 
 const infoGrid: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(230px,1fr))",
+  gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
   gap: 12,
 };
 
@@ -1539,6 +1817,7 @@ const infoItem: CSSProperties = {
   flexDirection: "column",
   justifyContent: "center",
   gap: 8,
+  minWidth: 0,
 };
 
 const infoLabel: CSSProperties = {
@@ -1551,6 +1830,7 @@ const infoValue: CSSProperties = {
   color: "#0f172a",
   fontSize: 16,
   lineHeight: 1.7,
+  overflowWrap: "anywhere",
 };
 
 const editInput: CSSProperties = {
@@ -1567,25 +1847,26 @@ const editInput: CSSProperties = {
 
 const editActions: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))",
+  gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))",
   gap: 10,
   marginTop: 16,
 };
 
 const editMiniButton: CSSProperties = {
   border: "none",
-  background: "#dbeafe",
-  color: "#1d4ed8",
-  borderRadius: 12,
-  padding: "10px 14px",
-  fontSize: 14,
+  background: "linear-gradient(135deg,#2563eb,#1d4ed8)",
+  color: "#ffffff",
+  borderRadius: 11,
+  padding: "9px 13px",
+  fontSize: 13,
   fontWeight: 900,
   cursor: "pointer",
+  boxShadow: "0 5px 12px rgba(37,99,235,0.18)",
 };
 
 const saveButton: CSSProperties = {
   padding: 14,
-  background: "#166534",
+  background: "linear-gradient(135deg,#22c55e,#15803d)",
   color: "#ffffff",
   border: "none",
   borderRadius: 14,
@@ -1640,11 +1921,12 @@ const contractItemTop: CSSProperties = {
   alignItems: "center",
   justifyContent: "space-between",
   gap: 10,
+  flexWrap: "wrap",
 };
 
 const contractItemGrid: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))",
+  gridTemplateColumns: "repeat(auto-fit,minmax(125px,1fr))",
   gap: 8,
   color: "#475569",
   fontSize: 13,
@@ -1711,6 +1993,7 @@ const activityItem: CSSProperties = {
   justifyContent: "space-between",
   gap: 12,
   alignItems: "flex-start",
+  flexWrap: "wrap",
 };
 
 const activityDesc: CSSProperties = {
@@ -1746,11 +2029,11 @@ const bottomBackWrapper: CSSProperties = {
 };
 
 const backButton: CSSProperties = {
-  padding: "11px 18px",
+  padding: "10px 17px",
   background: "linear-gradient(135deg,#22c55e,#15803d)",
   color: "#ffffff",
   border: "none",
-  borderRadius: 12,
+  borderRadius: 11,
   fontSize: 14,
   fontWeight: 900,
   cursor: "pointer",
@@ -1759,7 +2042,7 @@ const backButton: CSSProperties = {
 };
 
 const emptyPageCard: CSSProperties = {
-  marginTop: 80,
+  marginTop: 30,
   background: "#ffffff",
   border: "1px solid #e2e8f0",
   borderRadius: 22,
@@ -1768,18 +2051,13 @@ const emptyPageCard: CSSProperties = {
   boxShadow: "0 8px 20px rgba(15,23,42,.05)",
 };
 
-const emptyPageText: CSSProperties = {
-  color: "#64748b",
-  lineHeight: 1.8,
-};
-
 const loadingBox: CSSProperties = {
-  background: "white",
+  background: "#ffffff",
   border: "1px solid #d9e3f5",
   borderRadius: 18,
   padding: 20,
   textAlign: "center",
   color: "#0d47a1",
-  fontWeight: "bold",
+  fontWeight: 900,
   boxShadow: "0 8px 20px rgba(15,23,42,0.04)",
 };
