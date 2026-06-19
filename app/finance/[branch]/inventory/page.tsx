@@ -11,23 +11,77 @@ const ITEMS_PER_PAGE = 25;
 
 type ScreenType = "mobile" | "tablet" | "desktop";
 
+type ProductRelation =
+  | {
+      product_name?: string | null;
+    }
+  | {
+      product_name?: string | null;
+    }[]
+  | null;
+
+type InvestorRelation =
+  | {
+      investor_name?: string | null;
+    }
+  | {
+      investor_name?: string | null;
+    }[]
+  | null;
+
+type InventoryItem = {
+  id: string;
+  branch_id: string;
+  product_id?: string | null;
+  investor_id?: string | null;
+  quantity?: number | string | null;
+  updated_at?: string | null;
+  finance_products?: ProductRelation;
+  finance_investors?: InvestorRelation;
+};
+
+type StockStatusKey = "negative" | "low" | "normal";
+
+type StockStatus = {
+  key: StockStatusKey;
+  label: string;
+  priority: number;
+};
+
+type SummaryCardProps = {
+  icon: string;
+  title: string;
+  value: string | number;
+};
+
+type ActionButtonProps = {
+  icon: string;
+  title: string;
+  onClick: () => void;
+};
+
 export default function FinanceInventoryPage() {
   const params = useParams();
   const router = useRouter();
-  const branch = params.branch as string;
+
+  const branch = String(params.branch ?? "");
 
   const [authChecked, setAuthChecked] = useState(false);
   const [screen, setScreen] = useState<ScreenType>("desktop");
   const [employeeName, setEmployeeName] = useState("الموظف");
 
-  const [items, setItems] = useState<any[]>([]);
+  const [items, setItems] = useState<InventoryItem[]>([]);
   const [productsCount, setProductsCount] = useState(0);
   const [investorsCount, setInvestorsCount] = useState(0);
   const [totalQuantity, setTotalQuantity] = useState(0);
   const [negativeCount, setNegativeCount] = useState(0);
   const [lowCount, setLowCount] = useState(0);
+
   const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState<
+    "all" | StockStatusKey
+  >("all");
+
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(true);
 
@@ -54,7 +108,9 @@ export default function FinanceInventoryPage() {
     updateScreen();
     window.addEventListener("resize", updateScreen);
 
-    return () => window.removeEventListener("resize", updateScreen);
+    return () => {
+      window.removeEventListener("resize", updateScreen);
+    };
   }, []);
 
   useEffect(() => {
@@ -64,7 +120,7 @@ export default function FinanceInventoryPage() {
       await initializePage(() => cancelled);
     }
 
-    run();
+    void run();
 
     return () => {
       cancelled = true;
@@ -75,28 +131,46 @@ export default function FinanceInventoryPage() {
     setCurrentPage(1);
   }, [searchTerm, statusFilter]);
 
-  async function initializePage(isCancelled: () => boolean) {
+  async function initializePage(
+    isCancelled: () => boolean
+  ) {
     const isLoggedIn = checkLogin();
 
-    if (!isLoggedIn || isCancelled()) return;
+    if (!isLoggedIn || isCancelled()) {
+      return;
+    }
+
+    if (!branch) {
+      setLoading(false);
+      alert("مسار الفرع غير صحيح");
+      return;
+    }
 
     loadEmployeeName();
     loadCurrentUserPermissions();
 
-    if (isCancelled()) return;
+    if (isCancelled()) {
+      return;
+    }
 
     await loadInventory(isCancelled);
   }
 
   function checkLogin() {
-    if (typeof window === "undefined") return false;
+    if (typeof window === "undefined") {
+      return false;
+    }
 
     const savedUser = localStorage.getItem("finance_user");
-    const savedBranchUser = localStorage.getItem("finance_branch_user");
-    const savedUserName = localStorage.getItem("finance_user_name");
+    const savedBranchUser = localStorage.getItem(
+      "finance_branch_user"
+    );
+    const savedUserName = localStorage.getItem(
+      "finance_user_name"
+    );
 
     if (!savedUser && !savedBranchUser && !savedUserName) {
-      router.replace(`/finance/${branch}/login`);
+      router.replace("/login");
       return false;
     }
 
@@ -105,37 +179,62 @@ export default function FinanceInventoryPage() {
   }
 
   function loadEmployeeName() {
-    if (typeof window === "undefined") return;
-
-    const newName = localStorage.getItem("finance_user_name");
-
-    if (newName) {
-      setEmployeeName(newName);
+    if (typeof window === "undefined") {
       return;
     }
 
-    const oldUser =
+    const directName = localStorage.getItem(
+      "finance_user_name"
+    );
+
+    if (directName) {
+      setEmployeeName(directName);
+      return;
+    }
+
+    const savedUser =
       localStorage.getItem("finance_user") ||
       localStorage.getItem("finance_branch_user");
 
-    if (oldUser) {
-      try {
-        const parsed = JSON.parse(oldUser);
-        setEmployeeName(parsed?.full_name || parsed?.username || "الموظف");
-      } catch {
-        setEmployeeName("الموظف");
-      }
+    if (!savedUser) {
+      setEmployeeName("الموظف");
+      return;
+    }
+
+    try {
+      const parsedUser = JSON.parse(savedUser);
+
+      setEmployeeName(
+        parsedUser?.full_name ||
+          parsedUser?.username ||
+          parsedUser?.name ||
+          "الموظف"
+      );
+    } catch {
+      setEmployeeName("الموظف");
     }
   }
 
-  function logout() {
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("finance_user");
-      localStorage.removeItem("finance_user_name");
-      localStorage.removeItem("finance_branch_user");
+  function clearFinanceSession() {
+    if (typeof window === "undefined") {
+      return;
     }
 
-    router.replace(`/finance/${branch}/login`);
+    localStorage.removeItem("finance_user");
+    localStorage.removeItem("finance_branch_user");
+    localStorage.removeItem("finance_user_id");
+    localStorage.removeItem("finance_user_name");
+    localStorage.removeItem("finance_username");
+    localStorage.removeItem("finance_role");
+    localStorage.removeItem("finance_branch_id");
+    localStorage.removeItem("finance_branch_slug");
+    localStorage.removeItem("finance_branch_name");
+    localStorage.removeItem("finance_organization_name");
+  }
+
+  function logout() {
+    clearFinanceSession();
+    router.replace("/login");
   }
 
   function go(path: string) {
@@ -143,30 +242,64 @@ export default function FinanceInventoryPage() {
   }
 
   function loadCurrentUserPermissions() {
+    if (typeof window === "undefined") {
+      setRoles([]);
+      setPermissions([]);
+      return;
+    }
+
     const savedUser =
-      typeof window !== "undefined"
-        ? localStorage.getItem("finance_user") ||
-          localStorage.getItem("finance_branch_user")
-        : null;
+      localStorage.getItem("finance_user") ||
+      localStorage.getItem("finance_branch_user");
+
+    const legacyRole = localStorage.getItem("finance_role");
 
     if (!savedUser) {
-      setRoles([]);
+      setRoles(legacyRole ? [legacyRole] : []);
       setPermissions([]);
       return;
     }
 
     try {
       const user = JSON.parse(savedUser);
-      setRoles(user.roles || []);
-      setPermissions(user.permissions || []);
+
+      const currentRoles: string[] = Array.isArray(user?.roles)
+        ? user.roles.filter(
+            (role: unknown): role is string =>
+              typeof role === "string"
+          )
+        : typeof user?.role === "string"
+          ? [user.role]
+          : [];
+
+      const currentPermissions: string[] = Array.isArray(
+        user?.permissions
+      )
+        ? user.permissions.filter(
+            (permission: unknown): permission is string =>
+              typeof permission === "string"
+          )
+        : [];
+
+      if (
+        legacyRole &&
+        !currentRoles.includes(legacyRole)
+      ) {
+        currentRoles.push(legacyRole);
+      }
+
+      setRoles(currentRoles);
+      setPermissions(currentPermissions);
     } catch {
-      setRoles([]);
+      setRoles(legacyRole ? [legacyRole] : []);
       setPermissions([]);
     }
   }
 
   function hasPermission(permissionKey: string) {
     return (
+      roles.includes("main_admin") ||
+      roles.includes("branch_manager") ||
       roles.includes("مدير رئيسي") ||
       roles.includes("مدير") ||
       permissions.includes(permissionKey)
@@ -183,102 +316,189 @@ export default function FinanceInventoryPage() {
     setCurrentPage(1);
   }
 
-  async function loadInventory(isCancelled: () => boolean) {
+  async function loadInventory(
+    isCancelled: () => boolean = () => false
+  ) {
     setLoading(true);
     resetInventoryState();
 
-    const branchId = await getBranchId(branch);
+    try {
+      const resolvedBranchId = await getBranchId(branch);
 
-    if (isCancelled()) return;
+      if (isCancelled()) {
+        return;
+      }
 
-    if (!branchId) {
-      resetInventoryState();
-      setLoading(false);
-      return;
+      if (
+        typeof resolvedBranchId !== "string" ||
+        resolvedBranchId.length === 0
+      ) {
+        resetInventoryState();
+        alert("تعذر تحديد الفرع");
+        return;
+      }
+
+      const safeBranchId: string = resolvedBranchId;
+
+      const [
+        productsResult,
+        investorsResult,
+        inventoryResult,
+      ] = await Promise.all([
+        supabase
+          .from("finance_products")
+          .select("id", {
+            count: "exact",
+            head: true,
+          })
+          .eq("branch_id", safeBranchId)
+          .eq("is_active", true),
+
+        supabase
+          .from("finance_investors")
+          .select("id", {
+            count: "exact",
+            head: true,
+          })
+          .eq("branch_id", safeBranchId)
+          .eq("is_active", true),
+
+        supabase
+          .from("finance_inventory")
+          .select(
+            `
+              id,
+              branch_id,
+              product_id,
+              investor_id,
+              quantity,
+              updated_at,
+              finance_products(
+                product_name
+              ),
+              finance_investors(
+                investor_name
+              )
+            `
+          )
+          .eq("branch_id", safeBranchId)
+          .order("updated_at", {
+            ascending: false,
+          }),
+      ]);
+
+      if (isCancelled()) {
+        return;
+      }
+
+      if (productsResult.error) {
+        alert(
+          productsResult.error.message ||
+            "تعذر تحميل المنتجات"
+        );
+        resetInventoryState();
+        return;
+      }
+
+      if (investorsResult.error) {
+        alert(
+          investorsResult.error.message ||
+            "تعذر تحميل المستثمرين"
+        );
+        resetInventoryState();
+        return;
+      }
+
+      if (inventoryResult.error) {
+        alert(
+          inventoryResult.error.message ||
+            "تعذر تحميل المخزون"
+        );
+        resetInventoryState();
+        return;
+      }
+
+      const inventoryList =
+        (inventoryResult.data || []) as InventoryItem[];
+
+      const currentTotalQuantity = inventoryList.reduce(
+        (sum, item) =>
+          sum + Number(item.quantity || 0),
+        0
+      );
+
+      const currentNegativeCount =
+        inventoryList.filter(
+          (item) => Number(item.quantity || 0) < 0
+        ).length;
+
+      const currentLowCount = inventoryList.filter(
+        (item) => {
+          const quantity = Number(item.quantity || 0);
+
+          return (
+            quantity >= 0 &&
+            quantity <= LOW_STOCK_LIMIT
+          );
+        }
+      ).length;
+
+      setProductsCount(productsResult.count || 0);
+      setInvestorsCount(investorsResult.count || 0);
+      setItems(inventoryList);
+      setTotalQuantity(currentTotalQuantity);
+      setNegativeCount(currentNegativeCount);
+      setLowCount(currentLowCount);
+      setCurrentPage(1);
+    } catch (error) {
+      console.error("Load inventory error:", error);
+
+      if (!isCancelled()) {
+        resetInventoryState();
+        alert(
+          "حدث خطأ غير متوقع أثناء تحميل المخزون"
+        );
+      }
+    } finally {
+      if (!isCancelled()) {
+        setLoading(false);
+      }
+    }
+  }
+
+  function getProductName(item: InventoryItem) {
+    const relation = item.finance_products;
+
+    if (Array.isArray(relation)) {
+      return relation[0]?.product_name || "-";
     }
 
-    const { data: products, error: productsError } = await supabase
-      .from("finance_products")
-      .select("id")
-      .eq("branch_id", branchId)
-      .eq("is_active", true);
+    return relation?.product_name || "-";
+  }
 
-    if (isCancelled()) return;
+  function getInvestorName(item: InventoryItem) {
+    const relation = item.finance_investors;
 
-    if (productsError) {
-      alert(productsError.message || "تعذر تحميل المنتجات");
-      resetInventoryState();
-      setLoading(false);
-      return;
+    if (Array.isArray(relation)) {
+      return relation[0]?.investor_name || "-";
     }
 
-    const { data: investors, error: investorsError } = await supabase
-      .from("finance_investors")
-      .select("id")
-      .eq("branch_id", branchId)
-      .eq("is_active", true);
-
-    if (isCancelled()) return;
-
-    if (investorsError) {
-      alert(investorsError.message || "تعذر تحميل المستثمرين");
-      resetInventoryState();
-      setLoading(false);
-      return;
-    }
-
-    const { data: inventory, error: inventoryError } = await supabase
-      .from("finance_inventory")
-      .select(
-        "*, finance_products(product_name), finance_investors(investor_name)"
-      )
-      .eq("branch_id", branchId)
-      .order("updated_at", { ascending: false });
-
-    if (isCancelled()) return;
-
-    if (inventoryError) {
-      alert(inventoryError.message || "تعذر تحميل المخزون");
-      resetInventoryState();
-      setLoading(false);
-      return;
-    }
-
-    const list = inventory || [];
-
-    const currentTotalQuantity = list.reduce(
-      (sum, item) => sum + Number(item.quantity || 0),
-      0
-    );
-
-    const currentNegativeCount = list.filter(
-      (item) => Number(item.quantity || 0) < 0
-    ).length;
-
-    const currentLowCount = list.filter((item) => {
-      const qty = Number(item.quantity || 0);
-      return qty >= 0 && qty <= LOW_STOCK_LIMIT;
-    }).length;
-
-    setProductsCount(products?.length || 0);
-    setInvestorsCount(investors?.length || 0);
-    setItems(list);
-    setTotalQuantity(currentTotalQuantity);
-    setNegativeCount(currentNegativeCount);
-    setLowCount(currentLowCount);
-    setCurrentPage(1);
-    setLoading(false);
+    return relation?.investor_name || "-";
   }
 
   const filteredItems = useMemo(() => {
-    const cleanSearch = searchTerm.trim();
+    const cleanSearch = searchTerm.trim().toLowerCase();
 
     return items
       .filter((item) => {
-        const productName = item.finance_products?.product_name || "";
-        const investorName = item.finance_investors?.investor_name || "";
-        const qty = Number(item.quantity || 0);
-        const status = getStockStatus(qty);
+        const productName =
+          getProductName(item).toLowerCase();
+
+        const investorName =
+          getInvestorName(item).toLowerCase();
+
+        const quantity = Number(item.quantity || 0);
+        const status = getStockStatus(quantity);
 
         const matchesSearch =
           !cleanSearch ||
@@ -286,15 +506,21 @@ export default function FinanceInventoryPage() {
           investorName.includes(cleanSearch);
 
         const matchesStatus =
-          statusFilter === "all" || status.key === statusFilter;
+          statusFilter === "all" ||
+          status.key === statusFilter;
 
         return matchesSearch && matchesStatus;
       })
-      .sort((a, b) => {
-        const aStatus = getStockStatus(Number(a.quantity || 0)).priority;
-        const bStatus = getStockStatus(Number(b.quantity || 0)).priority;
+      .sort((firstItem, secondItem) => {
+        const firstPriority = getStockStatus(
+          Number(firstItem.quantity || 0)
+        ).priority;
 
-        return aStatus - bStatus;
+        const secondPriority = getStockStatus(
+          Number(secondItem.quantity || 0)
+        ).priority;
+
+        return firstPriority - secondPriority;
       });
   }, [items, searchTerm, statusFilter]);
 
@@ -310,8 +536,13 @@ export default function FinanceInventoryPage() {
   }, [currentPage, totalPages]);
 
   const paginatedItems = useMemo(() => {
-    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filteredItems.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+    const startIndex =
+      (currentPage - 1) * ITEMS_PER_PAGE;
+
+    return filteredItems.slice(
+      startIndex,
+      startIndex + ITEMS_PER_PAGE
+    );
   }, [filteredItems, currentPage]);
 
   if (!authChecked) {
@@ -334,21 +565,34 @@ export default function FinanceInventoryPage() {
                   <UserIcon />
                 </div>
 
-                <div style={getEmployeeNameStyle(isMobile)}>
+                <div
+                  style={getEmployeeNameStyle(isMobile)}
+                >
                   {employeeName}
                 </div>
 
-                {!isMobile && <div style={employeeDividerSmall} />}
+                {!isMobile && (
+                  <div style={employeeDividerSmall} />
+                )}
 
-                <button style={logoutInlineButton} onClick={logout}>
+                <button
+                  type="button"
+                  style={logoutInlineButton}
+                  onClick={logout}
+                >
                   <LogoutIcon />
                   <span>تسجيل الخروج</span>
                 </button>
               </div>
 
               <button
-                style={getMainWorkstationButtonStyle(isMobile)}
-                onClick={() => router.push(`/finance/${branch}`)}
+                type="button"
+                style={getMainWorkstationButtonStyle(
+                  isMobile
+                )}
+                onClick={() =>
+                  router.push(`/finance/${branch}`)
+                }
               >
                 <HomeIcon />
                 <span>محطة العمل الرئيسية</span>
@@ -356,7 +600,9 @@ export default function FinanceInventoryPage() {
             </div>
 
             <div style={getHeroTitleBoxStyle(screen)}>
-              <h1 style={getTitleStyle(screen)}>المخزون والمنتجات</h1>
+              <h1 style={getTitleStyle(screen)}>
+                المخزون والمنتجات
+              </h1>
             </div>
 
             <div style={getHeroActionBoxStyle(screen)} />
@@ -364,95 +610,164 @@ export default function FinanceInventoryPage() {
         </header>
 
         <section style={summaryGrid}>
-          <SummaryCard icon="🧩" title="عدد المنتجات" value={productsCount} />
-          <SummaryCard icon="📦" title="إجمالي الكمية" value={totalQuantity} />
-          <SummaryCard icon="👤" title="عدد المستثمرين" value={investorsCount} />
-          <SummaryCard icon="🔴" title="منتجات بالسالب" value={negativeCount} />
-          <SummaryCard icon="🟠" title="منتجات منخفضة" value={lowCount} />
+          <SummaryCard
+            icon="🧩"
+            title="عدد المنتجات"
+            value={productsCount}
+          />
+
+          <SummaryCard
+            icon="📦"
+            title="إجمالي الكمية"
+            value={totalQuantity}
+          />
+
+          <SummaryCard
+            icon="👤"
+            title="عدد المستثمرين"
+            value={investorsCount}
+          />
+
+          <SummaryCard
+            icon="🔴"
+            title="منتجات بالسالب"
+            value={negativeCount}
+          />
+
+          <SummaryCard
+            icon="🟠"
+            title="منتجات منخفضة"
+            value={lowCount}
+          />
         </section>
 
         <section style={actionsSection}>
-          <ActionButton
-            icon="➕"
-            title="إضافة منتج"
-            onClick={() => go("inventory/products/new")}
-          />
+          {hasPermission("add_product") && (
+            <ActionButton
+              icon="➕"
+              title="إضافة منتج"
+              onClick={() =>
+                go("inventory/products/new")
+              }
+            />
+          )}
 
           {hasPermission("add_investor") && (
             <ActionButton
               icon="👤"
               title="إضافة مستثمر"
-              onClick={() => go("inventory/investors/new")}
+              onClick={() =>
+                go("inventory/investors/new")
+              }
             />
           )}
 
           <ActionButton
             icon="👥"
-            title="المستثمرين"
-            onClick={() => go("inventory/investors")}
+            title="المستثمرون"
+            onClick={() =>
+              go("inventory/investors")
+            }
           />
 
           <ActionButton
             icon="📦"
             title="المنتجات"
-            onClick={() => go("inventory/products")}
+            onClick={() =>
+              go("inventory/products")
+            }
           />
 
-          <ActionButton
-            icon="📦"
-            title="إضافة كمية للمخزون"
-            onClick={() => go("inventory/add-stock")}
-          />
+          {hasPermission("add_inventory") && (
+            <ActionButton
+              icon="➕"
+              title="إضافة كمية للمخزون"
+              onClick={() =>
+                go("inventory/add-stock")
+              }
+            />
+          )}
 
           <ActionButton
             icon="📋"
             title="سجل الحركات"
-            onClick={() => go("inventory/movements")}
+            onClick={() =>
+              go("inventory/movements")
+            }
           />
 
           <ActionButton
             icon="🖨️"
             title="كشف المنتجات"
-            onClick={() => go("inventory/products-report")}
+            onClick={() =>
+              go("inventory/products-report")
+            }
           />
 
           <ActionButton
             icon="🧾"
             title="كشف المستثمر"
-            onClick={() => go("inventory/investor-report")}
+            onClick={() =>
+              go("inventory/investor-report")
+            }
           />
         </section>
 
         <section style={tableCard}>
           <div style={tableTop}>
             <div>
-              <h2 style={sectionTitle}>المخزون الحالي</h2>
+              <h2 style={sectionTitle}>
+                المخزون الحالي
+              </h2>
 
-              {!loading && filteredItems.length > 0 && (
-                <div style={pageInfo}>
-                  صفحة {currentPage} من {totalPages} - عرض{" "}
-                  {paginatedItems.length} من {filteredItems.length}
-                </div>
-              )}
+              {!loading &&
+                filteredItems.length > 0 && (
+                  <div style={pageInfo}>
+                    صفحة {currentPage} من{" "}
+                    {totalPages} - عرض{" "}
+                    {paginatedItems.length} من{" "}
+                    {filteredItems.length}
+                  </div>
+                )}
             </div>
 
             <div style={filters}>
               <input
+                type="search"
                 style={searchInput}
                 placeholder="بحث باسم المنتج أو المستثمر"
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(event) =>
+                  setSearchTerm(event.target.value)
+                }
               />
 
               <select
                 style={filterSelect}
                 value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
+                onChange={(event) =>
+                  setStatusFilter(
+                    event.target.value as
+                      | "all"
+                      | StockStatusKey
+                  )
+                }
               >
-                <option value="all">كل الحالات</option>
-                <option value="negative">بالسالب</option>
-                <option value="low">منخفض</option>
-                <option value="normal">طبيعي</option>
+                <option value="all">
+                  كل الحالات
+                </option>
+
+                <option value="negative">
+                  بالسالب
+                </option>
+
+                <option value="low">
+                  منخفض
+                </option>
+
+                <option value="normal">
+                  طبيعي
+                </option>
               </select>
             </div>
           </div>
@@ -466,70 +781,123 @@ export default function FinanceInventoryPage() {
           </div>
 
           {loading ? (
-            <div style={emptyBox}>جاري تحميل المخزون...</div>
+            <div style={emptyBox}>
+              جاري تحميل المخزون...
+            </div>
           ) : filteredItems.length === 0 ? (
-            <div style={emptyBox}>لا توجد نتائج مطابقة</div>
+            <div style={emptyBox}>
+              لا توجد نتائج مطابقة
+            </div>
           ) : (
             paginatedItems.map((item) => {
-              const qty = Number(item.quantity || 0);
-              const status = getStockStatus(qty);
+              const quantity = Number(
+                item.quantity || 0
+              );
+
+              const status =
+                getStockStatus(quantity);
 
               return (
-                <div key={item.id} style={getTableRowStyle(status.key)}>
-                  <span>{item.finance_products?.product_name || "-"}</span>
-                  <span>{item.finance_investors?.investor_name || "-"}</span>
-                  <strong>{qty}</strong>
-                  <span style={getStatusBadgeStyle(status.key)}>
+                <div
+                  key={item.id}
+                  style={getTableRowStyle(
+                    status.key
+                  )}
+                >
+                  <span>
+                    {getProductName(item)}
+                  </span>
+
+                  <span>
+                    {getInvestorName(item)}
+                  </span>
+
+                  <strong>{quantity}</strong>
+
+                  <span
+                    style={getStatusBadgeStyle(
+                      status.key
+                    )}
+                  >
                     {status.label}
                   </span>
-                  <span>{formatDate(item.updated_at)}</span>
+
+                  <span>
+                    {formatDate(item.updated_at)}
+                  </span>
                 </div>
               );
             })
           )}
 
-          {!loading && filteredItems.length > ITEMS_PER_PAGE && (
-            <div style={paginationBox}>
-              <button
-                style={{
-                  ...paginationButton,
-                  opacity: currentPage === 1 ? 0.5 : 1,
-                  cursor: currentPage === 1 ? "not-allowed" : "pointer",
-                }}
-                disabled={currentPage === 1}
-                onClick={() => setCurrentPage((page) => Math.max(page - 1, 1))}
-              >
-                السابق
-              </button>
+          {!loading &&
+            filteredItems.length >
+              ITEMS_PER_PAGE && (
+              <div style={paginationBox}>
+                <button
+                  type="button"
+                  style={{
+                    ...paginationButton,
+                    opacity:
+                      currentPage === 1 ? 0.5 : 1,
+                    cursor:
+                      currentPage === 1
+                        ? "not-allowed"
+                        : "pointer",
+                  }}
+                  disabled={currentPage === 1}
+                  onClick={() =>
+                    setCurrentPage((page) =>
+                      Math.max(page - 1, 1)
+                    )
+                  }
+                >
+                  السابق
+                </button>
 
-              <span style={paginationText}>
-                صفحة {currentPage} من {totalPages}
-              </span>
+                <span style={paginationText}>
+                  صفحة {currentPage} من{" "}
+                  {totalPages}
+                </span>
 
-              <button
-                style={{
-                  ...paginationButton,
-                  opacity: currentPage === totalPages ? 0.5 : 1,
-                  cursor:
-                    currentPage === totalPages ? "not-allowed" : "pointer",
-                }}
-                disabled={currentPage === totalPages}
-                onClick={() =>
-                  setCurrentPage((page) => Math.min(page + 1, totalPages))
-                }
-              >
-                التالي
-              </button>
-            </div>
-          )}
+                <button
+                  type="button"
+                  style={{
+                    ...paginationButton,
+                    opacity:
+                      currentPage === totalPages
+                        ? 0.5
+                        : 1,
+                    cursor:
+                      currentPage === totalPages
+                        ? "not-allowed"
+                        : "pointer",
+                  }}
+                  disabled={
+                    currentPage === totalPages
+                  }
+                  onClick={() =>
+                    setCurrentPage((page) =>
+                      Math.min(
+                        page + 1,
+                        totalPages
+                      )
+                    )
+                  }
+                >
+                  التالي
+                </button>
+              </div>
+            )}
         </section>
 
         <div style={backWrapper}>
           <button
+            type="button"
             style={backButton}
-            onClick={() => router.push(`/finance/${branch}`)}
+            onClick={() => router.back()}
           >
-            الرجوع للرئيسية
+            الرجوع
           </button>
         </div>
       </div>
@@ -537,7 +905,9 @@ export default function FinanceInventoryPage() {
   );
 }
 
-function getStockStatus(quantity: number) {
+function getStockStatus(
+  quantity: number
+): StockStatus {
   if (quantity < 0) {
     return {
       key: "negative",
@@ -561,12 +931,16 @@ function getStockStatus(quantity: number) {
   };
 }
 
-function SummaryCard({ icon, title, value }: any) {
+function SummaryCard({
+  icon,
+  title,
+  value,
+}: SummaryCardProps) {
   return (
     <div style={summaryCard}>
-      <div>
+      <div style={summaryTextBox}>
         <strong>{title}</strong>
-        <span>{value}</span>
+        <span style={summaryValue}>{value}</span>
       </div>
 
       <div style={summaryIcon}>{icon}</div>
@@ -574,45 +948,93 @@ function SummaryCard({ icon, title, value }: any) {
   );
 }
 
-function ActionButton({ icon, title, onClick }: any) {
+function ActionButton({
+  icon,
+  title,
+  onClick,
+}: ActionButtonProps) {
   return (
-    <button style={actionButton} onClick={onClick}>
+    <button
+      type="button"
+      style={actionButton}
+      onClick={onClick}
+    >
       <span style={actionIcon}>{icon}</span>
       <span>{title}</span>
     </button>
   );
 }
 
-function formatDate(date: string) {
-  if (!date) return "-";
+function formatDate(date?: string | null) {
+  if (!date) {
+    return "-";
+  }
 
-  return new Date(date).toLocaleDateString("ar-SA-u-ca-gregory", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+  const parsedDate = new Date(date);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "-";
+  }
+
+  return parsedDate.toLocaleDateString(
+    "ar-SA-u-ca-gregory",
+    {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    }
+  );
 }
 
-function getTableRowStyle(status: string) {
-  if (status === "negative") return { ...tableRow, ...negativeRow };
-  if (status === "low") return { ...tableRow, ...lowRow };
+function getTableRowStyle(
+  status: StockStatusKey
+): CSSProperties {
+  if (status === "negative") {
+    return {
+      ...tableRow,
+      ...negativeRow,
+    };
+  }
+
+  if (status === "low") {
+    return {
+      ...tableRow,
+      ...lowRow,
+    };
+  }
+
   return tableRow;
 }
 
-function getStatusBadgeStyle(status: string) {
-  if (status === "negative") return statusNegative;
-  if (status === "low") return statusLow;
+function getStatusBadgeStyle(
+  status: StockStatusKey
+): CSSProperties {
+  if (status === "negative") {
+    return statusNegative;
+  }
+
+  if (status === "low") {
+    return statusLow;
+  }
+
   return statusNormal;
 }
 
 function UserIcon() {
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M12 12.2a4.2 4.2 0 1 0 0-8.4 4.2 4.2 0 0 0 0 8.4Z"
         stroke="currentColor"
         strokeWidth="1.8"
       />
+
       <path
         d="M4.8 20.2c.8-3.5 3.6-5.4 7.2-5.4s6.4 1.9 7.2 5.4"
         stroke="currentColor"
@@ -625,19 +1047,27 @@ function UserIcon() {
 
 function LogoutIcon() {
   return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M9.5 7V5.8c0-1 .8-1.8 1.8-1.8h6.1c1 0 1.8.8 1.8 1.8v12.4c0 1-.8 1.8-1.8 1.8h-6.1c-1 0-1.8-.8-1.8-1.8V17"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
       />
+
       <path
         d="M4.8 12h9.5"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
       />
+
       <path
         d="M7.8 8.8 4.6 12l3.2 3.2"
         stroke="currentColor"
@@ -651,7 +1081,13 @@ function LogoutIcon() {
 
 function HomeIcon() {
   return (
-    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="21"
+      height="21"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M3.8 11.2 12 4.5l8.2 6.7"
         stroke="currentColor"
@@ -659,12 +1095,14 @@ function HomeIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+
       <path
         d="M6.2 10.4v9.1h11.6v-9.1"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinejoin="round"
       />
+
       <path
         d="M10 19.5v-5.2h4v5.2"
         stroke="currentColor"
@@ -675,7 +1113,9 @@ function HomeIcon() {
   );
 }
 
-function getPageStyle(isMobile: boolean): CSSProperties {
+function getPageStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     minHeight: "100vh",
     backgroundColor: "#f6f9ff",
@@ -688,13 +1128,18 @@ function getPageStyle(isMobile: boolean): CSSProperties {
     `,
     backgroundSize: "cover",
     backgroundPosition: "center",
-    backgroundAttachment: isMobile ? "scroll" : "fixed",
+    backgroundAttachment: isMobile
+      ? "scroll"
+      : "fixed",
     padding: isMobile ? 10 : 18,
-    fontFamily: "var(--font-almarai), sans-serif",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
   };
 }
 
-function getContainerStyle(isCompact: boolean): CSSProperties {
+function getContainerStyle(
+  isCompact: boolean
+): CSSProperties {
   return {
     width: "100%",
     maxWidth: isCompact ? 980 : 1180,
@@ -702,12 +1147,16 @@ function getContainerStyle(isCompact: boolean): CSSProperties {
   };
 }
 
-function getHeroStyle(isMobile: boolean): CSSProperties {
+function getHeroStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     position: "relative",
     minHeight: isMobile ? "auto" : 160,
     borderRadius: isMobile ? 20 : 24,
-    padding: isMobile ? "18px 14px" : "22px 26px",
+    padding: isMobile
+      ? "18px 14px"
+      : "22px 26px",
     marginBottom: 14,
     overflow: "hidden",
     border: "none",
@@ -719,7 +1168,9 @@ function getHeroStyle(isMobile: boolean): CSSProperties {
   };
 }
 
-function getHeroContentStyle(screen: ScreenType): CSSProperties {
+function getHeroContentStyle(
+  screen: ScreenType
+): CSSProperties {
   if (screen === "mobile") {
     return {
       position: "relative",
@@ -753,14 +1204,17 @@ function getHeroContentStyle(screen: ScreenType): CSSProperties {
     zIndex: 3,
     minHeight: 116,
     display: "grid",
-    gridTemplateColumns: "minmax(250px, 315px) 1fr minmax(220px, 315px)",
+    gridTemplateColumns:
+      "minmax(250px, 315px) 1fr minmax(220px, 315px)",
     alignItems: "center",
     gap: 16,
     direction: "ltr",
   };
 }
 
-function getHeroUserCardStyle(screen: ScreenType): CSSProperties {
+function getHeroUserCardStyle(
+  screen: ScreenType
+): CSSProperties {
   if (screen === "mobile") {
     return {
       width: "100%",
@@ -796,7 +1250,9 @@ function getHeroUserCardStyle(screen: ScreenType): CSSProperties {
   };
 }
 
-function getEmployeeTopRowStyle(screen: ScreenType): CSSProperties {
+function getEmployeeTopRowStyle(
+  screen: ScreenType
+): CSSProperties {
   if (screen === "mobile") {
     return {
       minHeight: 42,
@@ -834,32 +1290,40 @@ function getEmployeeTopRowStyle(screen: ScreenType): CSSProperties {
   };
 }
 
-function getEmployeeNameStyle(isMobile: boolean): CSSProperties {
+function getEmployeeNameStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     color: "#ffffff",
     fontSize: isMobile ? 15 : 17,
     fontWeight: 900,
     whiteSpace: "nowrap",
     direction: "rtl",
-    textShadow: "0 4px 10px rgba(15,23,42,0.18)",
+    textShadow:
+      "0 4px 10px rgba(15,23,42,0.18)",
   };
 }
 
-function getMainWorkstationButtonStyle(isMobile: boolean): CSSProperties {
+function getMainWorkstationButtonStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     width: isMobile ? "100%" : 220,
     maxWidth: isMobile ? 280 : 220,
     height: 44,
     border: "none",
-    background: "linear-gradient(135deg,#72e77d,#22c55e 58%,#16a34a)",
+    background:
+      "linear-gradient(135deg,#72e77d,#22c55e 58%,#16a34a)",
     color: "#ffffff",
     borderRadius: 999,
     padding: "0 18px",
     fontSize: 14,
     fontWeight: 900,
     cursor: "pointer",
-    fontFamily: "var(--font-almarai), sans-serif",
-    boxShadow: "0 8px 18px rgba(22,163,74,0.20)",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
+    boxShadow:
+      "0 8px 18px rgba(22,163,74,0.20)",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
@@ -869,7 +1333,9 @@ function getMainWorkstationButtonStyle(isMobile: boolean): CSSProperties {
   };
 }
 
-function getHeroTitleBoxStyle(screen: ScreenType): CSSProperties {
+function getHeroTitleBoxStyle(
+  screen: ScreenType
+): CSSProperties {
   return {
     position: "relative",
     zIndex: 4,
@@ -884,21 +1350,34 @@ function getHeroTitleBoxStyle(screen: ScreenType): CSSProperties {
   };
 }
 
-function getTitleStyle(screen: ScreenType): CSSProperties {
+function getTitleStyle(
+  screen: ScreenType
+): CSSProperties {
   return {
     margin: 0,
     color: "#ffffff",
-    fontSize: screen === "mobile" ? 26 : screen === "tablet" ? 28 : 30,
+    fontSize:
+      screen === "mobile"
+        ? 26
+        : screen === "tablet"
+          ? 28
+          : 30,
     lineHeight: 1.35,
     fontWeight: 900,
     letterSpacing: "-0.4px",
-    textShadow: "0 5px 14px rgba(15,23,42,0.14)",
+    textShadow:
+      "0 5px 14px rgba(15,23,42,0.14)",
     whiteSpace: "nowrap",
   };
 }
 
-function getHeroActionBoxStyle(screen: ScreenType): CSSProperties {
-  if (screen === "mobile" || screen === "tablet") {
+function getHeroActionBoxStyle(
+  screen: ScreenType
+): CSSProperties {
+  if (
+    screen === "mobile" ||
+    screen === "tablet"
+  ) {
     return {
       display: "none",
       width: "100%",
@@ -920,7 +1399,8 @@ const employeeIcon: CSSProperties = {
   width: 38,
   height: 38,
   borderRadius: "50%",
-  border: "1.5px solid rgba(255,255,255,0.34)",
+  border:
+    "1.5px solid rgba(255,255,255,0.34)",
   background: "rgba(255,255,255,0.06)",
   display: "flex",
   alignItems: "center",
@@ -946,7 +1426,8 @@ const logoutInlineButton: CSSProperties = {
   alignItems: "center",
   gap: 9,
   cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
   padding: 0,
   whiteSpace: "nowrap",
   direction: "rtl",
@@ -1003,7 +1484,8 @@ const heroDots: CSSProperties = {
 
 const summaryGrid: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))",
+  gridTemplateColumns:
+    "repeat(auto-fit,minmax(180px,1fr))",
   gap: 14,
   marginBottom: 18,
 };
@@ -1016,6 +1498,19 @@ const summaryCard: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
+  boxShadow:
+    "0 8px 20px rgba(15,23,42,0.04)",
+};
+
+const summaryTextBox: CSSProperties = {
+  display: "grid",
+  gap: 8,
+};
+
+const summaryValue: CSSProperties = {
+  color: "#0d47a1",
+  fontSize: 24,
+  fontWeight: 900,
 };
 
 const summaryIcon: CSSProperties = {
@@ -1031,7 +1526,8 @@ const summaryIcon: CSSProperties = {
 
 const actionsSection: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
+  gridTemplateColumns:
+    "repeat(auto-fit,minmax(220px,1fr))",
   gap: 14,
   marginBottom: 18,
 };
@@ -1049,7 +1545,10 @@ const actionButton: CSSProperties = {
   alignItems: "center",
   justifyContent: "center",
   gap: 10,
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+  boxShadow:
+    "0 8px 20px rgba(15,23,42,0.04)",
 };
 
 const actionIcon: CSSProperties = {
@@ -1062,6 +1561,8 @@ const tableCard: CSSProperties = {
   borderRadius: 18,
   padding: 20,
   overflowX: "auto",
+  boxShadow:
+    "0 8px 20px rgba(15,23,42,0.04)",
 };
 
 const tableTop: CSSProperties = {
@@ -1097,7 +1598,8 @@ const searchInput: CSSProperties = {
   borderRadius: 12,
   border: "1px solid #d9e3f5",
   fontSize: 15,
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const filterSelect: CSSProperties = {
@@ -1105,12 +1607,14 @@ const filterSelect: CSSProperties = {
   borderRadius: 12,
   border: "1px solid #d9e3f5",
   fontSize: 15,
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const tableHeader: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "2fr 2fr 1fr 1.2fr 1.5fr",
+  gridTemplateColumns:
+    "2fr 2fr 1fr 1.2fr 1.5fr",
   gap: 12,
   minWidth: 860,
   background: "#f4f8ff",
@@ -1123,7 +1627,8 @@ const tableHeader: CSSProperties = {
 
 const tableRow: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "2fr 2fr 1fr 1.2fr 1.5fr",
+  gridTemplateColumns:
+    "2fr 2fr 1fr 1.2fr 1.5fr",
   gap: 12,
   minWidth: 860,
   padding: 14,
@@ -1197,7 +1702,8 @@ const paginationButton: CSSProperties = {
   fontSize: 15,
   fontWeight: "bold",
   cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const paginationText: CSSProperties = {
@@ -1213,13 +1719,16 @@ const backWrapper: CSSProperties = {
 
 const backButton: CSSProperties = {
   padding: "11px 18px",
-  background: "linear-gradient(135deg,#22c55e,#15803d)",
+  background:
+    "linear-gradient(135deg,#22c55e,#15803d)",
   color: "#ffffff",
   border: "none",
   borderRadius: 12,
   fontSize: 14,
   fontWeight: 900,
   cursor: "pointer",
-  boxShadow: "0 5px 14px rgba(22,163,74,0.22)",
-  fontFamily: "var(--font-almarai), sans-serif",
+  boxShadow:
+    "0 5px 14px rgba(22,163,74,0.22)",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
