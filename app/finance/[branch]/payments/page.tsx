@@ -4,270 +4,757 @@ import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { getBranchId } from "@/lib/getBranchId";
 
 const ITEMS_PER_PAGE = 25;
+
+type ScreenType = "mobile" | "tablet" | "desktop";
+
+type FinanceSession = {
+  id?: string | null;
+  user_id?: string | null;
+  full_name?: string | null;
+  username?: string | null;
+  role?: string | null;
+  branch_id?: string | null;
+  branch_slug?: string | null;
+  branch_name?: string | null;
+};
+
+type CustomerRelation = {
+  full_name?: string | null;
+  national_id?: string | null;
+};
+
+type ContractRelation = {
+  id?: string | null;
+  customer_id?: string | null;
+  contract_number?: string | number | null;
+  customer_name?: string | null;
+  customer_phone?: string | null;
+  debt_amount?: number | string | null;
+  payment_amount?: number | string | null;
+  paid_amount?: number | string | null;
+  remaining_amount?: number | string | null;
+  payment_due_date?: string | null;
+  contract_status?: string | null;
+  finance_customers?: CustomerRelation | null;
+};
+
+type Payment = {
+  id: string;
+  branch_id?: string | null;
+  contract_id?: string | null;
+  payment_amount?: number | string | null;
+  payment_type?: string | null;
+  notes?: string | null;
+  is_cancelled?: boolean | null;
+  cancelled_at?: string | null;
+  cancelled_by?: string | null;
+  created_at?: string | null;
+  finance_contracts?: ContractRelation | null;
+};
+
+type CancelPaymentResult = {
+  payment_id: string;
+  new_paid_amount: number | string;
+  new_remaining_amount: number | string;
+  new_contract_status: string;
+};
+
+const SESSION_KEYS = [
+  "finance_user",
+  "finance_branch_user",
+  "finance_user_id",
+  "finance_user_name",
+  "finance_username",
+  "finance_role",
+  "finance_branch_id",
+  "finance_branch_slug",
+  "finance_branch_name",
+  "finance_organization_name",
+];
 
 export default function FinancePaymentsPage() {
   const params = useParams();
   const router = useRouter();
-  const branch = params.branch as string;
 
-  const [branchId, setBranchId] = useState<string | null>(null);
-  const [payments, setPayments] = useState<any[]>([]);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [loading, setLoading] = useState(true);
+  const branch = String(params.branch ?? "");
+
+  const [screen, setScreen] =
+    useState<ScreenType>("desktop");
+
+  const [employeeName, setEmployeeName] =
+    useState("الموظف");
+
+  const [branchId, setBranchId] =
+    useState<string | null>(null);
+
+  const [payments, setPayments] =
+    useState<Payment[]>([]);
+
+  const [currentPage, setCurrentPage] =
+    useState(1);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [
+    cancellingPaymentId,
+    setCancellingPaymentId,
+  ] = useState<string | null>(null);
+
+  const isMobile = screen === "mobile";
+  const isTablet = screen === "tablet";
+  const isCompact = isMobile || isTablet;
 
   useEffect(() => {
-    loadPayments();
-  }, [branch]);
+    function updateScreen() {
+      const width = window.innerWidth;
 
-  const totalPages = Math.max(1, Math.ceil(payments.length / ITEMS_PER_PAGE));
-
-  const paginatedPayments = useMemo(() => {
-    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    return payments.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-  }, [payments, currentPage]);
-
-  async function loadPayments() {
-    setLoading(true);
-
-    const currentBranchId = await getBranchId(branch);
-    setBranchId(currentBranchId);
-
-    if (!currentBranchId) {
-      setPayments([]);
-      setLoading(false);
-      return;
-    }
-
-    const { data, error } = await supabase
-      .from("finance_payments")
-      .select(
-        `
-        *,
-        finance_contracts(
-          id,
-          customer_id,
-          contract_number,
-          customer_name,
-          customer_phone,
-          debt_amount,
-          payment_amount,
-          paid_amount,
-          remaining_amount,
-          payment_due_date,
-          contract_status,
-          finance_customers(full_name, national_id)
-        )
-      `
-      )
-      .eq("branch_id", currentBranchId)
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      alert("تعذر تحميل عمليات السداد: " + error.message);
-      setPayments([]);
-      setLoading(false);
-      return;
-    }
-
-    setPayments(data || []);
-    setCurrentPage(1);
-    setLoading(false);
-  }
-
-  function getEmployeeName() {
-    if (typeof window === "undefined") return "المدير";
-
-    const newName = localStorage.getItem("finance_user_name");
-    if (newName) return newName;
-
-    const oldUser = localStorage.getItem("finance_user");
-
-    if (oldUser) {
-      try {
-        const parsed = JSON.parse(oldUser);
-        return parsed?.full_name || parsed?.username || "المدير";
-      } catch {
-        return "المدير";
+      if (width < 640) {
+        setScreen("mobile");
+      } else if (width < 980) {
+        setScreen("tablet");
+      } else {
+        setScreen("desktop");
       }
     }
 
-    return "المدير";
+    updateScreen();
+
+    window.addEventListener(
+      "resize",
+      updateScreen
+    );
+
+    return () =>
+      window.removeEventListener(
+        "resize",
+        updateScreen
+      );
+  }, []);
+
+  useEffect(() => {
+    void initializePage();
+  }, [branch]);
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(payments.length / ITEMS_PER_PAGE)
+  );
+
+  const paginatedPayments = useMemo(() => {
+    const startIndex =
+      (currentPage - 1) * ITEMS_PER_PAGE;
+
+    return payments.slice(
+      startIndex,
+      startIndex + ITEMS_PER_PAGE
+    );
+  }, [payments, currentPage]);
+
+  function clearSession() {
+    if (typeof window === "undefined") return;
+
+    SESSION_KEYS.forEach((key) => {
+      localStorage.removeItem(key);
+    });
   }
 
-  function getStatusAfterUpdate(remainingAmount: number, dueDate?: string | null) {
-    if (remainingAmount <= 0) return "تم السداد";
+  function readStoredSession():
+    | FinanceSession
+    | null {
+    if (typeof window === "undefined") {
+      return null;
+    }
 
-    if (isDateDue(dueDate)) return "متأخر";
+    const rawSession =
+      localStorage.getItem(
+        "finance_branch_user"
+      ) ||
+      localStorage.getItem(
+        "finance_user"
+      );
 
-    return "نشط";
+    if (rawSession) {
+      try {
+        const parsed =
+          JSON.parse(
+            rawSession
+          ) as FinanceSession;
+
+        return {
+          ...parsed,
+
+          id:
+            parsed.id ||
+            parsed.user_id ||
+            localStorage.getItem(
+              "finance_user_id"
+            ),
+
+          full_name:
+            parsed.full_name ||
+            localStorage.getItem(
+              "finance_user_name"
+            ) ||
+            null,
+
+          username:
+            parsed.username ||
+            localStorage.getItem(
+              "finance_username"
+            ) ||
+            null,
+
+          role:
+            parsed.role ||
+            localStorage.getItem(
+              "finance_role"
+            ) ||
+            null,
+
+          branch_id:
+            parsed.branch_id ||
+            localStorage.getItem(
+              "finance_branch_id"
+            ) ||
+            null,
+
+          branch_slug:
+            parsed.branch_slug ||
+            localStorage.getItem(
+              "finance_branch_slug"
+            ) ||
+            null,
+
+          branch_name:
+            parsed.branch_name ||
+            localStorage.getItem(
+              "finance_branch_name"
+            ) ||
+            null,
+        };
+      } catch {
+        return null;
+      }
+    }
+
+    const legacyUserId =
+      localStorage.getItem(
+        "finance_user_id"
+      );
+
+    const legacyUsername =
+      localStorage.getItem(
+        "finance_username"
+      );
+
+    if (
+      !legacyUserId &&
+      !legacyUsername
+    ) {
+      return null;
+    }
+
+    return {
+      id: legacyUserId,
+
+      full_name:
+        localStorage.getItem(
+          "finance_user_name"
+        ),
+
+      username: legacyUsername,
+
+      role:
+        localStorage.getItem(
+          "finance_role"
+        ),
+
+      branch_id:
+        localStorage.getItem(
+          "finance_branch_id"
+        ),
+
+      branch_slug:
+        localStorage.getItem(
+          "finance_branch_slug"
+        ),
+
+      branch_name:
+        localStorage.getItem(
+          "finance_branch_name"
+        ),
+    };
   }
 
-  async function cancelPayment(payment: any) {
-    if (!branchId) {
-      alert("تعذر تحديد الفرع");
+  async function initializePage() {
+    try {
+      setLoading(true);
+
+      if (!branch) {
+        clearSession();
+        router.replace("/login");
+        return;
+      }
+
+      const storedSession =
+        readStoredSession();
+
+      if (!storedSession) {
+        clearSession();
+        router.replace("/login");
+        return;
+      }
+
+      if (
+        storedSession.branch_slug &&
+        storedSession.branch_slug !== branch
+      ) {
+        router.replace(
+          `/finance/${storedSession.branch_slug}`
+        );
+        return;
+      }
+
+      const {
+        data: branchData,
+        error: branchError,
+      } = await supabase
+        .from("finance_branches")
+        .select(
+          "id, branch_slug, branch_name, organization_name, is_active"
+        )
+        .eq("branch_slug", branch)
+        .eq("is_active", true)
+        .maybeSingle();
+
+      if (
+        branchError ||
+        !branchData?.id
+      ) {
+        clearSession();
+        router.replace("/login");
+        return;
+      }
+
+      const safeBranchId =
+        String(branchData.id);
+
+      if (
+        storedSession.branch_id &&
+        storedSession.branch_id !==
+          safeBranchId
+      ) {
+        if (
+          storedSession.branch_slug
+        ) {
+          router.replace(
+            `/finance/${storedSession.branch_slug}`
+          );
+        } else {
+          clearSession();
+          router.replace("/login");
+        }
+
+        return;
+      }
+
+      let userQuery = supabase
+        .from("finance_branch_users")
+        .select(
+          "id, full_name, username, role, branch_id, is_active"
+        )
+        .eq("branch_id", safeBranchId)
+        .eq("is_active", true);
+
+      if (storedSession.id) {
+        userQuery = userQuery.eq(
+          "id",
+          storedSession.id
+        );
+      } else if (
+        storedSession.username
+      ) {
+        userQuery = userQuery.eq(
+          "username",
+          storedSession.username
+        );
+      } else {
+        clearSession();
+        router.replace("/login");
+        return;
+      }
+
+      const {
+        data: userData,
+        error: userError,
+      } =
+        await userQuery.maybeSingle();
+
+      if (
+        userError ||
+        !userData?.id
+      ) {
+        clearSession();
+        router.replace("/login");
+        return;
+      }
+
+      const resolvedEmployeeName =
+        userData.full_name ||
+        userData.username ||
+        storedSession.full_name ||
+        storedSession.username ||
+        "الموظف";
+
+      setEmployeeName(
+        resolvedEmployeeName
+      );
+
+      setBranchId(safeBranchId);
+
+      if (
+        typeof window !== "undefined"
+      ) {
+        localStorage.setItem(
+          "finance_user_id",
+          String(userData.id)
+        );
+
+        localStorage.setItem(
+          "finance_user_name",
+          resolvedEmployeeName
+        );
+
+        localStorage.setItem(
+          "finance_username",
+          String(
+            userData.username ||
+              storedSession.username ||
+              ""
+          )
+        );
+
+        localStorage.setItem(
+          "finance_role",
+          String(
+            userData.role ||
+              storedSession.role ||
+              ""
+          )
+        );
+
+        localStorage.setItem(
+          "finance_branch_id",
+          safeBranchId
+        );
+
+        localStorage.setItem(
+          "finance_branch_slug",
+          branch
+        );
+
+        localStorage.setItem(
+          "finance_branch_name",
+          String(
+            branchData.branch_name || ""
+          )
+        );
+
+        localStorage.setItem(
+          "finance_organization_name",
+          String(
+            branchData.organization_name ||
+              ""
+          )
+        );
+      }
+
+      await loadPayments(
+        safeBranchId
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "تعذر تحميل عمليات السداد";
+
+      alert(message);
+      setPayments([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function logout() {
+    clearSession();
+    router.replace("/login");
+  }
+
+  async function loadPayments(
+    currentBranchId = branchId
+  ) {
+    if (!currentBranchId) return;
+
+    const { data, error } =
+      await supabase
+        .from("finance_payments")
+        .select(
+          `
+          *,
+          finance_contracts(
+            id,
+            customer_id,
+            contract_number,
+            customer_name,
+            customer_phone,
+            debt_amount,
+            payment_amount,
+            paid_amount,
+            remaining_amount,
+            payment_due_date,
+            contract_status,
+            finance_customers(
+              full_name,
+              national_id
+            )
+          )
+        `
+        )
+        .eq(
+          "branch_id",
+          currentBranchId
+        )
+        .order("created_at", {
+          ascending: false,
+        });
+
+    if (error) {
+      throw new Error(
+        error.message
+      );
+    }
+
+    setPayments(
+      (data as Payment[] | null) || []
+    );
+
+    setCurrentPage(1);
+  }
+
+  function getCancelErrorMessage(
+    message: string
+  ) {
+    if (
+      message.includes(
+        "PAYMENT_NOT_FOUND"
+      )
+    ) {
+      return "عملية السداد غير موجودة أو لا تتبع هذا الفرع";
+    }
+
+    if (
+      message.includes(
+        "PAYMENT_ALREADY_CANCELLED"
+      )
+    ) {
+      return "عملية السداد ملغية مسبقًا";
+    }
+
+    if (
+      message.includes(
+        "CONTRACT_NOT_FOUND"
+      )
+    ) {
+      return "تعذر العثور على العقد المرتبط بعملية السداد";
+    }
+
+    return (
+      message ||
+      "تعذر إلغاء عملية السداد"
+    );
+  }
+
+  async function cancelPayment(
+    payment: Payment
+  ) {
+    if (
+      !branchId ||
+      cancellingPaymentId
+    ) {
+      if (!branchId) {
+        alert("تعذر تحديد الفرع");
+      }
+
       return;
     }
 
     if (payment.is_cancelled) {
-      alert("عملية السداد ملغية مسبقًا");
+      alert(
+        "عملية السداد ملغية مسبقًا"
+      );
       return;
     }
 
-    const contract = payment.finance_contracts;
+    const contract =
+      payment.finance_contracts;
 
-    if (!contract) {
-      alert("تعذر العثور على العقد المرتبط بعملية السداد");
+    if (
+      !contract?.id ||
+      !payment.contract_id
+    ) {
+      alert(
+        "تعذر العثور على العقد المرتبط بعملية السداد"
+      );
       return;
     }
 
-    const confirmed = confirm(
-      `هل تريد إلغاء عملية السداد بمبلغ ${formatMoney(
-        payment.payment_amount || 0
-      )} ر.س؟`
-    );
+    const confirmed =
+      window.confirm(
+        `هل تريد إلغاء عملية السداد بمبلغ ${formatMoney(
+          payment.payment_amount
+        )} ر.س؟`
+      );
 
     if (!confirmed) return;
 
-    const paymentAmount = Number(payment.payment_amount || 0);
-    const oldPaid = Number(contract.paid_amount || 0);
-    const debt = Number(
-      contract.debt_amount ||
-        contract.payment_amount ||
-        oldPaid + Number(contract.remaining_amount || 0) ||
-        0
-    );
+    try {
+      setCancellingPaymentId(
+        payment.id
+      );
 
-    const newPaid = Math.max(oldPaid - paymentAmount, 0);
-    const newRemaining = Math.max(debt - newPaid, 0);
-    const newStatus = getStatusAfterUpdate(
-      newRemaining,
-      contract.payment_due_date
-    );
+      const { data, error } =
+        await supabase.rpc(
+          "cancel_payment_atomic",
+          {
+            p_branch_id: branchId,
 
-    const { error: paymentError } = await supabase
-      .from("finance_payments")
-      .update({
-        is_cancelled: true,
-      })
-      .eq("id", payment.id)
-      .eq("branch_id", branchId);
+            p_contract_id:
+              payment.contract_id,
 
-    if (paymentError) {
-      alert(paymentError.message || "تعذر إلغاء عملية السداد");
-      return;
+            p_payment_id:
+              payment.id,
+
+            p_employee_name:
+              employeeName ||
+              "الموظف",
+          }
+        );
+
+      if (error) {
+        throw new Error(
+          getCancelErrorMessage(
+            error.message
+          )
+        );
+      }
+
+      const rawResult =
+        Array.isArray(data)
+          ? data[0]
+          : data;
+
+      const result =
+        rawResult as
+          | CancelPaymentResult
+          | null;
+
+      if (!result?.payment_id) {
+        throw new Error(
+          "لم يتم استلام نتيجة إلغاء عملية السداد"
+        );
+      }
+
+      await loadPayments(branchId);
+
+      alert(
+        "تم إلغاء عملية السداد وتحديث العقد بنجاح"
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "تعذر إلغاء عملية السداد";
+
+      alert(
+        getCancelErrorMessage(
+          message
+        )
+      );
+    } finally {
+      setCancellingPaymentId(
+        null
+      );
     }
-
-    const { error: contractError } = await supabase
-      .from("finance_contracts")
-      .update({
-        paid_amount: newPaid,
-        remaining_amount: newRemaining,
-        contract_status: newStatus,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", payment.contract_id)
-      .eq("branch_id", branchId);
-
-    if (contractError) {
-      alert("تم إلغاء السداد، لكن تعذر تحديث العقد: " + contractError.message);
-      return;
-    }
-
-    await supabase.from("finance_activity_logs").insert([
-      {
-        branch_id: branchId,
-        activity_type: "إلغاء سداد",
-        description: `تم إلغاء عملية سداد بمبلغ ${paymentAmount} ر.س للعقد رقم ${
-          contract.contract_number || "-"
-        }`,
-        customer_id: contract.customer_id,
-        contract_id: payment.contract_id,
-        payment_id: payment.id,
-        customer_name:
-          contract.customer_name ||
-          contract.finance_customers?.full_name ||
-          "",
-        employee_name: getEmployeeName(),
-        status: newStatus,
-      },
-    ]);
-
-    alert("تم إلغاء عملية السداد بنجاح");
-    await loadPayments();
   }
 
   return (
-    <main dir="rtl" style={page}>
-      <div style={container}>
-        <header style={header}>
-          <div style={headerActions}>
-            <button style={backButton} onClick={() => router.back()}>
-              ← الرجوع
-            </button>
+    <main
+      dir="rtl"
+      style={getPageStyle(isMobile)}
+    >
+      <div
+        style={getContainerStyle(
+          isCompact
+        )}
+      >
+        <PageHero
+          screen={screen}
+          employeeName={employeeName}
+          onLogout={logout}
+          onHome={() =>
+            router.push(
+              `/finance/${branch}`
+            )
+          }
+        />
 
-            <button
-              style={homeButton}
-              onClick={() => router.push(`/finance/${branch}`)}
-            >
-              محطة العمل الرئيسية
-            </button>
-          </div>
-
-          <div>
-            <p style={headerLabel}>محطة العمل</p>
-            <h1 style={headerTitle}>سداد</h1>
-            <p style={headerSub}>
-              متابعة عمليات السداد، إلغاء العمليات عند الحاجة، وربطها بالعقود
-              وسير العمل.
-            </p>
-          </div>
-        </header>
-
-        <section style={actionsSection}>
+        <section
+          style={actionsSection}
+        >
           <button
-            style={actionButton}
-            onClick={() => router.push(`/finance/${branch}/payments/new`)}
-          >
-            <span style={actionIcon}>💳</span>
-            <span>
-              <strong>إجراء سداد</strong>
-              <small>تسجيل دفعة جديدة على عقد</small>
-            </span>
-          </button>
-
-          <button
+            type="button"
             style={actionButton}
             onClick={() =>
-              alert("لإلغاء عملية سداد، اضغط زر إلغاء بجانب العملية المطلوبة.")
+              router.push(
+                `/finance/${branch}/payments/new`
+              )
             }
           >
-            <span style={actionIcon}>⛔</span>
-            <span>
-              <strong>إلغاء عملية سداد</strong>
-              <small>من جدول العمليات بالأسفل</small>
+            <span style={actionIcon}>
+              💳
             </span>
+
+            <strong>
+              إجراء سداد
+            </strong>
           </button>
         </section>
 
         <section style={card}>
           <div style={listHeader}>
-            <div>
-              <p style={sectionKicker}>السداد</p>
-              <h2 style={sectionTitle}>عمليات السداد</h2>
-            </div>
+            <h2 style={sectionTitle}>
+              عمليات السداد
+            </h2>
 
             {payments.length > 0 && (
               <span style={pageInfo}>
-                صفحة {currentPage} من {totalPages} - عرض{" "}
-                {paginatedPayments.length} من {payments.length}
+                صفحة {currentPage} من{" "}
+                {totalPages} - عرض{" "}
+                {
+                  paginatedPayments.length
+                }{" "}
+                من {payments.length}
               </span>
             )}
           </div>
 
-          <div className="desktop-table" style={tableBox}>
+          <div
+            className="desktop-table"
+            style={tableBox}
+          >
             <div style={tableHeader}>
               <span>العميل</span>
               <span>رقم العقد</span>
@@ -278,160 +765,343 @@ export default function FinancePaymentsPage() {
             </div>
 
             {loading ? (
-              <div style={emptyBox}>جاري تحميل عمليات السداد...</div>
-            ) : payments.length === 0 ? (
-              <div style={emptyBox}>لا توجد عمليات سداد حتى الآن</div>
+              <div style={emptyBox}>
+                جاري تحميل عمليات
+                السداد...
+              </div>
+            ) : payments.length ===
+              0 ? (
+              <div style={emptyBox}>
+                لا توجد عمليات سداد
+                حتى الآن
+              </div>
             ) : (
-              paginatedPayments.map((payment) => {
-                const contract = payment.finance_contracts;
-                const customerName =
-                  contract?.customer_name ||
-                  contract?.finance_customers?.full_name ||
-                  "-";
+              paginatedPayments.map(
+                (payment) => {
+                  const contract =
+                    payment.finance_contracts;
 
-                return (
-                  <div
-                    key={payment.id}
-                    style={{
-                      ...tableRow,
-                      opacity: payment.is_cancelled ? 0.55 : 1,
-                    }}
-                    onClick={() => {
-                      if (payment.contract_id) {
-                        router.push(
-                          `/finance/${branch}/contracts/${payment.contract_id}`
-                        );
-                      }
-                    }}
-                  >
-                    <span
-                      style={customerLink}
-                      onClick={(e) => {
-                        e.stopPropagation();
+                  const customerName =
+                    contract?.customer_name ||
+                    contract
+                      ?.finance_customers
+                      ?.full_name ||
+                    "-";
 
-                        if (contract?.customer_id) {
+                  const isCancelling =
+                    cancellingPaymentId ===
+                    payment.id;
+
+                  return (
+                    <div
+                      key={payment.id}
+                      style={{
+                        ...tableRow,
+
+                        opacity:
+                          payment.is_cancelled
+                            ? 0.55
+                            : 1,
+                      }}
+                      onClick={() => {
+                        if (
+                          payment.contract_id
+                        ) {
                           router.push(
-                            `/finance/${branch}/customers/${contract.customer_id}`
+                            `/finance/${branch}/contracts/${payment.contract_id}`
                           );
                         }
                       }}
                     >
-                      {customerName}
-                    </span>
+                      <span
+                        style={customerLink}
+                        onClick={(
+                          event
+                        ) => {
+                          event.stopPropagation();
 
-                    <span>{contract?.contract_number || "-"}</span>
-                    <span>{formatMoney(payment.payment_amount)} ر.س</span>
-                    <span>{payment.notes || "-"}</span>
-                    <span>
-                      {payment.is_cancelled
-                        ? "ملغية"
-                        : payment.payment_type || "-"}
-                    </span>
+                          if (
+                            contract?.customer_id
+                          ) {
+                            router.push(
+                              `/finance/${branch}/customers/${contract.customer_id}`
+                            );
+                          }
+                        }}
+                      >
+                        {customerName}
+                      </span>
 
-                    <span>
-                      {payment.is_cancelled ? (
-                        <span style={cancelledBadge}>ملغية</span>
-                      ) : (
-                        <button
-                          style={cancelButton}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            cancelPayment(payment);
-                          }}
-                        >
-                          إلغاء
-                        </button>
-                      )}
-                    </span>
-                  </div>
-                );
-              })
+                      <span>
+                        {contract?.contract_number ||
+                          "-"}
+                      </span>
+
+                      <span>
+                        {formatMoney(
+                          payment.payment_amount
+                        )}{" "}
+                        ر.س
+                      </span>
+
+                      <span>
+                        {payment.notes ||
+                          "-"}
+                      </span>
+
+                      <span>
+                        {payment.is_cancelled
+                          ? "ملغية"
+                          : payment.payment_type ||
+                            "-"}
+                      </span>
+
+                      <span>
+                        {payment.is_cancelled ? (
+                          <span
+                            style={
+                              cancelledBadge
+                            }
+                          >
+                            ملغية
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            style={
+                              cancelButton
+                            }
+                            disabled={
+                              isCancelling
+                            }
+                            onClick={(
+                              event
+                            ) => {
+                              event.stopPropagation();
+
+                              void cancelPayment(
+                                payment
+                              );
+                            }}
+                          >
+                            {isCancelling
+                              ? "جاري الإلغاء..."
+                              : "إلغاء"}
+                          </button>
+                        )}
+                      </span>
+                    </div>
+                  );
+                }
+              )
             )}
           </div>
 
           <div className="mobile-cards">
             {loading ? (
-              <div style={emptyBox}>جاري تحميل عمليات السداد...</div>
-            ) : payments.length === 0 ? (
-              <div style={emptyBox}>لا توجد عمليات سداد حتى الآن</div>
+              <div style={emptyBox}>
+                جاري تحميل عمليات
+                السداد...
+              </div>
+            ) : payments.length ===
+              0 ? (
+              <div style={emptyBox}>
+                لا توجد عمليات سداد
+                حتى الآن
+              </div>
             ) : (
-              paginatedPayments.map((payment) => {
-                const contract = payment.finance_contracts;
-                const customerName =
-                  contract?.customer_name ||
-                  contract?.finance_customers?.full_name ||
-                  "-";
+              paginatedPayments.map(
+                (payment) => {
+                  const contract =
+                    payment.finance_contracts;
 
-                return (
-                  <article key={payment.id} style={mobileCard}>
-                    <div style={mobileCardTop}>
-                      <strong>{customerName}</strong>
-                      {payment.is_cancelled ? (
-                        <span style={cancelledBadge}>ملغية</span>
-                      ) : (
-                        <span style={successBadge}>مسجلة</span>
-                      )}
-                    </div>
+                  const customerName =
+                    contract?.customer_name ||
+                    contract
+                      ?.finance_customers
+                      ?.full_name ||
+                    "-";
 
-                    <span>رقم العقد: {contract?.contract_number || "-"}</span>
-                    <span>المبلغ: {formatMoney(payment.payment_amount)} ر.س</span>
-                    <span>طريقة الدفع: {payment.notes || "-"}</span>
-                    <span>نوع السداد: {payment.payment_type || "-"}</span>
+                  const isCancelling =
+                    cancellingPaymentId ===
+                    payment.id;
 
-                    <div style={mobileActions}>
-                      {payment.contract_id && (
-                        <button
-                          style={smallBlueButton}
-                          onClick={() =>
-                            router.push(
-                              `/finance/${branch}/contracts/${payment.contract_id}`
-                            )
-                          }
-                        >
-                          فتح العقد
-                        </button>
-                      )}
+                  return (
+                    <article
+                      key={payment.id}
+                      style={{
+                        ...mobileCard,
 
-                      {!payment.is_cancelled && (
-                        <button
-                          style={cancelButton}
-                          onClick={() => cancelPayment(payment)}
-                        >
-                          إلغاء
-                        </button>
-                      )}
-                    </div>
-                  </article>
-                );
-              })
+                        opacity:
+                          payment.is_cancelled
+                            ? 0.6
+                            : 1,
+                      }}
+                    >
+                      <div
+                        style={
+                          mobileCardTop
+                        }
+                      >
+                        <strong>
+                          {customerName}
+                        </strong>
+
+                        {payment.is_cancelled ? (
+                          <span
+                            style={
+                              cancelledBadge
+                            }
+                          >
+                            ملغية
+                          </span>
+                        ) : (
+                          <span
+                            style={
+                              successBadge
+                            }
+                          >
+                            مسجلة
+                          </span>
+                        )}
+                      </div>
+
+                      <span>
+                        رقم العقد:{" "}
+                        {contract?.contract_number ||
+                          "-"}
+                      </span>
+
+                      <span>
+                        المبلغ:{" "}
+                        {formatMoney(
+                          payment.payment_amount
+                        )}{" "}
+                        ر.س
+                      </span>
+
+                      <span>
+                        طريقة الدفع:{" "}
+                        {payment.notes ||
+                          "-"}
+                      </span>
+
+                      <span>
+                        نوع السداد:{" "}
+                        {payment.is_cancelled
+                          ? "ملغية"
+                          : payment.payment_type ||
+                            "-"}
+                      </span>
+
+                      <div
+                        style={
+                          mobileActions
+                        }
+                      >
+                        {payment.contract_id && (
+                          <button
+                            type="button"
+                            style={
+                              smallBlueButton
+                            }
+                            onClick={() =>
+                              router.push(
+                                `/finance/${branch}/contracts/${payment.contract_id}`
+                              )
+                            }
+                          >
+                            فتح العقد
+                          </button>
+                        )}
+
+                        {!payment.is_cancelled && (
+                          <button
+                            type="button"
+                            style={
+                              cancelButton
+                            }
+                            disabled={
+                              isCancelling
+                            }
+                            onClick={() =>
+                              void cancelPayment(
+                                payment
+                              )
+                            }
+                          >
+                            {isCancelling
+                              ? "جاري الإلغاء..."
+                              : "إلغاء"}
+                          </button>
+                        )}
+                      </div>
+                    </article>
+                  );
+                }
+              )
             )}
           </div>
 
-          {payments.length > ITEMS_PER_PAGE && (
+          {payments.length >
+            ITEMS_PER_PAGE && (
             <div style={paginationBox}>
               <button
+                type="button"
                 style={{
                   ...paginationButton,
-                  opacity: currentPage === 1 ? 0.5 : 1,
+
+                  opacity:
+                    currentPage === 1
+                      ? 0.5
+                      : 1,
                 }}
-                disabled={currentPage === 1}
-                onClick={() => setCurrentPage((page) => Math.max(page - 1, 1))}
+                disabled={
+                  currentPage === 1
+                }
+                onClick={() =>
+                  setCurrentPage(
+                    (page) =>
+                      Math.max(
+                        page - 1,
+                        1
+                      )
+                  )
+                }
               >
                 السابق
               </button>
 
-              <span style={paginationText}>
-                صفحة {currentPage} من {totalPages}
+              <span
+                style={paginationText}
+              >
+                صفحة {currentPage} من{" "}
+                {totalPages}
               </span>
 
               <button
+                type="button"
                 style={{
                   ...paginationButton,
-                  opacity: currentPage === totalPages ? 0.5 : 1,
+
+                  opacity:
+                    currentPage ===
+                    totalPages
+                      ? 0.5
+                      : 1,
                 }}
-                disabled={currentPage === totalPages}
+                disabled={
+                  currentPage ===
+                  totalPages
+                }
                 onClick={() =>
-                  setCurrentPage((page) => Math.min(page + 1, totalPages))
+                  setCurrentPage(
+                    (page) =>
+                      Math.min(
+                        page + 1,
+                        totalPages
+                      )
+                  )
                 }
               >
                 التالي
@@ -441,13 +1111,24 @@ export default function FinancePaymentsPage() {
         </section>
 
         <div style={bottomActions}>
-          <button style={backButton} onClick={() => router.back()}>
+          <button
+            type="button"
+            style={backButton}
+            onClick={() =>
+              router.back()
+            }
+          >
             ← الرجوع
           </button>
 
           <button
+            type="button"
             style={homeButton}
-            onClick={() => router.push(`/finance/${branch}`)}
+            onClick={() =>
+              router.push(
+                `/finance/${branch}`
+              )
+            }
           >
             محطة العمل الرئيسية
           </button>
@@ -459,24 +1140,222 @@ export default function FinancePaymentsPage() {
   );
 }
 
-function isDateDue(date?: string | null) {
-  if (!date) return false;
+function PageHero({
+  screen,
+  employeeName,
+  onLogout,
+  onHome,
+}: {
+  screen: ScreenType;
+  employeeName: string;
+  onLogout: () => void;
+  onHome: () => void;
+}) {
+  const isMobile =
+    screen === "mobile";
 
-  const dueDate = new Date(date);
-  const today = new Date();
+  return (
+    <header
+      style={getHeroStyle(isMobile)}
+    >
+      <div style={heroCircleOne} />
+      <div style={heroCircleTwo} />
+      <div style={heroCircleThree} />
+      <div style={heroDots} />
 
-  dueDate.setHours(0, 0, 0, 0);
-  today.setHours(0, 0, 0, 0);
+      <div
+        style={getHeroContentStyle(
+          screen
+        )}
+      >
+        <div
+          style={getHeroUserCardStyle(
+            screen
+          )}
+        >
+          <div
+            style={getEmployeeTopRowStyle(
+              screen
+            )}
+          >
+            <div style={employeeIcon}>
+              <UserIcon />
+            </div>
 
-  return dueDate <= today;
+            <div
+              style={getEmployeeNameStyle(
+                isMobile
+              )}
+            >
+              {employeeName}
+            </div>
+
+            {!isMobile && (
+              <div
+                style={
+                  employeeDividerSmall
+                }
+              />
+            )}
+
+            <button
+              type="button"
+              style={
+                logoutInlineButton
+              }
+              onClick={onLogout}
+            >
+              <LogoutIcon />
+              <span>
+                تسجيل الخروج
+              </span>
+            </button>
+          </div>
+
+          <button
+            type="button"
+            style={getMainWorkstationButtonStyle(
+              isMobile
+            )}
+            onClick={onHome}
+          >
+            <HomeIcon />
+            <span>
+              محطة العمل الرئيسية
+            </span>
+          </button>
+        </div>
+
+        <div
+          style={getHeroTitleBoxStyle(
+            screen
+          )}
+        >
+          <h1
+            style={getTitleStyle(
+              screen
+            )}
+          >
+            سداد
+          </h1>
+        </div>
+
+        <div
+          style={getHeroActionBoxStyle(
+            screen
+          )}
+        />
+      </div>
+    </header>
+  );
 }
 
-function formatMoney(value: any) {
-  const number = Number(value || 0);
-  return number.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+function UserIcon() {
+  return (
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M12 12.2a4.2 4.2 0 1 0 0-8.4 4.2 4.2 0 0 0 0 8.4Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+
+      <path
+        d="M4.8 20.2c.8-3.5 3.6-5.4 7.2-5.4s6.4 1.9 7.2 5.4"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function LogoutIcon() {
+  return (
+    <svg
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M9.5 7V5.8c0-1 .8-1.8 1.8-1.8h6.1c1 0 1.8.8 1.8 1.8v12.4c0 1-.8 1.8-1.8 1.8h-6.1c-1 0-1.8-.8-1.8-1.8V17"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+
+      <path
+        d="M4.8 12h9.5"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+
+      <path
+        d="M7.8 8.8 4.6 12l3.2 3.2"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function HomeIcon() {
+  return (
+    <svg
+      width="21"
+      height="21"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M3.8 11.2 12 4.5l8.2 6.7"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+
+      <path
+        d="M6.2 10.4v9.1h11.6v-9.1"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+
+      <path
+        d="M10 19.5v-5.2h4v5.2"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function formatMoney(
+  value: unknown
+) {
+  const number =
+    Number(value || 0);
+
+  return number.toLocaleString(
+    "en-US",
+    {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }
+  );
 }
 
 function GlobalResponsiveStyles() {
@@ -484,6 +1363,19 @@ function GlobalResponsiveStyles() {
     <style jsx global>{`
       * {
         box-sizing: border-box;
+      }
+
+      body {
+        overflow-x: hidden;
+      }
+
+      button {
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      button:disabled {
+        cursor: not-allowed !important;
+        opacity: 0.65;
       }
 
       .mobile-cards {
@@ -504,281 +1396,896 @@ function GlobalResponsiveStyles() {
   );
 }
 
-const page: CSSProperties = {
-  minHeight: "100vh",
-  background: "#f4f7fb",
-  padding: 20,
-  fontFamily: "var(--font-almarai), sans-serif",
-  color: "#0f172a",
-};
+function getPageStyle(
+  isMobile: boolean
+): CSSProperties {
+  return {
+    minHeight: "100vh",
 
-const container: CSSProperties = {
-  width: "100%",
-  maxWidth: 1150,
-  margin: "auto",
-};
+    backgroundColor: "#f6f9ff",
 
-const header: CSSProperties = {
-  background: "linear-gradient(135deg,#0f172a,#1e3a8a)",
-  color: "white",
-  padding: 24,
-  borderRadius: 24,
-  marginBottom: 18,
-  boxShadow: "0 14px 30px rgba(15,23,42,.16)",
-};
+    backgroundImage: `
+      radial-gradient(circle at 12% 18%, rgba(59,130,246,0.16) 0, transparent 28%),
+      radial-gradient(circle at 88% 12%, rgba(168,85,247,0.10) 0, transparent 25%),
+      radial-gradient(circle at 80% 88%, rgba(34,197,94,0.10) 0, transparent 28%),
+      linear-gradient(rgba(246,249,255,0.72),rgba(246,249,255,0.82)),
+      url('/backgrounds/v13-finance-bg-1.png')
+    `,
 
-const headerActions: CSSProperties = {
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+
+    backgroundAttachment:
+      isMobile
+        ? "scroll"
+        : "fixed",
+
+    padding:
+      isMobile ? 10 : 18,
+
+    fontFamily:
+      "var(--font-almarai), sans-serif",
+
+    color: "#0f172a",
+  };
+}
+
+function getContainerStyle(
+  isCompact: boolean
+): CSSProperties {
+  return {
+    width: "100%",
+
+    maxWidth:
+      isCompact
+        ? 980
+        : 1180,
+
+    margin: "auto",
+  };
+}
+
+function getHeroStyle(
+  isMobile: boolean
+): CSSProperties {
+  return {
+    position: "relative",
+
+    minHeight:
+      isMobile
+        ? "auto"
+        : 160,
+
+    borderRadius:
+      isMobile
+        ? 20
+        : 24,
+
+    padding:
+      isMobile
+        ? "18px 14px"
+        : "22px 26px",
+
+    marginBottom: 14,
+
+    overflow: "hidden",
+
+    background:
+      "radial-gradient(circle at 15% 18%, rgba(255,255,255,0.08) 0, transparent 24%), radial-gradient(circle at 86% 18%, rgba(255,255,255,0.11) 0, transparent 26%), linear-gradient(105deg,#071c48 0%,#0a327d 30%,#0d65d9 60%,#23a8e4 82%,#6edce4 100%)",
+
+    isolation: "isolate",
+  };
+}
+
+function getHeroContentStyle(
+  screen: ScreenType
+): CSSProperties {
+  if (screen === "mobile") {
+    return {
+      position: "relative",
+      zIndex: 3,
+
+      display: "flex",
+      flexDirection: "column",
+
+      alignItems: "stretch",
+      justifyContent: "center",
+
+      gap: 16,
+
+      direction: "rtl",
+    };
+  }
+
+  if (screen === "tablet") {
+    return {
+      position: "relative",
+      zIndex: 3,
+
+      display: "grid",
+
+      gridTemplateColumns:
+        "1fr",
+
+      alignItems: "center",
+      justifyItems: "center",
+
+      gap: 18,
+
+      direction: "rtl",
+    };
+  }
+
+  return {
+    position: "relative",
+    zIndex: 3,
+
+    minHeight: 116,
+
+    display: "grid",
+
+    gridTemplateColumns:
+      "minmax(250px,315px) 1fr minmax(220px,315px)",
+
+    alignItems: "center",
+
+    gap: 16,
+
+    direction: "ltr",
+  };
+}
+
+function getHeroUserCardStyle(
+  screen: ScreenType
+): CSSProperties {
+  if (screen === "mobile") {
+    return {
+      width: "100%",
+
+      display: "grid",
+
+      gap: 12,
+
+      direction: "rtl",
+
+      justifyItems: "center",
+
+      order: 2,
+    };
+  }
+
+  if (screen === "tablet") {
+    return {
+      width: "100%",
+
+      maxWidth: 520,
+
+      display: "grid",
+
+      gap: 14,
+
+      direction: "rtl",
+
+      justifyItems: "center",
+
+      order: 2,
+    };
+  }
+
+  return {
+    width: "100%",
+
+    maxWidth: 315,
+
+    display: "grid",
+
+    gap: 24,
+
+    direction: "ltr",
+
+    justifySelf: "start",
+  };
+}
+
+function getEmployeeTopRowStyle(
+  screen: ScreenType
+): CSSProperties {
+  if (screen === "mobile") {
+    return {
+      minHeight: 42,
+
+      display: "flex",
+
+      alignItems: "center",
+      justifyContent: "center",
+
+      flexWrap: "wrap",
+
+      gap: 10,
+
+      direction: "rtl",
+
+      color: "#ffffff",
+
+      width: "100%",
+    };
+  }
+
+  if (screen === "tablet") {
+    return {
+      height: 42,
+
+      display: "flex",
+
+      alignItems: "center",
+      justifyContent: "center",
+
+      gap: 14,
+
+      direction: "rtl",
+
+      color: "#ffffff",
+
+      width: "100%",
+    };
+  }
+
+  return {
+    height: 42,
+
+    display: "flex",
+
+    alignItems: "center",
+
+    gap: 14,
+
+    direction: "ltr",
+
+    color: "#ffffff",
+  };
+}
+
+function getEmployeeNameStyle(
+  isMobile: boolean
+): CSSProperties {
+  return {
+    color: "#ffffff",
+
+    fontSize:
+      isMobile
+        ? 15
+        : 17,
+
+    fontWeight: 900,
+
+    whiteSpace: "nowrap",
+
+    direction: "rtl",
+
+    textShadow:
+      "0 4px 10px rgba(15,23,42,0.18)",
+  };
+}
+
+function getMainWorkstationButtonStyle(
+  isMobile: boolean
+): CSSProperties {
+  return {
+    width:
+      isMobile
+        ? "100%"
+        : 220,
+
+    maxWidth:
+      isMobile
+        ? 280
+        : 220,
+
+    height: 44,
+
+    border: "none",
+
+    background:
+      "linear-gradient(135deg,#72e77d,#22c55e 58%,#16a34a)",
+
+    color: "#ffffff",
+
+    borderRadius: 999,
+
+    padding: "0 18px",
+
+    fontSize: 14,
+    fontWeight: 900,
+
+    cursor: "pointer",
+
+    fontFamily:
+      "var(--font-almarai), sans-serif",
+
+    boxShadow:
+      "0 8px 18px rgba(22,163,74,0.20)",
+
+    display: "inline-flex",
+
+    alignItems: "center",
+    justifyContent: "center",
+
+    gap: 9,
+
+    whiteSpace: "nowrap",
+
+    direction: "rtl",
+  };
+}
+
+function getHeroTitleBoxStyle(
+  screen: ScreenType
+): CSSProperties {
+  return {
+    position: "relative",
+
+    zIndex: 4,
+
+    display: "flex",
+
+    alignItems: "center",
+    justifyContent: "center",
+
+    textAlign: "center",
+
+    direction: "rtl",
+
+    pointerEvents: "none",
+
+    order:
+      screen === "desktop"
+        ? 0
+        : 1,
+  };
+}
+
+function getTitleStyle(
+  screen: ScreenType
+): CSSProperties {
+  return {
+    margin: 0,
+
+    color: "#ffffff",
+
+    fontFamily:
+      "var(--font-almarai), sans-serif",
+
+    fontSize:
+      screen === "mobile"
+        ? 27
+        : screen === "tablet"
+          ? 30
+          : 34,
+
+    lineHeight: 1.35,
+
+    fontWeight: 900,
+
+    textShadow:
+      "0 5px 14px rgba(15,23,42,0.14)",
+
+    whiteSpace: "nowrap",
+  };
+}
+
+function getHeroActionBoxStyle(
+  screen: ScreenType
+): CSSProperties {
+  if (screen !== "desktop") {
+    return {
+      display: "none",
+    };
+  }
+
+  return {
+    display: "flex",
+
+    justifyContent: "center",
+    alignItems: "flex-end",
+  };
+}
+
+const employeeIcon: CSSProperties = {
+  width: 38,
+  height: 38,
+
+  borderRadius: "50%",
+
+  border:
+    "1.5px solid rgba(255,255,255,0.34)",
+
+  background:
+    "rgba(255,255,255,0.06)",
+
   display: "flex",
-  gap: 10,
-  flexWrap: "wrap",
-  justifyContent: "space-between",
-  marginBottom: 18,
+
+  alignItems: "center",
+  justifyContent: "center",
+
+  color:
+    "rgba(255,255,255,0.96)",
+
+  flex: "0 0 auto",
 };
 
-const headerLabel: CSSProperties = {
-  margin: 0,
-  color: "#bfdbfe",
+const employeeDividerSmall: CSSProperties = {
+  width: 1,
+  height: 34,
+
+  background:
+    "rgba(255,255,255,0.30)",
+};
+
+const logoutInlineButton: CSSProperties = {
+  border: "none",
+
+  background:
+    "transparent",
+
+  color:
+    "rgba(255,255,255,0.90)",
+
+  fontSize: 15,
   fontWeight: 800,
-};
 
-const headerTitle: CSSProperties = {
-  margin: "4px 0",
-  fontSize: 34,
-  lineHeight: 1.4,
-};
+  display: "flex",
 
-const headerSub: CSSProperties = {
-  margin: 0,
-  color: "#dbeafe",
-  lineHeight: 1.8,
-};
+  alignItems: "center",
 
-const backButton: CSSProperties = {
-  border: "1px solid rgba(255,255,255,.20)",
-  background: "linear-gradient(135deg,#64748b,#334155)",
-  color: "#ffffff",
-  borderRadius: 12,
-  padding: "10px 14px",
-  fontSize: 14,
-  fontWeight: 900,
+  gap: 9,
+
   cursor: "pointer",
-  boxShadow: "0 8px 18px rgba(15,23,42,.20)",
+
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+
+  padding: 0,
+
+  whiteSpace: "nowrap",
+
+  direction: "rtl",
 };
 
-const homeButton: CSSProperties = {
-  border: "1px solid rgba(255,255,255,.20)",
-  background: "linear-gradient(135deg,#16a34a,#15803d)",
-  color: "#ffffff",
-  borderRadius: 12,
-  padding: "10px 14px",
-  fontSize: 14,
-  fontWeight: 900,
-  cursor: "pointer",
-  boxShadow: "0 8px 18px rgba(21,128,61,.25)",
+const heroCircleOne: CSSProperties = {
+  position: "absolute",
+
+  width: 210,
+  height: 210,
+
+  right: -78,
+  top: -85,
+
+  borderRadius: "50%",
+
+  background:
+    "rgba(255,255,255,0.075)",
+
+  pointerEvents: "none",
+
+  zIndex: 1,
+};
+
+const heroCircleTwo: CSSProperties = {
+  position: "absolute",
+
+  width: 245,
+  height: 245,
+
+  right: 145,
+  bottom: -178,
+
+  borderRadius: "50%",
+
+  background:
+    "rgba(255,255,255,0.045)",
+
+  pointerEvents: "none",
+
+  zIndex: 1,
+};
+
+const heroCircleThree: CSSProperties = {
+  position: "absolute",
+
+  width: 150,
+  height: 150,
+
+  left: 380,
+  top: -96,
+
+  borderRadius: "50%",
+
+  background:
+    "rgba(255,255,255,0.035)",
+
+  pointerEvents: "none",
+
+  zIndex: 1,
+};
+
+const heroDots: CSSProperties = {
+  position: "absolute",
+
+  top: 28,
+  right: 34,
+
+  width: 84,
+  height: 58,
+
+  opacity: 0.24,
+
+  backgroundImage:
+    "radial-gradient(rgba(255,255,255,0.40) 2px, transparent 2px)",
+
+  backgroundSize:
+    "14px 14px",
+
+  zIndex: 2,
 };
 
 const actionsSection: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))",
+
+  gridTemplateColumns:
+    "repeat(auto-fit,minmax(240px,1fr))",
+
   gap: 14,
+
   marginBottom: 18,
 };
 
 const actionButton: CSSProperties = {
-  background: "white",
-  border: "1px solid #e2e8f0",
+  background: "#ffffff",
+
+  border:
+    "1px solid #e2e8f0",
+
   borderRadius: 20,
+
   padding: 18,
+
   cursor: "pointer",
+
   color: "#0f172a",
+
   display: "flex",
+
   alignItems: "center",
+
   gap: 12,
+
   textAlign: "right",
-  boxShadow: "0 8px 20px rgba(15,23,42,.05)",
+
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+
+  boxShadow:
+    "0 8px 20px rgba(15,23,42,.05)",
 };
 
 const actionIcon: CSSProperties = {
   width: 48,
   height: 48,
+
   borderRadius: 16,
+
   background: "#eff6ff",
+
   display: "flex",
+
   alignItems: "center",
   justifyContent: "center",
+
   fontSize: 22,
 };
 
 const card: CSSProperties = {
-  background: "white",
-  border: "1px solid #e2e8f0",
+  background: "#ffffff",
+
+  border:
+    "1px solid #e2e8f0",
+
   borderRadius: 22,
+
   padding: 18,
-  boxShadow: "0 8px 20px rgba(15,23,42,.05)",
+
+  boxShadow:
+    "0 8px 20px rgba(15,23,42,.05)",
 };
 
 const listHeader: CSSProperties = {
   display: "flex",
-  justifyContent: "space-between",
+
+  justifyContent:
+    "space-between",
+
   alignItems: "center",
+
   gap: 12,
+
   marginBottom: 12,
+
   flexWrap: "wrap",
 };
 
-const sectionKicker: CSSProperties = {
-  margin: 0,
-  color: "#2563eb",
-  fontWeight: 900,
-  fontSize: 13,
-};
-
 const sectionTitle: CSSProperties = {
-  margin: "4px 0",
+  margin: 0,
+
   fontSize: 22,
+
   color: "#0f172a",
+
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const pageInfo: CSSProperties = {
   color: "#64748b",
+
   fontSize: 14,
+
   fontWeight: 900,
 };
 
 const tableBox: CSSProperties = {
   width: "100%",
+
   overflowX: "auto",
 };
 
 const tableHeader: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr",
+
+  gridTemplateColumns:
+    "2fr 1fr 1fr 1fr 1fr 1fr",
+
   gap: 12,
+
   minWidth: 980,
+
   background: "#f1f5f9",
+
   color: "#1e3a8a",
+
   fontWeight: 900,
+
   padding: 14,
+
   borderRadius: 12,
+
   marginBottom: 10,
 };
 
 const tableRow: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr",
+
+  gridTemplateColumns:
+    "2fr 1fr 1fr 1fr 1fr 1fr",
+
   gap: 12,
+
   minWidth: 980,
+
   padding: 14,
-  borderBottom: "1px solid #eef2f7",
+
+  borderBottom:
+    "1px solid #eef2f7",
+
   cursor: "pointer",
+
   alignItems: "center",
 };
 
 const customerLink: CSSProperties = {
   cursor: "pointer",
+
   color: "#1d4ed8",
+
   fontWeight: 900,
 };
 
 const emptyBox: CSSProperties = {
   background: "#f8fbff",
-  border: "1px dashed #cbd5e1",
+
+  border:
+    "1px dashed #cbd5e1",
+
   borderRadius: 14,
+
   padding: 22,
+
   textAlign: "center",
+
   color: "#6b7280",
 };
 
 const cancelButton: CSSProperties = {
   background: "#fee2e2",
+
   color: "#991b1b",
+
   border: "none",
+
   borderRadius: 10,
+
   padding: "8px 12px",
+
   fontWeight: 900,
+
   cursor: "pointer",
+
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const cancelledBadge: CSSProperties = {
   background: "#e5e7eb",
+
   color: "#6b7280",
+
   borderRadius: 999,
+
   padding: "7px 12px",
+
   fontWeight: 900,
+
   width: "fit-content",
 };
 
 const successBadge: CSSProperties = {
   background: "#dcfce7",
+
   color: "#166534",
+
   borderRadius: 999,
+
   padding: "7px 12px",
+
   fontWeight: 900,
+
   width: "fit-content",
 };
 
 const paginationBox: CSSProperties = {
   marginTop: 18,
+
   display: "flex",
+
   justifyContent: "center",
   alignItems: "center",
+
   gap: 12,
+
   flexWrap: "wrap",
 };
 
 const paginationButton: CSSProperties = {
   padding: "10px 16px",
+
   background: "#1e3a8a",
-  color: "white",
+
+  color: "#ffffff",
+
   border: "none",
+
   borderRadius: 12,
+
   fontSize: 14,
+
   fontWeight: 900,
+
   cursor: "pointer",
+
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const paginationText: CSSProperties = {
   color: "#0f172a",
+
   fontWeight: 900,
 };
 
 const mobileCard: CSSProperties = {
-  border: "1px solid #e2e8f0",
+  border:
+    "1px solid #e2e8f0",
+
   borderRadius: 16,
+
   padding: 13,
+
   background: "#f8fafc",
+
   display: "grid",
+
   gap: 7,
 };
 
 const mobileCardTop: CSSProperties = {
   display: "flex",
-  justifyContent: "space-between",
+
+  justifyContent:
+    "space-between",
+
   gap: 8,
+
   alignItems: "center",
 };
 
 const mobileActions: CSSProperties = {
   display: "flex",
+
   gap: 8,
+
   flexWrap: "wrap",
+
   marginTop: 8,
 };
 
 const smallBlueButton: CSSProperties = {
   border: "none",
+
   background: "#dbeafe",
+
   color: "#1d4ed8",
+
   borderRadius: 10,
+
   padding: "8px 12px",
+
   fontWeight: 900,
+
   cursor: "pointer",
+
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const bottomActions: CSSProperties = {
   display: "flex",
+
   justifyContent: "center",
+
   gap: 10,
+
   flexWrap: "wrap",
+
   marginTop: 18,
+};
+
+const backButton: CSSProperties = {
+  padding: "10px 17px",
+
+  background:
+    "linear-gradient(135deg,#22c55e,#15803d)",
+
+  color: "#ffffff",
+
+  border: "none",
+
+  borderRadius: 11,
+
+  fontSize: 14,
+
+  fontWeight: 900,
+
+  cursor: "pointer",
+
+  boxShadow:
+    "0 5px 14px rgba(22,163,74,0.22)",
+
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const homeButton: CSSProperties = {
+  ...backButton,
+
+  background:
+    "linear-gradient(135deg,#72e77d,#22c55e 58%,#16a34a)",
 };
