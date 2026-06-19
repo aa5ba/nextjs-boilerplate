@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
@@ -8,36 +9,90 @@ const supabase = createClient(
   "sb_publishable_Zt56a_KLr3rtcdqI7slvCg_mSrB0ZoM"
 );
 
-type LoginMode = "branch" | "customer";
+type FinanceBranch = {
+  id: string;
+  branch_name: string;
+  branch_slug: string;
+  organization_name: string | null;
+  is_active: boolean | null;
+};
+
+type FinanceUserSession = {
+  id: string;
+  full_name: string;
+  username: string;
+  role: string;
+  branch_id: string;
+  branch_slug: string;
+  branch_name: string;
+  organization_name: string;
+};
+
+type CustomerSession = {
+  id: string;
+  full_name: string;
+  phone: string;
+  work_sector: string;
+};
 
 export default function LoginPage() {
-  const [mode, setMode] = useState<LoginMode>("branch");
+  const router = useRouter();
 
-  const [username, setUsername] = useState("");
-  const [phone, setPhone] = useState("");
+  const [loginIdentifier, setLoginIdentifier] = useState("");
   const [password, setPassword] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
-  async function handleBranchLogin() {
-    setMessage("");
+  function clearFinanceSession() {
+    localStorage.removeItem("finance_user");
+    localStorage.removeItem("finance_user_id");
+    localStorage.removeItem("finance_user_name");
+    localStorage.removeItem("finance_username");
+    localStorage.removeItem("finance_role");
+    localStorage.removeItem("finance_branch_id");
+    localStorage.removeItem("finance_branch_slug");
+    localStorage.removeItem("finance_branch_name");
+    localStorage.removeItem("finance_organization_name");
+  }
 
-    const usernameRegex = /^[\u0600-\u06FFa-zA-Z0-9_.-]{2,35}$/;
-    const pinRegex = /^\d{4}$/;
+  function clearCustomerSession() {
+    localStorage.removeItem("customer_user");
+    localStorage.removeItem("customer_id");
+    localStorage.removeItem("customer_name");
+    localStorage.removeItem("customer_phone");
+    localStorage.removeItem("customer_sector");
+  }
 
-    if (!usernameRegex.test(username.trim())) {
-      setMessage("اسم المستخدم غير صحيح");
-      return;
-    }
+  function saveFinanceSession(financeUser: FinanceUserSession) {
+    localStorage.setItem("finance_user", JSON.stringify(financeUser));
 
-    if (!pinRegex.test(password)) {
-      setMessage("كلمة المرور يجب أن تكون 4 أرقام");
-      return;
-    }
+    localStorage.setItem("finance_user_id", financeUser.id);
+    localStorage.setItem("finance_user_name", financeUser.full_name);
+    localStorage.setItem("finance_username", financeUser.username);
+    localStorage.setItem("finance_role", financeUser.role);
+    localStorage.setItem("finance_branch_id", financeUser.branch_id);
+    localStorage.setItem("finance_branch_slug", financeUser.branch_slug);
+    localStorage.setItem("finance_branch_name", financeUser.branch_name);
+    localStorage.setItem(
+      "finance_organization_name",
+      financeUser.organization_name
+    );
+  }
 
-    setLoading(true);
+  function saveCustomerSession(customerUser: CustomerSession) {
+    localStorage.setItem("customer_user", JSON.stringify(customerUser));
 
+    localStorage.setItem("customer_id", customerUser.id);
+    localStorage.setItem("customer_name", customerUser.full_name);
+    localStorage.setItem("customer_phone", customerUser.phone);
+    localStorage.setItem("customer_sector", customerUser.work_sector);
+  }
+
+  async function handleBranchLogin(
+    normalizedUsername: string,
+    normalizedPassword: string
+  ) {
     const { data, error } = await supabase
       .from("finance_branch_users")
       .select(
@@ -57,89 +112,146 @@ export default function LoginPage() {
         )
       `
       )
-      .eq("username", username.trim())
-      .eq("password", password)
+      .eq("username", normalizedUsername)
+      .eq("password", normalizedPassword)
       .eq("is_active", true)
-      .single();
+      .maybeSingle();
 
-    setLoading(false);
+    if (error) {
+      console.error("Branch login error:", error);
+      throw new Error("تعذر التحقق من بيانات الدخول");
+    }
 
-    if (error || !data) {
+    if (!data) {
       setMessage("اسم المستخدم أو كلمة المرور غير صحيحة");
       return;
     }
 
-    const branchData: any = Array.isArray(data.finance_branches)
-      ? data.finance_branches[0]
-      : data.finance_branches;
+    const branchData = (
+      Array.isArray(data.finance_branches)
+        ? data.finance_branches[0]
+        : data.finance_branches
+    ) as FinanceBranch | null;
 
-    if (!branchData || branchData.is_active === false) {
+    if (!branchData) {
+      setMessage("لم يتم العثور على الفرع المرتبط بهذا المستخدم");
+      return;
+    }
+
+    if (branchData.is_active === false) {
       setMessage("هذا الفرع غير مفعل حالياً");
       return;
     }
 
-    localStorage.setItem("finance_user_id", data.id);
-    localStorage.setItem("finance_user_name", data.full_name);
-    localStorage.setItem("finance_username", data.username);
-    localStorage.setItem("finance_role", data.role);
-    localStorage.setItem("finance_branch_id", data.branch_id);
-    localStorage.setItem("finance_branch_slug", branchData.branch_slug);
-    localStorage.setItem("finance_branch_name", branchData.branch_name);
-    localStorage.setItem(
-      "finance_organization_name",
-      branchData.organization_name
-    );
-
-    window.location.href = `/finance/${branchData.branch_slug}`;
-  }
-
-  async function handleCustomerLogin() {
-    setMessage("");
-
-    const phoneRegex = /^05\d{8}$/;
-    const pinRegex = /^\d{4}$/;
-
-    if (!phoneRegex.test(phone)) {
-      setMessage("رقم الجوال غير صحيح");
+    if (!branchData.branch_slug) {
+      setMessage("مسار الفرع غير مكتمل");
       return;
     }
 
-    if (!pinRegex.test(password)) {
+    clearFinanceSession();
+    clearCustomerSession();
+
+    const financeUser: FinanceUserSession = {
+      id: String(data.id),
+      full_name: data.full_name || "",
+      username: data.username || normalizedUsername,
+      role: data.role || "",
+      branch_id: String(data.branch_id),
+      branch_slug: branchData.branch_slug,
+      branch_name: branchData.branch_name || "",
+      organization_name: branchData.organization_name || "",
+    };
+
+    saveFinanceSession(financeUser);
+
+    router.replace(`/finance/${financeUser.branch_slug}`);
+  }
+
+  async function handleCustomerLogin(
+    normalizedPhone: string,
+    normalizedPassword: string
+  ) {
+    const { data, error } = await supabase
+      .from("customers")
+      .select("id, full_name, phone, work_sector")
+      .eq("phone", normalizedPhone)
+      .eq("password_pin", normalizedPassword)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Customer login error:", error);
+      throw new Error("تعذر التحقق من بيانات الدخول");
+    }
+
+    if (!data) {
+      setMessage("رقم الجوال أو كلمة المرور غير صحيحة");
+      return;
+    }
+
+    clearFinanceSession();
+    clearCustomerSession();
+
+    const customerUser: CustomerSession = {
+      id: String(data.id),
+      full_name: data.full_name || "",
+      phone: data.phone || normalizedPhone,
+      work_sector: data.work_sector || "",
+    };
+
+    saveCustomerSession(customerUser);
+
+    router.replace("/customer");
+  }
+
+  async function handleLogin() {
+    if (loading) return;
+
+    setMessage("");
+
+    const normalizedIdentifier = loginIdentifier.trim();
+    const normalizedPassword = password.replace(/\D/g, "").slice(0, 4);
+
+    const customerPhoneRegex = /^05\d{8}$/;
+    const usernameRegex = /^[\u0600-\u06FFa-zA-Z0-9_.-]{2,35}$/;
+    const pinRegex = /^\d{4}$/;
+
+    if (!normalizedIdentifier) {
+      setMessage("أدخل اسم المستخدم أو رقم الجوال");
+      return;
+    }
+
+    if (!pinRegex.test(normalizedPassword)) {
       setMessage("كلمة المرور يجب أن تكون 4 أرقام");
+      return;
+    }
+
+    const isCustomerPhone = customerPhoneRegex.test(normalizedIdentifier);
+
+    if (!isCustomerPhone && !usernameRegex.test(normalizedIdentifier)) {
+      setMessage("اسم المستخدم أو رقم الجوال غير صحيح");
       return;
     }
 
     setLoading(true);
 
-    const { data, error } = await supabase
-      .from("customers")
-      .select("id, full_name, phone, work_sector")
-      .eq("phone", phone)
-      .eq("password_pin", password)
-      .single();
-
-    setLoading(false);
-
-    if (error || !data) {
-      setMessage("رقم الجوال أو كلمة المرور غير صحيحة");
-      return;
+    try {
+      if (isCustomerPhone) {
+        await handleCustomerLogin(
+          normalizedIdentifier,
+          normalizedPassword
+        );
+      } else {
+        await handleBranchLogin(
+          normalizedIdentifier,
+          normalizedPassword
+        );
+      }
+    } catch (loginError) {
+      console.error("Unified login error:", loginError);
+      setMessage("حدث خطأ أثناء تسجيل الدخول، حاول مرة أخرى");
+    } finally {
+      setLoading(false);
     }
-
-    localStorage.setItem("customer_id", data.id);
-    localStorage.setItem("customer_name", data.full_name);
-    localStorage.setItem("customer_phone", data.phone);
-    localStorage.setItem("customer_sector", data.work_sector);
-
-    window.location.href = "/customer";
-  }
-
-  function handleLogin() {
-    if (mode === "branch") {
-      handleBranchLogin();
-      return;
-    }
-
-    handleCustomerLogin();
   }
 
   return (
@@ -147,78 +259,57 @@ export default function LoginPage() {
       <div style={card}>
         <div style={logoBox}>
           <div style={logoCircle}>ا</div>
+
           <h1 style={title}>تسجيل الدخول</h1>
+
           <p style={subtitle}>برنامج احتساب</p>
         </div>
 
-        <div style={tabs}>
-          <button
-            type="button"
-            onClick={() => {
-              setMode("branch");
-              setMessage("");
-              setPassword("");
-            }}
-            style={{
-              ...tabButton,
-              ...(mode === "branch" ? activeTab : {}),
-            }}
-          >
-            محطة العمل
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setMode("customer");
-              setMessage("");
-              setPassword("");
-            }}
-            style={{
-              ...tabButton,
-              ...(mode === "customer" ? activeTab : {}),
-            }}
-          >
-            دخول العميل
-          </button>
-        </div>
-
-        {mode === "branch" ? (
-          <input
-            placeholder="اسم المستخدم"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            style={inputStyle}
-            autoComplete="username"
-          />
-        ) : (
-          <input
-            placeholder="رقم الجوال"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            style={inputStyle}
-            inputMode="numeric"
-            autoComplete="tel"
-          />
-        )}
+        <input
+          placeholder="اسم المستخدم أو رقم الجوال"
+          value={loginIdentifier}
+          onChange={(e) => {
+            setLoginIdentifier(e.target.value);
+            setMessage("");
+          }}
+          style={inputStyle}
+          autoComplete="username"
+          autoCapitalize="none"
+          spellCheck={false}
+          disabled={loading}
+        />
 
         <input
           placeholder="كلمة المرور"
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          onChange={(e) => {
+            const value = e.target.value.replace(/\D/g, "").slice(0, 4);
+            setPassword(value);
+            setMessage("");
+          }}
           style={inputStyle}
           inputMode="numeric"
           type="password"
           maxLength={4}
           autoComplete="current-password"
+          disabled={loading}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
-              handleLogin();
+              void handleLogin();
             }
           }}
         />
 
-        <button onClick={handleLogin} disabled={loading} style={buttonStyle}>
+        <button
+          type="button"
+          onClick={() => void handleLogin()}
+          disabled={loading}
+          style={{
+            ...buttonStyle,
+            cursor: loading ? "not-allowed" : "pointer",
+            opacity: loading ? 0.75 : 1,
+          }}
+        >
           {loading ? "جارٍ الدخول..." : "دخول"}
         </button>
 
@@ -241,6 +332,7 @@ const page: React.CSSProperties = {
   alignItems: "center",
   padding: 20,
 };
+
 const card: React.CSSProperties = {
   width: "100%",
   maxWidth: 430,
@@ -277,36 +369,9 @@ const title: React.CSSProperties = {
 };
 
 const subtitle: React.CSSProperties = {
-  margin: "8px 0 0",
+  margin: "8px 0 22px",
   color: "#64748b",
   fontSize: 15,
-};
-
-const tabs: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: 8,
-  background: "#f1f5f9",
-  borderRadius: 14,
-  padding: 6,
-  marginBottom: 18,
-};
-
-const tabButton: React.CSSProperties = {
-  height: 42,
-  border: "none",
-  borderRadius: 11,
-  background: "transparent",
-  color: "#475569",
-  fontSize: 15,
-  fontWeight: "bold",
-  cursor: "pointer",
-};
-
-const activeTab: React.CSSProperties = {
-  background: "#ffffff",
-  color: "#0f172a",
-  boxShadow: "0 4px 12px rgba(15,23,42,0.08)",
 };
 
 const inputStyle: React.CSSProperties = {
@@ -331,7 +396,6 @@ const buttonStyle: React.CSSProperties = {
   color: "#fff",
   fontSize: 18,
   fontWeight: "bold",
-  cursor: "pointer",
 };
 
 const messageStyle: React.CSSProperties = {
