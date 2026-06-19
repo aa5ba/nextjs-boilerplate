@@ -10,6 +10,24 @@ const ITEMS_PER_PAGE = 25;
 
 type ScreenType = "mobile" | "tablet" | "desktop";
 
+type RelatedProduct =
+  | {
+      product_name?: string | null;
+    }
+  | {
+      product_name?: string | null;
+    }[]
+  | null;
+
+type RelatedInvestor =
+  | {
+      investor_name?: string | null;
+    }
+  | {
+      investor_name?: string | null;
+    }[]
+  | null;
+
 type InventoryMovement = {
   id: string;
   branch_id: string;
@@ -20,19 +38,15 @@ type InventoryMovement = {
   before_quantity?: number | string | null;
   after_quantity?: number | string | null;
   created_at?: string | null;
-  finance_products?: {
-    product_name?: string | null;
-  } | null;
-  finance_investors?: {
-    investor_name?: string | null;
-  } | null;
+  finance_products?: RelatedProduct;
+  finance_investors?: RelatedInvestor;
 };
 
 export default function InventoryMovementsPage() {
   const params = useParams();
   const router = useRouter();
 
-  const branch = params.branch as string;
+  const branch = String(params.branch ?? "");
 
   const [authChecked, setAuthChecked] = useState(false);
   const [screen, setScreen] = useState<ScreenType>("desktop");
@@ -69,7 +83,9 @@ export default function InventoryMovementsPage() {
     updateScreen();
     window.addEventListener("resize", updateScreen);
 
-    return () => window.removeEventListener("resize", updateScreen);
+    return () => {
+      window.removeEventListener("resize", updateScreen);
+    };
   }, []);
 
   useEffect(() => {
@@ -79,7 +95,7 @@ export default function InventoryMovementsPage() {
       await initializePage(() => cancelled);
     }
 
-    run();
+    void run();
 
     return () => {
       cancelled = true;
@@ -87,15 +103,26 @@ export default function InventoryMovementsPage() {
   }, [branch]);
 
   useEffect(() => {
-    if (!authChecked || !branchId) return;
+    if (!authChecked) {
+      return;
+    }
 
+    if (typeof branchId !== "string" || branchId.length === 0) {
+      return;
+    }
+
+    const safeBranchId: string = branchId;
     let cancelled = false;
 
     async function run() {
-      await loadMovements(branchId, currentPage, () => cancelled);
+      await loadMovements(
+        safeBranchId,
+        currentPage,
+        () => cancelled
+      );
     }
 
-    run();
+    void run();
 
     return () => {
       cancelled = true;
@@ -108,10 +135,14 @@ export default function InventoryMovementsPage() {
     }
   }, [currentPage, totalPages]);
 
-  async function initializePage(isCancelled: () => boolean) {
+  async function initializePage(
+    isCancelled: () => boolean
+  ) {
     const isLoggedIn = checkLogin();
 
-    if (!isLoggedIn || isCancelled()) return;
+    if (!isLoggedIn || isCancelled()) {
+      return;
+    }
 
     loadEmployeeName();
 
@@ -121,28 +152,51 @@ export default function InventoryMovementsPage() {
     setCurrentPage(1);
     setBranchId(null);
 
-    const currentBranchId = await getBranchId(branch);
+    try {
+      const resolvedBranchId = await getBranchId(branch);
 
-    if (isCancelled()) return;
+      if (isCancelled()) {
+        return;
+      }
 
-    if (!currentBranchId) {
-      setLoading(false);
-      alert("تعذر تحديد الفرع");
-      return;
+      if (
+        typeof resolvedBranchId !== "string" ||
+        resolvedBranchId.length === 0
+      ) {
+        setLoading(false);
+        alert("تعذر تحديد الفرع");
+        return;
+      }
+
+      setBranchId(resolvedBranchId);
+    } catch (error) {
+      console.error(
+        "Initialize inventory movements page error:",
+        error
+      );
+
+      if (!isCancelled()) {
+        setLoading(false);
+        alert("حدث خطأ أثناء تحديد الفرع");
+      }
     }
-
-    setBranchId(currentBranchId);
   }
 
   function checkLogin() {
-    if (typeof window === "undefined") return false;
+    if (typeof window === "undefined") {
+      return false;
+    }
 
     const savedUser = localStorage.getItem("finance_user");
-    const savedBranchUser = localStorage.getItem("finance_branch_user");
-    const savedUserName = localStorage.getItem("finance_user_name");
+    const savedBranchUser = localStorage.getItem(
+      "finance_branch_user"
+    );
+    const savedUserName = localStorage.getItem(
+      "finance_user_name"
+    );
 
     if (!savedUser && !savedBranchUser && !savedUserName) {
-      router.replace(`/finance/${branch}/login`);
+      router.replace("/login");
       return false;
     }
 
@@ -151,9 +205,13 @@ export default function InventoryMovementsPage() {
   }
 
   function loadEmployeeName() {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined") {
+      return;
+    }
 
-    const directName = localStorage.getItem("finance_user_name");
+    const directName = localStorage.getItem(
+      "finance_user_name"
+    );
 
     if (directName) {
       setEmployeeName(directName);
@@ -183,14 +241,26 @@ export default function InventoryMovementsPage() {
     }
   }
 
-  function logout() {
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("finance_user");
-      localStorage.removeItem("finance_user_name");
-      localStorage.removeItem("finance_branch_user");
+  function clearFinanceSession() {
+    if (typeof window === "undefined") {
+      return;
     }
 
-    router.replace(`/finance/${branch}/login`);
+    localStorage.removeItem("finance_user");
+    localStorage.removeItem("finance_branch_user");
+    localStorage.removeItem("finance_user_id");
+    localStorage.removeItem("finance_user_name");
+    localStorage.removeItem("finance_username");
+    localStorage.removeItem("finance_role");
+    localStorage.removeItem("finance_branch_id");
+    localStorage.removeItem("finance_branch_slug");
+    localStorage.removeItem("finance_branch_name");
+    localStorage.removeItem("finance_organization_name");
+  }
+
+  function logout() {
+    clearFinanceSession();
+    router.replace("/login");
   }
 
   async function loadMovements(
@@ -200,59 +270,118 @@ export default function InventoryMovementsPage() {
   ) {
     setLoading(true);
 
-    const from = (requestedPage - 1) * ITEMS_PER_PAGE;
-    const to = from + ITEMS_PER_PAGE - 1;
+    try {
+      const from =
+        (requestedPage - 1) * ITEMS_PER_PAGE;
+      const to = from + ITEMS_PER_PAGE - 1;
 
-    const { data, error, count } = await supabase
-      .from("finance_inventory_movements")
-      .select(
-        `
-          id,
-          branch_id,
-          product_id,
-          investor_id,
-          movement_type,
-          quantity,
-          before_quantity,
-          after_quantity,
-          created_at,
-          finance_products(product_name),
-          finance_investors(investor_name)
-        `,
-        {
-          count: "exact",
-        }
-      )
-      .eq("branch_id", currentBranchId)
-      .order("created_at", { ascending: false })
-      .range(from, to);
+      const { data, error, count } = await supabase
+        .from("finance_inventory_movements")
+        .select(
+          `
+            id,
+            branch_id,
+            product_id,
+            investor_id,
+            movement_type,
+            quantity,
+            before_quantity,
+            after_quantity,
+            created_at,
+            finance_products(product_name),
+            finance_investors(investor_name)
+          `,
+          {
+            count: "exact",
+          }
+        )
+        .eq("branch_id", currentBranchId)
+        .order("created_at", {
+          ascending: false,
+        })
+        .range(from, to);
 
-    if (isCancelled()) return;
+      if (isCancelled()) {
+        return;
+      }
 
-    if (error) {
-      alert(error.message || "تعذر تحميل سجل الحركات");
-      setMovements([]);
-      setTotalMovements(0);
-      setLoading(false);
-      return;
-    }
+      if (error) {
+        alert(
+          error.message ||
+            "تعذر تحميل سجل الحركات"
+        );
 
-    const currentTotal = count || 0;
-    const calculatedTotalPages = Math.max(
-      1,
-      Math.ceil(currentTotal / ITEMS_PER_PAGE)
-    );
+        setMovements([]);
+        setTotalMovements(0);
+        return;
+      }
 
-    if (requestedPage > calculatedTotalPages) {
+      const currentTotal = count || 0;
+
+      const calculatedTotalPages = Math.max(
+        1,
+        Math.ceil(currentTotal / ITEMS_PER_PAGE)
+      );
+
+      if (requestedPage > calculatedTotalPages) {
+        setTotalMovements(currentTotal);
+        setCurrentPage(calculatedTotalPages);
+        return;
+      }
+
+      setMovements(
+        (data || []) as InventoryMovement[]
+      );
       setTotalMovements(currentTotal);
-      setCurrentPage(calculatedTotalPages);
-      setLoading(false);
-      return;
+    } catch (error) {
+      console.error(
+        "Load inventory movements error:",
+        error
+      );
+
+      if (!isCancelled()) {
+        alert(
+          "حدث خطأ غير متوقع أثناء تحميل سجل الحركات"
+        );
+
+        setMovements([]);
+        setTotalMovements(0);
+      }
+    } finally {
+      if (!isCancelled()) {
+        setLoading(false);
+      }
+    }
+  }
+
+  function getProductName(
+    movement: InventoryMovement
+  ) {
+    const relatedProduct =
+      movement.finance_products;
+
+    if (Array.isArray(relatedProduct)) {
+      return (
+        relatedProduct[0]?.product_name || "-"
+      );
     }
 
-    setMovements((data || []) as InventoryMovement[]);
-    setTotalMovements(currentTotal);
-    setLoading(false);
+    return relatedProduct?.product_name || "-";
+  }
+
+  function getInvestorName(
+    movement: InventoryMovement
+  ) {
+    const relatedInvestor =
+      movement.finance_investors;
+
+    if (Array.isArray(relatedInvestor)) {
+      return (
+        relatedInvestor[0]?.investor_name || "-"
+      );
+    }
+
+    return relatedInvestor?.investor_name || "-";
   }
 
   if (!authChecked) {
@@ -279,7 +408,9 @@ export default function InventoryMovementsPage() {
                   {employeeName}
                 </div>
 
-                {!isMobile && <div style={employeeDividerSmall} />}
+                {!isMobile && (
+                  <div style={employeeDividerSmall} />
+                )}
 
                 <button
                   type="button"
@@ -293,8 +424,12 @@ export default function InventoryMovementsPage() {
 
               <button
                 type="button"
-                style={getMainWorkstationButtonStyle(isMobile)}
-                onClick={() => router.push(`/finance/${branch}`)}
+                style={getMainWorkstationButtonStyle(
+                  isMobile
+                )}
+                onClick={() =>
+                  router.push(`/finance/${branch}`)
+                }
               >
                 <HomeIcon />
                 <span>محطة العمل الرئيسية</span>
@@ -302,7 +437,9 @@ export default function InventoryMovementsPage() {
             </div>
 
             <div style={getHeroTitleBoxStyle(screen)}>
-              <h1 style={getTitleStyle(screen)}>سجل الحركات</h1>
+              <h1 style={getTitleStyle(screen)}>
+                سجل الحركات
+              </h1>
             </div>
 
             <div style={getHeroActionBoxStyle(screen)} />
@@ -311,11 +448,14 @@ export default function InventoryMovementsPage() {
 
         <section style={tableCard}>
           <div style={listHeader}>
-            <h2 style={sectionTitle}>حركات المخزون</h2>
+            <h2 style={sectionTitle}>
+              حركات المخزون
+            </h2>
 
             {!loading && totalMovements > 0 && (
               <span style={pageInfo}>
-                صفحة {currentPage} من {totalPages} - عرض {movements.length} من{" "}
+                صفحة {currentPage} من {totalPages} -
+                عرض {movements.length} من{" "}
                 {totalMovements}
               </span>
             )}
@@ -332,77 +472,115 @@ export default function InventoryMovementsPage() {
           </div>
 
           {loading ? (
-            <div style={emptyBox}>جاري تحميل الحركات...</div>
+            <div style={emptyBox}>
+              جاري تحميل الحركات...
+            </div>
           ) : movements.length === 0 ? (
-            <div style={emptyBox}>لا توجد حركات حتى الآن</div>
+            <div style={emptyBox}>
+              لا توجد حركات حتى الآن
+            </div>
           ) : (
             movements.map((movement) => (
-              <div key={movement.id} style={tableRow}>
+              <div
+                key={movement.id}
+                style={tableRow}
+              >
                 <strong style={movementType}>
                   {movement.movement_type || "-"}
                 </strong>
 
                 <span>
-                  {movement.finance_products?.product_name || "-"}
+                  {getProductName(movement)}
                 </span>
 
                 <span>
-                  {movement.finance_investors?.investor_name || "-"}
+                  {getInvestorName(movement)}
                 </span>
 
-                <strong>{Number(movement.quantity || 0)}</strong>
+                <strong>
+                  {Number(movement.quantity || 0)}
+                </strong>
 
-                <span>{Number(movement.before_quantity || 0)}</span>
+                <span>
+                  {Number(
+                    movement.before_quantity || 0
+                  )}
+                </span>
 
-                <span>{Number(movement.after_quantity || 0)}</span>
+                <span>
+                  {Number(
+                    movement.after_quantity || 0
+                  )}
+                </span>
 
-                <span>{formatDate(movement.created_at)}</span>
+                <span>
+                  {formatDate(movement.created_at)}
+                </span>
               </div>
             ))
           )}
 
-          {!loading && totalMovements > ITEMS_PER_PAGE && (
-            <div style={paginationBox}>
-              <button
-                type="button"
-                style={{
-                  ...paginationButton,
-                  opacity: currentPage === 1 ? 0.5 : 1,
-                  cursor: currentPage === 1 ? "not-allowed" : "pointer",
-                }}
-                disabled={currentPage === 1 || loading}
-                onClick={() =>
-                  setCurrentPage((page) => Math.max(page - 1, 1))
-                }
-              >
-                السابق
-              </button>
+          {!loading &&
+            totalMovements > ITEMS_PER_PAGE && (
+              <div style={paginationBox}>
+                <button
+                  type="button"
+                  style={{
+                    ...paginationButton,
+                    opacity:
+                      currentPage === 1 ? 0.5 : 1,
+                    cursor:
+                      currentPage === 1
+                        ? "not-allowed"
+                        : "pointer",
+                  }}
+                  disabled={
+                    currentPage === 1 || loading
+                  }
+                  onClick={() =>
+                    setCurrentPage((page) =>
+                      Math.max(page - 1, 1)
+                    )
+                  }
+                >
+                  السابق
+                </button>
 
-              <span style={paginationText}>
-                صفحة {currentPage} من {totalPages}
-              </span>
+                <span style={paginationText}>
+                  صفحة {currentPage} من{" "}
+                  {totalPages}
+                </span>
 
-              <button
-                type="button"
-                style={{
-                  ...paginationButton,
-                  opacity: currentPage === totalPages ? 0.5 : 1,
-                  cursor:
-                    currentPage === totalPages
-                      ? "not-allowed"
-                      : "pointer",
-                }}
-                disabled={currentPage === totalPages || loading}
-                onClick={() =>
-                  setCurrentPage((page) =>
-                    Math.min(page + 1, totalPages)
-                  )
-                }
-              >
-                التالي
-              </button>
-            </div>
-          )}
+                <button
+                  type="button"
+                  style={{
+                    ...paginationButton,
+                    opacity:
+                      currentPage === totalPages
+                        ? 0.5
+                        : 1,
+                    cursor:
+                      currentPage === totalPages
+                        ? "not-allowed"
+                        : "pointer",
+                  }}
+                  disabled={
+                    currentPage === totalPages ||
+                    loading
+                  }
+                  onClick={() =>
+                    setCurrentPage((page) =>
+                      Math.min(
+                        page + 1,
+                        totalPages
+                      )
+                    )
+                  }
+                >
+                  التالي
+                </button>
+              </div>
+            )}
         </section>
 
         <div style={backWrapper}>
@@ -420,7 +598,9 @@ export default function InventoryMovementsPage() {
 }
 
 function formatDate(date?: string | null) {
-  if (!date) return "-";
+  if (!date) {
+    return "-";
+  }
 
   const parsedDate = new Date(date);
 
@@ -428,13 +608,16 @@ function formatDate(date?: string | null) {
     return "-";
   }
 
-  return parsedDate.toLocaleString("ar-SA-u-ca-gregory", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "numeric",
-  });
+  return parsedDate.toLocaleString(
+    "ar-SA-u-ca-gregory",
+    {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "numeric",
+    }
+  );
 }
 
 function UserIcon() {
@@ -451,6 +634,7 @@ function UserIcon() {
         stroke="currentColor"
         strokeWidth="1.8"
       />
+
       <path
         d="M4.8 20.2c.8-3.5 3.6-5.4 7.2-5.4s6.4 1.9 7.2 5.4"
         stroke="currentColor"
@@ -476,12 +660,14 @@ function LogoutIcon() {
         strokeWidth="2"
         strokeLinecap="round"
       />
+
       <path
         d="M4.8 12h9.5"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
       />
+
       <path
         d="M7.8 8.8 4.6 12l3.2 3.2"
         stroke="currentColor"
@@ -509,12 +695,14 @@ function HomeIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+
       <path
         d="M6.2 10.4v9.1h11.6v-9.1"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinejoin="round"
       />
+
       <path
         d="M10 19.5v-5.2h4v5.2"
         stroke="currentColor"
@@ -525,7 +713,9 @@ function HomeIcon() {
   );
 }
 
-function getPageStyle(isMobile: boolean): CSSProperties {
+function getPageStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     minHeight: "100vh",
     backgroundColor: "#f6f9ff",
@@ -538,13 +728,18 @@ function getPageStyle(isMobile: boolean): CSSProperties {
     `,
     backgroundSize: "cover",
     backgroundPosition: "center",
-    backgroundAttachment: isMobile ? "scroll" : "fixed",
+    backgroundAttachment: isMobile
+      ? "scroll"
+      : "fixed",
     padding: isMobile ? 10 : 18,
-    fontFamily: "var(--font-almarai), sans-serif",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
   };
 }
 
-function getContainerStyle(isCompact: boolean): CSSProperties {
+function getContainerStyle(
+  isCompact: boolean
+): CSSProperties {
   return {
     width: "100%",
     maxWidth: isCompact ? 980 : 1200,
@@ -552,12 +747,16 @@ function getContainerStyle(isCompact: boolean): CSSProperties {
   };
 }
 
-function getHeroStyle(isMobile: boolean): CSSProperties {
+function getHeroStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     position: "relative",
     minHeight: isMobile ? "auto" : 160,
     borderRadius: isMobile ? 20 : 24,
-    padding: isMobile ? "18px 14px" : "22px 26px",
+    padding: isMobile
+      ? "18px 14px"
+      : "22px 26px",
     marginBottom: 14,
     overflow: "hidden",
     border: "none",
@@ -569,7 +768,9 @@ function getHeroStyle(isMobile: boolean): CSSProperties {
   };
 }
 
-function getHeroContentStyle(screen: ScreenType): CSSProperties {
+function getHeroContentStyle(
+  screen: ScreenType
+): CSSProperties {
   if (screen === "mobile") {
     return {
       position: "relative",
@@ -611,7 +812,9 @@ function getHeroContentStyle(screen: ScreenType): CSSProperties {
   };
 }
 
-function getHeroUserCardStyle(screen: ScreenType): CSSProperties {
+function getHeroUserCardStyle(
+  screen: ScreenType
+): CSSProperties {
   if (screen === "mobile") {
     return {
       width: "100%",
@@ -647,7 +850,9 @@ function getHeroUserCardStyle(screen: ScreenType): CSSProperties {
   };
 }
 
-function getEmployeeTopRowStyle(screen: ScreenType): CSSProperties {
+function getEmployeeTopRowStyle(
+  screen: ScreenType
+): CSSProperties {
   if (screen === "mobile") {
     return {
       minHeight: 42,
@@ -685,14 +890,17 @@ function getEmployeeTopRowStyle(screen: ScreenType): CSSProperties {
   };
 }
 
-function getEmployeeNameStyle(isMobile: boolean): CSSProperties {
+function getEmployeeNameStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     color: "#ffffff",
     fontSize: isMobile ? 15 : 17,
     fontWeight: 900,
     whiteSpace: "nowrap",
     direction: "rtl",
-    textShadow: "0 4px 10px rgba(15,23,42,0.18)",
+    textShadow:
+      "0 4px 10px rgba(15,23,42,0.18)",
   };
 }
 
@@ -712,8 +920,10 @@ function getMainWorkstationButtonStyle(
     fontSize: 14,
     fontWeight: 900,
     cursor: "pointer",
-    fontFamily: "var(--font-almarai), sans-serif",
-    boxShadow: "0 8px 18px rgba(22,163,74,0.20)",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
+    boxShadow:
+      "0 8px 18px rgba(22,163,74,0.20)",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
@@ -723,7 +933,9 @@ function getMainWorkstationButtonStyle(
   };
 }
 
-function getHeroTitleBoxStyle(screen: ScreenType): CSSProperties {
+function getHeroTitleBoxStyle(
+  screen: ScreenType
+): CSSProperties {
   return {
     position: "relative",
     zIndex: 4,
@@ -738,22 +950,34 @@ function getHeroTitleBoxStyle(screen: ScreenType): CSSProperties {
   };
 }
 
-function getTitleStyle(screen: ScreenType): CSSProperties {
+function getTitleStyle(
+  screen: ScreenType
+): CSSProperties {
   return {
     margin: 0,
     color: "#ffffff",
     fontSize:
-      screen === "mobile" ? 26 : screen === "tablet" ? 28 : 30,
+      screen === "mobile"
+        ? 26
+        : screen === "tablet"
+          ? 28
+          : 30,
     lineHeight: 1.35,
     fontWeight: 900,
     letterSpacing: "-0.4px",
-    textShadow: "0 5px 14px rgba(15,23,42,0.14)",
+    textShadow:
+      "0 5px 14px rgba(15,23,42,0.14)",
     whiteSpace: "nowrap",
   };
 }
 
-function getHeroActionBoxStyle(screen: ScreenType): CSSProperties {
-  if (screen === "mobile" || screen === "tablet") {
+function getHeroActionBoxStyle(
+  screen: ScreenType
+): CSSProperties {
+  if (
+    screen === "mobile" ||
+    screen === "tablet"
+  ) {
     return {
       display: "none",
       width: "100%",
@@ -775,7 +999,8 @@ const employeeIcon: CSSProperties = {
   width: 38,
   height: 38,
   borderRadius: "50%",
-  border: "1.5px solid rgba(255,255,255,0.34)",
+  border:
+    "1.5px solid rgba(255,255,255,0.34)",
   background: "rgba(255,255,255,0.06)",
   display: "flex",
   alignItems: "center",
@@ -801,7 +1026,8 @@ const logoutInlineButton: CSSProperties = {
   alignItems: "center",
   gap: 9,
   cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
   padding: 0,
   whiteSpace: "nowrap",
   direction: "rtl",
@@ -862,7 +1088,8 @@ const tableCard: CSSProperties = {
   borderRadius: 18,
   padding: 20,
   overflowX: "auto",
-  boxShadow: "0 8px 20px rgba(15,23,42,0.04)",
+  boxShadow:
+    "0 8px 20px rgba(15,23,42,0.04)",
 };
 
 const listHeader: CSSProperties = {
@@ -888,7 +1115,8 @@ const pageInfo: CSSProperties = {
 
 const tableHeader: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1fr 2fr 2fr 1fr 1fr 1fr 1.5fr",
+  gridTemplateColumns:
+    "1fr 2fr 2fr 1fr 1fr 1fr 1.5fr",
   gap: 12,
   minWidth: 950,
   background: "#f4f8ff",
@@ -901,7 +1129,8 @@ const tableHeader: CSSProperties = {
 
 const tableRow: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1fr 2fr 2fr 1fr 1fr 1fr 1.5fr",
+  gridTemplateColumns:
+    "1fr 2fr 2fr 1fr 1fr 1fr 1.5fr",
   gap: 12,
   minWidth: 950,
   padding: 14,
@@ -941,7 +1170,8 @@ const paginationButton: CSSProperties = {
   fontSize: 15,
   fontWeight: "bold",
   cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const paginationText: CSSProperties = {
@@ -957,13 +1187,16 @@ const backWrapper: CSSProperties = {
 
 const backButton: CSSProperties = {
   padding: "11px 18px",
-  background: "linear-gradient(135deg,#22c55e,#15803d)",
+  background:
+    "linear-gradient(135deg,#22c55e,#15803d)",
   color: "#ffffff",
   border: "none",
   borderRadius: 12,
   fontSize: 14,
   fontWeight: 900,
   cursor: "pointer",
-  boxShadow: "0 5px 14px rgba(22,163,74,0.22)",
-  fontFamily: "var(--font-almarai), sans-serif",
+  boxShadow:
+    "0 5px 14px rgba(22,163,74,0.22)",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
