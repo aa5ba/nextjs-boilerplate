@@ -44,8 +44,8 @@ export default function InvestorDetailsPage() {
   const params = useParams();
   const router = useRouter();
 
-  const branch = params.branch as string;
-  const investorId = params.id as string;
+  const branch = String(params.branch ?? "");
+  const investorId = String(params.id ?? "");
 
   const statusLoadingRef = useRef(false);
 
@@ -96,7 +96,9 @@ export default function InvestorDetailsPage() {
     updateScreen();
     window.addEventListener("resize", updateScreen);
 
-    return () => window.removeEventListener("resize", updateScreen);
+    return () => {
+      window.removeEventListener("resize", updateScreen);
+    };
   }, []);
 
   useEffect(() => {
@@ -106,7 +108,7 @@ export default function InvestorDetailsPage() {
       await initializePage(() => cancelled);
     }
 
-    run();
+    void run();
 
     return () => {
       cancelled = true;
@@ -114,19 +116,26 @@ export default function InvestorDetailsPage() {
   }, [branch, investorId]);
 
   useEffect(() => {
-    if (!authChecked || !branchId || !investor?.id) return;
+    if (!authChecked || !investor?.id) {
+      return;
+    }
 
+    if (typeof branchId !== "string" || branchId.length === 0) {
+      return;
+    }
+
+    const safeBranchId: string = branchId;
     let cancelled = false;
 
     async function run() {
       await loadInventoryPage(
-        branchId,
+        safeBranchId,
         currentPage,
         () => cancelled
       );
     }
 
-    run();
+    void run();
 
     return () => {
       cancelled = true;
@@ -153,38 +162,68 @@ export default function InvestorDetailsPage() {
 
     const isLoggedIn = checkLogin();
 
-    if (!isLoggedIn || isCancelled()) return;
+    if (!isLoggedIn || isCancelled()) {
+      return;
+    }
+
+    if (!branch || !investorId) {
+      setLoading(false);
+      alert("بيانات المستثمر غير مكتملة");
+      return;
+    }
 
     loadEmployeeName();
     loadCurrentUserPermissions();
 
-    const currentBranchId = await getBranchId(branch);
+    try {
+      const resolvedBranchId = await getBranchId(branch);
 
-    if (isCancelled()) return;
+      if (isCancelled()) {
+        return;
+      }
 
-    if (!currentBranchId) {
-      setLoading(false);
-      alert("تعذر تحديد الفرع");
-      return;
+      if (
+        typeof resolvedBranchId !== "string" ||
+        resolvedBranchId.length === 0
+      ) {
+        setLoading(false);
+        alert("تعذر تحديد الفرع");
+        return;
+      }
+
+      const safeBranchId: string = resolvedBranchId;
+
+      setBranchId(safeBranchId);
+
+      await loadInvestorMainData(
+        safeBranchId,
+        isCancelled
+      );
+    } catch (error) {
+      console.error("Initialize investor page error:", error);
+
+      if (!isCancelled()) {
+        setLoading(false);
+        alert("حدث خطأ أثناء تحديد الفرع");
+      }
     }
-
-    setBranchId(currentBranchId);
-
-    await loadInvestorMainData(
-      currentBranchId,
-      isCancelled
-    );
   }
 
   function checkLogin() {
-    if (typeof window === "undefined") return false;
+    if (typeof window === "undefined") {
+      return false;
+    }
 
     const savedUser = localStorage.getItem("finance_user");
-    const savedBranchUser = localStorage.getItem("finance_branch_user");
-    const savedUserName = localStorage.getItem("finance_user_name");
+    const savedBranchUser = localStorage.getItem(
+      "finance_branch_user"
+    );
+    const savedUserName = localStorage.getItem(
+      "finance_user_name"
+    );
 
     if (!savedUser && !savedBranchUser && !savedUserName) {
-      router.replace(`/finance/${branch}/login`);
+      router.replace("/login");
       return false;
     }
 
@@ -193,9 +232,13 @@ export default function InvestorDetailsPage() {
   }
 
   function loadEmployeeName() {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined") {
+      return;
+    }
 
-    const directName = localStorage.getItem("finance_user_name");
+    const directName = localStorage.getItem(
+      "finance_user_name"
+    );
 
     if (directName) {
       setEmployeeName(directName);
@@ -225,15 +268,26 @@ export default function InvestorDetailsPage() {
     }
   }
 
-  function logout() {
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("finance_user");
-      localStorage.removeItem("finance_user_name");
-      localStorage.removeItem("finance_branch_user");
-      localStorage.removeItem("finance_role");
+  function clearFinanceSession() {
+    if (typeof window === "undefined") {
+      return;
     }
 
-    router.replace(`/finance/${branch}/login`);
+    localStorage.removeItem("finance_user");
+    localStorage.removeItem("finance_branch_user");
+    localStorage.removeItem("finance_user_id");
+    localStorage.removeItem("finance_user_name");
+    localStorage.removeItem("finance_username");
+    localStorage.removeItem("finance_role");
+    localStorage.removeItem("finance_branch_id");
+    localStorage.removeItem("finance_branch_slug");
+    localStorage.removeItem("finance_branch_name");
+    localStorage.removeItem("finance_organization_name");
+  }
+
+  function logout() {
+    clearFinanceSession();
+    router.replace("/login");
   }
 
   function loadCurrentUserPermissions() {
@@ -264,8 +318,8 @@ export default function InvestorDetailsPage() {
               typeof role === "string"
           )
         : typeof user?.role === "string"
-        ? [user.role]
-        : [];
+          ? [user.role]
+          : [];
 
       const currentPermissions: string[] = Array.isArray(
         user?.permissions
@@ -322,7 +376,9 @@ export default function InvestorDetailsPage() {
           .eq("branch_id", currentBranchId)
           .maybeSingle();
 
-      if (isCancelled()) return;
+      if (isCancelled()) {
+        return;
+      }
 
       if (investorError) {
         alert(
@@ -339,29 +395,29 @@ export default function InvestorDetailsPage() {
         return;
       }
 
-      const [
-        contractsResult,
-        inventorySummaryResult,
-      ] = await Promise.all([
-        supabase
-          .from("finance_contracts")
-          .select("id", {
-            count: "exact",
-            head: true,
-          })
-          .eq("branch_id", currentBranchId)
-          .eq("investor_id", investorId),
+      const [contractsResult, inventorySummaryResult] =
+        await Promise.all([
+          supabase
+            .from("finance_contracts")
+            .select("id", {
+              count: "exact",
+              head: true,
+            })
+            .eq("branch_id", currentBranchId)
+            .eq("investor_id", investorId),
 
-        supabase.rpc(
-          "get_finance_investor_inventory_summary",
-          {
-            p_branch_id: currentBranchId,
-            p_investor_id: investorId,
-          }
-        ),
-      ]);
+          supabase.rpc(
+            "get_finance_investor_inventory_summary",
+            {
+              p_branch_id: currentBranchId,
+              p_investor_id: investorId,
+            }
+          ),
+        ]);
 
-      if (isCancelled()) return;
+      if (isCancelled()) {
+        return;
+      }
 
       if (contractsResult.error) {
         alert(
@@ -377,7 +433,11 @@ export default function InvestorDetailsPage() {
         );
       }
 
-      const summary = inventorySummaryResult.data?.[0];
+      const summary = Array.isArray(
+        inventorySummaryResult.data
+      )
+        ? inventorySummaryResult.data[0]
+        : null;
 
       setInvestor(investorData as Investor);
       setContractsCount(contractsResult.count || 0);
@@ -387,9 +447,15 @@ export default function InvestorDetailsPage() {
       setTotalQuantity(
         Number(summary?.total_quantity || 0)
       );
-    } catch {
-      alert("حدث خطأ غير متوقع أثناء تحميل بيانات المستثمر");
-      setInvestor(null);
+    } catch (error) {
+      console.error("Load investor main data error:", error);
+
+      if (!isCancelled()) {
+        alert(
+          "حدث خطأ غير متوقع أثناء تحميل بيانات المستثمر"
+        );
+        setInvestor(null);
+      }
     } finally {
       if (!isCancelled()) {
         setLoading(false);
@@ -435,7 +501,9 @@ export default function InvestorDetailsPage() {
         })
         .range(from, to);
 
-      if (isCancelled()) return;
+      if (isCancelled()) {
+        return;
+      }
 
       if (error) {
         alert(
@@ -463,7 +531,9 @@ export default function InvestorDetailsPage() {
 
       setInventory((data || []) as InventoryItem[]);
       setTotalInventoryRows(currentTotal);
-    } catch {
+    } catch (error) {
+      console.error("Load investor inventory error:", error);
+
       if (!isCancelled()) {
         alert(
           "حدث خطأ غير متوقع أثناء تحميل منتجات المستثمر"
@@ -480,24 +550,41 @@ export default function InvestorDetailsPage() {
   }
 
   async function toggleInvestorStatus() {
-    if (statusLoadingRef.current || statusLoading) return;
-
-    if (!checkLogin()) return;
-
-    if (!hasPermission("toggle_investor")) {
-      alert("لا تملك صلاحية تعطيل أو تفعيل المستثمرين");
+    if (statusLoadingRef.current || statusLoading) {
       return;
     }
 
-    if (!investor || !branchId) return;
+    if (!checkLogin()) {
+      return;
+    }
 
-    const confirmed = confirm(
+    if (!hasPermission("toggle_investor")) {
+      alert(
+        "لا تملك صلاحية تعطيل أو تفعيل المستثمرين"
+      );
+      return;
+    }
+
+    if (!investor) {
+      return;
+    }
+
+    if (typeof branchId !== "string" || branchId.length === 0) {
+      alert("تعذر تحديد الفرع");
+      return;
+    }
+
+    const safeBranchId: string = branchId;
+
+    const confirmed = window.confirm(
       investor.is_active
         ? "هل تريد تعطيل هذا المستثمر؟"
         : "هل تريد تفعيل هذا المستثمر؟"
     );
 
-    if (!confirmed) return;
+    if (!confirmed) {
+      return;
+    }
 
     statusLoadingRef.current = true;
     setStatusLoading(true);
@@ -511,7 +598,7 @@ export default function InvestorDetailsPage() {
           is_active: newStatus,
         })
         .eq("id", investorId)
-        .eq("branch_id", branchId);
+        .eq("branch_id", safeBranchId);
 
       if (error) {
         alert(
@@ -529,8 +616,12 @@ export default function InvestorDetailsPage() {
             }
           : currentInvestor
       );
-    } catch {
-      alert("حدث خطأ غير متوقع أثناء تعديل حالة المستثمر");
+    } catch (error) {
+      console.error("Toggle investor status error:", error);
+
+      alert(
+        "حدث خطأ غير متوقع أثناء تعديل حالة المستثمر"
+      );
     } finally {
       statusLoadingRef.current = false;
       setStatusLoading(false);
@@ -724,14 +815,16 @@ export default function InvestorDetailsPage() {
                       ? "not-allowed"
                       : "pointer",
                   }}
-                  onClick={toggleInvestorStatus}
+                  onClick={() =>
+                    void toggleInvestorStatus()
+                  }
                   disabled={statusLoading}
                 >
                   {statusLoading
                     ? "جاري التنفيذ..."
                     : investor.is_active
-                    ? "تعطيل المستثمر"
-                    : "تفعيل المستثمر"}
+                      ? "تعطيل المستثمر"
+                      : "تفعيل المستثمر"}
                 </button>
               )}
             </section>
@@ -873,7 +966,9 @@ export default function InvestorDetailsPage() {
 }
 
 function formatDate(date?: string | null) {
-  if (!date) return "-";
+  if (!date) {
+    return "-";
+  }
 
   const parsedDate = new Date(date);
 
@@ -953,6 +1048,7 @@ function UserIcon() {
         stroke="currentColor"
         strokeWidth="1.8"
       />
+
       <path
         d="M4.8 20.2c.8-3.5 3.6-5.4 7.2-5.4s6.4 1.9 7.2 5.4"
         stroke="currentColor"
@@ -978,12 +1074,14 @@ function LogoutIcon() {
         strokeWidth="2"
         strokeLinecap="round"
       />
+
       <path
         d="M4.8 12h9.5"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
       />
+
       <path
         d="M7.8 8.8 4.6 12l3.2 3.2"
         stroke="currentColor"
@@ -1011,12 +1109,14 @@ function HomeIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+
       <path
         d="M6.2 10.4v9.1h11.6v-9.1"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinejoin="round"
       />
+
       <path
         d="M10 19.5v-5.2h4v5.2"
         stroke="currentColor"
@@ -1044,7 +1144,8 @@ function getPageStyle(isMobile: boolean): CSSProperties {
       ? "scroll"
       : "fixed",
     padding: isMobile ? 10 : 18,
-    fontFamily: "var(--font-almarai), sans-serif",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
   };
 }
 
@@ -1271,8 +1372,8 @@ function getTitleStyle(
       screen === "mobile"
         ? 26
         : screen === "tablet"
-        ? 28
-        : 30,
+          ? 28
+          : 30,
     lineHeight: 1.35,
     fontWeight: 900,
     letterSpacing: "-0.4px",
