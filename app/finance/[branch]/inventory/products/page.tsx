@@ -10,23 +10,37 @@ const ITEMS_PER_PAGE = 25;
 
 type ScreenType = "mobile" | "tablet" | "desktop";
 
+type ProductRow = {
+  id: string;
+  branch_id: string;
+  product_name?: string | null;
+  product_category?: string | null;
+  unit_price?: number | string | null;
+  investors_count?: number | string | null;
+  total_quantity?: number | string | null;
+  is_active?: boolean | null;
+  created_at?: string | null;
+};
+
 export default function ProductsPage() {
   const params = useParams();
   const router = useRouter();
 
-  const branch = params.branch as string;
+  const branch = String(params.branch ?? "");
 
   const [authChecked, setAuthChecked] = useState(false);
   const [screen, setScreen] = useState<ScreenType>("desktop");
   const [employeeName, setEmployeeName] = useState("الموظف");
 
   const [branchId, setBranchId] = useState<string | null>(null);
-  const [products, setProducts] = useState<any[]>([]);
+  const [products, setProducts] = useState<ProductRow[]>([]);
   const [search, setSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [totalProducts, setTotalProducts] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [statusLoadingId, setStatusLoadingId] = useState<string | null>(null);
+  const [statusLoadingId, setStatusLoadingId] = useState<string | null>(
+    null
+  );
 
   const [permissions, setPermissions] = useState<string[]>([]);
   const [roles, setRoles] = useState<string[]>([]);
@@ -35,7 +49,10 @@ export default function ProductsPage() {
   const isTablet = screen === "tablet";
   const isCompact = isMobile || isTablet;
 
-  const totalPages = Math.max(1, Math.ceil(totalProducts / ITEMS_PER_PAGE));
+  const totalPages = Math.max(
+    1,
+    Math.ceil(totalProducts / ITEMS_PER_PAGE)
+  );
 
   useEffect(() => {
     function updateScreen() {
@@ -53,7 +70,9 @@ export default function ProductsPage() {
     updateScreen();
     window.addEventListener("resize", updateScreen);
 
-    return () => window.removeEventListener("resize", updateScreen);
+    return () => {
+      window.removeEventListener("resize", updateScreen);
+    };
   }, []);
 
   useEffect(() => {
@@ -63,7 +82,7 @@ export default function ProductsPage() {
       await initializePage(() => cancelled);
     }
 
-    run();
+    void run();
 
     return () => {
       cancelled = true;
@@ -75,15 +94,27 @@ export default function ProductsPage() {
   }, [search]);
 
   useEffect(() => {
-    if (!authChecked || !branchId) return;
+    if (!authChecked) {
+      return;
+    }
 
+    if (typeof branchId !== "string" || branchId.length === 0) {
+      return;
+    }
+
+    const safeBranchId: string = branchId;
     let cancelled = false;
 
     async function run() {
-      await loadProducts(branchId, () => cancelled);
+      await loadProducts(
+        safeBranchId,
+        currentPage,
+        search,
+        () => cancelled
+      );
     }
 
-    run();
+    void run();
 
     return () => {
       cancelled = true;
@@ -99,36 +130,64 @@ export default function ProductsPage() {
   async function initializePage(isCancelled: () => boolean) {
     const isLoggedIn = checkLogin();
 
-    if (!isLoggedIn || isCancelled()) return;
+    if (!isLoggedIn || isCancelled()) {
+      return;
+    }
 
     loadEmployeeName();
     loadCurrentUserPermissions();
 
-    const currentBranchId = await getBranchId(branch);
+    setLoading(true);
+    setBranchId(null);
+    setProducts([]);
+    setTotalProducts(0);
+    setCurrentPage(1);
 
-    if (isCancelled()) return;
+    try {
+      const resolvedBranchId = await getBranchId(branch);
 
-    if (!currentBranchId) {
-      setBranchId(null);
-      setProducts([]);
-      setTotalProducts(0);
-      setLoading(false);
-      alert("تعذر تحديد الفرع");
-      return;
+      if (isCancelled()) {
+        return;
+      }
+
+      if (
+        typeof resolvedBranchId !== "string" ||
+        resolvedBranchId.length === 0
+      ) {
+        setLoading(false);
+        alert("تعذر تحديد الفرع");
+        return;
+      }
+
+      setBranchId(resolvedBranchId);
+    } catch (error) {
+      console.error("Initialize products page error:", error);
+
+      if (!isCancelled()) {
+        setLoading(false);
+        setBranchId(null);
+        setProducts([]);
+        setTotalProducts(0);
+        alert("حدث خطأ أثناء تحديد الفرع");
+      }
     }
-
-    setBranchId(currentBranchId);
   }
 
   function checkLogin() {
-    if (typeof window === "undefined") return false;
+    if (typeof window === "undefined") {
+      return false;
+    }
 
     const savedUser = localStorage.getItem("finance_user");
-    const savedBranchUser = localStorage.getItem("finance_branch_user");
-    const savedUserName = localStorage.getItem("finance_user_name");
+    const savedBranchUser = localStorage.getItem(
+      "finance_branch_user"
+    );
+    const savedUserName = localStorage.getItem(
+      "finance_user_name"
+    );
 
     if (!savedUser && !savedBranchUser && !savedUserName) {
-      router.replace(`/finance/${branch}/login`);
+      router.replace("/login");
       return false;
     }
 
@@ -137,64 +196,120 @@ export default function ProductsPage() {
   }
 
   function loadEmployeeName() {
-    if (typeof window === "undefined") return;
-
-    const newName = localStorage.getItem("finance_user_name");
-
-    if (newName) {
-      setEmployeeName(newName);
+    if (typeof window === "undefined") {
       return;
     }
 
-    const oldUser =
+    const directName = localStorage.getItem(
+      "finance_user_name"
+    );
+
+    if (directName) {
+      setEmployeeName(directName);
+      return;
+    }
+
+    const savedUser =
       localStorage.getItem("finance_user") ||
       localStorage.getItem("finance_branch_user");
 
-    if (oldUser) {
-      try {
-        const parsed = JSON.parse(oldUser);
-        setEmployeeName(parsed?.full_name || parsed?.username || "الموظف");
-      } catch {
-        setEmployeeName("الموظف");
-      }
+    if (!savedUser) {
+      setEmployeeName("الموظف");
+      return;
     }
+
+    try {
+      const parsed = JSON.parse(savedUser);
+
+      setEmployeeName(
+        parsed?.full_name ||
+          parsed?.username ||
+          parsed?.name ||
+          "الموظف"
+      );
+    } catch {
+      setEmployeeName("الموظف");
+    }
+  }
+
+  function clearFinanceSession() {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    localStorage.removeItem("finance_user");
+    localStorage.removeItem("finance_branch_user");
+    localStorage.removeItem("finance_user_id");
+    localStorage.removeItem("finance_user_name");
+    localStorage.removeItem("finance_username");
+    localStorage.removeItem("finance_role");
+    localStorage.removeItem("finance_branch_id");
+    localStorage.removeItem("finance_branch_slug");
+    localStorage.removeItem("finance_branch_name");
+    localStorage.removeItem("finance_organization_name");
   }
 
   function logout() {
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("finance_user");
-      localStorage.removeItem("finance_user_name");
-      localStorage.removeItem("finance_branch_user");
-    }
-
-    router.replace(`/finance/${branch}/login`);
+    clearFinanceSession();
+    router.replace("/login");
   }
 
   function loadCurrentUserPermissions() {
+    if (typeof window === "undefined") {
+      setRoles([]);
+      setPermissions([]);
+      return;
+    }
+
     const savedUser =
-      typeof window !== "undefined"
-        ? localStorage.getItem("finance_user") ||
-          localStorage.getItem("finance_branch_user")
-        : null;
+      localStorage.getItem("finance_user") ||
+      localStorage.getItem("finance_branch_user");
+
+    const legacyRole = localStorage.getItem("finance_role");
 
     if (!savedUser) {
-      setRoles([]);
+      setRoles(legacyRole ? [legacyRole] : []);
       setPermissions([]);
       return;
     }
 
     try {
       const user = JSON.parse(savedUser);
-      setRoles(user.roles || []);
-      setPermissions(user.permissions || []);
+
+      const currentRoles: string[] = Array.isArray(user?.roles)
+        ? user.roles.filter(
+            (role: unknown): role is string =>
+              typeof role === "string"
+          )
+        : typeof user?.role === "string"
+          ? [user.role]
+          : [];
+
+      const currentPermissions: string[] = Array.isArray(
+        user?.permissions
+      )
+        ? user.permissions.filter(
+            (permission: unknown): permission is string =>
+              typeof permission === "string"
+          )
+        : [];
+
+      if (legacyRole && !currentRoles.includes(legacyRole)) {
+        currentRoles.push(legacyRole);
+      }
+
+      setRoles(currentRoles);
+      setPermissions(currentPermissions);
     } catch {
-      setRoles([]);
+      setRoles(legacyRole ? [legacyRole] : []);
       setPermissions([]);
     }
   }
 
   function hasPermission(permissionKey: string) {
     return (
+      roles.includes("main_admin") ||
+      roles.includes("branch_manager") ||
       roles.includes("مدير رئيسي") ||
       roles.includes("مدير") ||
       permissions.includes(permissionKey)
@@ -202,71 +317,121 @@ export default function ProductsPage() {
   }
 
   function getSearchValue(value: string) {
-    return value.trim().replace(/[(),]/g, " ");
+    return value.trim().replace(/[(),.%]/g, " ");
   }
 
   async function loadProducts(
     currentBranchId: string,
+    requestedPage: number,
+    searchValue: string,
     isCancelled: () => boolean = () => false
   ) {
     setLoading(true);
 
-    const cleanSearch = getSearchValue(search);
-    const from = (currentPage - 1) * ITEMS_PER_PAGE;
-    const to = from + ITEMS_PER_PAGE - 1;
+    try {
+      const cleanSearch = getSearchValue(searchValue);
+      const from = (requestedPage - 1) * ITEMS_PER_PAGE;
+      const to = from + ITEMS_PER_PAGE - 1;
 
-    let query = supabase
-      .from("finance_products_inventory_summary")
-      .select("*", { count: "exact" })
-      .eq("branch_id", currentBranchId)
-      .order("created_at", { ascending: false })
-      .range(from, to);
+      let query = supabase
+        .from("finance_products_inventory_summary")
+        .select("*", {
+          count: "exact",
+        })
+        .eq("branch_id", currentBranchId)
+        .order("created_at", {
+          ascending: false,
+        })
+        .range(from, to);
 
-    if (cleanSearch) {
-      query = query.or(
-        `product_name.ilike.%${cleanSearch}%,product_category.ilike.%${cleanSearch}%`
+      if (cleanSearch) {
+        query = query.or(
+          [
+            `product_name.ilike.%${cleanSearch}%`,
+            `product_category.ilike.%${cleanSearch}%`,
+          ].join(",")
+        );
+      }
+
+      const { data, error, count } = await query;
+
+      if (isCancelled()) {
+        return;
+      }
+
+      if (error) {
+        alert(error.message || "تعذر تحميل المنتجات");
+        setProducts([]);
+        setTotalProducts(0);
+        return;
+      }
+
+      const currentTotal = count || 0;
+
+      const calculatedTotalPages = Math.max(
+        1,
+        Math.ceil(currentTotal / ITEMS_PER_PAGE)
       );
+
+      if (requestedPage > calculatedTotalPages) {
+        setTotalProducts(currentTotal);
+        setCurrentPage(calculatedTotalPages);
+        return;
+      }
+
+      setProducts((data || []) as ProductRow[]);
+      setTotalProducts(currentTotal);
+    } catch (error) {
+      console.error("Load products error:", error);
+
+      if (!isCancelled()) {
+        alert("حدث خطأ غير متوقع أثناء تحميل المنتجات");
+        setProducts([]);
+        setTotalProducts(0);
+      }
+    } finally {
+      if (!isCancelled()) {
+        setLoading(false);
+      }
     }
+  }
 
-    const { data, error, count } = await query;
-
-    if (isCancelled()) return;
-
-    if (error) {
-      alert(error.message || "تعذر تحميل المنتجات");
-      setProducts([]);
-      setTotalProducts(0);
-      setLoading(false);
+  async function toggleProductStatus(product: ProductRow) {
+    if (statusLoadingId) {
       return;
     }
 
-    setProducts(data || []);
-    setTotalProducts(count || 0);
-    setLoading(false);
-  }
-
-  async function toggleProductStatus(product: any) {
-    if (statusLoadingId) return;
+    if (!checkLogin()) {
+      return;
+    }
 
     if (!hasPermission("toggle_product")) {
       alert("لا تملك صلاحية تعطيل أو تفعيل المنتجات");
       return;
     }
 
-    const confirmed = confirm(
+    const confirmed = window.confirm(
       product.is_active
         ? "هل تريد تعطيل هذا المنتج؟"
         : "هل تريد تفعيل هذا المنتج؟"
     );
 
-    if (!confirmed) return;
+    if (!confirmed) {
+      return;
+    }
 
-    const currentBranchId = branchId || (await getBranchId(branch));
+    const resolvedBranchId =
+      branchId || (await getBranchId(branch));
 
-    if (!currentBranchId) {
+    if (
+      typeof resolvedBranchId !== "string" ||
+      resolvedBranchId.length === 0
+    ) {
       alert("تعذر تحديد الفرع");
       return;
     }
+
+    const safeBranchId: string = resolvedBranchId;
 
     try {
       setStatusLoadingId(product.id);
@@ -277,14 +442,23 @@ export default function ProductsPage() {
           is_active: !product.is_active,
         })
         .eq("id", product.id)
-        .eq("branch_id", currentBranchId);
+        .eq("branch_id", safeBranchId);
 
       if (error) {
-        alert(error.message || "تعذر تعديل حالة المنتج");
+        alert(
+          error.message || "تعذر تعديل حالة المنتج"
+        );
         return;
       }
 
-      await loadProducts(currentBranchId);
+      await loadProducts(
+        safeBranchId,
+        currentPage,
+        search
+      );
+    } catch (error) {
+      console.error("Toggle product status error:", error);
+      alert("حدث خطأ غير متوقع أثناء تعديل حالة المنتج");
     } finally {
       setStatusLoadingId(null);
     }
@@ -314,17 +488,28 @@ export default function ProductsPage() {
                   {employeeName}
                 </div>
 
-                {!isMobile && <div style={employeeDividerSmall} />}
+                {!isMobile && (
+                  <div style={employeeDividerSmall} />
+                )}
 
-                <button style={logoutInlineButton} onClick={logout}>
+                <button
+                  type="button"
+                  style={logoutInlineButton}
+                  onClick={logout}
+                >
                   <LogoutIcon />
                   <span>تسجيل الخروج</span>
                 </button>
               </div>
 
               <button
-                style={getMainWorkstationButtonStyle(isMobile)}
-                onClick={() => router.push(`/finance/${branch}`)}
+                type="button"
+                style={getMainWorkstationButtonStyle(
+                  isMobile
+                )}
+                onClick={() =>
+                  router.push(`/finance/${branch}`)
+                }
               >
                 <HomeIcon />
                 <span>محطة العمل الرئيسية</span>
@@ -332,7 +517,9 @@ export default function ProductsPage() {
             </div>
 
             <div style={getHeroTitleBoxStyle(screen)}>
-              <h1 style={getTitleStyle(screen)}>المنتجات</h1>
+              <h1 style={getTitleStyle(screen)}>
+                المنتجات
+              </h1>
             </div>
 
             <div style={getHeroActionBoxStyle(screen)} />
@@ -340,19 +527,31 @@ export default function ProductsPage() {
         </header>
 
         <section style={card}>
-          <div style={isCompact ? topActionsCompact : topActions}>
+          <div
+            style={
+              isCompact
+                ? topActionsCompact
+                : topActions
+            }
+          >
             <input
+              type="search"
               style={searchInput}
               placeholder="البحث باسم المنتج أو التصنيف"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(event) =>
+                setSearch(event.target.value)
+              }
             />
 
             {hasPermission("add_product") && (
               <button
+                type="button"
                 style={addButton}
                 onClick={() =>
-                  router.push(`/finance/${branch}/inventory/products/new`)
+                  router.push(
+                    `/finance/${branch}/inventory/products/new`
+                  )
                 }
               >
                 ➕ إضافة منتج
@@ -363,11 +562,14 @@ export default function ProductsPage() {
 
         <section style={card}>
           <div style={listHeader}>
-            <h2 style={sectionTitle}>قائمة المنتجات</h2>
+            <h2 style={sectionTitle}>
+              قائمة المنتجات
+            </h2>
 
-            {totalProducts > 0 && (
+            {!loading && totalProducts > 0 && (
               <span style={pageInfo}>
-                صفحة {currentPage} من {totalPages} - عرض {products.length} من{" "}
+                صفحة {currentPage} من {totalPages} -
+                عرض {products.length} من{" "}
                 {totalProducts}
               </span>
             )}
@@ -384,13 +586,21 @@ export default function ProductsPage() {
           </div>
 
           {loading ? (
-            <div style={emptyBox}>جاري تحميل المنتجات...</div>
+            <div style={emptyBox}>
+              جاري تحميل المنتجات...
+            </div>
           ) : products.length === 0 ? (
-            <div style={emptyBox}>لا توجد منتجات</div>
+            <div style={emptyBox}>
+              لا توجد منتجات
+            </div>
           ) : (
             products.map((product) => (
-              <div key={product.id} style={tableRow}>
-                <span
+              <div
+                key={product.id}
+                style={tableRow}
+              >
+                <button
+                  type="button"
                   style={productNameLink}
                   onClick={() =>
                     router.push(
@@ -399,20 +609,44 @@ export default function ProductsPage() {
                   }
                 >
                   {product.product_name || "-"}
+                </button>
+
+                <span>
+                  {product.product_category || "-"}
                 </span>
 
-                <span>{product.product_category || "-"}</span>
-                <span>{product.unit_price || 0} ر.س</span>
-                <span>{product.investors_count || 0}</span>
-                <strong>{product.total_quantity || 0}</strong>
+                <span>
+                  {Number(product.unit_price || 0)} ر.س
+                </span>
 
-                <span style={product.is_active ? activeBadge : inactiveBadge}>
-                  {product.is_active ? "نشط" : "معطل"}
+                <span>
+                  {Number(
+                    product.investors_count || 0
+                  )}
+                </span>
+
+                <strong>
+                  {Number(
+                    product.total_quantity || 0
+                  )}
+                </strong>
+
+                <span
+                  style={
+                    product.is_active
+                      ? activeBadge
+                      : inactiveBadge
+                  }
+                >
+                  {product.is_active
+                    ? "نشط"
+                    : "معطل"}
                 </span>
 
                 <div style={actionsCell}>
                   {hasPermission("edit_product") && (
                     <button
+                      type="button"
                       style={smallGrayButton}
                       onClick={() =>
                         router.push(
@@ -424,24 +658,34 @@ export default function ProductsPage() {
                     </button>
                   )}
 
-                  {hasPermission("toggle_product") && (
+                  {hasPermission(
+                    "toggle_product"
+                  ) && (
                     <button
+                      type="button"
                       style={{
                         ...smallDangerButton,
-                        opacity:
-                          statusLoadingId && statusLoadingId !== product.id
-                            ? 0.55
-                            : 1,
-                        cursor: statusLoadingId ? "not-allowed" : "pointer",
+                        opacity: statusLoadingId
+                          ? 0.55
+                          : 1,
+                        cursor: statusLoadingId
+                          ? "not-allowed"
+                          : "pointer",
                       }}
-                      onClick={() => toggleProductStatus(product)}
-                      disabled={!!statusLoadingId}
+                      onClick={() =>
+                        void toggleProductStatus(
+                          product
+                        )
+                      }
+                      disabled={Boolean(
+                        statusLoadingId
+                      )}
                     >
                       {statusLoadingId === product.id
                         ? "جاري..."
                         : product.is_active
-                        ? "تعطيل"
-                        : "تفعيل"}
+                          ? "تعطيل"
+                          : "تفعيل"}
                     </button>
                   )}
                 </div>
@@ -449,48 +693,76 @@ export default function ProductsPage() {
             ))
           )}
 
-          {totalProducts > ITEMS_PER_PAGE && (
-            <div style={paginationBox}>
-              <button
-                style={{
-                  ...paginationButton,
-                  opacity: currentPage === 1 ? 0.5 : 1,
-                  cursor: currentPage === 1 ? "not-allowed" : "pointer",
-                }}
-                disabled={currentPage === 1}
-                onClick={() => setCurrentPage((page) => Math.max(page - 1, 1))}
-              >
-                السابق
-              </button>
+          {!loading &&
+            totalProducts > ITEMS_PER_PAGE && (
+              <div style={paginationBox}>
+                <button
+                  type="button"
+                  style={{
+                    ...paginationButton,
+                    opacity:
+                      currentPage === 1 ? 0.5 : 1,
+                    cursor:
+                      currentPage === 1
+                        ? "not-allowed"
+                        : "pointer",
+                  }}
+                  disabled={
+                    currentPage === 1 || loading
+                  }
+                  onClick={() =>
+                    setCurrentPage((page) =>
+                      Math.max(page - 1, 1)
+                    )
+                  }
+                >
+                  السابق
+                </button>
 
-              <span style={paginationText}>
-                صفحة {currentPage} من {totalPages}
-              </span>
+                <span style={paginationText}>
+                  صفحة {currentPage} من{" "}
+                  {totalPages}
+                </span>
 
-              <button
-                style={{
-                  ...paginationButton,
-                  opacity: currentPage === totalPages ? 0.5 : 1,
-                  cursor:
-                    currentPage === totalPages ? "not-allowed" : "pointer",
-                }}
-                disabled={currentPage === totalPages}
-                onClick={() =>
-                  setCurrentPage((page) => Math.min(page + 1, totalPages))
-                }
-              >
-                التالي
-              </button>
-            </div>
-          )}
+                <button
+                  type="button"
+                  style={{
+                    ...paginationButton,
+                    opacity:
+                      currentPage === totalPages
+                        ? 0.5
+                        : 1,
+                    cursor:
+                      currentPage === totalPages
+                        ? "not-allowed"
+                        : "pointer",
+                  }}
+                  disabled={
+                    currentPage === totalPages ||
+                    loading
+                  }
+                  onClick={() =>
+                    setCurrentPage((page) =>
+                      Math.min(
+                        page + 1,
+                        totalPages
+                      )
+                    )
+                  }
+                >
+                  التالي
+                </button>
+              </div>
+            )}
         </section>
 
         <div style={backWrapper}>
           <button
+            type="button"
             style={backButton}
-            onClick={() => router.push(`/finance/${branch}/inventory`)}
+            onClick={() => router.back()}
           >
-            الرجوع للمخزون
+            الرجوع
           </button>
         </div>
       </div>
@@ -500,7 +772,13 @@ export default function ProductsPage() {
 
 function UserIcon() {
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M12 12.2a4.2 4.2 0 1 0 0-8.4 4.2 4.2 0 0 0 0 8.4Z"
         stroke="currentColor"
@@ -518,7 +796,13 @@ function UserIcon() {
 
 function LogoutIcon() {
   return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M9.5 7V5.8c0-1 .8-1.8 1.8-1.8h6.1c1 0 1.8.8 1.8 1.8v12.4c0 1-.8 1.8-1.8 1.8h-6.1c-1 0-1.8-.8-1.8-1.8V17"
         stroke="currentColor"
@@ -544,7 +828,13 @@ function LogoutIcon() {
 
 function HomeIcon() {
   return (
-    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="21"
+      height="21"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M3.8 11.2 12 4.5l8.2 6.7"
         stroke="currentColor"
@@ -568,7 +858,9 @@ function HomeIcon() {
   );
 }
 
-function getPageStyle(isMobile: boolean): CSSProperties {
+function getPageStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     minHeight: "100vh",
     backgroundColor: "#f6f9ff",
@@ -581,13 +873,18 @@ function getPageStyle(isMobile: boolean): CSSProperties {
     `,
     backgroundSize: "cover",
     backgroundPosition: "center",
-    backgroundAttachment: isMobile ? "scroll" : "fixed",
+    backgroundAttachment: isMobile
+      ? "scroll"
+      : "fixed",
     padding: isMobile ? 10 : 18,
-    fontFamily: "var(--font-almarai), sans-serif",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
   };
 }
 
-function getContainerStyle(isCompact: boolean): CSSProperties {
+function getContainerStyle(
+  isCompact: boolean
+): CSSProperties {
   return {
     width: "100%",
     maxWidth: isCompact ? 980 : 1180,
@@ -595,12 +892,16 @@ function getContainerStyle(isCompact: boolean): CSSProperties {
   };
 }
 
-function getHeroStyle(isMobile: boolean): CSSProperties {
+function getHeroStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     position: "relative",
     minHeight: isMobile ? "auto" : 160,
     borderRadius: isMobile ? 20 : 24,
-    padding: isMobile ? "18px 14px" : "22px 26px",
+    padding: isMobile
+      ? "18px 14px"
+      : "22px 26px",
     marginBottom: 14,
     overflow: "hidden",
     border: "none",
@@ -612,12 +913,13 @@ function getHeroStyle(isMobile: boolean): CSSProperties {
   };
 }
 
-function getHeroContentStyle(screen: ScreenType): CSSProperties {
+function getHeroContentStyle(
+  screen: ScreenType
+): CSSProperties {
   if (screen === "mobile") {
     return {
       position: "relative",
       zIndex: 3,
-      minHeight: "auto",
       display: "flex",
       flexDirection: "column",
       alignItems: "stretch",
@@ -631,7 +933,6 @@ function getHeroContentStyle(screen: ScreenType): CSSProperties {
     return {
       position: "relative",
       zIndex: 3,
-      minHeight: "auto",
       display: "grid",
       gridTemplateColumns: "1fr",
       alignItems: "center",
@@ -646,21 +947,23 @@ function getHeroContentStyle(screen: ScreenType): CSSProperties {
     zIndex: 3,
     minHeight: 116,
     display: "grid",
-    gridTemplateColumns: "minmax(250px, 315px) 1fr minmax(220px, 315px)",
+    gridTemplateColumns:
+      "minmax(250px, 315px) 1fr minmax(220px, 315px)",
     alignItems: "center",
     gap: 16,
     direction: "ltr",
   };
 }
 
-function getHeroUserCardStyle(screen: ScreenType): CSSProperties {
+function getHeroUserCardStyle(
+  screen: ScreenType
+): CSSProperties {
   if (screen === "mobile") {
     return {
       width: "100%",
       display: "grid",
       gap: 12,
       direction: "rtl",
-      justifySelf: "center",
       justifyItems: "center",
       order: 2,
     };
@@ -673,7 +976,6 @@ function getHeroUserCardStyle(screen: ScreenType): CSSProperties {
       display: "grid",
       gap: 14,
       direction: "rtl",
-      justifySelf: "center",
       justifyItems: "center",
       order: 2,
     };
@@ -689,7 +991,9 @@ function getHeroUserCardStyle(screen: ScreenType): CSSProperties {
   };
 }
 
-function getEmployeeTopRowStyle(screen: ScreenType): CSSProperties {
+function getEmployeeTopRowStyle(
+  screen: ScreenType
+): CSSProperties {
   if (screen === "mobile") {
     return {
       minHeight: 42,
@@ -727,32 +1031,40 @@ function getEmployeeTopRowStyle(screen: ScreenType): CSSProperties {
   };
 }
 
-function getEmployeeNameStyle(isMobile: boolean): CSSProperties {
+function getEmployeeNameStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     color: "#ffffff",
     fontSize: isMobile ? 15 : 17,
     fontWeight: 900,
     whiteSpace: "nowrap",
     direction: "rtl",
-    textShadow: "0 4px 10px rgba(15,23,42,0.18)",
+    textShadow:
+      "0 4px 10px rgba(15,23,42,0.18)",
   };
 }
 
-function getMainWorkstationButtonStyle(isMobile: boolean): CSSProperties {
+function getMainWorkstationButtonStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     width: isMobile ? "100%" : 220,
     maxWidth: isMobile ? 280 : 220,
     height: 44,
     border: "none",
-    background: "linear-gradient(135deg,#72e77d,#22c55e 58%,#16a34a)",
+    background:
+      "linear-gradient(135deg,#72e77d,#22c55e 58%,#16a34a)",
     color: "#ffffff",
     borderRadius: 999,
     padding: "0 18px",
     fontSize: 14,
     fontWeight: 900,
     cursor: "pointer",
-    fontFamily: "var(--font-almarai), sans-serif",
-    boxShadow: "0 8px 18px rgba(22,163,74,0.20)",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
+    boxShadow:
+      "0 8px 18px rgba(22,163,74,0.20)",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
@@ -762,12 +1074,13 @@ function getMainWorkstationButtonStyle(isMobile: boolean): CSSProperties {
   };
 }
 
-function getHeroTitleBoxStyle(screen: ScreenType): CSSProperties {
+function getHeroTitleBoxStyle(
+  screen: ScreenType
+): CSSProperties {
   return {
     position: "relative",
     zIndex: 4,
     display: "flex",
-    flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
     textAlign: "center",
@@ -777,35 +1090,41 @@ function getHeroTitleBoxStyle(screen: ScreenType): CSSProperties {
   };
 }
 
-function getTitleStyle(screen: ScreenType): CSSProperties {
+function getTitleStyle(
+  screen: ScreenType
+): CSSProperties {
   return {
     margin: 0,
     color: "#ffffff",
-    fontSize: screen === "mobile" ? 26 : screen === "tablet" ? 28 : 30,
+    fontSize:
+      screen === "mobile"
+        ? 26
+        : screen === "tablet"
+          ? 28
+          : 30,
     lineHeight: 1.35,
     fontWeight: 900,
     letterSpacing: "-0.4px",
-    textShadow: "0 5px 14px rgba(15,23,42,0.14)",
+    textShadow:
+      "0 5px 14px rgba(15,23,42,0.14)",
     whiteSpace: "nowrap",
   };
 }
 
-function getHeroActionBoxStyle(screen: ScreenType): CSSProperties {
-  if (screen === "mobile" || screen === "tablet") {
+function getHeroActionBoxStyle(
+  screen: ScreenType
+): CSSProperties {
+  if (
+    screen === "mobile" ||
+    screen === "tablet"
+  ) {
     return {
       display: "none",
-      width: "100%",
-      order: 3,
     };
   }
 
   return {
     display: "flex",
-    flexDirection: "column",
-    justifyContent: "center",
-    alignItems: "flex-end",
-    gap: 12,
-    direction: "rtl",
   };
 }
 
@@ -813,7 +1132,8 @@ const employeeIcon: CSSProperties = {
   width: 38,
   height: 38,
   borderRadius: "50%",
-  border: "1.5px solid rgba(255,255,255,0.34)",
+  border:
+    "1.5px solid rgba(255,255,255,0.34)",
   background: "rgba(255,255,255,0.06)",
   display: "flex",
   alignItems: "center",
@@ -826,7 +1146,6 @@ const employeeDividerSmall: CSSProperties = {
   width: 1,
   height: 34,
   background: "rgba(255,255,255,0.30)",
-  flex: "0 0 auto",
 };
 
 const logoutInlineButton: CSSProperties = {
@@ -839,7 +1158,8 @@ const logoutInlineButton: CSSProperties = {
   alignItems: "center",
   gap: 9,
   cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
   padding: 0,
   whiteSpace: "nowrap",
   direction: "rtl",
@@ -854,7 +1174,6 @@ const heroCircleOne: CSSProperties = {
   borderRadius: "50%",
   background: "rgba(255,255,255,0.075)",
   pointerEvents: "none",
-  zIndex: 1,
 };
 
 const heroCircleTwo: CSSProperties = {
@@ -866,7 +1185,6 @@ const heroCircleTwo: CSSProperties = {
   borderRadius: "50%",
   background: "rgba(255,255,255,0.045)",
   pointerEvents: "none",
-  zIndex: 1,
 };
 
 const heroCircleThree: CSSProperties = {
@@ -878,7 +1196,6 @@ const heroCircleThree: CSSProperties = {
   borderRadius: "50%",
   background: "rgba(255,255,255,0.035)",
   pointerEvents: "none",
-  zIndex: 1,
 };
 
 const heroDots: CSSProperties = {
@@ -891,7 +1208,6 @@ const heroDots: CSSProperties = {
   backgroundImage:
     "radial-gradient(rgba(255,255,255,0.40) 2px, transparent 2px)",
   backgroundSize: "14px 14px",
-  zIndex: 2,
 };
 
 const card: CSSProperties = {
@@ -901,7 +1217,8 @@ const card: CSSProperties = {
   padding: 20,
   marginBottom: 16,
   overflowX: "auto",
-  boxShadow: "0 8px 20px rgba(15,23,42,0.04)",
+  boxShadow:
+    "0 8px 20px rgba(15,23,42,0.04)",
 };
 
 const topActions: CSSProperties = {
@@ -915,7 +1232,6 @@ const topActionsCompact: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "1fr",
   gap: 12,
-  alignItems: "center",
 };
 
 const searchInput: CSSProperties = {
@@ -925,7 +1241,8 @@ const searchInput: CSSProperties = {
   border: "1px solid #d9e3f5",
   fontSize: 16,
   boxSizing: "border-box",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const addButton: CSSProperties = {
@@ -938,7 +1255,8 @@ const addButton: CSSProperties = {
   fontSize: 16,
   fontWeight: "bold",
   cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const listHeader: CSSProperties = {
@@ -964,7 +1282,8 @@ const pageInfo: CSSProperties = {
 
 const tableHeader: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1.6fr 1.2fr 1fr 1fr 1fr 1fr 180px",
+  gridTemplateColumns:
+    "1.6fr 1.2fr 1fr 1fr 1fr 1fr 180px",
   gap: 12,
   minWidth: 1100,
   background: "#f4f8ff",
@@ -977,7 +1296,8 @@ const tableHeader: CSSProperties = {
 
 const tableRow: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1.6fr 1.2fr 1fr 1fr 1fr 1fr 180px",
+  gridTemplateColumns:
+    "1.6fr 1.2fr 1fr 1fr 1fr 1fr 180px",
   gap: 12,
   minWidth: 1100,
   padding: 14,
@@ -986,9 +1306,15 @@ const tableRow: CSSProperties = {
 };
 
 const productNameLink: CSSProperties = {
+  border: "none",
+  background: "transparent",
+  padding: 0,
   cursor: "pointer",
   color: "#0d47a1",
   fontWeight: "bold",
+  textAlign: "right",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const emptyBox: CSSProperties = {
@@ -1026,14 +1352,16 @@ const actionsCell: CSSProperties = {
 };
 
 const smallGrayButton: CSSProperties = {
-  background: "#e5e7eb",
-  color: "#111827",
+  background:
+    "linear-gradient(135deg,#64748b,#334155)",
+  color: "#ffffff",
   border: "none",
   borderRadius: 10,
   padding: "8px 10px",
   fontWeight: "bold",
   cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const smallDangerButton: CSSProperties = {
@@ -1044,7 +1372,8 @@ const smallDangerButton: CSSProperties = {
   padding: "8px 10px",
   fontWeight: "bold",
   cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const paginationBox: CSSProperties = {
@@ -1065,7 +1394,8 @@ const paginationButton: CSSProperties = {
   fontSize: 15,
   fontWeight: "bold",
   cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const paginationText: CSSProperties = {
@@ -1081,13 +1411,16 @@ const backWrapper: CSSProperties = {
 
 const backButton: CSSProperties = {
   padding: "11px 18px",
-  background: "linear-gradient(135deg,#22c55e,#15803d)",
+  background:
+    "linear-gradient(135deg,#22c55e,#15803d)",
   color: "#ffffff",
   border: "none",
   borderRadius: 12,
   fontSize: 14,
   fontWeight: 900,
   cursor: "pointer",
-  boxShadow: "0 5px 14px rgba(22,163,74,0.22)",
-  fontFamily: "var(--font-almarai), sans-serif",
+  boxShadow:
+    "0 5px 14px rgba(22,163,74,0.22)",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
