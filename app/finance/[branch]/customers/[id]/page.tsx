@@ -156,10 +156,10 @@ export default function FinanceCustomerProfilePage() {
   const customerStatus = hasLateContract
     ? "يوجد تأخير"
     : activeContracts.length > 0
-    ? "عميل نشط"
-    : closedContracts.length > 0
-    ? "عميل سابق"
-    : "لا توجد عقود";
+      ? "عميل نشط"
+      : closedContracts.length > 0
+        ? "عميل سابق"
+        : "لا توجد عقود";
 
   function clearSession() {
     if (typeof window === "undefined") return;
@@ -520,75 +520,20 @@ export default function FinanceCustomerProfilePage() {
     try {
       setSaving(true);
 
-      const { error: customerError } = await supabase
-        .from("finance_customers")
-        .update({
-          full_name: cleanFullName,
-          national_id: cleanNationalId,
-          birth_hijri: cleanBirthHijri,
-          phone: cleanPhone,
-          work_name: cleanWorkName,
-          address: cleanAddress,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", customerId)
-        .eq("branch_id", safeBranchId);
+      const { error } = await supabase.rpc("update_customer_atomic", {
+        p_branch_id: safeBranchId,
+        p_customer_id: customerId,
+        p_full_name: cleanFullName,
+        p_national_id: cleanNationalId,
+        p_birth_hijri: cleanBirthHijri,
+        p_phone: cleanPhone,
+        p_work_name: cleanWorkName,
+        p_address: cleanAddress,
+        p_employee_name: employeeName || "الموظف",
+      });
 
-      if (customerError) {
-        throw new Error(customerError.message);
-      }
-
-      const { error: contractsError } = await supabase
-        .from("finance_contracts")
-        .update({
-          customer_name: cleanFullName,
-          customer_national_id: cleanNationalId,
-          customer_birth_hijri: cleanBirthHijri,
-          customer_phone: cleanPhone,
-          customer_work_name: cleanWorkName,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("customer_id", customerId)
-        .eq("branch_id", safeBranchId);
-
-      if (contractsError) {
-        throw new Error(contractsError.message);
-      }
-
-      const { error: notesError } = await supabase
-        .from("finance_promissory_notes")
-        .update({
-          debtor_name: cleanFullName,
-          debtor_national_id: cleanNationalId,
-          debtor_phone: cleanPhone,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("customer_id", customerId)
-        .eq("branch_id", safeBranchId);
-
-      if (notesError) {
-        throw new Error(notesError.message);
-      }
-
-      const { error: activityError } = await supabase
-        .from("finance_activity_logs")
-        .insert([
-          {
-            branch_id: safeBranchId,
-            activity_type: "تعديل عميل",
-            description: `تم تعديل بيانات العميل ${cleanFullName}`,
-            customer_id: customerId,
-            customer_name: cleanFullName,
-            employee_name: employeeName || "الموظف",
-            status: "تم التعديل",
-          },
-        ]);
-
-      if (activityError) {
-        console.error(
-          "تعذر تسجيل عملية تعديل العميل:",
-          activityError.message
-        );
+      if (error) {
+        throw new Error(error.message);
       }
 
       alert("تم حفظ بيانات العميل بنجاح");
@@ -656,7 +601,6 @@ export default function FinanceCustomerProfilePage() {
           <PageHero
             screen={screen}
             employeeName={employeeName}
-            branch={branch}
             onLogout={logout}
             onHome={() => router.push(`/finance/${branch}`)}
           />
@@ -681,7 +625,11 @@ export default function FinanceCustomerProfilePage() {
         <h2 style={{ margin: 0 }}>لم يتم العثور على العميل</h2>
 
         <div style={bottomBackWrapper}>
-          <button style={backButton} onClick={() => router.back()}>
+          <button
+            type="button"
+            style={backButton}
+            onClick={() => router.back()}
+          >
             ← الرجوع
           </button>
         </div>
@@ -691,32 +639,6 @@ export default function FinanceCustomerProfilePage() {
 
   return renderPage(
     <>
-      <section style={customerHeroCard}>
-        <div style={avatarCircle}>
-          {(customer.full_name || "ع").trim().slice(0, 1)}
-        </div>
-
-        <div style={heroInfo}>
-          <h1 style={headerTitle}>
-            {customer.full_name || "ملف العميل"}
-          </h1>
-
-          <p style={headerSub}>
-            رقم الهوية: {customer.national_id || "-"} · الجوال:{" "}
-            {customer.phone || "-"}
-          </p>
-        </div>
-
-        <div
-          style={{
-            ...statusPill,
-            ...(hasLateContract ? statusPillLate : statusPillGood),
-          }}
-        >
-          {customerStatus}
-        </div>
-      </section>
-
       <section style={statsGrid}>
         <StatCard
           icon="📄"
@@ -750,6 +672,7 @@ export default function FinanceCustomerProfilePage() {
 
             {!editing && (
               <button
+                type="button"
                 style={editMiniButton}
                 onClick={() => setEditing(true)}
               >
@@ -810,6 +733,7 @@ export default function FinanceCustomerProfilePage() {
             <InfoItem label="الراتب" value={customer.salary || "-"} />
             <InfoItem label="البنك" value={customer.bank || "-"} />
             <InfoItem label="الوسيط" value={customer.broker || "-"} />
+
             <InfoItem
               label="مجموعة العملاء"
               value={customer.finance_customer_groups?.name || "-"}
@@ -819,6 +743,7 @@ export default function FinanceCustomerProfilePage() {
           {editing && (
             <div style={editActions}>
               <button
+                type="button"
                 style={saveButton}
                 onClick={saveCustomer}
                 disabled={saving}
@@ -827,6 +752,7 @@ export default function FinanceCustomerProfilePage() {
               </button>
 
               <button
+                type="button"
                 style={cancelEditButton}
                 onClick={cancelEditing}
                 disabled={saving}
@@ -843,10 +769,12 @@ export default function FinanceCustomerProfilePage() {
           <div style={sideList}>
             <InfoLine label="عدد السندات" value={notes.length} />
             <InfoLine label="عدد العمليات" value={activities.length} />
+
             <InfoLine
               label="المجموعة"
               value={customer.finance_customer_groups?.name || "-"}
             />
+
             <InfoLine
               label="آخر تحديث"
               value={formatDate(customer.updated_at)}
@@ -971,7 +899,11 @@ export default function FinanceCustomerProfilePage() {
       </section>
 
       <div style={bottomBackWrapper}>
-        <button style={backButton} onClick={() => router.back()}>
+        <button
+          type="button"
+          style={backButton}
+          onClick={() => router.back()}
+        >
           ← الرجوع
         </button>
       </div>
@@ -987,7 +919,6 @@ function PageHero({
 }: {
   screen: ScreenType;
   employeeName: string;
-  branch: string;
   onLogout: () => void;
   onHome: () => void;
 }) {
@@ -1216,6 +1147,7 @@ function UserIcon() {
         stroke="currentColor"
         strokeWidth="1.8"
       />
+
       <path
         d="M4.8 20.2c.8-3.5 3.6-5.4 7.2-5.4s6.4 1.9 7.2 5.4"
         stroke="currentColor"
@@ -1241,12 +1173,14 @@ function LogoutIcon() {
         strokeWidth="2"
         strokeLinecap="round"
       />
+
       <path
         d="M4.8 12h9.5"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
       />
+
       <path
         d="M7.8 8.8 4.6 12l3.2 3.2"
         stroke="currentColor"
@@ -1274,12 +1208,14 @@ function HomeIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+
       <path
         d="M6.2 10.4v9.1h11.6v-9.1"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinejoin="round"
       />
+
       <path
         d="M10 19.5v-5.2h4v5.2"
         stroke="currentColor"
@@ -1634,68 +1570,6 @@ const heroDots: CSSProperties = {
     "radial-gradient(rgba(255,255,255,0.40) 2px, transparent 2px)",
   backgroundSize: "14px 14px",
   zIndex: 2,
-};
-
-const customerHeroCard: CSSProperties = {
-  background: "linear-gradient(135deg,#0f172a,#1e3a8a)",
-  color: "white",
-  padding: 24,
-  borderRadius: 24,
-  marginBottom: 18,
-  boxShadow: "0 14px 30px rgba(15,23,42,.16)",
-  display: "flex",
-  alignItems: "center",
-  gap: 18,
-  flexWrap: "wrap",
-};
-
-const avatarCircle: CSSProperties = {
-  width: 72,
-  height: 72,
-  borderRadius: 24,
-  background: "rgba(255,255,255,.14)",
-  border: "1px solid rgba(255,255,255,.22)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  color: "#ffffff",
-  fontSize: 32,
-  fontWeight: 900,
-};
-
-const heroInfo: CSSProperties = {
-  flex: 1,
-  minWidth: 220,
-};
-
-const headerTitle: CSSProperties = {
-  margin: "0 0 5px",
-  fontSize: 30,
-  lineHeight: 1.4,
-  fontFamily: "var(--font-noto-naskh-arabic), serif",
-};
-
-const headerSub: CSSProperties = {
-  margin: 0,
-  color: "#dbeafe",
-  lineHeight: 1.8,
-};
-
-const statusPill: CSSProperties = {
-  borderRadius: 999,
-  padding: "9px 14px",
-  fontWeight: 900,
-  whiteSpace: "nowrap",
-};
-
-const statusPillGood: CSSProperties = {
-  background: "#dcfce7",
-  color: "#166534",
-};
-
-const statusPillLate: CSSProperties = {
-  background: "#ffedd5",
-  color: "#9a3412",
 };
 
 const statsGrid: CSSProperties = {
