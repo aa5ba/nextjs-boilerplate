@@ -41,9 +41,9 @@ export default function InvestorsPage() {
   const [totalInvestors, setTotalInvestors] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  const [statusLoadingId, setStatusLoadingId] = useState<
-    string | null
-  >(null);
+  const [statusLoadingId, setStatusLoadingId] = useState<string | null>(
+    null
+  );
 
   const [permissions, setPermissions] = useState<string[]>([]);
   const [roles, setRoles] = useState<string[]>([]);
@@ -97,17 +97,20 @@ export default function InvestorsPage() {
   }, [search]);
 
   useEffect(() => {
-    const currentBranchId = branchId;
-
-    if (!authChecked || !currentBranchId) {
+    if (!authChecked) {
       return;
     }
 
+    if (typeof branchId !== "string" || branchId.length === 0) {
+      return;
+    }
+
+    const safeBranchId: string = branchId;
     let cancelled = false;
 
     async function run() {
       await loadInvestors(
-        currentBranchId,
+        safeBranchId,
         currentPage,
         search,
         () => cancelled
@@ -127,9 +130,7 @@ export default function InvestorsPage() {
     }
   }, [currentPage, totalPages]);
 
-  async function initializePage(
-    isCancelled: () => boolean
-  ) {
+  async function initializePage(isCancelled: () => boolean) {
     const isLoggedIn = checkLogin();
 
     if (!isLoggedIn || isCancelled()) {
@@ -146,20 +147,25 @@ export default function InvestorsPage() {
     setCurrentPage(1);
 
     try {
-      const currentBranchId = await getBranchId(branch);
+      const resolvedBranchId = await getBranchId(branch);
 
       if (isCancelled()) {
         return;
       }
 
-      if (!currentBranchId) {
+      if (
+        typeof resolvedBranchId !== "string" ||
+        resolvedBranchId.length === 0
+      ) {
         setLoading(false);
         alert("تعذر تحديد الفرع");
         return;
       }
 
-      setBranchId(currentBranchId);
-    } catch {
+      setBranchId(resolvedBranchId);
+    } catch (error) {
+      console.error("Initialize investors page error:", error);
+
       if (!isCancelled()) {
         setLoading(false);
         alert("حدث خطأ أثناء تحديد الفرع");
@@ -173,17 +179,15 @@ export default function InvestorsPage() {
     }
 
     const savedUser = localStorage.getItem("finance_user");
-
     const savedBranchUser = localStorage.getItem(
       "finance_branch_user"
     );
-
     const savedUserName = localStorage.getItem(
       "finance_user_name"
     );
 
     if (!savedUser && !savedBranchUser && !savedUserName) {
-      router.replace(`/finance/${branch}/login`);
+      router.replace("/login");
       return false;
     }
 
@@ -228,15 +232,26 @@ export default function InvestorsPage() {
     }
   }
 
-  function logout() {
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("finance_user");
-      localStorage.removeItem("finance_user_name");
-      localStorage.removeItem("finance_branch_user");
-      localStorage.removeItem("finance_role");
+  function clearFinanceSession() {
+    if (typeof window === "undefined") {
+      return;
     }
 
-    router.replace(`/finance/${branch}/login`);
+    localStorage.removeItem("finance_user");
+    localStorage.removeItem("finance_branch_user");
+    localStorage.removeItem("finance_user_id");
+    localStorage.removeItem("finance_user_name");
+    localStorage.removeItem("finance_username");
+    localStorage.removeItem("finance_role");
+    localStorage.removeItem("finance_branch_id");
+    localStorage.removeItem("finance_branch_slug");
+    localStorage.removeItem("finance_branch_name");
+    localStorage.removeItem("finance_organization_name");
+  }
+
+  function logout() {
+    clearFinanceSession();
+    router.replace("/login");
   }
 
   function loadCurrentUserPermissions() {
@@ -261,9 +276,7 @@ export default function InvestorsPage() {
     try {
       const user = JSON.parse(savedUser);
 
-      const currentRoles: string[] = Array.isArray(
-        user?.roles
-      )
+      const currentRoles: string[] = Array.isArray(user?.roles)
         ? user.roles.filter(
             (role: unknown): role is string =>
               typeof role === "string"
@@ -281,10 +294,7 @@ export default function InvestorsPage() {
           )
         : [];
 
-      if (
-        legacyRole &&
-        !currentRoles.includes(legacyRole)
-      ) {
+      if (legacyRole && !currentRoles.includes(legacyRole)) {
         currentRoles.push(legacyRole);
       }
 
@@ -319,16 +329,11 @@ export default function InvestorsPage() {
     setLoading(true);
 
     try {
-      const from =
-        (requestedPage - 1) * ITEMS_PER_PAGE;
-
+      const from = (requestedPage - 1) * ITEMS_PER_PAGE;
       const to = from + ITEMS_PER_PAGE - 1;
 
-      const cleanSearch =
-        sanitizeSearchValue(searchValue);
-
-      const normalizedSearch =
-        normalizeNumber(cleanSearch);
+      const cleanSearch = sanitizeSearchValue(searchValue);
+      const normalizedSearch = normalizeNumber(cleanSearch);
 
       let query = supabase
         .from("finance_investors")
@@ -375,8 +380,7 @@ export default function InvestorsPage() {
 
       if (investorsError) {
         alert(
-          investorsError.message ||
-            "تعذر تحميل المستثمرين"
+          investorsError.message || "تعذر تحميل المستثمرين"
         );
 
         setInvestors([]);
@@ -458,27 +462,19 @@ export default function InvestorsPage() {
           current.products.add(item.product_id);
         }
 
-        current.totalQuantity += Number(
-          item.quantity || 0
-        );
+        current.totalQuantity += Number(item.quantity || 0);
 
-        inventoryByInvestor.set(
-          investorId,
-          current
-        );
+        inventoryByInvestor.set(investorId, current);
       });
 
       const enrichedInvestors: InvestorRow[] =
         currentInvestors.map((investor) => {
-          const summary =
-            inventoryByInvestor.get(investor.id);
+          const summary = inventoryByInvestor.get(investor.id);
 
           return {
             ...investor,
-            productsCount:
-              summary?.products.size || 0,
-            totalQuantity:
-              summary?.totalQuantity || 0,
+            productsCount: summary?.products.size || 0,
+            totalQuantity: summary?.totalQuantity || 0,
           };
         });
 
@@ -488,7 +484,9 @@ export default function InvestorsPage() {
 
       setInvestors(enrichedInvestors);
       setTotalInvestors(currentTotal);
-    } catch {
+    } catch (error) {
+      console.error("Load investors error:", error);
+
       if (!isCancelled()) {
         alert(
           "حدث خطأ غير متوقع أثناء تحميل المستثمرين"
@@ -516,9 +514,7 @@ export default function InvestorsPage() {
     }
 
     if (!hasPermission("toggle_investor")) {
-      alert(
-        "لا تملك صلاحية تعطيل أو تفعيل المستثمرين"
-      );
+      alert("لا تملك صلاحية تعطيل أو تفعيل المستثمرين");
       return;
     }
 
@@ -532,13 +528,18 @@ export default function InvestorsPage() {
       return;
     }
 
-    const currentBranchId =
+    const resolvedBranchId =
       branchId || (await getBranchId(branch));
 
-    if (!currentBranchId) {
+    if (
+      typeof resolvedBranchId !== "string" ||
+      resolvedBranchId.length === 0
+    ) {
       alert("تعذر تحديد الفرع");
       return;
     }
+
+    const safeBranchId: string = resolvedBranchId;
 
     try {
       setStatusLoadingId(investor.id);
@@ -549,22 +550,23 @@ export default function InvestorsPage() {
           is_active: !investor.is_active,
         })
         .eq("id", investor.id)
-        .eq("branch_id", currentBranchId);
+        .eq("branch_id", safeBranchId);
 
       if (error) {
         alert(
-          error.message ||
-            "تعذر تعديل حالة المستثمر"
+          error.message || "تعذر تعديل حالة المستثمر"
         );
         return;
       }
 
       await loadInvestors(
-        currentBranchId,
+        safeBranchId,
         currentPage,
         search
       );
-    } catch {
+    } catch (error) {
+      console.error("Toggle investor status error:", error);
+
       alert(
         "حدث خطأ غير متوقع أثناء تعديل حالة المستثمر"
       );
@@ -724,9 +726,7 @@ export default function InvestorsPage() {
                   {investor.national_id || "-"}
                 </span>
 
-                <span>
-                  {investor.phone || "-"}
-                </span>
+                <span>{investor.phone || "-"}</span>
 
                 <span>{investor.productsCount}</span>
 
