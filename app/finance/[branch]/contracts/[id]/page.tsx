@@ -201,6 +201,20 @@ type CloseContractResult = {
   new_contract_status: string;
 };
 
+type ReopenContractResult = {
+  contract_id: string;
+
+  new_paid_amount:
+    | number
+    | string;
+
+  new_remaining_amount:
+    | number
+    | string;
+
+  new_contract_status: string;
+};
+
 const SESSION_KEYS = [
   "finance_user",
   "finance_branch_user",
@@ -257,6 +271,11 @@ export default function FinanceContractDetailsPage() {
   const [
     closingContract,
     setClosingContract,
+  ] = useState(false);
+
+  const [
+    reopeningContract,
+    setReopeningContract,
   ] = useState(false);
 
   const isMobile =
@@ -1018,6 +1037,128 @@ export default function FinanceContractDetailsPage() {
     }
   }
 
+  function getReopenErrorMessage(
+    message: string
+  ) {
+    if (
+      message.includes(
+        "CONTRACT_NOT_FOUND"
+      )
+    ) {
+      return "العقد غير موجود أو لا يتبع هذا الفرع";
+    }
+
+    if (
+      message.includes(
+        "CONTRACT_NOT_CLOSED"
+      )
+    ) {
+      return "العقد غير مغلق ولا يحتاج إلى إعادة تنشيط";
+    }
+
+    return (
+      message ||
+      "تعذر إعادة تنشيط العقد"
+    );
+  }
+
+  async function reopenContract() {
+    if (
+      !branchId ||
+      !contract?.id ||
+      reopeningContract
+    ) {
+      if (
+        !branchId ||
+        !contract?.id
+      ) {
+        alert(
+          "تعذر تحديد العقد أو الفرع"
+        );
+      }
+
+      return;
+    }
+
+    const confirmed =
+      window.confirm(
+        "هل أنت متأكد من إعادة تنشيط العقد وإعادة احتساب المسدد والمتبقي؟"
+      );
+
+    if (!confirmed) return;
+
+    try {
+      setReopeningContract(true);
+
+      const { data, error } =
+        await supabase.rpc(
+          "reopen_contract_atomic",
+          {
+            p_branch_id: branchId,
+
+            p_contract_id:
+              contract.id,
+
+            p_employee_name:
+              employeeName ||
+              "الموظف",
+          }
+        );
+
+      if (error) {
+        throw new Error(
+          getReopenErrorMessage(
+            error.message
+          )
+        );
+      }
+
+      const rawResult =
+        Array.isArray(data)
+          ? data[0]
+          : data;
+
+      const result =
+        rawResult as
+          | ReopenContractResult
+          | null;
+
+      if (!result?.contract_id) {
+        throw new Error(
+          "لم يتم استلام نتيجة إعادة تنشيط العقد"
+        );
+      }
+
+      await loadData(branchId);
+
+      if (
+        result.new_contract_status ===
+        "تم السداد"
+      ) {
+        alert(
+          "العقد ما زال مسددًا بالكامل لأن مجموع الدفعات المسجلة يغطي كامل المبلغ"
+        );
+      } else {
+        alert(
+          "تمت إعادة تنشيط العقد وإعادة احتساب المبالغ بنجاح"
+        );
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "تعذر إعادة تنشيط العقد";
+
+      alert(
+        getReopenErrorMessage(
+          message
+        )
+      );
+    } finally {
+      setReopeningContract(false);
+    }
+  }
+
   function openCustomerProfile() {
     if (
       !contract?.customer_id
@@ -1178,8 +1319,7 @@ export default function FinanceContractDetailsPage() {
 
     return activeStatus;
   }
-
-  if (loading) {
+    if (loading) {
     return (
       <main
         dir="rtl"
@@ -1797,6 +1937,23 @@ export default function FinanceContractDetailsPage() {
             />
           )}
 
+          {isFullyPaid && (
+            <ActionButton
+              icon="🔄"
+              title={
+                reopeningContract
+                  ? "جاري إعادة التنشيط..."
+                  : "إعادة تنشيط العقد"
+              }
+              onClick={() =>
+                void reopenContract()
+              }
+              disabled={
+                reopeningContract
+              }
+            />
+          )}
+
           {!isFullyPaid && (
             <ActionButton
               icon="🔒"
@@ -2028,7 +2185,6 @@ function ActionButton({
     </button>
   );
 }
-
 function UserIcon() {
   return (
     <svg
