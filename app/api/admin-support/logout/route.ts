@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import {
   ADMIN_SUPPORT_COOKIE_NAME,
+  ADMIN_SUPPORT_IMPERSONATION_COOKIE_NAME,
 } from "@/lib/adminSupportSession";
 
 export async function POST() {
@@ -23,12 +24,24 @@ export async function POST() {
     "",
     {
       httpOnly: true,
-      secure:
-        process.env.NODE_ENV ===
-        "production",
+      secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/",
       maxAge: 0,
+      expires: new Date(0),
+    }
+  );
+
+  response.cookies.set(
+    ADMIN_SUPPORT_IMPERSONATION_COOKIE_NAME,
+    "",
+    {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/finance",
+      maxAge: 0,
+      expires: new Date(0),
     }
   );
 
