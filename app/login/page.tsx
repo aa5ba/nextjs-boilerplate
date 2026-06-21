@@ -1,21 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import type { CSSProperties } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  "https://rqgzoeyyojfwyoewvhev.supabase.co",
-  "sb_publishable_Zt56a_KLr3rtcdqI7slvCg_mSrB0ZoM"
-);
-
-type FinanceBranch = {
-  id: string;
-  branch_name: string;
-  branch_slug: string;
-  organization_name: string | null;
-  is_active: boolean | null;
-};
+import { supabase } from "@/lib/supabaseClient";
 
 type FinanceUserSession = {
   id: string;
@@ -35,12 +23,29 @@ type CustomerSession = {
   work_sector: string;
 };
 
+type FinanceLoginResult = {
+  id: string;
+  full_name: string | null;
+  username: string | null;
+  role: string | null;
+  branch_id: string;
+  branch_slug: string | null;
+  branch_name: string | null;
+  organization_name: string | null;
+};
+
+type CustomerLoginResult = {
+  id: string;
+  full_name: string | null;
+  phone: string | null;
+  work_sector: string | null;
+};
+
 export default function LoginPage() {
   const router = useRouter();
 
   const [loginIdentifier, setLoginIdentifier] = useState("");
   const [password, setPassword] = useState("");
-
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -65,15 +70,46 @@ export default function LoginPage() {
   }
 
   function saveFinanceSession(financeUser: FinanceUserSession) {
-    localStorage.setItem("finance_user", JSON.stringify(financeUser));
+    localStorage.setItem(
+      "finance_user",
+      JSON.stringify(financeUser)
+    );
 
-    localStorage.setItem("finance_user_id", financeUser.id);
-    localStorage.setItem("finance_user_name", financeUser.full_name);
-    localStorage.setItem("finance_username", financeUser.username);
-    localStorage.setItem("finance_role", financeUser.role);
-    localStorage.setItem("finance_branch_id", financeUser.branch_id);
-    localStorage.setItem("finance_branch_slug", financeUser.branch_slug);
-    localStorage.setItem("finance_branch_name", financeUser.branch_name);
+    localStorage.setItem(
+      "finance_user_id",
+      financeUser.id
+    );
+
+    localStorage.setItem(
+      "finance_user_name",
+      financeUser.full_name
+    );
+
+    localStorage.setItem(
+      "finance_username",
+      financeUser.username
+    );
+
+    localStorage.setItem(
+      "finance_role",
+      financeUser.role
+    );
+
+    localStorage.setItem(
+      "finance_branch_id",
+      financeUser.branch_id
+    );
+
+    localStorage.setItem(
+      "finance_branch_slug",
+      financeUser.branch_slug
+    );
+
+    localStorage.setItem(
+      "finance_branch_name",
+      financeUser.branch_name
+    );
+
     localStorage.setItem(
       "finance_organization_name",
       financeUser.organization_name
@@ -81,69 +117,59 @@ export default function LoginPage() {
   }
 
   function saveCustomerSession(customerUser: CustomerSession) {
-    localStorage.setItem("customer_user", JSON.stringify(customerUser));
+    localStorage.setItem(
+      "customer_user",
+      JSON.stringify(customerUser)
+    );
 
-    localStorage.setItem("customer_id", customerUser.id);
-    localStorage.setItem("customer_name", customerUser.full_name);
-    localStorage.setItem("customer_phone", customerUser.phone);
-    localStorage.setItem("customer_sector", customerUser.work_sector);
+    localStorage.setItem(
+      "customer_id",
+      customerUser.id
+    );
+
+    localStorage.setItem(
+      "customer_name",
+      customerUser.full_name
+    );
+
+    localStorage.setItem(
+      "customer_phone",
+      customerUser.phone
+    );
+
+    localStorage.setItem(
+      "customer_sector",
+      customerUser.work_sector
+    );
   }
 
   async function handleBranchLogin(
     normalizedUsername: string,
     normalizedPassword: string
   ) {
-    const { data, error } = await supabase
-      .from("finance_branch_users")
-      .select(
-        `
-        id,
-        full_name,
-        username,
-        role,
-        branch_id,
-        is_active,
-        finance_branches (
-          id,
-          branch_name,
-          branch_slug,
-          organization_name,
-          is_active
-        )
-      `
-      )
-      .eq("username", normalizedUsername)
-      .eq("password", normalizedPassword)
-      .eq("is_active", true)
-      .maybeSingle();
+    const { data, error } = await supabase.rpc(
+      "verify_finance_branch_login",
+      {
+        p_username: normalizedUsername,
+        p_password: normalizedPassword,
+      }
+    );
 
     if (error) {
-      console.error("Branch login error:", error);
-      throw new Error("تعذر التحقق من بيانات الدخول");
+      console.error("Branch login RPC error:", error);
+      throw new Error("BRANCH_LOGIN_FAILED");
     }
 
-    if (!data) {
+    const result = Array.isArray(data)
+      ? (data[0] as FinanceLoginResult | undefined)
+      : undefined;
+
+    if (!result) {
       setMessage("اسم المستخدم أو كلمة المرور غير صحيحة");
       return;
     }
 
-    const branchData = (
-      Array.isArray(data.finance_branches)
-        ? data.finance_branches[0]
-        : data.finance_branches
-    ) as FinanceBranch | null;
-
-    if (!branchData) {
-      setMessage("لم يتم العثور على الفرع المرتبط بهذا المستخدم");
-      return;
-    }
-
-    if (branchData.is_active === false) {
-      setMessage("هذا الفرع غير مفعل حالياً");
-      return;
-    }
-
-    if (!branchData.branch_slug) {
+    if (!result.branch_slug) {
       setMessage("مسار الفرع غير مكتمل");
       return;
     }
@@ -152,38 +178,47 @@ export default function LoginPage() {
     clearCustomerSession();
 
     const financeUser: FinanceUserSession = {
-      id: String(data.id),
-      full_name: data.full_name || "",
-      username: data.username || normalizedUsername,
-      role: data.role || "",
-      branch_id: String(data.branch_id),
-      branch_slug: branchData.branch_slug,
-      branch_name: branchData.branch_name || "",
-      organization_name: branchData.organization_name || "",
+      id: String(result.id),
+      full_name: result.full_name || "",
+      username: result.username || normalizedUsername,
+      role: result.role || "",
+      branch_id: String(result.branch_id),
+      branch_slug: result.branch_slug,
+      branch_name: result.branch_name || "",
+      organization_name: result.organization_name || "",
     };
 
     saveFinanceSession(financeUser);
 
-    router.replace(`/finance/${financeUser.branch_slug}`);
+    router.replace(
+      `/finance/${encodeURIComponent(
+        financeUser.branch_slug
+      )}`
+    );
   }
 
   async function handleCustomerLogin(
     normalizedPhone: string,
     normalizedPassword: string
   ) {
-    const { data, error } = await supabase
-      .from("customers")
-      .select("id, full_name, phone, work_sector")
-      .eq("phone", normalizedPhone)
-      .eq("password_pin", normalizedPassword)
-      .maybeSingle();
+    const { data, error } = await supabase.rpc(
+      "verify_customer_login",
+      {
+        p_phone: normalizedPhone,
+        p_password: normalizedPassword,
+      }
+    );
 
     if (error) {
-      console.error("Customer login error:", error);
-      throw new Error("تعذر التحقق من بيانات الدخول");
+      console.error("Customer login RPC error:", error);
+      throw new Error("CUSTOMER_LOGIN_FAILED");
     }
 
-    if (!data) {
+    const result = Array.isArray(data)
+      ? (data[0] as CustomerLoginResult | undefined)
+      : undefined;
+
+    if (!result) {
       setMessage("رقم الجوال أو كلمة المرور غير صحيحة");
       return;
     }
@@ -192,10 +227,10 @@ export default function LoginPage() {
     clearCustomerSession();
 
     const customerUser: CustomerSession = {
-      id: String(data.id),
-      full_name: data.full_name || "",
-      phone: data.phone || normalizedPhone,
-      work_sector: data.work_sector || "",
+      id: String(result.id),
+      full_name: result.full_name || "",
+      phone: result.phone || normalizedPhone,
+      work_sector: result.work_sector || "",
     };
 
     saveCustomerSession(customerUser);
@@ -209,10 +244,16 @@ export default function LoginPage() {
     setMessage("");
 
     const normalizedIdentifier = loginIdentifier.trim();
-    const normalizedPassword = password.replace(/\D/g, "").slice(0, 4);
+
+    const normalizedPassword = password
+      .replace(/\D/g, "")
+      .slice(0, 4);
 
     const customerPhoneRegex = /^05\d{8}$/;
-    const usernameRegex = /^[\u0600-\u06FFa-zA-Z0-9_.-]{2,35}$/;
+
+    const usernameRegex =
+      /^[\u0600-\u06FFa-zA-Z0-9_.-]{2,35}$/;
+
     const pinRegex = /^\d{4}$/;
 
     if (!normalizedIdentifier) {
@@ -225,9 +266,14 @@ export default function LoginPage() {
       return;
     }
 
-    const isCustomerPhone = customerPhoneRegex.test(normalizedIdentifier);
+    const isCustomerPhone = customerPhoneRegex.test(
+      normalizedIdentifier
+    );
 
-    if (!isCustomerPhone && !usernameRegex.test(normalizedIdentifier)) {
+    if (
+      !isCustomerPhone &&
+      !usernameRegex.test(normalizedIdentifier)
+    ) {
       setMessage("اسم المستخدم أو رقم الجوال غير صحيح");
       return;
     }
@@ -248,7 +294,10 @@ export default function LoginPage() {
       }
     } catch (loginError) {
       console.error("Unified login error:", loginError);
-      setMessage("حدث خطأ أثناء تسجيل الدخول، حاول مرة أخرى");
+
+      setMessage(
+        "حدث خطأ أثناء تسجيل الدخول، حاول مرة أخرى"
+      );
     } finally {
       setLoading(false);
     }
@@ -268,8 +317,8 @@ export default function LoginPage() {
         <input
           placeholder="اسم المستخدم أو رقم الجوال"
           value={loginIdentifier}
-          onChange={(e) => {
-            setLoginIdentifier(e.target.value);
+          onChange={(event) => {
+            setLoginIdentifier(event.target.value);
             setMessage("");
           }}
           style={inputStyle}
@@ -282,8 +331,11 @@ export default function LoginPage() {
         <input
           placeholder="كلمة المرور"
           value={password}
-          onChange={(e) => {
-            const value = e.target.value.replace(/\D/g, "").slice(0, 4);
+          onChange={(event) => {
+            const value = event.target.value
+              .replace(/\D/g, "")
+              .slice(0, 4);
+
             setPassword(value);
             setMessage("");
           }}
@@ -293,8 +345,8 @@ export default function LoginPage() {
           maxLength={4}
           autoComplete="current-password"
           disabled={loading}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
               void handleLogin();
             }
           }}
@@ -306,20 +358,26 @@ export default function LoginPage() {
           disabled={loading}
           style={{
             ...buttonStyle,
-            cursor: loading ? "not-allowed" : "pointer",
+            cursor: loading
+              ? "not-allowed"
+              : "pointer",
             opacity: loading ? 0.75 : 1,
           }}
         >
           {loading ? "جارٍ الدخول..." : "دخول"}
         </button>
 
-        {message && <p style={messageStyle}>{message}</p>}
+        {message && (
+          <p role="alert" style={messageStyle}>
+            {message}
+          </p>
+        )}
       </div>
     </div>
   );
 }
 
-const page: React.CSSProperties = {
+const page: CSSProperties = {
   minHeight: "100vh",
   backgroundImage:
     "linear-gradient(rgba(255,255,255,0.82), rgba(255,255,255,0.82)), url('/backgrounds/v13-finance-bg-2.png')",
@@ -333,7 +391,7 @@ const page: React.CSSProperties = {
   padding: 20,
 };
 
-const card: React.CSSProperties = {
+const card: CSSProperties = {
   width: "100%",
   maxWidth: 430,
   background: "rgba(255,255,255,0.96)",
@@ -343,12 +401,12 @@ const card: React.CSSProperties = {
   border: "1px solid rgba(255,255,255,0.7)",
 };
 
-const logoBox: React.CSSProperties = {
+const logoBox: CSSProperties = {
   textAlign: "center",
   marginBottom: 22,
 };
 
-const logoCircle: React.CSSProperties = {
+const logoCircle: CSSProperties = {
   width: 58,
   height: 58,
   borderRadius: "50%",
@@ -362,19 +420,20 @@ const logoCircle: React.CSSProperties = {
   fontWeight: "bold",
 };
 
-const title: React.CSSProperties = {
+const title: CSSProperties = {
   margin: 0,
   fontSize: 28,
   color: "#0f172a",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
-const subtitle: React.CSSProperties = {
+const subtitle: CSSProperties = {
   margin: "8px 0 22px",
   color: "#64748b",
   fontSize: 15,
 };
 
-const inputStyle: React.CSSProperties = {
+const inputStyle: CSSProperties = {
   width: "100%",
   height: 50,
   marginBottom: 14,
@@ -387,7 +446,7 @@ const inputStyle: React.CSSProperties = {
   background: "#fff",
 };
 
-const buttonStyle: React.CSSProperties = {
+const buttonStyle: CSSProperties = {
   width: "100%",
   height: 50,
   border: "none",
@@ -398,7 +457,7 @@ const buttonStyle: React.CSSProperties = {
   fontWeight: "bold",
 };
 
-const messageStyle: React.CSSProperties = {
+const messageStyle: CSSProperties = {
   textAlign: "center",
   marginTop: 18,
   color: "#d00000",
