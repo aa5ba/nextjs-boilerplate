@@ -19,6 +19,12 @@ type UpdateSupportUserResult = {
   is_active: boolean;
 };
 
+type TargetSupportUser = {
+  id: string;
+  role: string;
+  is_active: boolean;
+};
+
 function cleanText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -144,6 +150,75 @@ export async function PATCH(
       return createErrorResponse(
         "حالة مستخدم الدعم غير صحيحة",
         400
+      );
+    }
+
+    const { data: targetData, error: targetError } =
+      await supabaseAdmin
+        .from("admin_support_users")
+        .select("id, role, is_active")
+        .eq("id", targetUserId)
+        .maybeSingle();
+
+    if (targetError) {
+      console.error(
+        "Admin support target user lookup failed:",
+        targetError
+      );
+
+      return createErrorResponse(
+        "تعذر التحقق من مستخدم الدعم المستهدف",
+        500
+      );
+    }
+
+    const targetUser = targetData as TargetSupportUser | null;
+
+    if (!targetUser) {
+      return createErrorResponse(
+        "مستخدم الدعم غير موجود",
+        404
+      );
+    }
+
+    if (
+      targetUser.role === "super_admin" &&
+      auth.user.role !== "super_admin"
+    ) {
+      return createErrorResponse(
+        "لا يمكن تعديل حالة مدير النظام إلا بواسطة مدير نظام آخر",
+        403
+      );
+    }
+
+    if (
+      targetUser.id === auth.user.id &&
+      body.is_active === false
+    ) {
+      return createErrorResponse(
+        "لا يمكنك تعطيل حسابك الحالي",
+        400
+      );
+    }
+
+    if (targetUser.is_active === body.is_active) {
+      return NextResponse.json(
+        {
+          ok: true,
+          message: targetUser.is_active
+            ? "مستخدم الدعم مفعّل بالفعل"
+            : "مستخدم الدعم معطّل بالفعل",
+          data: {
+            user_id: targetUser.id,
+            is_active: targetUser.is_active,
+          },
+        },
+        {
+          status: 200,
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        }
       );
     }
 
