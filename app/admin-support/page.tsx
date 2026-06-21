@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import { useRouter } from "next/navigation";
 
 const SUPPORT_PERMISSIONS = [
   { key: "manage_branches", label: "إدارة الفروع" },
@@ -10,7 +11,38 @@ const SUPPORT_PERMISSIONS = [
   { key: "impersonate_branch", label: "الدخول للفروع" },
   { key: "view_logs", label: "عرض السجلات" },
   { key: "backup_restore", label: "النسخ والاستعادة" },
-];
+] as const;
+
+const SUPPORT_ROLES = ["support", "viewer", "super_admin"] as const;
+
+type SupportPermission = (typeof SUPPORT_PERMISSIONS)[number]["key"];
+type SupportRole = (typeof SUPPORT_ROLES)[number];
+
+type ScreenType = "mobile" | "tablet" | "desktop";
+
+type TabType =
+  | "overview"
+  | "branches"
+  | "branch_managers"
+  | "users"
+  | "logs";
+
+type CurrentUser = {
+  id: string;
+  full_name: string;
+  username: string;
+  role: string;
+  permissions: string[];
+};
+
+type DashboardAccess = {
+  manage_branches: boolean;
+  impersonate_branch: boolean;
+  manage_support_users: boolean;
+  view_logs: boolean;
+  system_settings: boolean;
+  backup_restore: boolean;
+};
 
 type Branch = {
   id: string;
@@ -32,7 +64,13 @@ type SupportUser = {
   role: string;
   is_active: boolean;
   created_at: string;
-  permissions?: string[];
+  permissions: string[];
+};
+
+type BranchRelation = {
+  branch_name: string;
+  branch_slug: string;
+  organization_name: string;
 };
 
 type BranchManager = {
@@ -43,18 +81,7 @@ type BranchManager = {
   role: string;
   is_active: boolean;
   created_at: string;
-  finance_branches?:
-    | {
-        branch_name: string;
-        branch_slug: string;
-        organization_name: string;
-      }
-    | {
-        branch_name: string;
-        branch_slug: string;
-        organization_name: string;
-      }[]
-    | null;
+  finance_branches?: BranchRelation | BranchRelation[] | null;
 };
 
 type SupportLog = {
@@ -68,16 +95,61 @@ type SupportLog = {
   created_at: string;
 };
 
-type TabType = "overview" | "branches" | "branch_managers" | "users" | "logs";
+type DashboardResponse = {
+  ok: boolean;
+  message?: string;
+  user?: CurrentUser;
+  access?: DashboardAccess;
+  branches?: Branch[];
+  branch_managers?: BranchManager[];
+  support_users?: SupportUser[];
+  logs?: SupportLog[];
+};
+
+type ApiResponse<T = unknown> = {
+  ok: boolean;
+  message?: string;
+  data?: T;
+  redirect_url?: string;
+};
+
+type BusyAction =
+  | "dashboard"
+  | "save_branch"
+  | "logout"
+  | "create_support_user"
+  | `branch_status:${string}`
+  | `branch_enter:${string}`
+  | `manager_status:${string}`
+  | `manager_password:${string}`
+  | `support_status:${string}`
+  | null;
+
+const EMPTY_ACCESS: DashboardAccess = {
+  manage_branches: false,
+  impersonate_branch: false,
+  manage_support_users: false,
+  view_logs: false,
+  system_settings: false,
+  backup_restore: false,
+};
 
 export default function AdminSupportPage() {
-  const [currentUser, setCurrentUser] = useState<any>(null);
+  const router = useRouter();
+
+  const [screen, setScreen] = useState<ScreenType>("desktop");
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [access, setAccess] = useState<DashboardAccess>(EMPTY_ACCESS);
+
   const [branches, setBranches] = useState<Branch[]>([]);
   const [branchManagers, setBranchManagers] = useState<BranchManager[]>([]);
   const [supportUsers, setSupportUsers] = useState<SupportUser[]>([]);
   const [logs, setLogs] = useState<SupportLog[]>([]);
+
   const [activeTab, setActiveTab] = useState<TabType>("overview");
   const [loading, setLoading] = useState(true);
+  const [busyAction, setBusyAction] = useState<BusyAction>("dashboard");
+  const [pageError, setPageError] = useState("");
 
   const [showBranchForm, setShowBranchForm] = useState(false);
   const [editingBranchId, setEditingBranchId] = useState<string | null>(null);
@@ -98,29 +170,190 @@ export default function AdminSupportPage() {
   const [supportFullName, setSupportFullName] = useState("");
   const [supportUsername, setSupportUsername] = useState("");
   const [supportPassword, setSupportPassword] = useState("");
-  const [supportRole, setSupportRole] = useState("support");
-  const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
+  const [supportRole, setSupportRole] = useState<SupportRole>("support");
+  const [selectedPermissions, setSelectedPermissions] = useState<
+    SupportPermission[]
+  >([]);
+
+  const isMobile = screen === "mobile";
+  const isTablet = screen === "tablet";
+  const isCompact = isMobile || isTablet;
 
   useEffect(() => {
-    const saved =
-      typeof window !== "undefined"
-        ? localStorage.getItem("admin_support_user")
-        : null;
+    function updateScreen() {
+      const width = window.innerWidth;
 
-    if (!saved) {
-      window.location.href = "/admin-support/login";
-      return;
+      if (width < 640) {
+        setScreen("mobile");
+        return;
+      }
+
+      if (width < 1024) {
+        setScreen("tablet");
+        return;
+      }
+
+      setScreen("desktop");
     }
 
-    try {
-      const parsed = JSON.parse(saved);
-      setCurrentUser(parsed);
-      loadData();
-    } catch {
-      localStorage.removeItem("admin_support_user");
-      window.location.href = "/admin-support/login";
-    }
+    updateScreen();
+    window.addEventListener("resize", updateScreen);
+
+    return () => {
+      window.removeEventListener("resize", updateScreen);
+    };
   }, []);
+
+  const redirectToLogin = useCallback(() => {
+    router.replace("/admin-support/login");
+    router.refresh();
+  }, [router]);
+
+  const apiRequest = useCallback(
+    async <T,>(
+      url: string,
+      options?: RequestInit
+    ): Promise<ApiResponse<T>> => {
+      try {
+        const response = await fetch(url, {
+          ...options,
+          credentials: "include",
+          cache: "no-store",
+          headers: {
+            "Content-Type": "application/json",
+            ...(options?.headers || {}),
+          },
+        });
+
+        let payload: ApiResponse<T>;
+
+        try {
+          payload = (await response.json()) as ApiResponse<T>;
+        } catch {
+          payload = {
+            ok: false,
+            message: "تعذر قراءة استجابة الخادم",
+          };
+        }
+
+        if (response.status === 401) {
+          redirectToLogin();
+
+          return {
+            ok: false,
+            message: payload.message || "انتهت جلسة الدخول",
+          };
+        }
+
+        if (!response.ok || !payload.ok) {
+          return {
+            ok: false,
+            message:
+              payload.message ||
+              `تعذر تنفيذ الطلب، رمز الاستجابة ${response.status}`,
+          };
+        }
+
+        return payload;
+      } catch (error) {
+        console.error("Admin support request failed:", error);
+
+        return {
+          ok: false,
+          message: "تعذر الاتصال بالخادم، تحقق من اتصال الإنترنت",
+        };
+      }
+    },
+    [redirectToLogin]
+  );
+
+  const loadDashboard = useCallback(
+    async (showFullLoader = false) => {
+      if (showFullLoader) {
+        setLoading(true);
+      }
+
+      setBusyAction("dashboard");
+      setPageError("");
+
+      try {
+        const response = await fetch("/api/admin-support/dashboard", {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+          headers: {
+            Accept: "application/json",
+          },
+        });
+
+        let payload: DashboardResponse;
+
+        try {
+          payload = (await response.json()) as DashboardResponse;
+        } catch {
+          payload = {
+            ok: false,
+            message: "تعذر قراءة بيانات لوحة الدعم",
+          };
+        }
+
+        if (response.status === 401) {
+          redirectToLogin();
+          return;
+        }
+
+        if (!response.ok || !payload.ok || !payload.user || !payload.access) {
+          setPageError(payload.message || "تعذر تحميل لوحة الدعم");
+          return;
+        }
+
+        setCurrentUser(payload.user);
+        setAccess(payload.access);
+        setBranches(Array.isArray(payload.branches) ? payload.branches : []);
+        setBranchManagers(
+          Array.isArray(payload.branch_managers)
+            ? payload.branch_managers
+            : []
+        );
+        setSupportUsers(
+          Array.isArray(payload.support_users) ? payload.support_users : []
+        );
+        setLogs(Array.isArray(payload.logs) ? payload.logs : []);
+      } catch (error) {
+        console.error("Dashboard load failed:", error);
+        setPageError("تعذر الاتصال بالخادم أثناء تحميل لوحة الدعم");
+      } finally {
+        setBusyAction(null);
+        setLoading(false);
+      }
+    },
+    [redirectToLogin]
+  );
+
+  useEffect(() => {
+    void loadDashboard(true);
+  }, [loadDashboard]);
+
+  useEffect(() => {
+    const tabAllowed =
+      activeTab === "overview" ||
+      (activeTab === "branches" &&
+        (access.manage_branches || access.impersonate_branch)) ||
+      (activeTab === "branch_managers" && access.manage_branches) ||
+      (activeTab === "users" && access.manage_support_users) ||
+      (activeTab === "logs" && access.view_logs);
+
+    if (!tabAllowed) {
+      setActiveTab("overview");
+    }
+  }, [access, activeTab]);
+
+  function hasPermission(key: SupportPermission) {
+    return (
+      currentUser?.role === "super_admin" ||
+      currentUser?.permissions.includes(key) === true
+    );
+  }
 
   function getBranchRelation(manager: BranchManager) {
     const relation = manager.finance_branches;
@@ -132,540 +365,29 @@ export default function AdminSupportPage() {
     return relation || null;
   }
 
-  function hasPermission(key: string) {
-    return (
-      currentUser?.role === "super_admin" ||
-      currentUser?.permissions?.includes(key)
-    );
-  }
-
-  async function addLog(
-    action: string,
-    targetType?: string,
-    targetId?: string,
-    details?: string
-  ) {
-    const saved =
-      typeof window !== "undefined"
-        ? localStorage.getItem("admin_support_user")
-        : null;
-
-    let user = currentUser;
-
-    try {
-      user = saved ? JSON.parse(saved) : currentUser;
-    } catch {
-      user = currentUser;
-    }
-
-    await supabase.from("admin_support_logs").insert({
-      user_id: user?.id || null,
-      user_name: user?.full_name || user?.username || "دعم فني",
-      action,
-      target_type: targetType || null,
-      target_id: targetId || null,
-      details: details || null,
-    });
-  }
-
-  async function loadData() {
-    setLoading(true);
-
-    await Promise.all([
-      loadBranches(),
-      loadBranchManagers(),
-      loadSupportUsers(),
-      loadLogs(),
-    ]);
-
-    setLoading(false);
-  }
-
-  async function loadBranches() {
-    const { data, error } = await supabase
-      .from("finance_branches")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      alert("تعذر تحميل الفروع: " + error.message);
-      return;
-    }
-
-    setBranches(data || []);
-  }
-
-  async function loadBranchManagers() {
-    const { data, error } = await supabase
-      .from("finance_branch_users")
-      .select(
-        `
-        id,
-        branch_id,
-        full_name,
-        username,
-        role,
-        is_active,
-        created_at,
-        finance_branches (
-          branch_name,
-          branch_slug,
-          organization_name
-        )
-      `
-      )
-      .eq("role", "branch_manager")
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      alert("تعذر تحميل مدراء الفروع: " + error.message);
-      return;
-    }
-
-    setBranchManagers((data as BranchManager[]) || []);
-  }
-
-  async function loadSupportUsers() {
-    const { data: users, error } = await supabase
-      .from("admin_support_users")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      alert("تعذر تحميل مستخدمي الدعم: " + error.message);
-      return;
-    }
-
-    const { data: perms } = await supabase
-      .from("admin_support_user_permissions")
-      .select("user_id, permission_key");
-
-    const merged =
-      users?.map((user: any) => ({
-        ...user,
-        permissions:
-          perms
-            ?.filter((p: any) => p.user_id === user.id)
-            .map((p: any) => p.permission_key) || [],
-      })) || [];
-
-    setSupportUsers(merged);
-  }
-
-  async function loadLogs() {
-    const { data, error } = await supabase
-      .from("admin_support_logs")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(50);
-
-    if (!error) {
-      setLogs(data || []);
-    }
-  }
-
   function validateUsername(value: string) {
     const username = value.trim();
 
-    if (username.length < 3 || username.length > 30) {
-      return false;
-    }
-
-    return /^[A-Za-z0-9_\u0600-\u06FF]+$/.test(username);
+    return (
+      username.length >= 3 &&
+      username.length <= 30 &&
+      /^[A-Za-z0-9_\u0600-\u06FF]+$/.test(username)
+    );
   }
 
   function validatePin(value: string) {
     return /^\d{4}$/.test(value.trim());
   }
 
-  async function rollbackNewBranch(branchId: string) {
-    await supabase.from("finance_branch_users").delete().eq("branch_id", branchId);
-    await supabase.from("finance_investors").delete().eq("branch_id", branchId);
-    await supabase.from("finance_branches").delete().eq("id", branchId);
+  function validateSupportPassword(value: string) {
+    const password = value.trim();
+    return password.length >= 4 && password.length <= 100;
   }
 
-  async function ensurePrimaryInvestorForBranch(branch: {
-    id: string;
-    branch_name: string;
-    phone?: string | null;
-  }) {
-    const { data: existingInvestors, error: investorCheckError } =
-      await supabase
-        .from("finance_investors")
-        .select("id")
-        .eq("branch_id", branch.id)
-        .eq("is_primary", true)
-        .limit(1);
-
-    if (investorCheckError) {
-      return {
-        ok: false,
-        error: investorCheckError.message,
-      };
+  function showMessage(message?: string) {
+    if (message) {
+      window.alert(message);
     }
-
-    if (existingInvestors && existingInvestors.length > 0) {
-      return {
-        ok: true,
-        error: null,
-      };
-    }
-
-    const { error: investorError } = await supabase
-      .from("finance_investors")
-      .insert({
-        branch_id: branch.id,
-        investor_name: `المستثمر الرئيسي - ${branch.branch_name}`,
-        phone: branch.phone || null,
-        notes: "مستثمر رئيسي تم إنشاؤه تلقائياً للفرع",
-        is_active: true,
-        is_primary: true,
-      });
-
-    if (investorError) {
-      return {
-        ok: false,
-        error: investorError.message,
-      };
-    }
-
-    return {
-      ok: true,
-      error: null,
-    };
-  }
-
-  async function saveBranch() {
-    if (!hasPermission("manage_branches")) {
-      alert("لا تملك صلاحية إدارة الفروع");
-      return;
-    }
-
-    const cleanBranchName = branchName.trim();
-    const cleanSlug = branchSlug.trim().toLowerCase();
-    const cleanOrganizationName = organizationName.trim();
-
-    const cleanManagerFullName = managerFullName.trim();
-    const cleanManagerUsername = managerUsername.trim();
-    const cleanManagerPassword = managerPassword.trim();
-
-    if (!cleanBranchName) {
-      alert("اكتب اسم الفرع");
-      return;
-    }
-
-    if (!cleanSlug) {
-      alert("اكتب رابط الفرع");
-      return;
-    }
-
-    if (!/^[a-zA-Z0-9_-]+$/.test(cleanSlug)) {
-      alert("رابط الفرع يقبل الحروف الإنجليزية والأرقام و _ أو - فقط");
-      return;
-    }
-
-    if (!cleanOrganizationName) {
-      alert("اكتب اسم المنظمة");
-      return;
-    }
-
-    if (!editingBranchId) {
-      if (!cleanManagerFullName) {
-        alert("اكتب اسم مدير الفرع");
-        return;
-      }
-
-      if (!validateUsername(cleanManagerUsername)) {
-        alert(
-          "اسم مستخدم مدير الفرع يجب أن يكون من 3 إلى 30 حرفاً، ويقبل العربي أو الإنجليزي أو الأرقام أو _ فقط"
-        );
-        return;
-      }
-
-      if (!validatePin(cleanManagerPassword)) {
-        alert("كلمة مرور مدير الفرع يجب أن تكون 4 أرقام فقط");
-        return;
-      }
-    }
-
-    const branchPayload = {
-      branch_name: cleanBranchName,
-      branch_slug: cleanSlug,
-      organization_name: cleanOrganizationName,
-      city: branchCity.trim() || null,
-      commercial_record: branchCommercialRecord.trim() || null,
-      phone: branchPhone.trim() || null,
-      notes: branchNotes.trim() || null,
-    };
-
-    const { data: existingBranch, error: existingBranchError } = await supabase
-      .from("finance_branches")
-      .select("id")
-      .eq("branch_slug", cleanSlug)
-      .neq("id", editingBranchId || "00000000-0000-0000-0000-000000000000")
-      .maybeSingle();
-
-    if (existingBranchError) {
-      alert("تعذر التحقق من رابط الفرع: " + existingBranchError.message);
-      return;
-    }
-
-    if (existingBranch) {
-      alert("الفرع موجود مسبقاً");
-      return;
-    }
-
-    if (!editingBranchId) {
-      const { data: existingUsername, error: usernameCheckError } =
-        await supabase
-          .from("finance_branch_users")
-          .select("id")
-          .eq("username", cleanManagerUsername)
-          .maybeSingle();
-
-      if (usernameCheckError) {
-        alert("تعذر التحقق من اسم مستخدم مدير الفرع: " + usernameCheckError.message);
-        return;
-      }
-
-      if (existingUsername) {
-        alert("اسم مستخدم مدير الفرع مستخدم مسبقاً، اختر اسم مستخدم آخر");
-        return;
-      }
-    }
-
-    if (editingBranchId) {
-      const { error } = await supabase
-        .from("finance_branches")
-        .update(branchPayload)
-        .eq("id", editingBranchId);
-
-      if (error) {
-        alert("تعذر حفظ الفرع: " + error.message);
-        return;
-      }
-
-      const primaryInvestorResult = await ensurePrimaryInvestorForBranch({
-        id: editingBranchId,
-        branch_name: cleanBranchName,
-        phone: branchPhone.trim() || null,
-      });
-
-      if (!primaryInvestorResult.ok) {
-        alert(
-          "تم تعديل الفرع، لكن تعذر التحقق من المستثمر الرئيسي: " +
-            primaryInvestorResult.error
-        );
-        return;
-      }
-
-      await addLog(
-        "تعديل فرع",
-        "branch",
-        editingBranchId,
-        `${cleanBranchName} - ${cleanOrganizationName}`
-      );
-
-      resetBranchForm();
-      await Promise.all([loadBranches(), loadBranchManagers(), loadLogs()]);
-      return;
-    }
-
-    const { data: newBranch, error: branchError } = await supabase
-      .from("finance_branches")
-      .insert({
-        ...branchPayload,
-        is_active: true,
-      })
-      .select("id, branch_name, branch_slug, organization_name, phone")
-      .single();
-
-    if (branchError || !newBranch) {
-      if (
-        branchError?.code === "23505" ||
-        branchError?.message?.includes("duplicate key")
-      ) {
-        alert("الفرع موجود مسبقاً");
-        return;
-      }
-
-      alert("تعذر إنشاء الفرع: " + branchError?.message);
-      return;
-    }
-
-    const { error: managerError } = await supabase
-      .from("finance_branch_users")
-      .insert({
-        branch_id: newBranch.id,
-        full_name: cleanManagerFullName,
-        username: cleanManagerUsername,
-        password: cleanManagerPassword,
-        role: "branch_manager",
-        is_active: true,
-      });
-
-    if (managerError) {
-      await rollbackNewBranch(newBranch.id);
-
-      if (
-        managerError.code === "23505" ||
-        managerError.message?.includes("duplicate key")
-      ) {
-        alert(
-          "تم إلغاء إنشاء الفرع لأن اسم مستخدم مدير الفرع مستخدم مسبقاً. اختر اسم مستخدم آخر."
-        );
-        return;
-      }
-
-      alert(
-        "تم إلغاء إنشاء الفرع لأن إنشاء مدير الفرع فشل: " +
-          managerError.message
-      );
-      return;
-    }
-
-    const primaryInvestorResult = await ensurePrimaryInvestorForBranch({
-      id: newBranch.id,
-      branch_name: newBranch.branch_name,
-      phone: newBranch.phone || branchPhone.trim() || null,
-    });
-
-    if (!primaryInvestorResult.ok) {
-      await rollbackNewBranch(newBranch.id);
-
-      alert(
-        "تم إلغاء إنشاء الفرع لأن إنشاء المستثمر الرئيسي فشل: " +
-          primaryInvestorResult.error
-      );
-      return;
-    }
-
-    await addLog(
-      "إضافة فرع مع مدير الفرع والمستثمر الرئيسي",
-      "branch",
-      newBranch.id,
-      `${newBranch.branch_name} - المدير: ${cleanManagerFullName} - المستخدم: ${cleanManagerUsername}`
-    );
-
-    resetBranchForm();
-    await Promise.all([loadBranches(), loadBranchManagers(), loadLogs()]);
-
-    alert("تم إنشاء الفرع ومدير الفرع والمستثمر الرئيسي بنجاح");
-  }
-
-  async function toggleBranch(branch: Branch) {
-    if (!hasPermission("manage_branches")) {
-      alert("لا تملك الصلاحية");
-      return;
-    }
-
-    const { error } = await supabase
-      .from("finance_branches")
-      .update({
-        is_active: !branch.is_active,
-      })
-      .eq("id", branch.id);
-
-    if (error) {
-      alert("تعذر تعديل حالة الفرع: " + error.message);
-      return;
-    }
-
-    await addLog(
-      branch.is_active ? "تعطيل فرع" : "تفعيل فرع",
-      "branch",
-      branch.id,
-      branch.branch_name
-    );
-
-    await Promise.all([loadBranches(), loadLogs()]);
-  }
-
-  async function toggleBranchManager(manager: BranchManager) {
-    if (!hasPermission("manage_branches")) {
-      alert("لا تملك الصلاحية");
-      return;
-    }
-
-    const { error } = await supabase
-      .from("finance_branch_users")
-      .update({
-        is_active: !manager.is_active,
-      })
-      .eq("id", manager.id);
-
-    if (error) {
-      alert("تعذر تعديل حالة مدير الفرع: " + error.message);
-      return;
-    }
-
-    await addLog(
-      manager.is_active ? "تعطيل مدير فرع" : "تفعيل مدير فرع",
-      "branch_manager",
-      manager.id,
-      manager.full_name
-    );
-
-    await Promise.all([loadBranchManagers(), loadLogs()]);
-  }
-
-  async function resetBranchManagerPassword(manager: BranchManager) {
-    if (!hasPermission("manage_branches")) {
-      alert("لا تملك الصلاحية");
-      return;
-    }
-
-    const newPassword = window.prompt(
-      `اكتب كلمة مرور جديدة من 4 أرقام للمدير: ${manager.full_name}`
-    );
-
-    if (newPassword === null) return;
-
-    if (!validatePin(newPassword)) {
-      alert("كلمة المرور يجب أن تكون 4 أرقام فقط");
-      return;
-    }
-
-    const { error } = await supabase
-      .from("finance_branch_users")
-      .update({
-        password: newPassword.trim(),
-      })
-      .eq("id", manager.id);
-
-    if (error) {
-      alert("تعذر إعادة تعيين كلمة المرور: " + error.message);
-      return;
-    }
-
-    await addLog(
-      "إعادة تعيين كلمة مرور مدير فرع",
-      "branch_manager",
-      manager.id,
-      manager.full_name
-    );
-
-    alert("تم تحديث كلمة المرور بنجاح");
-    await loadLogs();
-  }
-
-  function editBranch(branch: Branch) {
-    setEditingBranchId(branch.id);
-    setBranchName(branch.branch_name || "");
-    setBranchSlug(branch.branch_slug || "");
-    setOrganizationName(branch.organization_name || "");
-    setBranchCity(branch.city || "");
-    setBranchCommercialRecord(branch.commercial_record || "");
-    setBranchPhone(branch.phone || "");
-    setBranchNotes(branch.notes || "");
-
-    setManagerFullName("");
-    setManagerUsername("");
-    setManagerPassword("");
-
-    setShowBranchForm(true);
-    setActiveTab("branches");
-    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function resetBranchForm() {
@@ -677,112 +399,305 @@ export default function AdminSupportPage() {
     setBranchCommercialRecord("");
     setBranchPhone("");
     setBranchNotes("");
-
     setManagerFullName("");
     setManagerUsername("");
     setManagerPassword("");
-
     setShowBranchForm(false);
   }
 
-  async function enterBranch(branch: Branch) {
-    if (!hasPermission("impersonate_branch")) {
-      alert("لا تملك صلاحية الدخول للفروع");
+  function editBranch(branch: Branch) {
+    if (!access.manage_branches) {
+      showMessage("لا تملك صلاحية إدارة الفروع");
       return;
     }
 
-    await addLog(
-      "دخول فرع",
-      "branch",
-      branch.id,
-      `${branch.branch_name} - ${branch.branch_slug}`
-    );
+    setEditingBranchId(branch.id);
+    setBranchName(branch.branch_name || "");
+    setBranchSlug(branch.branch_slug || "");
+    setOrganizationName(branch.organization_name || "");
+    setBranchCity(branch.city || "");
+    setBranchCommercialRecord(branch.commercial_record || "");
+    setBranchPhone(branch.phone || "");
+    setBranchNotes(branch.notes || "");
+    setManagerFullName("");
+    setManagerUsername("");
+    setManagerPassword("");
+    setShowBranchForm(true);
+    setActiveTab("branches");
 
-    localStorage.setItem(
-      "admin_support_impersonation",
-      JSON.stringify({
-        branch_id: branch.id,
-        branch_slug: branch.branch_slug,
-        branch_name: branch.branch_name,
-        support_user: currentUser?.full_name || currentUser?.username,
-        entered_at: new Date().toISOString(),
-      })
-    );
-
-    window.location.href = `/finance/${branch.branch_slug}`;
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
   }
 
-  async function createSupportUser() {
-    if (!hasPermission("manage_support_users")) {
-      alert("لا تملك صلاحية إدارة مستخدمي الدعم");
+  async function saveBranch() {
+    if (!access.manage_branches) {
+      showMessage("لا تملك صلاحية إدارة الفروع");
       return;
     }
 
-    if (!supportFullName.trim()) {
-      alert("اكتب الاسم");
+    if (busyAction) return;
+
+    const cleanBranchName = branchName.trim();
+    const cleanSlug = branchSlug.trim().toLowerCase();
+    const cleanOrganizationName = organizationName.trim();
+    const cleanManagerFullName = managerFullName.trim();
+    const cleanManagerUsername = managerUsername.trim();
+    const cleanManagerPassword = managerPassword.trim();
+
+    if (!cleanBranchName) {
+      showMessage("اكتب اسم الفرع");
       return;
     }
 
-    if (!supportUsername.trim()) {
-      alert("اكتب اسم المستخدم");
+    if (!cleanSlug) {
+      showMessage("اكتب رابط الفرع");
       return;
     }
 
-    if (!supportPassword.trim()) {
-      alert("اكتب كلمة المرور");
+    if (!/^[a-z0-9_-]+$/.test(cleanSlug)) {
+      showMessage(
+        "رابط الفرع يقبل الحروف الإنجليزية الصغيرة والأرقام و _ أو - فقط"
+      );
       return;
     }
 
-    const { error } = await supabase.rpc("create_admin_support_user", {
-      p_full_name: supportFullName.trim(),
-      p_username: supportUsername.trim(),
-      p_password: supportPassword.trim(),
-      p_role: supportRole,
-      p_permissions: selectedPermissions,
+    if (!cleanOrganizationName) {
+      showMessage("اكتب اسم المنظمة");
+      return;
+    }
+
+    if (!editingBranchId) {
+      if (!cleanManagerFullName) {
+        showMessage("اكتب اسم مدير الفرع");
+        return;
+      }
+
+      if (!validateUsername(cleanManagerUsername)) {
+        showMessage(
+          "اسم مستخدم مدير الفرع يجب أن يكون من 3 إلى 30 حرفًا، ويقبل العربي أو الإنجليزي أو الأرقام أو _ فقط"
+        );
+        return;
+      }
+
+      if (!validatePin(cleanManagerPassword)) {
+        showMessage("كلمة مرور مدير الفرع يجب أن تكون 4 أرقام فقط");
+        return;
+      }
+    }
+
+    const requestBody = {
+      branch_name: cleanBranchName,
+      branch_slug: cleanSlug,
+      organization_name: cleanOrganizationName,
+      city: branchCity.trim(),
+      commercial_record: branchCommercialRecord.trim(),
+      phone: branchPhone.trim(),
+      notes: branchNotes.trim(),
+    };
+
+    setBusyAction("save_branch");
+
+    const response = editingBranchId
+      ? await apiRequest(`/api/admin-support/branches/${editingBranchId}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            ...requestBody,
+            is_active:
+              branches.find((branch) => branch.id === editingBranchId)
+                ?.is_active ?? true,
+          }),
+        })
+      : await apiRequest("/api/admin-support/branches", {
+          method: "POST",
+          body: JSON.stringify({
+            ...requestBody,
+            manager_full_name: cleanManagerFullName,
+            manager_username: cleanManagerUsername,
+            manager_password: cleanManagerPassword,
+          }),
+        });
+
+    setBusyAction(null);
+
+    if (!response.ok) {
+      showMessage(response.message);
+      return;
+    }
+
+    resetBranchForm();
+    showMessage(
+      response.message ||
+        (editingBranchId ? "تم تحديث الفرع" : "تم إنشاء الفرع")
+    );
+
+    await loadDashboard();
+  }
+
+  async function toggleBranch(branch: Branch) {
+    if (!access.manage_branches) {
+      showMessage("لا تملك صلاحية إدارة الفروع");
+      return;
+    }
+
+    if (busyAction) return;
+
+    const nextStatus = !branch.is_active;
+    const confirmed = window.confirm(
+      nextStatus
+        ? `هل تريد تفعيل فرع ${branch.branch_name}؟`
+        : `هل تريد تعطيل فرع ${branch.branch_name}؟`
+    );
+
+    if (!confirmed) return;
+
+    setBusyAction(`branch_status:${branch.id}`);
+
+    const response = await apiRequest(
+      `/api/admin-support/branches/${branch.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          branch_name: branch.branch_name,
+          branch_slug: branch.branch_slug,
+          organization_name: branch.organization_name,
+          city: branch.city || "",
+          commercial_record: branch.commercial_record || "",
+          phone: branch.phone || "",
+          notes: branch.notes || "",
+          is_active: nextStatus,
+        }),
+      }
+    );
+
+    setBusyAction(null);
+
+    if (!response.ok) {
+      showMessage(response.message);
+      return;
+    }
+
+    showMessage(response.message);
+    await loadDashboard();
+  }
+
+  async function toggleBranchManager(manager: BranchManager) {
+    if (!access.manage_branches) {
+      showMessage("لا تملك صلاحية إدارة الفروع");
+      return;
+    }
+
+    if (busyAction) return;
+
+    const nextStatus = !manager.is_active;
+    const confirmed = window.confirm(
+      nextStatus
+        ? `هل تريد تفعيل المدير ${manager.full_name}؟`
+        : `هل تريد تعطيل المدير ${manager.full_name}؟`
+    );
+
+    if (!confirmed) return;
+
+    setBusyAction(`manager_status:${manager.id}`);
+
+    const response = await apiRequest(
+      `/api/admin-support/branch-managers/${manager.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          action: "set_active",
+          is_active: nextStatus,
+        }),
+      }
+    );
+
+    setBusyAction(null);
+
+    if (!response.ok) {
+      showMessage(response.message);
+      return;
+    }
+
+    showMessage(response.message);
+    await loadDashboard();
+  }
+
+  async function resetBranchManagerPassword(manager: BranchManager) {
+    if (!access.manage_branches) {
+      showMessage("لا تملك صلاحية إدارة الفروع");
+      return;
+    }
+
+    if (busyAction) return;
+
+    const newPassword = window.prompt(
+      `اكتب كلمة مرور جديدة من 4 أرقام للمدير: ${manager.full_name}`
+    );
+
+    if (newPassword === null) return;
+
+    const cleanPassword = newPassword.trim();
+
+    if (!validatePin(cleanPassword)) {
+      showMessage("كلمة المرور يجب أن تكون 4 أرقام فقط");
+      return;
+    }
+
+    setBusyAction(`manager_password:${manager.id}`);
+
+    const response = await apiRequest(
+      `/api/admin-support/branch-managers/${manager.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          action: "reset_password",
+          new_password: cleanPassword,
+        }),
+      }
+    );
+
+    setBusyAction(null);
+
+    if (!response.ok) {
+      showMessage(response.message);
+      return;
+    }
+
+    showMessage(response.message || "تم تحديث كلمة المرور بنجاح");
+    await loadDashboard();
+  }
+
+  async function enterBranch(branch: Branch) {
+    if (!access.impersonate_branch) {
+      showMessage("لا تملك صلاحية الدخول للفروع");
+      return;
+    }
+
+    if (!branch.is_active) {
+      showMessage("لا يمكن الدخول إلى فرع معطل");
+      return;
+    }
+
+    if (busyAction) return;
+
+    setBusyAction(`branch_enter:${branch.id}`);
+
+    const response = await apiRequest("/api/admin-support/impersonate", {
+      method: "POST",
+      body: JSON.stringify({
+        branch_id: branch.id,
+      }),
     });
 
-    if (error) {
-      alert("تعذر إنشاء المستخدم: " + error.message);
+    setBusyAction(null);
+
+    if (!response.ok || !response.redirect_url) {
+      showMessage(response.message || "تعذر الدخول إلى الفرع");
       return;
     }
 
-    await addLog(
-      "إضافة مستخدم دعم",
-      "support_user",
-      supportUsername,
-      supportFullName
-    );
-
-    resetUserForm();
-    await Promise.all([loadSupportUsers(), loadLogs()]);
-  }
-
-  async function toggleSupportUser(user: SupportUser) {
-    if (!hasPermission("manage_support_users")) {
-      alert("لا تملك الصلاحية");
-      return;
-    }
-
-    const { error } = await supabase
-      .from("admin_support_users")
-      .update({
-        is_active: !user.is_active,
-      })
-      .eq("id", user.id);
-
-    if (error) {
-      alert("تعذر تعديل المستخدم: " + error.message);
-      return;
-    }
-
-    await addLog(
-      user.is_active ? "تعطيل مستخدم دعم" : "تفعيل مستخدم دعم",
-      "support_user",
-      user.id,
-      user.full_name
-    );
-
-    await Promise.all([loadSupportUsers(), loadLogs()]);
+    router.push(response.redirect_url);
   }
 
   function resetUserForm() {
@@ -794,27 +709,178 @@ export default function AdminSupportPage() {
     setShowUserForm(false);
   }
 
-  function logout() {
-    localStorage.removeItem("admin_support_user");
-    localStorage.removeItem("admin_support_impersonation");
-    window.location.href = "/admin-support/login";
+  async function createSupportUser() {
+    if (!access.manage_support_users) {
+      showMessage("لا تملك صلاحية إدارة مستخدمي الدعم");
+      return;
+    }
+
+    if (busyAction) return;
+
+    const cleanFullName = supportFullName.trim();
+    const cleanUsername = supportUsername.trim();
+    const cleanPassword = supportPassword.trim();
+
+    if (!cleanFullName) {
+      showMessage("اكتب الاسم");
+      return;
+    }
+
+    if (cleanFullName.length > 100) {
+      showMessage("الاسم طويل جدًا");
+      return;
+    }
+
+    if (!validateUsername(cleanUsername)) {
+      showMessage(
+        "اسم المستخدم يجب أن يكون من 3 إلى 30 حرفًا، ويقبل العربي أو الإنجليزي أو الأرقام أو _ فقط"
+      );
+      return;
+    }
+
+    if (!validateSupportPassword(cleanPassword)) {
+      showMessage("كلمة المرور يجب أن تكون من 4 إلى 100 حرف");
+      return;
+    }
+
+    if (
+      supportRole === "super_admin" &&
+      currentUser?.role !== "super_admin"
+    ) {
+      showMessage("إنشاء مدير نظام متاح لمدير النظام فقط");
+      return;
+    }
+
+    setBusyAction("create_support_user");
+
+    const response = await apiRequest("/api/admin-support/support-users", {
+      method: "POST",
+      body: JSON.stringify({
+        full_name: cleanFullName,
+        username: cleanUsername,
+        password: cleanPassword,
+        role: supportRole,
+        permissions: selectedPermissions,
+      }),
+    });
+
+    setBusyAction(null);
+
+    if (!response.ok) {
+      showMessage(response.message);
+      return;
+    }
+
+    resetUserForm();
+    showMessage(response.message || "تم إنشاء مستخدم الدعم بنجاح");
+    await loadDashboard();
+  }
+
+  async function toggleSupportUser(user: SupportUser) {
+    if (!access.manage_support_users) {
+      showMessage("لا تملك صلاحية إدارة مستخدمي الدعم");
+      return;
+    }
+
+    if (busyAction) return;
+
+    const nextStatus = !user.is_active;
+    const confirmed = window.confirm(
+      nextStatus
+        ? `هل تريد تفعيل المستخدم ${user.full_name}؟`
+        : `هل تريد تعطيل المستخدم ${user.full_name}؟`
+    );
+
+    if (!confirmed) return;
+
+    setBusyAction(`support_status:${user.id}`);
+
+    const response = await apiRequest(
+      `/api/admin-support/support-users/${user.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          is_active: nextStatus,
+        }),
+      }
+    );
+
+    setBusyAction(null);
+
+    if (!response.ok) {
+      showMessage(response.message);
+      return;
+    }
+
+    showMessage(response.message);
+    await loadDashboard();
+  }
+
+  async function logout() {
+    if (busyAction) return;
+
+    setBusyAction("logout");
+
+    try {
+      await fetch("/api/admin-support/logout", {
+        method: "POST",
+        credentials: "include",
+        cache: "no-store",
+      });
+    } catch (error) {
+      console.error("Logout request failed:", error);
+    } finally {
+      setBusyAction(null);
+      redirectToLogin();
+    }
   }
 
   const activeBranches = useMemo(
-    () => branches.filter((b) => b.is_active).length,
+    () => branches.filter((branch) => branch.is_active).length,
     [branches]
   );
 
   const disabledBranches = branches.length - activeBranches;
 
+  const visibleTabs = useMemo(
+    () => ({
+      branches: access.manage_branches || access.impersonate_branch,
+      branchManagers: access.manage_branches,
+      users: access.manage_support_users,
+      logs: access.view_logs,
+    }),
+    [access]
+  );
+
   if (loading) {
     return (
-      <main dir="rtl" style={page}>
-        <div className="support-shell" style={shell}>
-          <section style={topHero}>
-            <h1 style={heroTitle}>جاري تحميل لوحة الدعم الفني...</h1>
-          </section>
-        </div>
+      <main dir="rtl" style={getPageStyle(isCompact)}>
+        <section style={loadingCard}>
+          <div style={loadingSpinner} />
+          <h1 style={loadingTitle}>جاري تحميل لوحة الدعم الفني</h1>
+        </section>
+
+        <GlobalResponsiveStyles />
+      </main>
+    );
+  }
+
+  if (pageError && !currentUser) {
+    return (
+      <main dir="rtl" style={getPageStyle(isCompact)}>
+        <section style={errorCard}>
+          <h1 style={errorTitle}>تعذر تحميل لوحة الدعم</h1>
+          <p style={errorText}>{pageError}</p>
+
+          <button
+            type="button"
+            style={primaryButton}
+            onClick={() => void loadDashboard(true)}
+            disabled={busyAction === "dashboard"}
+          >
+            {busyAction === "dashboard" ? "جاري المحاولة..." : "إعادة المحاولة"}
+          </button>
+        </section>
 
         <GlobalResponsiveStyles />
       </main>
@@ -822,241 +888,290 @@ export default function AdminSupportPage() {
   }
 
   return (
-    <main dir="rtl" style={page}>
-      <div className="support-shell" style={shell}>
-        <aside className="support-sidebar" style={sidePanel}>
-          <BrandBox />
+    <main dir="rtl" style={getPageStyle(isCompact)}>
+      <div className="support-shell" style={getShellStyle(isCompact)}>
+        {!isCompact && (
+          <aside className="support-sidebar" style={sidePanel}>
+            <BrandBox />
 
-          <SideNav activeTab={activeTab} setActiveTab={setActiveTab} />
+            <SideNav
+              activeTab={activeTab}
+              setActiveTab={setActiveTab}
+              visibleTabs={visibleTabs}
+            />
 
-          <button style={logoutButton} onClick={logout}>
-            تسجيل خروج
-          </button>
-        </aside>
+            <button
+              type="button"
+              style={getDisabledStyle(
+                logoutButton,
+                busyAction === "logout"
+              )}
+              onClick={() => void logout()}
+              disabled={busyAction !== null}
+            >
+              {busyAction === "logout" ? "جاري الخروج..." : "تسجيل خروج"}
+            </button>
+          </aside>
+        )}
 
         <section className="support-main" style={mainPanel}>
-          <header style={topHero}>
-            <div>
-              <p style={topLabel}>لوحة الدعم الفني</p>
-              <h1 style={heroTitle}>إدارة النظام والفروع</h1>
-              <p style={heroSub}>
-                مرحباً {currentUser?.full_name || currentUser?.username}
-              </p>
+          <header style={getHeroStyle(isMobile)}>
+            <span style={heroCircleOne} />
+            <span style={heroCircleTwo} />
+            <span style={heroCircleThree} />
+            <span style={heroDots} />
+
+            <div style={heroContent}>
+              <div>
+                <p style={topLabel}>لوحة الدعم الفني</p>
+                <h1 style={getHeroTitleStyle(isMobile)}>
+                  إدارة النظام والفروع
+                </h1>
+
+                <p style={heroSub}>
+                  مرحبًا {currentUser?.full_name || currentUser?.username}
+                </p>
+              </div>
+
+              <div style={heroUserCard}>
+                <span style={heroUserName}>
+                  {currentUser?.full_name || currentUser?.username}
+                </span>
+
+                <span style={heroUserRole}>
+                  {roleLabel(currentUser?.role || "")}
+                </span>
+              </div>
             </div>
           </header>
 
-          <div className="mobile-nav">
-            <button
-              className={
-                activeTab === "overview" ? "mobile-tab active" : "mobile-tab"
-              }
-              onClick={() => setActiveTab("overview")}
-            >
-              📊 العامة
-            </button>
+          {isCompact && (
+            <MobileNav
+              activeTab={activeTab}
+              setActiveTab={setActiveTab}
+              visibleTabs={visibleTabs}
+              onLogout={() => void logout()}
+              disabled={busyAction !== null}
+            />
+          )}
 
-            <button
-              className={
-                activeTab === "branches" ? "mobile-tab active" : "mobile-tab"
-              }
-              onClick={() => setActiveTab("branches")}
-            >
-              🏢 الفروع
-            </button>
+          {pageError && (
+            <div style={inlineError}>
+              <span>{pageError}</span>
 
-            <button
-              className={
-                activeTab === "branch_managers"
-                  ? "mobile-tab active"
-                  : "mobile-tab"
-              }
-              onClick={() => setActiveTab("branch_managers")}
-            >
-              👨‍💼 مدراء الفروع
-            </button>
-
-            <button
-              className={
-                activeTab === "users" ? "mobile-tab active" : "mobile-tab"
-              }
-              onClick={() => setActiveTab("users")}
-            >
-              🛠️ الدعم
-            </button>
-
-            <button
-              className={
-                activeTab === "logs" ? "mobile-tab active" : "mobile-tab"
-              }
-              onClick={() => setActiveTab("logs")}
-            >
-              🧾 السجل
-            </button>
-
-            <button className="mobile-tab logout" onClick={logout}>
-              خروج
-            </button>
-          </div>
+              <button
+                type="button"
+                style={inlineRetryButton}
+                onClick={() => void loadDashboard()}
+                disabled={busyAction === "dashboard"}
+              >
+                إعادة المحاولة
+              </button>
+            </div>
+          )}
 
           <section className="stats-grid" style={statsGrid}>
-            <Stat title="كل الفروع" value={branches.length} hint="إجمالي الفروع" />
-            <Stat title="النشطة" value={activeBranches} hint="فروع تعمل الآن" />
-            <Stat title="المعطلة" value={disabledBranches} hint="فروع موقوفة" />
-            <Stat
-              title="مدراء الفروع"
-              value={branchManagers.length}
-              hint="مدير لكل فرع"
-            />
-            <Stat
-              title="الدعم"
-              value={supportUsers.length}
-              hint="مستخدمو الدعم الفني"
-            />
+            {visibleTabs.branches && (
+              <>
+                <Stat title="كل الفروع" value={branches.length} />
+                <Stat title="الفروع النشطة" value={activeBranches} />
+                <Stat title="الفروع المعطلة" value={disabledBranches} />
+              </>
+            )}
+
+            {visibleTabs.branchManagers && (
+              <Stat title="مدراء الفروع" value={branchManagers.length} />
+            )}
+
+            {visibleTabs.users && (
+              <Stat title="مستخدمو الدعم" value={supportUsers.length} />
+            )}
           </section>
 
           {activeTab === "overview" && (
             <section className="dashboard-grid" style={dashboardGrid}>
               <div style={darkCard}>
-                <h2 style={whiteTitle}>مختصر النظام</h2>
-                <p style={whiteText}>
-                  من هنا يمكنك إدارة فروع محطة العمل، إنشاء مدير الفرع الأول
-                  تلقائياً، وإضافة مستخدمي الدعم الفني.
-                </p>
+                <h2 style={whiteTitle}>لوحة التحكم المركزية</h2>
 
                 <div style={quickActions}>
-                  <button
-                    style={quickButton}
-                    onClick={() => setActiveTab("branches")}
-                  >
-                    إدارة الفروع
-                  </button>
+                  {visibleTabs.branches && (
+                    <button
+                      type="button"
+                      style={quickButton}
+                      onClick={() => setActiveTab("branches")}
+                    >
+                      إدارة الفروع
+                    </button>
+                  )}
 
-                  <button
-                    style={quickButton}
-                    onClick={() => setActiveTab("branch_managers")}
-                  >
-                    مدراء الفروع
-                  </button>
+                  {visibleTabs.branchManagers && (
+                    <button
+                      type="button"
+                      style={quickButton}
+                      onClick={() => setActiveTab("branch_managers")}
+                    >
+                      مدراء الفروع
+                    </button>
+                  )}
 
-                  <button
-                    style={quickButton}
-                    onClick={() => setActiveTab("users")}
-                  >
-                    مستخدمو الدعم
-                  </button>
+                  {visibleTabs.users && (
+                    <button
+                      type="button"
+                      style={quickButton}
+                      onClick={() => setActiveTab("users")}
+                    >
+                      مستخدمو الدعم
+                    </button>
+                  )}
+
+                  {visibleTabs.logs && (
+                    <button
+                      type="button"
+                      style={quickButton}
+                      onClick={() => setActiveTab("logs")}
+                    >
+                      سجل العمليات
+                    </button>
+                  )}
                 </div>
               </div>
 
-              <div style={panelCard}>
-                <h2 style={panelTitle}>آخر العمليات</h2>
+              {visibleTabs.logs && (
+                <div style={panelCard}>
+                  <h2 style={panelTitle}>آخر العمليات</h2>
 
-                {logs.length === 0 ? (
-                  <div style={emptyBox}>لا توجد عمليات حتى الآن.</div>
-                ) : (
-                  <div style={miniLogs}>
-                    {logs.slice(0, 6).map((log) => (
-                      <div key={log.id} style={miniLogItem}>
-                        <strong>{log.action}</strong>
-                        <span>{log.user_name || "-"}</span>
-                        <small>{formatDateTime(log.created_at)}</small>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+                  {logs.length === 0 ? (
+                    <div style={emptyBox}>لا توجد عمليات حتى الآن</div>
+                  ) : (
+                    <div style={miniLogs}>
+                      {logs.slice(0, 6).map((log) => (
+                        <div key={log.id} style={miniLogItem}>
+                          <strong>{log.action}</strong>
+                          <span>{log.user_name || "-"}</span>
+                          <small>{formatDateTime(log.created_at)}</small>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </section>
           )}
 
-          {activeTab === "branches" && (
+          {activeTab === "branches" && visibleTabs.branches && (
             <>
               <div style={sectionTop}>
-                <div>
-                  <h2 style={sectionTitle}>إدارة الفروع</h2>
-                  <p style={sectionSub}>
-                    عند إضافة فرع جديد، يتم إنشاء مدير الفرع والمستثمر الرئيسي
-                    تلقائياً بنفس البيانات المدخلة.
-                  </p>
-                </div>
+                <h2 style={sectionTitle}>إدارة الفروع</h2>
 
-                <button
-                  style={primaryButton}
-                  onClick={() => {
-                    resetBranchForm();
-                    setShowBranchForm(true);
-                  }}
-                >
-                  + إضافة فرع
-                </button>
+                {access.manage_branches && (
+                  <button
+                    type="button"
+                    style={primaryButton}
+                    onClick={() => {
+                      resetBranchForm();
+                      setShowBranchForm(true);
+                    }}
+                    disabled={busyAction !== null}
+                  >
+                    + إضافة فرع
+                  </button>
+                )}
               </div>
 
-              {showBranchForm && (
+              {showBranchForm && access.manage_branches && (
                 <section style={formCard}>
                   <h2 style={formTitle}>
                     {editingBranchId ? "تعديل فرع" : "إضافة فرع جديد"}
                   </h2>
 
                   <div style={formGrid}>
-                    <div>
-                      <label style={label}>اسم الفرع *</label>
+                    <Field label="اسم الفرع *">
                       <input
                         style={input}
                         value={branchName}
-                        onChange={(e) => setBranchName(e.target.value)}
+                        maxLength={100}
+                        onChange={(event) => setBranchName(event.target.value)}
                         placeholder="مثال: فرع الرياض"
+                        disabled={busyAction !== null}
                       />
-                    </div>
+                    </Field>
 
-                    <div>
-                      <label style={label}>رابط الفرع *</label>
+                    <Field label="رابط الفرع *">
                       <input
                         style={input}
                         value={branchSlug}
-                        onChange={(e) => setBranchSlug(e.target.value)}
-                        placeholder="مثال: riyadh"
+                        maxLength={60}
+                        dir="ltr"
+                        autoCapitalize="none"
+                        spellCheck={false}
+                        onChange={(event) =>
+                          setBranchSlug(
+                            event.target.value
+                              .toLowerCase()
+                              .replace(/[^a-z0-9_-]/g, "")
+                          )
+                        }
+                        placeholder="riyadh"
+                        disabled={busyAction !== null}
                       />
-                    </div>
+                    </Field>
 
-                    <div>
-                      <label style={label}>اسم المنظمة *</label>
+                    <Field label="اسم المنظمة *">
                       <input
                         style={input}
                         value={organizationName}
-                        onChange={(e) => setOrganizationName(e.target.value)}
+                        maxLength={150}
+                        onChange={(event) =>
+                          setOrganizationName(event.target.value)
+                        }
                         placeholder="مثال: مؤسسة سداد وأرقام"
+                        disabled={busyAction !== null}
                       />
-                    </div>
+                    </Field>
 
-                    <div>
-                      <label style={label}>المدينة</label>
+                    <Field label="المدينة">
                       <input
                         style={input}
                         value={branchCity}
-                        onChange={(e) => setBranchCity(e.target.value)}
+                        maxLength={100}
+                        onChange={(event) => setBranchCity(event.target.value)}
                         placeholder="مثال: حائل"
+                        disabled={busyAction !== null}
                       />
-                    </div>
+                    </Field>
 
-                    <div>
-                      <label style={label}>السجل التجاري</label>
+                    <Field label="السجل التجاري">
                       <input
                         style={input}
                         value={branchCommercialRecord}
-                        onChange={(e) =>
-                          setBranchCommercialRecord(e.target.value)
+                        maxLength={30}
+                        inputMode="numeric"
+                        onChange={(event) =>
+                          setBranchCommercialRecord(
+                            event.target.value.replace(/\D/g, "")
+                          )
                         }
                         placeholder="مثال: 7049981769"
+                        disabled={busyAction !== null}
                       />
-                    </div>
+                    </Field>
 
-                    <div>
-                      <label style={label}>رقم الجوال</label>
+                    <Field label="رقم الجوال">
                       <input
                         style={input}
                         value={branchPhone}
-                        onChange={(e) => setBranchPhone(e.target.value)}
-                        placeholder="مثال: 05xxxxxxxx"
+                        maxLength={20}
+                        inputMode="tel"
+                        dir="ltr"
+                        onChange={(event) =>
+                          setBranchPhone(
+                            event.target.value.replace(/[^\d+]/g, "")
+                          )
+                        }
+                        placeholder="05xxxxxxxx"
+                        disabled={busyAction !== null}
                       />
-                    </div>
+                    </Field>
                   </div>
 
                   {!editingBranchId && (
@@ -1064,62 +1179,96 @@ export default function AdminSupportPage() {
                       <div style={subFormTitle}>بيانات دخول مدير الفرع</div>
 
                       <div style={formGrid}>
-                        <div>
-                          <label style={label}>اسم مدير الفرع *</label>
+                        <Field label="اسم مدير الفرع *">
                           <input
                             style={input}
                             value={managerFullName}
-                            onChange={(e) => setManagerFullName(e.target.value)}
+                            maxLength={100}
+                            onChange={(event) =>
+                              setManagerFullName(event.target.value)
+                            }
                             placeholder="مثال: عبدالله البكر"
+                            disabled={busyAction !== null}
                           />
-                        </div>
+                        </Field>
 
-                        <div>
-                          <label style={label}>اسم المستخدم *</label>
+                        <Field label="اسم المستخدم *">
                           <input
                             style={input}
                             value={managerUsername}
-                            onChange={(e) => setManagerUsername(e.target.value)}
-                            placeholder="مثال: admin_riyadh"
+                            maxLength={30}
+                            autoCapitalize="none"
+                            spellCheck={false}
+                            onChange={(event) =>
+                              setManagerUsername(
+                                event.target.value.replace(
+                                  /[^A-Za-z0-9_\u0600-\u06FF]/g,
+                                  ""
+                                )
+                              )
+                            }
+                            placeholder="admin_riyadh"
+                            disabled={busyAction !== null}
                           />
-                        </div>
+                        </Field>
 
-                        <div>
-                          <label style={label}>كلمة المرور 4 أرقام *</label>
+                        <Field label="كلمة المرور 4 أرقام *">
                           <input
                             style={input}
                             type="password"
                             inputMode="numeric"
+                            autoComplete="new-password"
                             maxLength={4}
                             value={managerPassword}
-                            onChange={(e) =>
+                            onChange={(event) =>
                               setManagerPassword(
-                                e.target.value.replace(/\D/g, "").slice(0, 4)
+                                event.target.value.replace(/\D/g, "").slice(0, 4)
                               )
                             }
-                            placeholder="مثال: 1234"
+                            placeholder="••••"
+                            disabled={busyAction !== null}
                           />
-                        </div>
+                        </Field>
                       </div>
                     </>
                   )}
 
                   <div style={{ marginTop: 12 }}>
                     <label style={label}>ملاحظات</label>
+
                     <textarea
                       style={textarea}
                       value={branchNotes}
-                      onChange={(e) => setBranchNotes(e.target.value)}
+                      maxLength={1000}
+                      onChange={(event) => setBranchNotes(event.target.value)}
                       placeholder="ملاحظات داخلية للدعم الفني"
+                      disabled={busyAction !== null}
                     />
                   </div>
 
                   <div style={buttonsRow}>
-                    <button style={primaryButton} onClick={saveBranch}>
-                      حفظ
+                    <button
+                      type="button"
+                      style={getDisabledStyle(
+                        primaryButton,
+                        busyAction === "save_branch"
+                      )}
+                      onClick={() => void saveBranch()}
+                      disabled={busyAction !== null}
+                    >
+                      {busyAction === "save_branch"
+                        ? "جاري الحفظ..."
+                        : editingBranchId
+                          ? "حفظ التعديلات"
+                          : "إنشاء الفرع"}
                     </button>
 
-                    <button style={secondaryButton} onClick={resetBranchForm}>
+                    <button
+                      type="button"
+                      style={secondaryButton}
+                      onClick={resetBranchForm}
+                      disabled={busyAction !== null}
+                    >
                       إلغاء
                     </button>
                   </div>
@@ -1127,155 +1276,217 @@ export default function AdminSupportPage() {
               )}
 
               <section style={panelCard}>
-                <div style={branchesList}>
-                  {branches.map((branch) => (
-                    <article
-                      className="branch-row"
-                      key={branch.id}
-                      style={branchRow}
-                    >
-                      <div style={branchMain}>
-                        <div style={branchAvatar}>
-                          {branch.branch_name?.slice(0, 1) || "ف"}
-                        </div>
-
-                        <div>
-                          <h3 style={branchTitle}>{branch.branch_name}</h3>
-                          <p style={muted}>🏢 {branch.organization_name}</p>
-                          <p style={muted}>
-                            📍 {branch.city || "لم تحدد المدينة"}
-                          </p>
-                          <p style={muted}>
-                            🧾 {branch.commercial_record || "لا يوجد سجل تجاري"}
-                          </p>
-                          <p style={muted}>
-                            📱 {branch.phone || "لا يوجد رقم جوال"}
-                          </p>
-                          <p style={muted}>/finance/{branch.branch_slug}</p>
-                        </div>
-                      </div>
-
-                      <span
-                        style={branch.is_active ? activeBadge : inactiveBadge}
-                      >
-                        {branch.is_active ? "نشط" : "معطل"}
-                      </span>
-
-                      <div style={rowActions}>
-                        {hasPermission("impersonate_branch") && (
-                          <button
-                            style={smallBlueButton}
-                            onClick={() => enterBranch(branch)}
-                          >
-                            دخول
-                          </button>
-                        )}
-
-                        <button
-                          style={smallButton}
-                          onClick={() => editBranch(branch)}
-                        >
-                          تعديل
-                        </button>
-
-                        <button
-                          style={
-                            branch.is_active
-                              ? smallDangerButton
-                              : smallGreenButton
-                          }
-                          onClick={() => toggleBranch(branch)}
-                        >
-                          {branch.is_active ? "تعطيل" : "تفعيل"}
-                        </button>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              </section>
-            </>
-          )}
-
-          {activeTab === "branch_managers" && (
-            <>
-              <div style={sectionTop}>
-                <div>
-                  <h2 style={sectionTitle}>مدراء الفروع</h2>
-                  <p style={sectionSub}>
-                    يتم إنشاء مدير الفرع تلقائياً عند إنشاء الفرع من صفحة الدعم.
-                  </p>
-                </div>
-              </div>
-
-              <section style={usersGrid}>
-                {branchManagers.length === 0 ? (
-                  <div style={emptyBox}>لا يوجد مدراء فروع حتى الآن.</div>
+                {branches.length === 0 ? (
+                  <div style={emptyBox}>لا توجد فروع متاحة</div>
                 ) : (
-                  branchManagers.map((manager) => {
-                    const branchInfo = getBranchRelation(manager);
+                  <div style={branchesList}>
+                    {branches.map((branch) => {
+                      const branchBusy =
+                        busyAction === `branch_status:${branch.id}` ||
+                        busyAction === `branch_enter:${branch.id}`;
 
-                    return (
-                      <article key={manager.id} style={userCard}>
-                        <div style={userIcon}>👨‍💼</div>
-
-                        <h3 style={userTitle}>{manager.full_name}</h3>
-                        <p style={muted}>@{manager.username}</p>
-                        <p style={muted}>
-                          🏢 {branchInfo?.branch_name || "فرع غير محدد"}
-                        </p>
-                        <p style={muted}>
-                          🔗 /finance/{branchInfo?.branch_slug || "-"}
-                        </p>
-                        <p style={muted}>
-                          تاريخ الإنشاء: {formatDateTime(manager.created_at)}
-                        </p>
-
-                        <span
-                          style={
-                            manager.is_active ? activeBadge : inactiveBadge
-                          }
+                      return (
+                        <article
+                          className="branch-row"
+                          key={branch.id}
+                          style={branchRow}
                         >
-                          {manager.is_active ? "نشط" : "معطل"}
-                        </span>
+                          <div style={branchMain}>
+                            <div style={branchAvatar}>
+                              {branch.branch_name?.slice(0, 1) || "ف"}
+                            </div>
 
-                        <div style={rowActions}>
-                          <button
-                            style={smallBlueButton}
-                            onClick={() => resetBranchManagerPassword(manager)}
-                          >
-                            إعادة كلمة المرور
-                          </button>
+                            <div style={{ minWidth: 0 }}>
+                              <h3 style={branchTitle}>
+                                {branch.branch_name}
+                              </h3>
 
-                          <button
+                              <p style={muted}>{branch.organization_name}</p>
+                              <p style={muted}>
+                                {branch.city || "المدينة غير محددة"}
+                              </p>
+                              <p style={muted}>
+                                {branch.commercial_record ||
+                                  "لا يوجد سجل تجاري"}
+                              </p>
+                              <p style={muted}>
+                                {branch.phone || "لا يوجد رقم جوال"}
+                              </p>
+                              <p style={ltrMuted}>
+                                /finance/{branch.branch_slug}
+                              </p>
+                            </div>
+                          </div>
+
+                          <span
                             style={
-                              manager.is_active
-                                ? smallDangerButton
-                                : smallGreenButton
+                              branch.is_active ? activeBadge : inactiveBadge
                             }
-                            onClick={() => toggleBranchManager(manager)}
                           >
-                            {manager.is_active ? "تعطيل" : "تفعيل"}
-                          </button>
-                        </div>
-                      </article>
-                    );
-                  })
+                            {branch.is_active ? "نشط" : "معطل"}
+                          </span>
+
+                          <div style={rowActions}>
+                            {access.impersonate_branch && (
+                              <button
+                                type="button"
+                                style={getDisabledStyle(
+                                  smallBlueButton,
+                                  branchBusy || !branch.is_active
+                                )}
+                                onClick={() => void enterBranch(branch)}
+                                disabled={
+                                  busyAction !== null || !branch.is_active
+                                }
+                              >
+                                {busyAction === `branch_enter:${branch.id}`
+                                  ? "جاري الدخول..."
+                                  : "دخول"}
+                              </button>
+                            )}
+
+                            {access.manage_branches && (
+                              <>
+                                <button
+                                  type="button"
+                                  style={smallButton}
+                                  onClick={() => editBranch(branch)}
+                                  disabled={busyAction !== null}
+                                >
+                                  تعديل
+                                </button>
+
+                                <button
+                                  type="button"
+                                  style={getDisabledStyle(
+                                    branch.is_active
+                                      ? smallDangerButton
+                                      : smallGreenButton,
+                                    branchBusy
+                                  )}
+                                  onClick={() => void toggleBranch(branch)}
+                                  disabled={busyAction !== null}
+                                >
+                                  {busyAction ===
+                                  `branch_status:${branch.id}`
+                                    ? "جاري التنفيذ..."
+                                    : branch.is_active
+                                      ? "تعطيل"
+                                      : "تفعيل"}
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
                 )}
               </section>
             </>
           )}
 
-          {activeTab === "users" && (
-            <>
-              <div style={sectionTop}>
-                <div>
-                  <h2 style={sectionTitle}>مستخدمو الدعم الفني</h2>
-                  <p style={sectionSub}>إنشاء حسابات الدعم وتحديد الصلاحيات.</p>
+          {activeTab === "branch_managers" &&
+            visibleTabs.branchManagers && (
+              <>
+                <div style={sectionTop}>
+                  <h2 style={sectionTitle}>مدراء الفروع</h2>
                 </div>
 
+                <section style={usersGrid}>
+                  {branchManagers.length === 0 ? (
+                    <div style={emptyBox}>لا يوجد مدراء فروع</div>
+                  ) : (
+                    branchManagers.map((manager) => {
+                      const branchInfo = getBranchRelation(manager);
+                      const managerBusy =
+                        busyAction === `manager_status:${manager.id}` ||
+                        busyAction === `manager_password:${manager.id}`;
+
+                      return (
+                        <article key={manager.id} style={userCard}>
+                          <div style={userIcon}>م</div>
+
+                          <h3 style={userTitle}>{manager.full_name}</h3>
+                          <p style={muted}>@{manager.username}</p>
+                          <p style={muted}>
+                            {branchInfo?.branch_name || "فرع غير محدد"}
+                          </p>
+                          <p style={ltrMuted}>
+                            /finance/{branchInfo?.branch_slug || "-"}
+                          </p>
+                          <p style={muted}>
+                            {formatDateTime(manager.created_at)}
+                          </p>
+
+                          <span
+                            style={
+                              manager.is_active ? activeBadge : inactiveBadge
+                            }
+                          >
+                            {manager.is_active ? "نشط" : "معطل"}
+                          </span>
+
+                          <div style={rowActions}>
+                            <button
+                              type="button"
+                              style={getDisabledStyle(
+                                smallBlueButton,
+                                managerBusy
+                              )}
+                              onClick={() =>
+                                void resetBranchManagerPassword(manager)
+                              }
+                              disabled={busyAction !== null}
+                            >
+                              {busyAction ===
+                              `manager_password:${manager.id}`
+                                ? "جاري التحديث..."
+                                : "إعادة كلمة المرور"}
+                            </button>
+
+                            <button
+                              type="button"
+                              style={getDisabledStyle(
+                                manager.is_active
+                                  ? smallDangerButton
+                                  : smallGreenButton,
+                                managerBusy
+                              )}
+                              onClick={() =>
+                                void toggleBranchManager(manager)
+                              }
+                              disabled={busyAction !== null}
+                            >
+                              {busyAction ===
+                              `manager_status:${manager.id}`
+                                ? "جاري التنفيذ..."
+                                : manager.is_active
+                                  ? "تعطيل"
+                                  : "تفعيل"}
+                            </button>
+                          </div>
+                        </article>
+                      );
+                    })
+                  )}
+                </section>
+              </>
+            )}
+
+          {activeTab === "users" && visibleTabs.users && (
+            <>
+              <div style={sectionTop}>
+                <h2 style={sectionTitle}>مستخدمو الدعم الفني</h2>
+
                 <button
+                  type="button"
                   style={primaryButton}
-                  onClick={() => setShowUserForm(true)}
+                  onClick={() => {
+                    resetUserForm();
+                    setShowUserForm(true);
+                  }}
+                  disabled={busyAction !== null}
                 >
                   + إضافة مستخدم
                 </button>
@@ -1286,73 +1497,119 @@ export default function AdminSupportPage() {
                   <h2 style={formTitle}>إضافة مستخدم دعم فني</h2>
 
                   <div style={formGrid}>
-                    <div>
-                      <label style={label}>الاسم</label>
+                    <Field label="الاسم *">
                       <input
                         style={input}
                         value={supportFullName}
-                        onChange={(e) => setSupportFullName(e.target.value)}
+                        maxLength={100}
+                        onChange={(event) =>
+                          setSupportFullName(event.target.value)
+                        }
+                        disabled={busyAction !== null}
                       />
-                    </div>
+                    </Field>
 
-                    <div>
-                      <label style={label}>اسم المستخدم</label>
+                    <Field label="اسم المستخدم *">
                       <input
                         style={input}
                         value={supportUsername}
-                        onChange={(e) => setSupportUsername(e.target.value)}
+                        maxLength={30}
+                        autoCapitalize="none"
+                        spellCheck={false}
+                        onChange={(event) =>
+                          setSupportUsername(
+                            event.target.value.replace(
+                              /[^A-Za-z0-9_\u0600-\u06FF]/g,
+                              ""
+                            )
+                          )
+                        }
+                        disabled={busyAction !== null}
                       />
-                    </div>
+                    </Field>
 
-                    <div>
-                      <label style={label}>كلمة المرور</label>
+                    <Field label="كلمة المرور *">
                       <input
                         style={input}
                         type="password"
+                        autoComplete="new-password"
                         value={supportPassword}
-                        onChange={(e) => setSupportPassword(e.target.value)}
+                        maxLength={100}
+                        onChange={(event) =>
+                          setSupportPassword(event.target.value)
+                        }
+                        disabled={busyAction !== null}
                       />
-                    </div>
+                    </Field>
 
-                    <div>
-                      <label style={label}>الدور</label>
+                    <Field label="الدور *">
                       <select
                         style={input}
                         value={supportRole}
-                        onChange={(e) => setSupportRole(e.target.value)}
+                        onChange={(event) =>
+                          setSupportRole(event.target.value as SupportRole)
+                        }
+                        disabled={busyAction !== null}
                       >
                         <option value="support">دعم فني</option>
                         <option value="viewer">مشاهدة فقط</option>
-                        <option value="super_admin">مدير النظام</option>
+
+                        {currentUser?.role === "super_admin" && (
+                          <option value="super_admin">مدير النظام</option>
+                        )}
                       </select>
-                    </div>
+                    </Field>
                   </div>
 
                   <div style={permissionsBox}>
-                    {SUPPORT_PERMISSIONS.map((p) => (
-                      <label key={p.key} style={permissionItem}>
+                    {SUPPORT_PERMISSIONS.map((permission) => (
+                      <label key={permission.key} style={permissionItem}>
                         <input
                           type="checkbox"
-                          checked={selectedPermissions.includes(p.key)}
-                          onChange={(e) => {
-                            setSelectedPermissions((prev) =>
-                              e.target.checked
-                                ? [...prev, p.key]
-                                : prev.filter((x) => x !== p.key)
+                          checked={selectedPermissions.includes(permission.key)}
+                          disabled={busyAction !== null}
+                          onChange={(event) => {
+                            setSelectedPermissions((previous) =>
+                              event.target.checked
+                                ? Array.from(
+                                    new Set([
+                                      ...previous,
+                                      permission.key,
+                                    ])
+                                  )
+                                : previous.filter(
+                                    (value) => value !== permission.key
+                                  )
                             );
                           }}
                         />
-                        {p.label}
+
+                        {permission.label}
                       </label>
                     ))}
                   </div>
 
                   <div style={buttonsRow}>
-                    <button style={primaryButton} onClick={createSupportUser}>
-                      حفظ المستخدم
+                    <button
+                      type="button"
+                      style={getDisabledStyle(
+                        primaryButton,
+                        busyAction === "create_support_user"
+                      )}
+                      onClick={() => void createSupportUser()}
+                      disabled={busyAction !== null}
+                    >
+                      {busyAction === "create_support_user"
+                        ? "جاري الحفظ..."
+                        : "حفظ المستخدم"}
                     </button>
 
-                    <button style={secondaryButton} onClick={resetUserForm}>
+                    <button
+                      type="button"
+                      style={secondaryButton}
+                      onClick={resetUserForm}
+                      disabled={busyAction !== null}
+                    >
                       إلغاء
                     </button>
                   </div>
@@ -1360,58 +1617,84 @@ export default function AdminSupportPage() {
               )}
 
               <section style={usersGrid}>
-                {supportUsers.map((user) => (
-                  <article key={user.id} style={userCard}>
-                    <div style={userIcon}>👨‍💼</div>
+                {supportUsers.length === 0 ? (
+                  <div style={emptyBox}>لا يوجد مستخدمو دعم متاحون</div>
+                ) : (
+                  supportUsers.map((user) => {
+                    const userBusy =
+                      busyAction === `support_status:${user.id}`;
 
-                    <h3 style={userTitle}>{user.full_name}</h3>
-                    <p style={muted}>@{user.username}</p>
-                    <p style={roleBadge}>{roleLabel(user.role)}</p>
+                    return (
+                      <article key={user.id} style={userCard}>
+                        <div style={userIcon}>د</div>
 
-                    <span style={user.is_active ? activeBadge : inactiveBadge}>
-                      {user.is_active ? "نشط" : "معطل"}
-                    </span>
+                        <h3 style={userTitle}>{user.full_name}</h3>
+                        <p style={muted}>@{user.username}</p>
+                        <p style={roleBadge}>{roleLabel(user.role)}</p>
 
-                    <div style={permissionsTags}>
-                      {user.permissions?.length ? (
-                        user.permissions.map((p) => (
-                          <span key={p} style={permissionTag}>
-                            {permissionLabel(p)}
-                          </span>
-                        ))
-                      ) : (
-                        <span style={permissionTag}>بدون صلاحيات محددة</span>
-                      )}
-                    </div>
+                        <span
+                          style={user.is_active ? activeBadge : inactiveBadge}
+                        >
+                          {user.is_active ? "نشط" : "معطل"}
+                        </span>
 
-                    <button
-                      style={
-                        user.is_active ? smallDangerButton : smallGreenButton
-                      }
-                      onClick={() => toggleSupportUser(user)}
-                    >
-                      {user.is_active ? "تعطيل" : "تفعيل"}
-                    </button>
-                  </article>
-                ))}
+                        <div style={permissionsTags}>
+                          {user.permissions?.length ? (
+                            user.permissions.map((permission) => (
+                              <span key={permission} style={permissionTag}>
+                                {permissionLabel(permission)}
+                              </span>
+                            ))
+                          ) : (
+                            <span style={permissionTag}>
+                              بدون صلاحيات محددة
+                            </span>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          style={getDisabledStyle(
+                            user.is_active
+                              ? smallDangerButton
+                              : smallGreenButton,
+                            userBusy || user.id === currentUser?.id
+                          )}
+                          onClick={() => void toggleSupportUser(user)}
+                          disabled={
+                            busyAction !== null || user.id === currentUser?.id
+                          }
+                          title={
+                            user.id === currentUser?.id
+                              ? "لا يمكنك تعطيل حسابك الحالي"
+                              : undefined
+                          }
+                        >
+                          {userBusy
+                            ? "جاري التنفيذ..."
+                            : user.id === currentUser?.id
+                              ? "الحساب الحالي"
+                              : user.is_active
+                                ? "تعطيل"
+                                : "تفعيل"}
+                        </button>
+                      </article>
+                    );
+                  })
+                )}
               </section>
             </>
           )}
 
-          {activeTab === "logs" && (
+          {activeTab === "logs" && visibleTabs.logs && (
             <>
               <div style={sectionTop}>
-                <div>
-                  <h2 style={sectionTitle}>سجل عمليات الدعم</h2>
-                  <p style={sectionSub}>
-                    آخر عمليات الدخول والتعديل داخل لوحة الدعم الفني.
-                  </p>
-                </div>
+                <h2 style={sectionTitle}>سجل عمليات الدعم</h2>
               </div>
 
               <section style={panelCard}>
                 {logs.length === 0 ? (
-                  <div style={emptyBox}>لا توجد سجلات حتى الآن.</div>
+                  <div style={emptyBox}>لا توجد سجلات حتى الآن</div>
                 ) : (
                   <div style={logTable}>
                     {logs.map((log) => (
@@ -1440,10 +1723,25 @@ export default function AdminSupportPage() {
   );
 }
 
+function Field({
+  label: fieldLabel,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div>
+      <label style={label}>{fieldLabel}</label>
+      {children}
+    </div>
+  );
+}
+
 function BrandBox() {
   return (
     <div style={brandBox}>
-      <div style={brandIcon}>🛠️</div>
+      <div style={brandIcon}>د</div>
 
       <div>
         <h2 style={brandTitle}>دعم احتساب</h2>
@@ -1456,155 +1754,182 @@ function BrandBox() {
 function SideNav({
   activeTab,
   setActiveTab,
+  visibleTabs,
 }: {
   activeTab: TabType;
   setActiveTab: (tab: TabType) => void;
+  visibleTabs: {
+    branches: boolean;
+    branchManagers: boolean;
+    users: boolean;
+    logs: boolean;
+  };
 }) {
   return (
     <nav style={nav}>
-      <button
-        style={activeTab === "overview" ? navActive : navItem}
+      <NavButton
+        active={activeTab === "overview"}
         onClick={() => setActiveTab("overview")}
       >
-        📊 النظرة العامة
-      </button>
+        النظرة العامة
+      </NavButton>
 
-      <button
-        style={activeTab === "branches" ? navActive : navItem}
-        onClick={() => setActiveTab("branches")}
-      >
-        🏢 الفروع
-      </button>
+      {visibleTabs.branches && (
+        <NavButton
+          active={activeTab === "branches"}
+          onClick={() => setActiveTab("branches")}
+        >
+          الفروع
+        </NavButton>
+      )}
 
-      <button
-        style={activeTab === "branch_managers" ? navActive : navItem}
-        onClick={() => setActiveTab("branch_managers")}
-      >
-        👨‍💼 مدراء الفروع
-      </button>
+      {visibleTabs.branchManagers && (
+        <NavButton
+          active={activeTab === "branch_managers"}
+          onClick={() => setActiveTab("branch_managers")}
+        >
+          مدراء الفروع
+        </NavButton>
+      )}
 
-      <button
-        style={activeTab === "users" ? navActive : navItem}
-        onClick={() => setActiveTab("users")}
-      >
-        🛠️ مستخدمو الدعم
-      </button>
+      {visibleTabs.users && (
+        <NavButton
+          active={activeTab === "users"}
+          onClick={() => setActiveTab("users")}
+        >
+          مستخدمو الدعم
+        </NavButton>
+      )}
 
-      <button
-        style={activeTab === "logs" ? navActive : navItem}
-        onClick={() => setActiveTab("logs")}
-      >
-        🧾 سجل العمليات
-      </button>
+      {visibleTabs.logs && (
+        <NavButton
+          active={activeTab === "logs"}
+          onClick={() => setActiveTab("logs")}
+        >
+          سجل العمليات
+        </NavButton>
+      )}
     </nav>
   );
 }
 
-function GlobalResponsiveStyles() {
+function NavButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
   return (
-    <style jsx global>{`
-      * {
-        box-sizing: border-box;
-      }
-
-      body {
-        overflow-x: hidden;
-      }
-
-      .mobile-nav {
-        display: none;
-      }
-
-      @media (max-width: 900px) {
-        .support-shell {
-          display: block !important;
-          max-width: 100% !important;
-        }
-
-        .support-sidebar {
-          display: none !important;
-        }
-
-        .support-main {
-          min-height: auto !important;
-          border-radius: 22px !important;
-          padding: 12px !important;
-        }
-
-        .mobile-nav {
-          display: flex;
-          gap: 8px;
-          overflow-x: auto;
-          padding: 4px 2px 12px;
-          margin-bottom: 10px;
-          -webkit-overflow-scrolling: touch;
-        }
-
-        .mobile-nav::-webkit-scrollbar {
-          display: none;
-        }
-
-        .mobile-tab {
-          flex: 0 0 auto;
-          border: 1px solid #e2e8f0;
-          background: #ffffff;
-          color: #334155;
-          border-radius: 999px;
-          padding: 10px 13px;
-          font-family: var(--font-almarai), sans-serif;
-          font-weight: 900;
-          cursor: pointer;
-          white-space: nowrap;
-        }
-
-        .mobile-tab.active {
-          color: #ffffff;
-          border-color: transparent;
-          background: linear-gradient(135deg, #2563eb, #7c3aed);
-        }
-
-        .mobile-tab.logout {
-          background: #fee2e2;
-          color: #991b1b;
-        }
-
-        .dashboard-grid {
-          grid-template-columns: 1fr !important;
-        }
-
-        .stats-grid {
-          grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-        }
-
-        .branch-row {
-          grid-template-columns: 1fr !important;
-          align-items: stretch !important;
-        }
-      }
-
-      @media (max-width: 520px) {
-        .stats-grid {
-          grid-template-columns: 1fr !important;
-        }
-      }
-    `}</style>
+    <button
+      type="button"
+      style={active ? navActive : navItem}
+      onClick={onClick}
+    >
+      {children}
+    </button>
   );
 }
 
-function Stat({
-  title,
-  value,
-  hint,
+function MobileNav({
+  activeTab,
+  setActiveTab,
+  visibleTabs,
+  onLogout,
+  disabled,
 }: {
-  title: string;
-  value: number;
-  hint: string;
+  activeTab: TabType;
+  setActiveTab: (tab: TabType) => void;
+  visibleTabs: {
+    branches: boolean;
+    branchManagers: boolean;
+    users: boolean;
+    logs: boolean;
+  };
+  onLogout: () => void;
+  disabled: boolean;
 }) {
+  return (
+    <div className="mobile-nav">
+      <button
+        type="button"
+        className={
+          activeTab === "overview" ? "mobile-tab active" : "mobile-tab"
+        }
+        onClick={() => setActiveTab("overview")}
+      >
+        العامة
+      </button>
+
+      {visibleTabs.branches && (
+        <button
+          type="button"
+          className={
+            activeTab === "branches" ? "mobile-tab active" : "mobile-tab"
+          }
+          onClick={() => setActiveTab("branches")}
+        >
+          الفروع
+        </button>
+      )}
+
+      {visibleTabs.branchManagers && (
+        <button
+          type="button"
+          className={
+            activeTab === "branch_managers"
+              ? "mobile-tab active"
+              : "mobile-tab"
+          }
+          onClick={() => setActiveTab("branch_managers")}
+        >
+          المدراء
+        </button>
+      )}
+
+      {visibleTabs.users && (
+        <button
+          type="button"
+          className={
+            activeTab === "users" ? "mobile-tab active" : "mobile-tab"
+          }
+          onClick={() => setActiveTab("users")}
+        >
+          الدعم
+        </button>
+      )}
+
+      {visibleTabs.logs && (
+        <button
+          type="button"
+          className={
+            activeTab === "logs" ? "mobile-tab active" : "mobile-tab"
+          }
+          onClick={() => setActiveTab("logs")}
+        >
+          السجل
+        </button>
+      )}
+
+      <button
+        type="button"
+        className="mobile-tab logout"
+        onClick={onLogout}
+        disabled={disabled}
+      >
+        خروج
+      </button>
+    </div>
+  );
+}
+
+function Stat({ title, value }: { title: string; value: number }) {
   return (
     <div style={statCard}>
       <span style={statValue}>{value}</span>
       <span style={statTitle}>{title}</span>
-      <small style={statHint}>{hint}</small>
     </div>
   );
 }
@@ -1616,44 +1941,259 @@ function roleLabel(role: string) {
 }
 
 function permissionLabel(key: string) {
-  return SUPPORT_PERMISSIONS.find((p) => p.key === key)?.label || key;
+  return (
+    SUPPORT_PERMISSIONS.find((permission) => permission.key === key)?.label ||
+    key
+  );
 }
 
 function formatDateTime(date: string) {
   if (!date) return "-";
-  return new Date(date).toLocaleString("en-GB");
+
+  const parsedDate = new Date(date);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "-";
+  }
+
+  return parsedDate.toLocaleString("ar-SA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
-const page: React.CSSProperties = {
-  minHeight: "100vh",
-  background: "#0b1020",
-  padding: 14,
+function getDisabledStyle(
+  baseStyle: CSSProperties,
+  disabled: boolean
+): CSSProperties {
+  if (!disabled) return baseStyle;
+
+  return {
+    ...baseStyle,
+    opacity: 0.55,
+    cursor: "not-allowed",
+  };
+}
+
+function getPageStyle(isCompact: boolean): CSSProperties {
+  return {
+    minHeight: "100vh",
+    padding: isCompact ? 8 : 14,
+    fontFamily: "var(--font-almarai), sans-serif",
+    color: "#0f172a",
+    overflowX: "hidden",
+    backgroundColor: "#edf4ff",
+    backgroundImage:
+      "radial-gradient(circle at 12% 16%, rgba(37,99,235,.14), transparent 28%), radial-gradient(circle at 88% 8%, rgba(14,165,233,.12), transparent 26%), linear-gradient(rgba(244,247,251,.88), rgba(244,247,251,.94)), url('/backgrounds/v13-finance-bg-1.png')",
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+    backgroundAttachment: "fixed",
+  };
+}
+
+function getShellStyle(isCompact: boolean): CSSProperties {
+  return {
+    width: "100%",
+    maxWidth: 1450,
+    margin: "auto",
+    display: "grid",
+    gridTemplateColumns: isCompact ? "1fr" : "280px minmax(0, 1fr)",
+    gap: 14,
+  };
+}
+
+function getHeroStyle(isMobile: boolean): CSSProperties {
+  return {
+    position: "relative",
+    overflow: "hidden",
+    background:
+      "linear-gradient(135deg, #0f172a 0%, #1d4ed8 58%, #0ea5e9 100%)",
+    color: "white",
+    borderRadius: isMobile ? 20 : 24,
+    padding: isMobile ? 18 : 24,
+    marginBottom: 14,
+    boxShadow: "0 18px 42px rgba(30,64,175,.20)",
+  };
+}
+
+function getHeroTitleStyle(isMobile: boolean): CSSProperties {
+  return {
+    margin: "6px 0",
+    fontSize: isMobile ? 25 : 32,
+    lineHeight: 1.4,
+    fontFamily: "var(--font-almarai), sans-serif",
+  };
+}
+
+function GlobalResponsiveStyles() {
+  return (
+    <style jsx global>{`
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        background: #edf4ff;
+      }
+
+      body {
+        margin: 0;
+        overflow-x: hidden;
+      }
+      
+@keyframes support-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+button,
+      input,
+      textarea,
+      select {
+        font-family: var(--font-almarai), sans-serif;
+      }
+
+      button:focus-visible,
+      input:focus-visible,
+      textarea:focus-visible,
+      select:focus-visible {
+        outline: 3px solid rgba(37, 99, 235, 0.22);
+        outline-offset: 2px;
+      }
+
+      .mobile-nav {
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        padding: 2px 1px 12px;
+        margin-bottom: 10px;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .mobile-nav::-webkit-scrollbar {
+        display: none;
+      }
+
+      .mobile-tab {
+        flex: 0 0 auto;
+        border: 1px solid #dbe4f0;
+        background: rgba(255, 255, 255, 0.92);
+        color: #334155;
+        border-radius: 999px;
+        padding: 10px 13px;
+        font-weight: 900;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      .mobile-tab.active {
+        color: #ffffff;
+        border-color: transparent;
+        background: linear-gradient(135deg, #1d4ed8, #0ea5e9);
+      }
+
+      .mobile-tab.logout {
+        background: #fee2e2;
+        color: #991b1b;
+      }
+
+      .mobile-tab:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      @media (max-width: 1023px) {
+        .support-main {
+          min-height: auto !important;
+          border-radius: 22px !important;
+          padding: 12px !important;
+        }
+
+        .dashboard-grid {
+          grid-template-columns: 1fr !important;
+        }
+
+        .branch-row {
+          grid-template-columns: 1fr !important;
+          align-items: stretch !important;
+        }
+      }
+
+      @media (max-width: 700px) {
+        .stats-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        }
+      }
+
+      @media (max-width: 440px) {
+        .stats-grid {
+          grid-template-columns: 1fr !important;
+        }
+      }
+    `}</style>
+  );
+}
+
+const loadingCard: CSSProperties = {
+  width: "min(100%, 480px)",
+  margin: "18vh auto 0",
+  padding: 28,
+  borderRadius: 24,
+  background: "rgba(255,255,255,.94)",
+  border: "1px solid #dbe4f0",
+  boxShadow: "0 18px 50px rgba(15,23,42,.12)",
+  textAlign: "center",
+};
+
+const loadingSpinner: CSSProperties = {
+  width: 42,
+  height: 42,
+  margin: "0 auto 16px",
+  borderRadius: "50%",
+  border: "4px solid #dbeafe",
+  borderTopColor: "#2563eb",
+  animation: "support-spin .8s linear infinite",
+};
+
+const loadingTitle: CSSProperties = {
+  margin: 0,
+  fontSize: 21,
   fontFamily: "var(--font-almarai), sans-serif",
-  color: "#0f172a",
-  overflowX: "hidden",
 };
 
-const shell: React.CSSProperties = {
-  width: "100%",
-  maxWidth: 1450,
-  margin: "auto",
-  display: "grid",
-  gridTemplateColumns: "280px 1fr",
-  gap: 14,
+const errorCard: CSSProperties = {
+  ...loadingCard,
+  marginTop: "14vh",
 };
 
-const sidePanel: React.CSSProperties = {
+const errorTitle: CSSProperties = {
+  margin: "0 0 10px",
+  color: "#991b1b",
+};
+
+const errorText: CSSProperties = {
+  color: "#64748b",
+  lineHeight: 1.8,
+};
+
+const sidePanel: CSSProperties = {
   minHeight: "calc(100vh - 28px)",
-  background: "linear-gradient(180deg,#111827,#020617)",
+  background: "linear-gradient(180deg,#0f172a,#020617)",
   border: "1px solid rgba(148,163,184,.18)",
   borderRadius: 26,
   padding: 16,
   color: "white",
   position: "sticky",
   top: 14,
+  alignSelf: "start",
 };
 
-const brandBox: React.CSSProperties = {
+const brandBox: CSSProperties = {
   display: "flex",
   gap: 12,
   alignItems: "center",
@@ -1663,34 +2203,35 @@ const brandBox: React.CSSProperties = {
   marginBottom: 18,
 };
 
-const brandIcon: React.CSSProperties = {
+const brandIcon: CSSProperties = {
   width: 46,
   height: 46,
   borderRadius: 16,
-  background: "#2563eb",
+  background: "linear-gradient(135deg,#2563eb,#0ea5e9)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  fontSize: 24,
+  fontSize: 22,
+  fontWeight: 900,
 };
 
-const brandTitle: React.CSSProperties = {
+const brandTitle: CSSProperties = {
   margin: 0,
   fontSize: 20,
 };
 
-const brandSub: React.CSSProperties = {
+const brandSub: CSSProperties = {
   margin: "5px 0 0",
   color: "#94a3b8",
   fontSize: 13,
 };
 
-const nav: React.CSSProperties = {
+const nav: CSSProperties = {
   display: "grid",
   gap: 8,
 };
 
-const navItem: React.CSSProperties = {
+const navItem: CSSProperties = {
   width: "100%",
   border: "1px solid transparent",
   background: "transparent",
@@ -1703,14 +2244,14 @@ const navItem: React.CSSProperties = {
   fontWeight: 800,
 };
 
-const navActive: React.CSSProperties = {
+const navActive: CSSProperties = {
   ...navItem,
   color: "white",
-  background: "linear-gradient(135deg,#2563eb,#7c3aed)",
+  background: "linear-gradient(135deg,#2563eb,#0ea5e9)",
   border: "1px solid rgba(255,255,255,.15)",
 };
 
-const logoutButton: React.CSSProperties = {
+const logoutButton: CSSProperties = {
   width: "100%",
   marginTop: 18,
   background: "#fee2e2",
@@ -1722,47 +2263,132 @@ const logoutButton: React.CSSProperties = {
   cursor: "pointer",
 };
 
-const mainPanel: React.CSSProperties = {
+const mainPanel: CSSProperties = {
+  minWidth: 0,
   minHeight: "calc(100vh - 28px)",
-  background: "#f8fafc",
+  background: "rgba(248,250,252,.93)",
+  border: "1px solid rgba(226,232,240,.92)",
   borderRadius: 26,
   padding: 16,
+  backdropFilter: "blur(10px)",
+  boxShadow: "0 18px 48px rgba(15,23,42,.08)",
 };
 
-const topHero: React.CSSProperties = {
-  background:
-    "radial-gradient(circle at top left,rgba(124,58,237,.38),transparent 30%), linear-gradient(135deg,#111827,#1e3a8a)",
-  color: "white",
-  borderRadius: 24,
-  padding: 24,
-  marginBottom: 14,
+const heroContent: CSSProperties = {
+  position: "relative",
+  zIndex: 3,
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 16,
+  flexWrap: "wrap",
 };
 
-const topLabel: React.CSSProperties = {
+const topLabel: CSSProperties = {
   margin: 0,
   color: "#bfdbfe",
   fontWeight: 800,
 };
 
-const heroTitle: React.CSSProperties = {
-  margin: "6px 0",
-  fontSize: 32,
-  lineHeight: 1.4,
-};
-
-const heroSub: React.CSSProperties = {
+const heroSub: CSSProperties = {
   margin: 0,
-  color: "#dbeafe",
+  color: "#e0f2fe",
 };
 
-const statsGrid: React.CSSProperties = {
+const heroUserCard: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))",
+  gap: 5,
+  minWidth: 175,
+  padding: "12px 15px",
+  borderRadius: 17,
+  border: "1px solid rgba(255,255,255,.22)",
+  background: "rgba(255,255,255,.10)",
+  backdropFilter: "blur(7px)",
+};
+
+const heroUserName: CSSProperties = {
+  fontWeight: 900,
+};
+
+const heroUserRole: CSSProperties = {
+  color: "#dbeafe",
+  fontSize: 13,
+};
+
+const heroCircleOne: CSSProperties = {
+  position: "absolute",
+  width: 180,
+  height: 180,
+  borderRadius: "50%",
+  top: -95,
+  left: -45,
+  background: "rgba(255,255,255,.10)",
+};
+
+const heroCircleTwo: CSSProperties = {
+  position: "absolute",
+  width: 110,
+  height: 110,
+  borderRadius: "50%",
+  bottom: -58,
+  right: "28%",
+  background: "rgba(125,211,252,.14)",
+};
+
+const heroCircleThree: CSSProperties = {
+  position: "absolute",
+  width: 74,
+  height: 74,
+  borderRadius: "50%",
+  top: 18,
+  right: 28,
+  border: "1px solid rgba(255,255,255,.18)",
+};
+
+const heroDots: CSSProperties = {
+  position: "absolute",
+  insetInlineEnd: 26,
+  bottom: 18,
+  width: 74,
+  height: 34,
+  opacity: 0.32,
+  backgroundImage:
+    "radial-gradient(circle, rgba(255,255,255,.9) 1.3px, transparent 1.5px)",
+  backgroundSize: "10px 10px",
+};
+
+const inlineError: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+  flexWrap: "wrap",
+  marginBottom: 12,
+  padding: 12,
+  borderRadius: 14,
+  background: "#fee2e2",
+  color: "#991b1b",
+  border: "1px solid #fecaca",
+};
+
+const inlineRetryButton: CSSProperties = {
+  border: "none",
+  borderRadius: 10,
+  padding: "8px 12px",
+  background: "#991b1b",
+  color: "white",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+const statsGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))",
   gap: 12,
   marginBottom: 14,
 };
 
-const statCard: React.CSSProperties = {
+const statCard: CSSProperties = {
   background: "white",
   border: "1px solid #e2e8f0",
   borderRadius: 20,
@@ -1770,57 +2396,46 @@ const statCard: React.CSSProperties = {
   boxShadow: "0 8px 18px rgba(15,23,42,.04)",
 };
 
-const statValue: React.CSSProperties = {
+const statValue: CSSProperties = {
   display: "block",
   fontSize: 34,
   fontWeight: 900,
   color: "#2563eb",
 };
 
-const statTitle: React.CSSProperties = {
+const statTitle: CSSProperties = {
   display: "block",
   color: "#0f172a",
   fontWeight: 900,
   marginTop: 4,
 };
 
-const statHint: React.CSSProperties = {
-  display: "block",
-  color: "#64748b",
-  marginTop: 5,
-};
-
-const dashboardGrid: React.CSSProperties = {
+const dashboardGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "1fr 1fr",
   gap: 12,
 };
 
-const darkCard: React.CSSProperties = {
-  background: "linear-gradient(135deg,#020617,#172554)",
+const darkCard: CSSProperties = {
+  background: "linear-gradient(135deg,#0f172a,#1e3a8a)",
   color: "white",
   borderRadius: 22,
   padding: 20,
-  minHeight: 220,
+  minHeight: 190,
 };
 
-const whiteTitle: React.CSSProperties = {
+const whiteTitle: CSSProperties = {
   marginTop: 0,
 };
 
-const whiteText: React.CSSProperties = {
-  color: "#cbd5e1",
-  lineHeight: 1.9,
-};
-
-const quickActions: React.CSSProperties = {
+const quickActions: CSSProperties = {
   display: "flex",
   gap: 10,
   flexWrap: "wrap",
   marginTop: 20,
 };
 
-const quickButton: React.CSSProperties = {
+const quickButton: CSSProperties = {
   border: "1px solid rgba(255,255,255,.18)",
   background: "rgba(255,255,255,.08)",
   color: "white",
@@ -1830,7 +2445,7 @@ const quickButton: React.CSSProperties = {
   fontWeight: 800,
 };
 
-const panelCard: React.CSSProperties = {
+const panelCard: CSSProperties = {
   background: "white",
   border: "1px solid #e2e8f0",
   borderRadius: 22,
@@ -1838,16 +2453,16 @@ const panelCard: React.CSSProperties = {
   boxShadow: "0 8px 18px rgba(15,23,42,.04)",
 };
 
-const panelTitle: React.CSSProperties = {
+const panelTitle: CSSProperties = {
   marginTop: 0,
 };
 
-const miniLogs: React.CSSProperties = {
+const miniLogs: CSSProperties = {
   display: "grid",
   gap: 8,
 };
 
-const miniLogItem: React.CSSProperties = {
+const miniLogItem: CSSProperties = {
   border: "1px solid #e2e8f0",
   background: "#f8fafc",
   borderRadius: 14,
@@ -1856,7 +2471,7 @@ const miniLogItem: React.CSSProperties = {
   gap: 4,
 };
 
-const sectionTop: React.CSSProperties = {
+const sectionTop: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   gap: 12,
@@ -1865,33 +2480,31 @@ const sectionTop: React.CSSProperties = {
   marginBottom: 12,
 };
 
-const sectionTitle: React.CSSProperties = {
+const sectionTitle: CSSProperties = {
   margin: 0,
   color: "#0f172a",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
-const sectionSub: React.CSSProperties = {
-  margin: "6px 0 0",
-  color: "#64748b",
-};
-
-const primaryButton: React.CSSProperties = {
+const primaryButton: CSSProperties = {
   border: "none",
-  background: "linear-gradient(135deg,#2563eb,#7c3aed)",
+  background: "linear-gradient(135deg,#2563eb,#0ea5e9)",
   color: "white",
   borderRadius: 14,
   padding: "13px 18px",
   fontSize: 15,
   fontWeight: 900,
   cursor: "pointer",
+  boxShadow: "0 8px 18px rgba(37,99,235,.18)",
 };
 
-const secondaryButton: React.CSSProperties = {
+const secondaryButton: CSSProperties = {
   ...primaryButton,
-  background: "#64748b",
+  background: "linear-gradient(135deg,#64748b,#334155)",
+  boxShadow: "0 8px 18px rgba(51,65,85,.14)",
 };
 
-const formCard: React.CSSProperties = {
+const formCard: CSSProperties = {
   background: "white",
   border: "1px solid #e2e8f0",
   borderRadius: 22,
@@ -1899,11 +2512,12 @@ const formCard: React.CSSProperties = {
   marginBottom: 14,
 };
 
-const formTitle: React.CSSProperties = {
+const formTitle: CSSProperties = {
   marginTop: 0,
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
-const subFormTitle: React.CSSProperties = {
+const subFormTitle: CSSProperties = {
   marginTop: 18,
   marginBottom: 12,
   padding: 12,
@@ -1914,20 +2528,20 @@ const subFormTitle: React.CSSProperties = {
   fontWeight: 900,
 };
 
-const formGrid: React.CSSProperties = {
+const formGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
   gap: 12,
 };
 
-const label: React.CSSProperties = {
+const label: CSSProperties = {
   display: "block",
   marginBottom: 7,
   color: "#334155",
   fontWeight: 900,
 };
 
-const input: React.CSSProperties = {
+const input: CSSProperties = {
   width: "100%",
   boxSizing: "border-box",
   border: "1px solid #cbd5e1",
@@ -1935,44 +2549,46 @@ const input: React.CSSProperties = {
   padding: 13,
   fontSize: 15,
   background: "#f8fafc",
+  color: "#0f172a",
 };
 
-const textarea: React.CSSProperties = {
+const textarea: CSSProperties = {
   ...input,
   minHeight: 90,
   resize: "vertical",
 };
 
-const buttonsRow: React.CSSProperties = {
+const buttonsRow: CSSProperties = {
   display: "flex",
   gap: 8,
   flexWrap: "wrap",
   marginTop: 12,
 };
 
-const branchesList: React.CSSProperties = {
+const branchesList: CSSProperties = {
   display: "grid",
   gap: 10,
 };
 
-const branchRow: React.CSSProperties = {
+const branchRow: CSSProperties = {
   border: "1px solid #e2e8f0",
   background: "#ffffff",
   borderRadius: 18,
   padding: 14,
   display: "grid",
-  gridTemplateColumns: "1fr auto auto",
+  gridTemplateColumns: "minmax(0,1fr) auto auto",
   gap: 12,
   alignItems: "center",
 };
 
-const branchMain: React.CSSProperties = {
+const branchMain: CSSProperties = {
   display: "flex",
   gap: 12,
   alignItems: "center",
+  minWidth: 0,
 };
 
-const branchAvatar: React.CSSProperties = {
+const branchAvatar: CSSProperties = {
   width: 48,
   height: 48,
   borderRadius: 16,
@@ -1986,17 +2602,24 @@ const branchAvatar: React.CSSProperties = {
   flex: "0 0 auto",
 };
 
-const branchTitle: React.CSSProperties = {
+const branchTitle: CSSProperties = {
   margin: 0,
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
-const muted: React.CSSProperties = {
+const muted: CSSProperties = {
   color: "#64748b",
   margin: "6px 0",
   wordBreak: "break-word",
 };
 
-const activeBadge: React.CSSProperties = {
+const ltrMuted: CSSProperties = {
+  ...muted,
+  direction: "ltr",
+  textAlign: "right",
+};
+
+const activeBadge: CSSProperties = {
   display: "inline-block",
   background: "#dcfce7",
   color: "#166534",
@@ -2006,7 +2629,7 @@ const activeBadge: React.CSSProperties = {
   width: "fit-content",
 };
 
-const inactiveBadge: React.CSSProperties = {
+const inactiveBadge: CSSProperties = {
   display: "inline-block",
   background: "#fee2e2",
   color: "#991b1b",
@@ -2016,15 +2639,15 @@ const inactiveBadge: React.CSSProperties = {
   width: "fit-content",
 };
 
-const rowActions: React.CSSProperties = {
+const rowActions: CSSProperties = {
   display: "flex",
   gap: 7,
   flexWrap: "wrap",
 };
 
-const smallButton: React.CSSProperties = {
+const smallButton: CSSProperties = {
   border: "none",
-  background: "#e0f2fe",
+  background: "linear-gradient(135deg,#e0f2fe,#dbeafe)",
   color: "#075985",
   borderRadius: 10,
   padding: "9px 12px",
@@ -2032,31 +2655,31 @@ const smallButton: React.CSSProperties = {
   fontWeight: 800,
 };
 
-const smallBlueButton: React.CSSProperties = {
+const smallBlueButton: CSSProperties = {
   ...smallButton,
-  background: "#dbeafe",
-  color: "#1d4ed8",
+  background: "linear-gradient(135deg,#2563eb,#0ea5e9)",
+  color: "white",
 };
 
-const smallGreenButton: React.CSSProperties = {
+const smallGreenButton: CSSProperties = {
   ...smallButton,
-  background: "#dcfce7",
-  color: "#166534",
+  background: "linear-gradient(135deg,#16a34a,#15803d)",
+  color: "white",
 };
 
-const smallDangerButton: React.CSSProperties = {
+const smallDangerButton: CSSProperties = {
   ...smallButton,
-  background: "#fee2e2",
-  color: "#991b1b",
+  background: "linear-gradient(135deg,#ef4444,#b91c1c)",
+  color: "white",
 };
 
-const usersGrid: React.CSSProperties = {
+const usersGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit,minmax(250px,1fr))",
   gap: 12,
 };
 
-const userCard: React.CSSProperties = {
+const userCard: CSSProperties = {
   background: "white",
   border: "1px solid #e2e8f0",
   borderRadius: 22,
@@ -2065,22 +2688,25 @@ const userCard: React.CSSProperties = {
   gap: 8,
 };
 
-const userIcon: React.CSSProperties = {
+const userIcon: CSSProperties = {
   width: 52,
   height: 52,
   borderRadius: 18,
   background: "#ede9fe",
+  color: "#5b21b6",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  fontSize: 24,
+  fontSize: 22,
+  fontWeight: 900,
 };
 
-const userTitle: React.CSSProperties = {
+const userTitle: CSSProperties = {
   margin: 0,
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
-const roleBadge: React.CSSProperties = {
+const roleBadge: CSSProperties = {
   background: "#f1f5f9",
   color: "#334155",
   borderRadius: 999,
@@ -2089,14 +2715,14 @@ const roleBadge: React.CSSProperties = {
   fontWeight: 800,
 };
 
-const permissionsBox: React.CSSProperties = {
+const permissionsBox: CSSProperties = {
   marginTop: 14,
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))",
   gap: 10,
 };
 
-const permissionItem: React.CSSProperties = {
+const permissionItem: CSSProperties = {
   background: "#f8fafc",
   border: "1px solid #e2e8f0",
   borderRadius: 12,
@@ -2107,13 +2733,13 @@ const permissionItem: React.CSSProperties = {
   fontWeight: 800,
 };
 
-const permissionsTags: React.CSSProperties = {
+const permissionsTags: CSSProperties = {
   display: "flex",
   flexWrap: "wrap",
   gap: 6,
 };
 
-const permissionTag: React.CSSProperties = {
+const permissionTag: CSSProperties = {
   background: "#eff6ff",
   color: "#1d4ed8",
   borderRadius: 999,
@@ -2122,7 +2748,7 @@ const permissionTag: React.CSSProperties = {
   fontWeight: 800,
 };
 
-const emptyBox: React.CSSProperties = {
+const emptyBox: CSSProperties = {
   background: "#f8fafc",
   border: "1px dashed #cbd5e1",
   borderRadius: 16,
@@ -2131,12 +2757,12 @@ const emptyBox: React.CSSProperties = {
   color: "#64748b",
 };
 
-const logTable: React.CSSProperties = {
+const logTable: CSSProperties = {
   display: "grid",
   gap: 8,
 };
 
-const logRow: React.CSSProperties = {
+const logRow: CSSProperties = {
   border: "1px solid #e2e8f0",
   borderRadius: 16,
   padding: 12,
@@ -2146,11 +2772,11 @@ const logRow: React.CSSProperties = {
   flexWrap: "wrap",
 };
 
-const logAction: React.CSSProperties = {
+const logAction: CSSProperties = {
   color: "#0f172a",
 };
 
-const logMeta: React.CSSProperties = {
+const logMeta: CSSProperties = {
   display: "grid",
   gap: 4,
   color: "#64748b",
