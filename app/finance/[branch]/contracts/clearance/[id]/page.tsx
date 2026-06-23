@@ -1,24 +1,72 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { CSSProperties } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
+import { exportElementToPdf } from "@/lib/exportElementToPdf";
 
 type ScreenType = "mobile" | "tablet" | "desktop";
+
+type CustomerRelation = {
+  full_name?: string | null;
+  national_id?: string | null;
+  phone?: string | null;
+};
+
+type ContractData = {
+  id: string;
+  branch_id?: string | null;
+  contract_number?: string | null;
+  customer_name?: string | null;
+  customer_national_id?: string | null;
+  customer_phone?: string | null;
+  debt_amount?: number | string | null;
+  payment_amount?: number | string | null;
+  paid_amount?: number | string | null;
+  remaining_amount?: number | string | null;
+  closed_at?: string | null;
+  updated_at?: string | null;
+  finance_customers?:
+    | CustomerRelation
+    | CustomerRelation[]
+    | null;
+};
+
+type HeaderProps = {
+  branch: string;
+  contractId: string;
+  router: ReturnType<typeof useRouter>;
+  isMobile: boolean;
+  isCompact: boolean;
+};
+
+type InfoProps = {
+  label: string;
+  value: string | number | null | undefined;
+};
 
 export default function ContractClearancePage() {
   const params = useParams();
   const router = useRouter();
 
-  const branch = params.branch as string;
-  const contractId = params.id as string;
+  const branch = String(params.branch ?? "");
+  const contractId = String(params.id ?? "");
 
-  const [contract, setContract] = useState<any>(null);
-  const [organizationName, setOrganizationName] = useState("مؤسسة سداد وأرقام");
-  const [commercialRecord, setCommercialRecord] = useState("");
+  const [contract, setContract] =
+    useState<ContractData | null>(null);
+
+  const [organizationName, setOrganizationName] =
+    useState("مؤسسة سداد وأرقام");
+
+  const [commercialRecord, setCommercialRecord] =
+    useState("");
+
   const [loading, setLoading] = useState(true);
-  const [screen, setScreen] = useState<ScreenType>("desktop");
+
+  const [screen, setScreen] =
+    useState<ScreenType>("desktop");
 
   const isMobile = screen === "mobile";
   const isTablet = screen === "tablet";
@@ -38,83 +86,220 @@ export default function ContractClearancePage() {
     }
 
     handleResize();
-    window.addEventListener("resize", handleResize);
 
-    return () => window.removeEventListener("resize", handleResize);
+    window.addEventListener(
+      "resize",
+      handleResize
+    );
+
+    return () => {
+      window.removeEventListener(
+        "resize",
+        handleResize
+      );
+    };
   }, []);
 
   useEffect(() => {
-    loadData();
+    let cancelled = false;
+
+    async function run() {
+      await loadData(() => cancelled);
+    }
+
+    void run();
+
+    return () => {
+      cancelled = true;
+    };
   }, [branch, contractId]);
 
-  async function loadData() {
+  async function loadData(
+    isCancelled: () => boolean = () => false
+  ) {
     setLoading(true);
+    setContract(null);
 
-    const currentBranchId = await getBranchId(branch);
+    try {
+      if (!branch || !contractId) {
+        return;
+      }
 
-    if (!currentBranchId) {
-      setContract(null);
-      setLoading(false);
-      return;
+      const currentBranchId =
+        await getBranchId(branch);
+
+      if (isCancelled()) {
+        return;
+      }
+
+      if (!currentBranchId) {
+        alert("تعذر تحديد الفرع");
+        return;
+      }
+
+      const [
+        branchResult,
+        contractResult,
+      ] = await Promise.all([
+        supabase
+          .from("finance_branches")
+          .select(
+            `
+              organization_name,
+              commercial_record
+            `
+          )
+          .eq("id", currentBranchId)
+          .maybeSingle(),
+
+        supabase
+          .from("finance_contracts")
+          .select(
+            `
+              id,
+              branch_id,
+              contract_number,
+              customer_name,
+              customer_national_id,
+              customer_phone,
+              debt_amount,
+              payment_amount,
+              paid_amount,
+              remaining_amount,
+              closed_at,
+              updated_at,
+              finance_customers(
+                full_name,
+                national_id,
+                phone
+              )
+            `
+          )
+          .eq("id", contractId)
+          .eq("branch_id", currentBranchId)
+          .single(),
+      ]);
+
+      if (isCancelled()) {
+        return;
+      }
+
+      if (branchResult.error) {
+        console.error(
+          "Load branch data error:",
+          branchResult.error
+        );
+      }
+
+      if (
+        branchResult.data?.organization_name
+      ) {
+        setOrganizationName(
+          branchResult.data.organization_name
+        );
+      }
+
+      if (
+        branchResult.data?.commercial_record
+      ) {
+        setCommercialRecord(
+          branchResult.data.commercial_record
+        );
+      }
+
+      if (
+        contractResult.error ||
+        !contractResult.data
+      ) {
+        alert(
+          `تعذر تحميل المخالصة: ${
+            contractResult.error?.message ||
+            "العقد غير موجود"
+          }`
+        );
+
+        setContract(null);
+        return;
+      }
+
+      setContract(
+        contractResult.data as ContractData
+      );
+    } catch (error) {
+      console.error(
+        "Load clearance error:",
+        error
+      );
+
+      if (!isCancelled()) {
+        setContract(null);
+
+        alert(
+          "حدث خطأ غير متوقع أثناء تحميل المخالصة"
+        );
+      }
+    } finally {
+      if (!isCancelled()) {
+        setLoading(false);
+      }
+    }
+  }
+
+  function getCustomer() {
+    const relation =
+      contract?.finance_customers;
+
+    if (Array.isArray(relation)) {
+      return relation[0] || null;
     }
 
-    const { data: branchData } = await supabase
-      .from("finance_branches")
-      .select("organization_name, commercial_record")
-      .eq("id", currentBranchId)
-      .maybeSingle();
-
-    if (branchData?.organization_name) {
-      setOrganizationName(branchData.organization_name);
-    }
-
-    if (branchData?.commercial_record) {
-      setCommercialRecord(branchData.commercial_record);
-    }
-
-    const { data } = await supabase
-      .from("finance_contracts")
-      .select(
-        `
-        *,
-        finance_customers(
-          full_name,
-          national_id,
-          phone
-        )
-      `
-      )
-      .eq("id", contractId)
-      .eq("branch_id", currentBranchId)
-      .single();
-
-    setContract(data);
-    setLoading(false);
+    return relation || null;
   }
 
   function getCustomerName() {
-    return contract?.finance_customers?.full_name || contract?.customer_name || "-";
+    const customer = getCustomer();
+
+    return (
+      customer?.full_name ||
+      contract?.customer_name ||
+      "-"
+    );
   }
 
   function getCustomerNationalId() {
+    const customer = getCustomer();
+
     return (
-      contract?.finance_customers?.national_id ||
+      customer?.national_id ||
       contract?.customer_national_id ||
       "-"
     );
   }
 
-  function formatDate(date?: string) {
-    const targetDate = date ? new Date(date) : new Date();
-    return targetDate.toLocaleDateString("ar-SA-u-ca-gregory");
-  }
+  const clearanceDate =
+    formatGregorianDate(
+      contract?.closed_at ||
+        contract?.updated_at ||
+        new Date().toISOString()
+    );
+
+  const pdfFileName = `clearance-${
+    contract?.contract_number ||
+    contractId
+  }`;
 
   if (loading) {
     return (
-      <main dir="rtl" style={getPageStyle(isCompact)}>
+      <main
+        dir="rtl"
+        style={getPageStyle(isCompact)}
+      >
         <style>{printStyles}</style>
 
-        <div style={getContainerStyle(isCompact)} className="no-print">
+        <div
+          style={getContainerStyle(isCompact)}
+          className="no-print"
+        >
           <Header
             branch={branch}
             contractId={contractId}
@@ -124,17 +309,25 @@ export default function ContractClearancePage() {
           />
         </div>
 
-        <div style={loadingBox}>جاري تحميل المخالصة...</div>
+        <div style={loadingBox}>
+          جاري تحميل المخالصة...
+        </div>
       </main>
     );
   }
 
   if (!contract) {
     return (
-      <main dir="rtl" style={getPageStyle(isCompact)}>
+      <main
+        dir="rtl"
+        style={getPageStyle(isCompact)}
+      >
         <style>{printStyles}</style>
 
-        <div style={getContainerStyle(isCompact)} className="no-print">
+        <div
+          style={getContainerStyle(isCompact)}
+          className="no-print"
+        >
           <Header
             branch={branch}
             contractId={contractId}
@@ -144,16 +337,24 @@ export default function ContractClearancePage() {
           />
         </div>
 
-        <div style={loadingBox}>لم يتم العثور على العقد</div>
+        <div style={loadingBox}>
+          لم يتم العثور على العقد
+        </div>
       </main>
     );
   }
 
   return (
-    <main dir="rtl" style={getPageStyle(isCompact)}>
+    <main
+      dir="rtl"
+      style={getPageStyle(isCompact)}
+    >
       <style>{printStyles}</style>
 
-      <div style={getContainerStyle(isCompact)} className="no-print">
+      <div
+        style={getContainerStyle(isCompact)}
+        className="no-print"
+      >
         <Header
           branch={branch}
           contractId={contractId}
@@ -161,61 +362,213 @@ export default function ContractClearancePage() {
           isMobile={isMobile}
           isCompact={isCompact}
         />
+
+        <div style={actionBar}>
+          <button
+            type="button"
+            style={printButton}
+            onClick={() => window.print()}
+          >
+            🖨️ طباعة المخالصة
+          </button>
+
+          <button
+            type="button"
+            style={pdfButton}
+            onClick={() =>
+              exportElementToPdf(
+                "clearance-print-area",
+                pdfFileName
+              )
+            }
+          >
+            📄 تحميل PDF
+          </button>
+
+          <button
+            type="button"
+            style={backButton}
+            onClick={() => router.back()}
+          >
+            ← رجوع
+          </button>
+
+          <button
+            type="button"
+            style={mainWorkstationButton}
+            onClick={() =>
+              router.push(
+                `/finance/${branch}`
+              )
+            }
+          >
+            محطة العمل الرئيسية
+          </button>
+        </div>
       </div>
 
-      <section style={getPaperStyle(isMobile)} className="print-paper">
-        <header style={paperHeader}>
-          <h1 style={organizationTitle} className="print-organization-title">
+      <section
+        id="clearance-print-area"
+        style={getPaperStyle(isMobile)}
+        className="print-paper"
+      >
+        <header
+          style={paperHeader}
+          className="print-block"
+        >
+          <h1
+            style={organizationTitle}
+            className="print-organization-title"
+          >
             {organizationName}
           </h1>
 
-          <h2 style={title} className="print-title">
+          <h2
+            style={title}
+            className="print-title"
+          >
             مخالصة نهائية
           </h2>
         </header>
 
-        <div style={divider} className="print-divider" />
+        <div
+          style={divider}
+          className="print-divider"
+        />
 
-        <p style={paragraph} className="print-paragraph">
-          تشهد <strong>{organizationName}</strong>
-          {commercialRecord && (
-            <>
-              {" "}
-              سجل تجاري رقم <strong>{commercialRecord}</strong>
-            </>
-          )}
-          {" "}
-          بأن العميل الموضحة بياناته أدناه قد قام بسداد كامل الالتزامات المالية
-          المترتبة عليه بموجب العقد المشار إليه، ولا يترتب عليه أي مبالغ أو مطالبات
-          مالية تجاه المؤسسة حتى تاريخ إصدار هذه المخالصة.
-        </p>
+        <section className="print-block">
+          <p
+            style={paragraph}
+            className="print-paragraph"
+          >
+            تشهد{" "}
+            <strong>
+              {organizationName}
+            </strong>
 
-        <div style={infoGrid} className="print-info-grid">
-          <Info label="اسم العميل" value={getCustomerName()} />
-          <Info label="رقم الهوية" value={getCustomerNationalId()} />
-          <Info label="رقم العقد" value={contract?.contract_number || "-"} />
-          <Info label="تاريخ إصدار المخالصة" value={formatDate()} />
-          <Info label="مبلغ الدين" value={`${contract?.debt_amount || 0} ر.س`} />
-          <Info label="مبلغ السداد" value={`${contract?.payment_amount || 0} ر.س`} />
-          <Info label="المبلغ المسدد" value={`${contract?.paid_amount || 0} ر.س`} />
-          <Info label="المبلغ المتبقي" value={`${contract?.remaining_amount || 0} ر.س`} />
-        </div>
+            {commercialRecord && (
+              <>
+                {" "}
+                سجل تجاري رقم{" "}
+                <strong>
+                  {commercialRecord}
+                </strong>
+              </>
+            )}
 
-        <p style={paragraph} className="print-paragraph">
-          وقد أعطيت له هذه المخالصة بناءً على طلبه للعمل بموجبها عند الحاجة، دون أدنى
-          مسؤولية على المؤسسة بعد تاريخ إصدارها، وذلك فيما يخص العقد المذكور أعلاه.
-        </p>
+            {" "}
+            بأن العميل الموضحة بياناته
+            أدناه قد قام بسداد كامل
+            الالتزامات المالية المترتبة
+            عليه بموجب العقد المشار إليه،
+            ولا يترتب عليه أي مبالغ أو
+            مطالبات مالية تجاه المؤسسة
+            حتى تاريخ إصدار هذه المخالصة.
+          </p>
+        </section>
 
-        <div style={signatureArea} className="print-signature-area">
+        <section
+          style={infoGrid}
+          className="print-info-grid print-block"
+        >
+          <Info
+            label="اسم العميل"
+            value={getCustomerName()}
+          />
+
+          <Info
+            label="رقم الهوية"
+            value={getCustomerNationalId()}
+          />
+
+          <Info
+            label="رقم العقد"
+            value={
+              contract.contract_number ||
+              "-"
+            }
+          />
+
+          <Info
+            label="تاريخ إصدار المخالصة"
+            value={clearanceDate}
+          />
+
+          <Info
+            label="مبلغ الدين"
+            value={`${formatMoney(
+              contract.debt_amount
+            )} ر.س`}
+          />
+
+          <Info
+            label="مبلغ السداد"
+            value={`${formatMoney(
+              contract.payment_amount
+            )} ر.س`}
+          />
+
+          <Info
+            label="المبلغ المسدد"
+            value={`${formatMoney(
+              contract.paid_amount
+            )} ر.س`}
+          />
+
+          <Info
+            label="المبلغ المتبقي"
+            value={`${formatMoney(
+              contract.remaining_amount
+            )} ر.س`}
+          />
+        </section>
+
+        <section className="print-block">
+          <p
+            style={paragraph}
+            className="print-paragraph"
+          >
+            وقد أعطيت له هذه المخالصة
+            بناءً على طلبه للعمل بموجبها
+            عند الحاجة، دون أدنى مسؤولية
+            على المؤسسة بعد تاريخ إصدارها،
+            وذلك فيما يخص العقد المذكور
+            أعلاه.
+          </p>
+        </section>
+
+        <section
+          style={signatureArea}
+          className="print-signature-area print-block"
+        >
           <div>
-            <strong>الجهة المصدرة</strong>
-            <p>{organizationName}</p>
+            <strong>
+              الجهة المصدرة
+            </strong>
+
+            <p style={signatureText}>
+              {organizationName}
+            </p>
           </div>
 
           <div>
-            <strong>الختم والتوقيع</strong>
-            <div style={stampBox} className="print-stamp-box"></div>
+            <strong>
+              الختم والتوقيع
+            </strong>
+
+            <div
+              style={stampBox}
+              className="print-stamp-box"
+            />
           </div>
+        </section>
+
+        <div
+          style={footerNote}
+          className="print-footer-note print-block"
+        >
+          تم إصدار هذه المخالصة آلياً من
+          النظام
         </div>
       </section>
     </main>
@@ -223,183 +576,242 @@ export default function ContractClearancePage() {
 }
 
 function Header({
-  branch,
-  contractId,
-  router,
   isMobile,
   isCompact,
-}: {
-  branch: string;
-  contractId: string;
-  router: any;
-  isMobile: boolean;
-  isCompact: boolean;
-}) {
+}: HeaderProps) {
   return (
-    <header style={getHeroStyle(isCompact)}>
+    <header
+      style={getHeroStyle(isCompact)}
+    >
       <div style={heroCircleOne} />
       <div style={heroCircleTwo} />
       <div style={heroCircleThree} />
       <div style={heroDots} />
 
-      <div style={getHeroContentStyle(isCompact)}>
+      <div
+        style={getHeroContentStyle(
+          isCompact
+        )}
+      >
         <div>
-          <h1 style={getHeroTitleStyle(isMobile)}>مخالصة نهائية</h1>
-        </div>
-
-        <div style={getHeroActionsStyle(isCompact)}>
-          <button style={printButton} onClick={() => window.print()}>
-            طباعة المخالصة
-          </button>
-
-          <button
-            style={backButton}
-            onClick={() =>
-              router.push(`/finance/${branch}/contracts/${contractId}`)
-            }
+          <h1
+            style={getHeroTitleStyle(
+              isMobile
+            )}
           >
-            رجوع
-          </button>
-
-          <button
-            style={mainWorkstationButton}
-            onClick={() => router.push(`/finance/${branch}`)}
-          >
-            محطة العمل الرئيسية
-          </button>
+            مخالصة نهائية
+          </h1>
         </div>
       </div>
     </header>
   );
 }
 
-function Info({ label, value }: any) {
+function Info({
+  label,
+  value,
+}: InfoProps) {
   return (
-    <div style={infoBox} className="print-info-box">
-      <span style={infoLabel} className="print-info-label">
+    <div
+      style={infoBox}
+      className="print-info-box"
+    >
+      <span
+        style={infoLabel}
+        className="print-info-label"
+      >
         {label}
       </span>
 
-      <strong style={infoValue} className="print-info-value">
-        {value || "-"}
+      <strong
+        style={infoValue}
+        className="print-info-value"
+      >
+        {value ?? "-"}
       </strong>
     </div>
   );
 }
 
-function getPageStyle(isCompact: boolean) {
+function formatGregorianDate(
+  date?: string | null
+) {
+  if (!date) {
+    return "-";
+  }
+
+  const parsedDate = new Date(date);
+
+  if (
+    Number.isNaN(parsedDate.getTime())
+  ) {
+    return "-";
+  }
+
+  const day = String(
+    parsedDate.getDate()
+  ).padStart(2, "0");
+
+  const month = String(
+    parsedDate.getMonth() + 1
+  ).padStart(2, "0");
+
+  const year =
+    parsedDate.getFullYear();
+
+  return `${day}/${month}/${year}`;
+}
+
+function formatMoney(
+  value:
+    | number
+    | string
+    | null
+    | undefined
+) {
+  const number = Number(value || 0);
+
+  return number.toLocaleString(
+    "en-US",
+    {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }
+  );
+}
+
+function getPageStyle(
+  isCompact: boolean
+): CSSProperties {
   return {
     minHeight: "100vh",
-    padding: isCompact ? 14 : 22,
-    fontFamily: "var(--font-almarai), sans-serif",
+    padding: isCompact ? 12 : 18,
+    fontFamily:
+      "var(--font-almarai), sans-serif",
     backgroundImage:
       "radial-gradient(circle at top right, rgba(37, 99, 235, 0.16), transparent 34%), radial-gradient(circle at bottom left, rgba(14, 165, 233, 0.14), transparent 30%), linear-gradient(180deg, rgba(248, 250, 252, 0.94), rgba(226, 232, 240, 0.94)), url('/backgrounds/v13-finance-bg-1.png')",
     backgroundSize: "cover",
     backgroundPosition: "center",
-    backgroundAttachment: "fixed",
+    backgroundAttachment: isCompact
+      ? "scroll"
+      : "fixed",
   };
 }
 
-function getContainerStyle(isCompact: boolean) {
+function getContainerStyle(
+  isCompact: boolean
+): CSSProperties {
   return {
     width: "100%",
     maxWidth: 1180,
-    margin: "0 auto 18px",
+    margin: "0 auto 16px",
     display: "flex",
-    flexDirection: "column" as const,
-    gap: isCompact ? 14 : 18,
+    flexDirection: "column",
+    gap: isCompact ? 12 : 14,
   };
 }
 
-function getHeroStyle(isCompact: boolean) {
+function getHeroStyle(
+  isCompact: boolean
+): CSSProperties {
   return {
-    position: "relative" as const,
+    position: "relative",
     overflow: "hidden",
-    borderRadius: isCompact ? 22 : 28,
-    padding: isCompact ? 18 : 26,
+    borderRadius: isCompact ? 20 : 24,
+    padding: isCompact ? 18 : 24,
     color: "#ffffff",
     background:
       "linear-gradient(135deg, #0f172a 0%, #1e3a8a 48%, #0891b2 100%)",
-    boxShadow: "0 22px 55px rgba(15, 23, 42, 0.28)",
-    border: "1px solid rgba(255, 255, 255, 0.16)",
+    boxShadow:
+      "0 18px 42px rgba(15, 23, 42, 0.22)",
+    border:
+      "1px solid rgba(255, 255, 255, 0.16)",
   };
 }
 
-function getHeroContentStyle(isCompact: boolean) {
+function getHeroContentStyle(
+  isCompact: boolean
+): CSSProperties {
   return {
-    position: "relative" as const,
+    position: "relative",
     zIndex: 2,
+    minHeight: isCompact ? 52 : 70,
     display: "flex",
-    flexDirection: isCompact ? ("column" as const) : ("row" as const),
-    justifyContent: "space-between",
-    alignItems: isCompact ? "stretch" : "center",
-    gap: 16,
+    justifyContent: "center",
+    alignItems: "center",
+    textAlign: "center",
   };
 }
 
-function getHeroTitleStyle(isMobile: boolean) {
+function getHeroTitleStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     margin: 0,
-    fontSize: isMobile ? 24 : 32,
+    fontSize: isMobile ? 24 : 30,
     fontWeight: 900,
     letterSpacing: "-0.02em",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
   };
 }
 
-function getHeroActionsStyle(isCompact: boolean) {
-  return {
-    display: "flex",
-    flexDirection: isCompact ? ("column" as const) : ("row" as const),
-    gap: 10,
-    alignItems: "stretch",
-  };
-}
-
-function getPaperStyle(isMobile: boolean) {
+function getPaperStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     width: isMobile ? "100%" : "190mm",
-    minHeight: isMobile ? "auto" : "auto",
-    margin: "auto",
-    background: "white",
-    padding: isMobile ? 18 : "14mm",
-    boxSizing: "border-box" as const,
-    borderRadius: isMobile ? 18 : 10,
-    boxShadow: "0 18px 45px rgba(15, 23, 42, 0.12)",
+    minHeight: isMobile
+      ? "auto"
+      : "250mm",
+    margin: "0 auto",
+    background: "#ffffff",
+    padding: isMobile
+      ? 16
+      : "10mm",
+    boxSizing: "border-box",
+    borderRadius: isMobile ? 16 : 0,
+    boxShadow:
+      "0 18px 45px rgba(15, 23, 42, 0.12)",
+    overflow: "hidden",
   };
 }
 
-const heroCircleOne = {
-  position: "absolute" as const,
+const heroCircleOne: CSSProperties = {
+  position: "absolute",
   width: 180,
   height: 180,
   borderRadius: "50%",
-  background: "rgba(255, 255, 255, 0.08)",
+  background:
+    "rgba(255, 255, 255, 0.08)",
   top: -70,
   right: -55,
 };
 
-const heroCircleTwo = {
-  position: "absolute" as const,
+const heroCircleTwo: CSSProperties = {
+  position: "absolute",
   width: 150,
   height: 150,
   borderRadius: "50%",
-  background: "rgba(14, 165, 233, 0.18)",
+  background:
+    "rgba(14, 165, 233, 0.18)",
   bottom: -70,
   left: 90,
 };
 
-const heroCircleThree = {
-  position: "absolute" as const,
+const heroCircleThree: CSSProperties = {
+  position: "absolute",
   width: 90,
   height: 90,
   borderRadius: "50%",
-  background: "rgba(255, 255, 255, 0.07)",
+  background:
+    "rgba(255, 255, 255, 0.07)",
   top: 30,
   left: 25,
 };
 
-const heroDots = {
-  position: "absolute" as const,
+const heroDots: CSSProperties = {
+  position: "absolute",
   inset: 0,
   opacity: 0.18,
   backgroundImage:
@@ -407,236 +819,288 @@ const heroDots = {
   backgroundSize: "18px 18px",
 };
 
-const printButton = {
+const actionBar: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns:
+    "repeat(auto-fit,minmax(180px,1fr))",
+  gap: 10,
+};
+
+const printButton: CSSProperties = {
   border: "none",
   borderRadius: 14,
   padding: "12px 18px",
   color: "#ffffff",
-  background: "linear-gradient(135deg, #2563eb, #0891b2)",
+  background:
+    "linear-gradient(135deg, #2563eb, #0891b2)",
   fontSize: 15,
   fontWeight: 900,
   cursor: "pointer",
-  boxShadow: "0 10px 24px rgba(37, 99, 235, 0.28)",
+  boxShadow:
+    "0 10px 24px rgba(37, 99, 235, 0.28)",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
-const backButton = {
+const pdfButton: CSSProperties = {
+  ...printButton,
+  background:
+    "linear-gradient(135deg,#0d47a1,#1976d2)",
+};
+
+const backButton: CSSProperties = {
   border: "none",
   borderRadius: 14,
   padding: "12px 18px",
   color: "#ffffff",
-  background: "linear-gradient(135deg, #64748b, #334155)",
+  background:
+    "linear-gradient(135deg,#22c55e,#15803d)",
   fontSize: 15,
   fontWeight: 900,
   cursor: "pointer",
-  boxShadow: "0 10px 24px rgba(51, 65, 85, 0.28)",
+  boxShadow:
+    "0 8px 18px rgba(21,128,61,0.24)",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
-const mainWorkstationButton = {
+const mainWorkstationButton: CSSProperties = {
   border: "none",
   borderRadius: 14,
   padding: "12px 18px",
   color: "#ffffff",
-  background: "linear-gradient(135deg, #16a34a, #15803d)",
+  background:
+    "linear-gradient(135deg,#16a34a,#15803d)",
   fontSize: 15,
   fontWeight: 900,
   cursor: "pointer",
-  boxShadow: "0 10px 24px rgba(22, 163, 74, 0.28)",
+  boxShadow:
+    "0 8px 18px rgba(21,128,61,0.25)",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
-const paperHeader = {
-  textAlign: "center" as const,
+const paperHeader: CSSProperties = {
+  textAlign: "center",
 };
 
-const organizationTitle = {
+const organizationTitle: CSSProperties = {
   margin: 0,
   color: "#0d47a1",
-  fontSize: 24,
+  fontSize: 22,
   fontWeight: 900,
 };
 
-const title = {
-  margin: "12px 0 0",
-  fontSize: 28,
+const title: CSSProperties = {
+  margin: "8px 0 0",
+  fontSize: 26,
   color: "#0f172a",
   fontWeight: 900,
 };
 
-const divider = {
+const divider: CSSProperties = {
   height: 2,
-  background: "linear-gradient(135deg, #1e3a8a, #0891b2)",
-  margin: "18px 0",
+  background:
+    "linear-gradient(135deg, #1e3a8a, #0891b2)",
+  margin: "14px 0",
 };
 
-const paragraph = {
-  fontSize: 16,
-  lineHeight: 1.85,
+const paragraph: CSSProperties = {
+  fontSize: 14,
+  lineHeight: 1.75,
   color: "#111827",
-  textAlign: "justify" as const,
-  margin: "12px 0",
+  textAlign: "justify",
+  margin: "9px 0",
 };
 
-const infoGrid = {
+const infoGrid: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: 10,
-  margin: "18px 0",
+  gridTemplateColumns:
+    "repeat(2,minmax(0,1fr))",
+  gap: 8,
+  margin: "14px 0",
 };
 
-const infoBox = {
+const infoBox: CSSProperties = {
   border: "1px solid #d9e3f5",
-  borderRadius: 10,
-  padding: 11,
+  borderRadius: 9,
+  padding: "8px 10px",
   background: "#f8fbff",
+  breakInside: "avoid",
 };
 
-const infoLabel = {
+const infoLabel: CSSProperties = {
   display: "block",
   color: "#64748b",
-  fontSize: 13,
-  marginBottom: 6,
+  fontSize: 12,
+  marginBottom: 4,
 };
 
-const infoValue = {
+const infoValue: CSSProperties = {
   color: "#0f172a",
-  fontSize: 15,
+  fontSize: 14,
 };
 
-const signatureArea = {
+const signatureArea: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: 24,
-  marginTop: 34,
-  fontSize: 16,
+  gridTemplateColumns:
+    "1fr 1fr",
+  gap: 22,
+  marginTop: 22,
+  fontSize: 14,
 };
 
-const stampBox = {
-  height: 70,
-  border: "1px dashed #94a3b8",
-  borderRadius: 10,
-  marginTop: 12,
+const signatureText: CSSProperties = {
+  margin: "8px 0 0",
 };
 
-const loadingBox = {
+const stampBox: CSSProperties = {
+  height: 54,
+  border:
+    "1px dashed #94a3b8",
+  borderRadius: 9,
+  marginTop: 8,
+};
+
+const footerNote: CSSProperties = {
+  marginTop: 18,
+  paddingTop: 8,
+  borderTop:
+    "1px solid #e2e8f0",
+  textAlign: "center",
+  color: "#64748b",
+  fontSize: 10.5,
+};
+
+const loadingBox: CSSProperties = {
   maxWidth: 794,
   margin: "0 auto",
-  background: "rgba(255, 255, 255, 0.94)",
-  border: "1px solid rgba(226, 232, 240, 0.95)",
+  background:
+    "rgba(255, 255, 255, 0.94)",
+  border:
+    "1px solid rgba(226, 232, 240, 0.95)",
   borderRadius: 18,
   padding: 22,
-  textAlign: "center" as const,
+  textAlign: "center",
   color: "#1e3a8a",
   fontWeight: 900,
-  boxShadow: "0 18px 45px rgba(15, 23, 42, 0.08)",
+  boxShadow:
+    "0 18px 45px rgba(15, 23, 42, 0.08)",
 };
 
 const printStyles = `
 @page {
-  size: A4;
-  margin: 6mm;
+  size: A4 portrait;
+  margin: 8mm;
 }
 
 @media print {
   html,
   body {
-    width: 210mm !important;
-    min-height: 297mm !important;
+    width: 100% !important;
+    min-height: auto !important;
     margin: 0 !important;
     padding: 0 !important;
-    background: white !important;
-    overflow: hidden !important;
-  }
-
-  body * {
-    visibility: hidden;
-  }
-
-  .print-paper,
-  .print-paper * {
-    visibility: visible;
+    background: #ffffff !important;
+    overflow: visible !important;
+    print-color-adjust: exact !important;
+    -webkit-print-color-adjust: exact !important;
   }
 
   .no-print {
     display: none !important;
-    visibility: hidden !important;
   }
 
   main {
-    width: 210mm !important;
+    width: 100% !important;
     min-height: auto !important;
     margin: 0 !important;
     padding: 0 !important;
-    background: white !important;
-    display: block !important;
-    overflow: hidden !important;
+    background: #ffffff !important;
+    overflow: visible !important;
   }
 
   .print-paper {
-    position: absolute !important;
-    top: 0 !important;
-    right: 0 !important;
-    left: 0 !important;
-    width: 198mm !important;
+    width: 100% !important;
     min-height: auto !important;
     height: auto !important;
-    margin: 0 auto !important;
-    padding: 9mm 10mm !important;
+    margin: 0 !important;
+    padding: 7mm !important;
     box-sizing: border-box !important;
     box-shadow: none !important;
     border-radius: 0 !important;
-    page-break-before: avoid !important;
-    page-break-after: avoid !important;
-    page-break-inside: avoid !important;
+    overflow: visible !important;
+  }
+
+  .print-paper,
+  .print-paper * {
+    print-color-adjust: exact !important;
+    -webkit-print-color-adjust: exact !important;
+  }
+
+  .print-block,
+  .print-info-box,
+  .print-info-grid,
+  .print-signature-area,
+  .print-footer-note {
     break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 
   .print-organization-title {
-    font-size: 21px !important;
+    font-size: 20px !important;
     margin: 0 !important;
   }
 
   .print-title {
-    font-size: 25px !important;
-    margin: 8px 0 0 !important;
+    font-size: 24px !important;
+    margin: 6px 0 0 !important;
   }
 
   .print-divider {
-    margin: 14px 0 !important;
+    margin: 11px 0 !important;
   }
 
   .print-paragraph {
-    font-size: 15px !important;
-    line-height: 1.65 !important;
-    margin: 9px 0 !important;
+    font-size: 13px !important;
+    line-height: 1.6 !important;
+    margin: 7px 0 !important;
   }
 
   .print-info-grid {
-    gap: 8px !important;
-    margin: 14px 0 !important;
+    gap: 6px !important;
+    margin: 11px 0 !important;
   }
 
   .print-info-box {
-    padding: 8px 10px !important;
-    border-radius: 8px !important;
+    padding: 7px 9px !important;
+    border-radius: 7px !important;
   }
 
   .print-info-label {
-    font-size: 12px !important;
-    margin-bottom: 4px !important;
+    font-size: 11px !important;
+    margin-bottom: 3px !important;
   }
 
   .print-info-value {
-    font-size: 14px !important;
+    font-size: 13px !important;
   }
 
   .print-signature-area {
-    margin-top: 22px !important;
-    font-size: 15px !important;
-    gap: 20px !important;
+    margin-top: 17px !important;
+    font-size: 13px !important;
+    gap: 18px !important;
   }
 
   .print-stamp-box {
-    height: 54px !important;
-    margin-top: 8px !important;
+    height: 48px !important;
+    margin-top: 6px !important;
+  }
+
+  .print-footer-note {
+    margin-top: 12px !important;
+    padding-top: 6px !important;
+    font-size: 9.5px !important;
   }
 }
 `;
