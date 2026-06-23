@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
 type ScreenType = "mobile" | "tablet" | "desktop";
+type SessionType = "branch_user" | "admin_support" | null;
 
 type FinanceUser = {
   id: string;
@@ -19,6 +20,16 @@ type FinanceUser = {
   roles?: string[];
   permissions?: string[];
   logged_at?: string;
+  support_user_id?: string;
+  support_role?: string;
+  is_support_session?: boolean;
+};
+
+type SupportSessionResponse = {
+  ok: boolean;
+  message?: string;
+  session_type?: "admin_support";
+  user?: FinanceUser;
 };
 
 type SearchResult = {
@@ -62,11 +73,33 @@ type InventoryAlertRow = {
   finance_products?: ProductRelation;
 };
 
+type CustomerSearchRow = {
+  id: string;
+  full_name?: string | null;
+  national_id?: string | null;
+  phone?: string | null;
+};
+
+type ContractSearchRow = {
+  id: string;
+  contract_number?: string | null;
+  customer_name?: string | null;
+  customer_national_id?: string | null;
+  customer_phone?: string | null;
+  investor_name?: string | null;
+};
+
+type InvestorSearchRow = {
+  id: string;
+  investor_name?: string | null;
+  national_id?: string | null;
+  commercial_record?: string | null;
+};
+
 const sections = [
   {
     title: "سير العمل",
     path: "workflow",
-    desc: "متابعة العمليات والتنبيهات",
     icon: "💼",
     color: "#2563eb",
     bg: "linear-gradient(135deg,#eff6ff,#dbeafe)",
@@ -75,7 +108,6 @@ const sections = [
   {
     title: "العملاء",
     path: "customers",
-    desc: "إدارة العملاء والملفات",
     icon: "👥",
     color: "#0284c7",
     bg: "linear-gradient(135deg,#f0f9ff,#e0f2fe)",
@@ -84,7 +116,6 @@ const sections = [
   {
     title: "طلب جديد",
     path: "new-request",
-    desc: "إنشاء عقد وسند جديد",
     icon: "➕",
     color: "#16a34a",
     bg: "linear-gradient(135deg,#f0fdf4,#dcfce7)",
@@ -93,7 +124,6 @@ const sections = [
   {
     title: "السداد",
     path: "payments",
-    desc: "تسجيل ومتابعة الدفعات",
     icon: "💳",
     color: "#059669",
     bg: "linear-gradient(135deg,#ecfdf5,#d1fae5)",
@@ -102,7 +132,6 @@ const sections = [
   {
     title: "المخزون",
     path: "inventory",
-    desc: "المنتجات والمستثمرين",
     icon: "📦",
     color: "#0f766e",
     bg: "linear-gradient(135deg,#f0fdfa,#ccfbf1)",
@@ -111,7 +140,6 @@ const sections = [
   {
     title: "العقود",
     path: "contracts",
-    desc: "بحث وطباعة ومتابعة",
     icon: "📄",
     color: "#1d4ed8",
     bg: "linear-gradient(135deg,#eef2ff,#dbeafe)",
@@ -120,7 +148,6 @@ const sections = [
   {
     title: "المصروفات",
     path: "expenses",
-    desc: "المشتريات والمصروفات",
     icon: "🧾",
     color: "#475569",
     bg: "linear-gradient(135deg,#f8fafc,#e2e8f0)",
@@ -129,7 +156,6 @@ const sections = [
   {
     title: "الملاحظات",
     path: "notes",
-    desc: "ملاحظات وتذكيرات",
     icon: "✏️",
     color: "#0ea5e9",
     bg: "linear-gradient(135deg,#f0f9ff,#e0f2fe)",
@@ -138,7 +164,6 @@ const sections = [
   {
     title: "الصلاحيات",
     path: "permissions",
-    desc: "المستخدمون والأدوار",
     icon: "🔐",
     color: "#334155",
     bg: "linear-gradient(135deg,#f8fafc,#e2e8f0)",
@@ -147,7 +172,6 @@ const sections = [
   {
     title: "الإعدادات",
     path: "settings",
-    desc: "بيانات الفرع والمنظمة",
     icon: "⚙️",
     color: "#0f172a",
     bg: "linear-gradient(135deg,#f1f5f9,#e2e8f0)",
@@ -159,7 +183,7 @@ export default function FinancePage() {
   const params = useParams();
   const router = useRouter();
 
-  const branch = String(params.branch ?? "");
+  const branch = String(params.branch ?? "").trim().toLowerCase();
 
   const [screen, setScreen] = useState<ScreenType>("desktop");
   const [organizationName, setOrganizationName] =
@@ -167,6 +191,11 @@ export default function FinancePage() {
   const [employeeName, setEmployeeName] = useState("الموظف");
   const [branchId, setBranchId] = useState<string | null>(null);
   const [authorized, setAuthorized] = useState(false);
+  const [sessionType, setSessionType] = useState<SessionType>(null);
+  const [authMessage, setAuthMessage] = useState(
+    "جاري التحقق من تسجيل الدخول..."
+  );
+  const [logoutLoading, setLogoutLoading] = useState(false);
 
   const [permissions, setPermissions] = useState<string[]>([]);
   const [roles, setRoles] = useState<string[]>([]);
@@ -183,6 +212,7 @@ export default function FinancePage() {
   const isMobile = screen === "mobile";
   const isTablet = screen === "tablet";
   const isCompact = isMobile || isTablet;
+  const isSupportSession = sessionType === "admin_support";
 
   const today = new Date().toLocaleDateString("en-CA");
 
@@ -224,18 +254,14 @@ export default function FinancePage() {
     return () => {
       cancelled = true;
     };
-  }, [branch]);
+  }, [branch, router]);
 
   useEffect(() => {
-    if (!authorized) {
+    if (!authorized || !branchId) {
       return;
     }
 
-    if (typeof branchId !== "string" || branchId.length === 0) {
-      return;
-    }
-
-    const safeBranchId: string = branchId;
+    const safeBranchId = branchId;
     let cancelled = false;
 
     async function run() {
@@ -259,6 +285,20 @@ export default function FinancePage() {
     };
   }, [searchText, branchId, permissions, roles, authorized]);
 
+  function resetPageSessionState() {
+    setAuthorized(false);
+    setSessionType(null);
+    setBranchId(null);
+    setPermissions([]);
+    setRoles([]);
+    setSearchText("");
+    setSearchResults([]);
+    setCustomersCount(0);
+    setContractsCount(0);
+    setAlerts([]);
+    setLatestActivities([]);
+  }
+
   function clearFinanceSession() {
     if (typeof window === "undefined") {
       return;
@@ -278,9 +318,98 @@ export default function FinancePage() {
 
   function redirectToLogin() {
     clearFinanceSession();
-    setAuthorized(false);
-    setBranchId(null);
+    resetPageSessionState();
     router.replace("/login");
+  }
+
+  function applyAuthorizedUser(
+    user: FinanceUser,
+    type: Exclude<SessionType, null>
+  ) {
+    const userRoles =
+      Array.isArray(user.roles) && user.roles.length > 0
+        ? user.roles.filter(
+            (role): role is string => typeof role === "string"
+          )
+        : user.role
+          ? [user.role]
+          : [];
+
+    const userPermissions = Array.isArray(user.permissions)
+      ? user.permissions.filter(
+          (permission): permission is string =>
+            typeof permission === "string"
+        )
+      : [];
+
+    setOrganizationName(user.organization_name || "احتساب");
+    setBranchId(user.branch_id);
+    setEmployeeName(user.full_name || user.username || "الموظف");
+    setRoles(userRoles);
+    setPermissions(userPermissions);
+    setSessionType(type);
+    setAuthorized(true);
+    setAuthMessage("جاري التحقق من تسجيل الدخول...");
+  }
+
+  async function getSupportSession(
+    isCancelled: () => boolean
+  ): Promise<FinanceUser | null> {
+    try {
+      const response = await fetch(
+        `/finance/api/support-session?branch=${encodeURIComponent(branch)}`,
+        {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+          headers: {
+            Accept: "application/json",
+          },
+        }
+      );
+
+      let payload: SupportSessionResponse;
+
+      try {
+        payload = (await response.json()) as SupportSessionResponse;
+      } catch {
+        payload = {
+          ok: false,
+          message: "تعذر قراءة استجابة جلسة الدعم",
+        };
+      }
+
+      if (isCancelled()) {
+        return null;
+      }
+
+      if (
+        response.ok &&
+        payload.ok &&
+        payload.session_type === "admin_support" &&
+        payload.user &&
+        typeof payload.user.id === "string" &&
+        typeof payload.user.branch_id === "string" &&
+        typeof payload.user.branch_slug === "string"
+      ) {
+        return payload.user;
+      }
+
+      if (
+        response.status !== 401 &&
+        response.status !== 403
+      ) {
+        console.error(
+          "Support session verification failed:",
+          payload.message || response.status
+        );
+      }
+
+      return null;
+    } catch (error) {
+      console.error("Support session request failed:", error);
+      return null;
+    }
   }
 
   function getLocalUser(): FinanceUser | null {
@@ -306,13 +435,15 @@ export default function FinancePage() {
             branch_id: parsedUser.branch_id,
             branch_slug: parsedUser.branch_slug,
             branch_name: parsedUser.branch_name || "",
-            organization_name: parsedUser.organization_name || "احتساب",
+            organization_name:
+              parsedUser.organization_name || "احتساب",
             full_name: parsedUser.full_name || "الموظف",
             username: parsedUser.username || "",
             role: parsedUser.role || "",
             roles: Array.isArray(parsedUser.roles)
               ? parsedUser.roles.filter(
-                  (role): role is string => typeof role === "string"
+                  (role): role is string =>
+                    typeof role === "string"
                 )
               : parsedUser.role
                 ? [parsedUser.role]
@@ -323,11 +454,12 @@ export default function FinancePage() {
                     typeof permission === "string"
                 )
               : [],
-            logged_at: parsedUser.logged_at || new Date().toISOString(),
+            logged_at:
+              parsedUser.logged_at || new Date().toISOString(),
           };
         }
       } catch {
-        // تتم محاولة قراءة المفاتيح القديمة أدناه.
+        // تتم محاولة قراءة مفاتيح الجلسة القديمة أدناه.
       }
     }
 
@@ -344,11 +476,14 @@ export default function FinancePage() {
       id,
       branch_id: savedBranchId,
       branch_slug: branchSlug,
-      branch_name: localStorage.getItem("finance_branch_name") || "",
+      branch_name:
+        localStorage.getItem("finance_branch_name") || "",
       organization_name:
         localStorage.getItem("finance_organization_name") || "احتساب",
-      full_name: localStorage.getItem("finance_user_name") || "الموظف",
-      username: localStorage.getItem("finance_username") || "",
+      full_name:
+        localStorage.getItem("finance_user_name") || "الموظف",
+      username:
+        localStorage.getItem("finance_username") || "",
       role,
       roles: [role],
       permissions: [],
@@ -359,6 +494,42 @@ export default function FinancePage() {
   async function checkLoginAndLoadBranch(
     isCancelled: () => boolean = () => false
   ) {
+    setAuthorized(false);
+    setSessionType(null);
+    setAuthMessage("جاري التحقق من جلسة الدعم...");
+
+    const supportUser = await getSupportSession(isCancelled);
+
+    if (isCancelled()) {
+      return;
+    }
+
+    if (supportUser) {
+      const supportBranchSlug = supportUser.branch_slug
+        .trim()
+        .toLowerCase();
+
+      if (
+        supportBranchSlug !== branch ||
+        !supportUser.branch_id
+      ) {
+        router.replace(
+          `/finance/${encodeURIComponent(supportBranchSlug)}`
+        );
+        return;
+      }
+
+      /*
+       * لا نحفظ جلسة الدعم في localStorage.
+       * ولا نحذف جلسة موظف الفرع المحلية؛ حتى لا يتسبب دخول الدعم
+       * في تسجيل خروج موظف حقيقي يستخدم الجهاز نفسه لاحقًا.
+       */
+      applyAuthorizedUser(supportUser, "admin_support");
+      return;
+    }
+
+    setAuthMessage("جاري التحقق من تسجيل دخول الموظف...");
+
     const localUser = getLocalUser();
 
     if (!localUser) {
@@ -366,9 +537,15 @@ export default function FinancePage() {
       return;
     }
 
-    if (localUser.branch_slug !== branch) {
-      if (localUser.branch_slug) {
-        router.replace(`/finance/${localUser.branch_slug}`);
+    const localBranchSlug = localUser.branch_slug
+      .trim()
+      .toLowerCase();
+
+    if (localBranchSlug !== branch) {
+      if (localBranchSlug) {
+        router.replace(
+          `/finance/${encodeURIComponent(localBranchSlug)}`
+        );
         return;
       }
 
@@ -397,7 +574,9 @@ export default function FinancePage() {
 
     const { data: branchData, error: branchError } = await supabase
       .from("finance_branches")
-      .select("id, organization_name, branch_name, branch_slug, is_active")
+      .select(
+        "id, organization_name, branch_name, branch_slug, is_active"
+      )
       .eq("branch_slug", branch)
       .maybeSingle();
 
@@ -417,7 +596,9 @@ export default function FinancePage() {
 
     const { data: freshUser, error: userError } = await supabase
       .from("finance_branch_users")
-      .select("id, branch_id, full_name, username, role, is_active")
+      .select(
+        "id, branch_id, full_name, username, role, is_active"
+      )
       .eq("id", localUser.id)
       .eq("branch_id", branchData.id)
       .maybeSingle();
@@ -441,24 +622,21 @@ export default function FinancePage() {
       branch_id: String(branchData.id),
       branch_slug: String(branchData.branch_slug),
       branch_name: branchData.branch_name || "",
-      organization_name: branchData.organization_name || "احتساب",
+      organization_name:
+        branchData.organization_name || "احتساب",
       full_name:
-        freshUser.full_name || freshUser.username || "الموظف",
+        freshUser.full_name ||
+        freshUser.username ||
+        "الموظف",
       username: freshUser.username || "",
       role: freshRole,
       roles: userRoles,
       permissions: localPermissions,
-      logged_at: localUser.logged_at || new Date().toISOString(),
+      logged_at:
+        localUser.logged_at || new Date().toISOString(),
     };
 
-    setOrganizationName(refreshedUser.organization_name || "احتساب");
-    setBranchId(refreshedUser.branch_id);
-    setEmployeeName(
-      refreshedUser.full_name || refreshedUser.username || "الموظف"
-    );
-    setRoles(userRoles);
-    setPermissions(localPermissions);
-    setAuthorized(true);
+    applyAuthorizedUser(refreshedUser, "branch_user");
 
     localStorage.setItem("finance_user_id", refreshedUser.id);
     localStorage.setItem(
@@ -469,9 +647,18 @@ export default function FinancePage() {
       "finance_username",
       refreshedUser.username || ""
     );
-    localStorage.setItem("finance_role", refreshedUser.role || "");
-    localStorage.setItem("finance_branch_id", refreshedUser.branch_id);
-    localStorage.setItem("finance_branch_slug", refreshedUser.branch_slug);
+    localStorage.setItem(
+      "finance_role",
+      refreshedUser.role || ""
+    );
+    localStorage.setItem(
+      "finance_branch_id",
+      refreshedUser.branch_id
+    );
+    localStorage.setItem(
+      "finance_branch_slug",
+      refreshedUser.branch_slug
+    );
     localStorage.setItem(
       "finance_branch_name",
       refreshedUser.branch_name || ""
@@ -488,6 +675,7 @@ export default function FinancePage() {
 
   function hasPermission(permissionKey: string) {
     return (
+      roles.includes("support_impersonation") ||
       roles.includes("main_admin") ||
       roles.includes("branch_manager") ||
       roles.includes("employee") ||
@@ -593,7 +781,7 @@ export default function FinancePage() {
         id: `negative-${item.id}`,
         type: "danger",
         text: `منتج بالسالب: ${getProductName(item)} - الكمية ${
-          item.quantity || 0
+          item.quantity ?? 0
         }`,
         href: `/finance/${branch}/inventory`,
       });
@@ -604,7 +792,7 @@ export default function FinancePage() {
         id: `low-${item.id}`,
         type: "green",
         text: `منتج منخفض: ${getProductName(item)} - الكمية ${
-          item.quantity || 0
+          item.quantity ?? 0
         }`,
         href: `/finance/${branch}/inventory`,
       });
@@ -644,10 +832,18 @@ export default function FinancePage() {
     const relation = item.finance_products;
 
     if (Array.isArray(relation)) {
-      return relation[0]?.product_name || item.product_name || "منتج غير محدد";
+      return (
+        relation[0]?.product_name ||
+        item.product_name ||
+        "منتج غير محدد"
+      );
     }
 
-    return relation?.product_name || item.product_name || "منتج غير محدد";
+    return (
+      relation?.product_name ||
+      item.product_name ||
+      "منتج غير محدد"
+    );
   }
 
   function getActivityText(item: ActivityItem) {
@@ -676,8 +872,7 @@ export default function FinancePage() {
 
     if (
       !authorized ||
-      typeof branchId !== "string" ||
-      branchId.length === 0 ||
+      !branchId ||
       query.length < 2
     ) {
       setSearchResults([]);
@@ -685,8 +880,17 @@ export default function FinancePage() {
       return;
     }
 
-    const safeBranchId: string = branchId;
-    const safeQuery = query.replace(/[(),.%]/g, " ");
+    const safeBranchId = branchId;
+    const safeQuery = query
+      .replace(/[(),.%]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (safeQuery.length < 2) {
+      setSearchResults([]);
+      setSearchLoading(false);
+      return;
+    }
 
     setSearchLoading(true);
 
@@ -700,7 +904,10 @@ export default function FinancePage() {
               `full_name.ilike.%${safeQuery}%,national_id.ilike.%${safeQuery}%,phone.ilike.%${safeQuery}%`
             )
             .limit(5)
-        : Promise.resolve({ data: [], error: null });
+        : Promise.resolve({
+            data: [] as CustomerSearchRow[],
+            error: null,
+          });
 
       const contractRequest = hasPermission("contracts")
         ? supabase
@@ -713,7 +920,10 @@ export default function FinancePage() {
               `contract_number.ilike.%${safeQuery}%,customer_name.ilike.%${safeQuery}%,customer_national_id.ilike.%${safeQuery}%,customer_phone.ilike.%${safeQuery}%,investor_name.ilike.%${safeQuery}%`
             )
             .limit(5)
-        : Promise.resolve({ data: [], error: null });
+        : Promise.resolve({
+            data: [] as ContractSearchRow[],
+            error: null,
+          });
 
       const investorRequest = hasPermission("inventory")
         ? supabase
@@ -726,7 +936,10 @@ export default function FinancePage() {
               `investor_name.ilike.%${safeQuery}%,national_id.ilike.%${safeQuery}%,commercial_record.ilike.%${safeQuery}%`
             )
             .limit(5)
-        : Promise.resolve({ data: [], error: null });
+        : Promise.resolve({
+            data: [] as InvestorSearchRow[],
+            error: null,
+          });
 
       const [
         customersResult,
@@ -738,42 +951,69 @@ export default function FinancePage() {
         investorRequest,
       ]);
 
-      const customers: SearchResult[] =
-        customersResult.data?.map((item: any) => ({
-          id: String(item.id),
-          type: "عميل",
-          icon: "👤",
-          title: item.full_name || "-",
-          subtitle: `${item.phone || "-"} | ${
-            item.national_id || "-"
-          }`,
-          href: `/finance/${branch}/customers/${item.id}`,
-        })) || [];
+      if (customersResult.error) {
+        console.error(
+          "Customer smart search error:",
+          customersResult.error
+        );
+      }
 
-      const contracts: SearchResult[] =
-        contractsResult.data?.map((item: any) => ({
-          id: String(item.id),
-          type: "عقد",
-          icon: "📄",
-          title: `عقد رقم ${item.contract_number || "-"}`,
-          subtitle: `${item.customer_name || "-"} | ${
-            item.customer_phone || "-"
-          } | ${item.investor_name || "-"}`,
-          href: `/finance/${branch}/contracts/${item.id}`,
-        })) || [];
+      if (contractsResult.error) {
+        console.error(
+          "Contract smart search error:",
+          contractsResult.error
+        );
+      }
 
-      const investors: SearchResult[] =
-        investorsResult.data?.map((item: any) => ({
-          id: String(item.id),
-          type: "مستثمر",
-          icon: "🏦",
-          title: item.investor_name || "-",
-          subtitle:
-            item.national_id ||
-            item.commercial_record ||
-            "-",
-          href: `/finance/${branch}/inventory/investors/${item.id}`,
-        })) || [];
+      if (investorsResult.error) {
+        console.error(
+          "Investor smart search error:",
+          investorsResult.error
+        );
+      }
+
+      const customerRows =
+        (customersResult.data || []) as CustomerSearchRow[];
+
+      const contractRows =
+        (contractsResult.data || []) as ContractSearchRow[];
+
+      const investorRows =
+        (investorsResult.data || []) as InvestorSearchRow[];
+
+      const customers: SearchResult[] = customerRows.map((item) => ({
+        id: String(item.id),
+        type: "عميل",
+        icon: "👤",
+        title: item.full_name || "-",
+        subtitle: `${item.phone || "-"} | ${
+          item.national_id || "-"
+        }`,
+        href: `/finance/${branch}/customers/${item.id}`,
+      }));
+
+      const contracts: SearchResult[] = contractRows.map((item) => ({
+        id: String(item.id),
+        type: "عقد",
+        icon: "📄",
+        title: `عقد رقم ${item.contract_number || "-"}`,
+        subtitle: `${item.customer_name || "-"} | ${
+          item.customer_phone || "-"
+        } | ${item.investor_name || "-"}`,
+        href: `/finance/${branch}/contracts/${item.id}`,
+      }));
+
+      const investors: SearchResult[] = investorRows.map((item) => ({
+        id: String(item.id),
+        type: "مستثمر",
+        icon: "🏦",
+        title: item.investor_name || "-",
+        subtitle:
+          item.national_id ||
+          item.commercial_record ||
+          "-",
+        href: `/finance/${branch}/inventory/investors/${item.id}`,
+      }));
 
       setSearchResults([
         ...customers,
@@ -792,7 +1032,52 @@ export default function FinancePage() {
     router.push(`/finance/${branch}/${path}`);
   }
 
-  function logout() {
+  async function leaveSupportBranch() {
+    setLogoutLoading(true);
+    setAuthorized(false);
+
+    try {
+      const response = await fetch(
+        "/finance/api/support-session",
+        {
+          method: "DELETE",
+          credentials: "include",
+          cache: "no-store",
+          headers: {
+            Accept: "application/json",
+          },
+        }
+      );
+
+      if (!response.ok) {
+        console.error(
+          "Support impersonation logout failed:",
+          response.status
+        );
+      }
+    } catch (error) {
+      console.error(
+        "Support impersonation logout request failed:",
+        error
+      );
+    } finally {
+      resetPageSessionState();
+      setLogoutLoading(false);
+      router.replace("/admin-support");
+      router.refresh();
+    }
+  }
+
+  async function logout() {
+    if (logoutLoading) {
+      return;
+    }
+
+    if (isSupportSession) {
+      await leaveSupportBranch();
+      return;
+    }
+
     redirectToLogin();
   }
 
@@ -807,12 +1092,23 @@ export default function FinancePage() {
             <div style={heroDots} />
 
             <div style={loadingHeroContent}>
-              <h1 style={getTitleStyle(screen)}>
-                جاري التحقق من تسجيل الدخول...
-              </h1>
+              <div style={loadingContentBox}>
+                <span style={loadingSpinner} />
+                <h1 style={getTitleStyle(screen)}>
+                  {authMessage}
+                </h1>
+              </div>
             </div>
           </section>
         </div>
+
+        <style jsx global>{`
+          @keyframes financeMainSpin {
+            to {
+              transform: rotate(360deg);
+            }
+          }
+        `}</style>
       </main>
     );
   }
@@ -837,17 +1133,37 @@ export default function FinancePage() {
                   {employeeName}
                 </div>
 
+                {isSupportSession && (
+                  <span style={supportSessionBadge}>
+                    دخول دعم
+                  </span>
+                )}
+
                 {!isMobile && (
                   <div style={employeeDividerSmall} />
                 )}
 
                 <button
                   type="button"
-                  style={logoutInlineButton}
-                  onClick={logout}
+                  style={{
+                    ...logoutInlineButton,
+                    opacity: logoutLoading ? 0.7 : 1,
+                    cursor: logoutLoading
+                      ? "not-allowed"
+                      : "pointer",
+                  }}
+                  onClick={() => void logout()}
+                  disabled={logoutLoading}
                 >
                   <LogoutIcon />
-                  <span>تسجيل الخروج</span>
+
+                  <span>
+                    {logoutLoading
+                      ? "جاري الخروج..."
+                      : isSupportSession
+                        ? "العودة للوحة الدعم"
+                        : "تسجيل الخروج"}
+                  </span>
                 </button>
               </div>
             </div>
@@ -908,6 +1224,7 @@ export default function FinancePage() {
                   setSearchText("");
                   setSearchResults([]);
                 }}
+                aria-label="مسح البحث"
               >
                 ×
               </button>
@@ -1022,14 +1339,8 @@ export default function FinancePage() {
                     {item.icon}
                   </div>
 
-                  <div>
-                    <div style={cardTitle}>
-                      {item.title}
-                    </div>
-
-                    <div style={cardDesc}>
-                      {item.desc}
-                    </div>
+                  <div style={cardTitle}>
+                    {item.title}
                   </div>
                 </div>
 
@@ -1286,7 +1597,7 @@ function getHeroContentStyle(
     minHeight: 116,
     display: "grid",
     gridTemplateColumns:
-      "minmax(250px, 315px) 1fr minmax(220px, 315px)",
+      "minmax(250px,315px) 1fr minmax(220px,315px)",
     alignItems: "center",
     gap: 16,
     direction: "ltr",
@@ -1348,10 +1659,11 @@ function getEmployeeTopRowStyle(
 
   if (screen === "tablet") {
     return {
-      height: 42,
+      minHeight: 42,
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
+      flexWrap: "wrap",
       gap: 14,
       direction: "rtl",
       color: "#ffffff",
@@ -1360,9 +1672,10 @@ function getEmployeeTopRowStyle(
   }
 
   return {
-    height: 42,
+    minHeight: 42,
     display: "flex",
     alignItems: "center",
+    flexWrap: "wrap",
     gap: 14,
     direction: "ltr",
     color: "#ffffff",
@@ -1412,11 +1725,11 @@ function getOrganizationTitleStyle(
           ? 30
           : 34,
     lineHeight: 1.45,
-    fontWeight: 700,
+    fontWeight: 900,
     textShadow:
       "0 5px 14px rgba(15,23,42,0.14)",
     fontFamily:
-      "var(--font-noto-naskh-arabic), 'Noto Naskh Arabic', 'Amiri', serif",
+      "var(--font-almarai), sans-serif",
   };
 }
 
@@ -1428,6 +1741,8 @@ function getWorkstationTitleStyle(
     color: "rgba(255,255,255,0.86)",
     fontSize: screen === "mobile" ? 14 : 16,
     fontWeight: 800,
+    fontFamily:
+      "var(--font-almarai), sans-serif",
   };
 }
 
@@ -1439,13 +1754,15 @@ function getTitleStyle(
     color: "#ffffff",
     fontSize:
       screen === "mobile"
-        ? 24
+        ? 19
         : screen === "tablet"
-          ? 27
-          : 30,
-    lineHeight: 1.4,
+          ? 22
+          : 24,
+    lineHeight: 1.5,
     fontWeight: 900,
     textAlign: "center",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
   };
 }
 
@@ -1482,6 +1799,23 @@ const loadingHeroContent: CSSProperties = {
   justifyContent: "center",
 };
 
+const loadingContentBox: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 14,
+};
+
+const loadingSpinner: CSSProperties = {
+  width: 34,
+  height: 34,
+  borderRadius: "50%",
+  border: "3px solid rgba(255,255,255,0.28)",
+  borderTopColor: "#ffffff",
+  animation: "financeMainSpin 0.8s linear infinite",
+};
+
 const employeeIcon: CSSProperties = {
   width: 38,
   height: 38,
@@ -1494,6 +1828,21 @@ const employeeIcon: CSSProperties = {
   justifyContent: "center",
   color: "rgba(255,255,255,0.96)",
   flex: "0 0 auto",
+};
+
+const supportSessionBadge: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: "5px 9px",
+  borderRadius: 999,
+  background: "rgba(22,163,74,0.22)",
+  border: "1px solid rgba(187,247,208,0.42)",
+  color: "#dcfce7",
+  fontSize: 11,
+  fontWeight: 900,
+  whiteSpace: "nowrap",
+  direction: "rtl",
 };
 
 const employeeDividerSmall: CSSProperties = {
@@ -1700,6 +2049,8 @@ const resultItem: CSSProperties = {
   textAlign: "right",
   boxShadow:
     "0 8px 18px rgba(15,23,42,0.04)",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const resultIcon: CSSProperties = {
@@ -1829,7 +2180,7 @@ const grid: CSSProperties = {
 
 const sectionCard: CSSProperties = {
   width: "100%",
-  minHeight: 96,
+  minHeight: 86,
   background:
     "linear-gradient(135deg,#ffffff,#f8fafc)",
   border: "1px solid #e2e8f0",
@@ -1867,12 +2218,6 @@ const cardTitle: CSSProperties = {
   fontWeight: 900,
   fontSize: 16,
   color: "#0f172a",
-};
-
-const cardDesc: CSSProperties = {
-  color: "#64748b",
-  fontSize: 13,
-  marginTop: 5,
 };
 
 const arrow: CSSProperties = {
