@@ -41,10 +41,24 @@ function cleanText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function clearImpersonationCookie(response: NextResponse) {
+  response.cookies.set(
+    ADMIN_SUPPORT_IMPERSONATION_COOKIE_NAME,
+    "",
+    {
+      ...adminSupportImpersonationCookieOptions,
+      maxAge: 0,
+      expires: new Date(0),
+    }
+  );
+
+  return response;
+}
+
 function createErrorResponse(
   message: string,
   status: number,
-  clearImpersonationCookie = false
+  shouldClearImpersonationCookie = false
 ) {
   const response = NextResponse.json(
     {
@@ -59,16 +73,8 @@ function createErrorResponse(
     }
   );
 
-  if (clearImpersonationCookie) {
-    response.cookies.set(
-      ADMIN_SUPPORT_IMPERSONATION_COOKIE_NAME,
-      "",
-      {
-        ...adminSupportImpersonationCookieOptions,
-        maxAge: 0,
-        expires: new Date(0),
-      }
-    );
+  if (shouldClearImpersonationCookie) {
+    return clearImpersonationCookie(response);
   }
 
   return response;
@@ -77,6 +83,7 @@ function createErrorResponse(
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
+
     const requestedBranchSlug = cleanText(
       url.searchParams.get("branch")
     ).toLowerCase();
@@ -128,12 +135,12 @@ export async function GET(request: Request) {
         .from("finance_branches")
         .select(
           `
-          id,
-          branch_name,
-          branch_slug,
-          organization_name,
-          is_active
-        `
+            id,
+            branch_name,
+            branch_slug,
+            organization_name,
+            is_active
+          `
         )
         .eq("id", session.branchId)
         .eq("branch_slug", requestedBranchSlug)
@@ -143,12 +150,12 @@ export async function GET(request: Request) {
         .from("admin_support_users")
         .select(
           `
-          id,
-          full_name,
-          username,
-          role,
-          is_active
-        `
+            id,
+            full_name,
+            username,
+            role,
+            is_active
+          `
         )
         .eq("id", session.supportUserId)
         .maybeSingle(),
@@ -296,5 +303,44 @@ export async function GET(request: Request) {
       "حدث خطأ غير متوقع أثناء التحقق من جلسة الدعم",
       500
     );
+  }
+}
+
+export async function DELETE() {
+  try {
+    const response = NextResponse.json(
+      {
+        ok: true,
+        message: "تم إنهاء دخول الفرع والعودة إلى لوحة الدعم",
+      },
+      {
+        status: 200,
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      }
+    );
+
+    return clearImpersonationCookie(response);
+  } catch (error) {
+    console.error(
+      "Finance support impersonation logout error:",
+      error
+    );
+
+    const response = NextResponse.json(
+      {
+        ok: false,
+        message: "تعذر إنهاء جلسة دخول الفرع",
+      },
+      {
+        status: 500,
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      }
+    );
+
+    return clearImpersonationCookie(response);
   }
 }
