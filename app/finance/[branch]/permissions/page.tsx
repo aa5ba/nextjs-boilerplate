@@ -29,6 +29,12 @@ type FinanceUser = {
   updated_at?: string | null;
 };
 
+type StoredFinanceUser = Partial<FinanceUser> & {
+  branch_slug?: string;
+  branch_name?: string;
+  organization_name?: string;
+};
+
 type FinanceInvestor = {
   id: string;
   branch_id: string;
@@ -320,53 +326,37 @@ export default function FinancePermissionsPage() {
   const [employeeNameInput, setEmployeeNameInput] =
     useState("");
 
-  const [
-    employeeUsername,
-    setEmployeeUsername,
-  ] = useState("");
+  const [employeeUsername, setEmployeeUsername] =
+    useState("");
 
-  const [
-    employeePassword,
-    setEmployeePassword,
-  ] = useState("");
+  const [employeePassword, setEmployeePassword] =
+    useState("");
 
   const [selectedRole, setSelectedRole] =
     useState<UserRole>("موظف");
 
-  const [
-    selectedPermissions,
-    setSelectedPermissions,
-  ] = useState<string[]>([
-    ...DEFAULT_PERMISSIONS.موظف,
-  ]);
+  const [selectedPermissions, setSelectedPermissions] =
+    useState<string[]>([
+      ...DEFAULT_PERMISSIONS.موظف,
+    ]);
 
-  const [
-    selectedInvestorId,
-    setSelectedInvestorId,
-  ] = useState("");
+  const [selectedInvestorId, setSelectedInvestorId] =
+    useState("");
 
   const [editingUserId, setEditingUserId] =
     useState<string | null>(null);
 
-  const [
-    investorNameInput,
-    setInvestorNameInput,
-  ] = useState("");
+  const [investorNameInput, setInvestorNameInput] =
+    useState("");
 
-  const [
-    investorNationalId,
-    setInvestorNationalId,
-  ] = useState("");
+  const [investorNationalId, setInvestorNationalId] =
+    useState("");
 
-  const [
-    investorPhone,
-    setInvestorPhone,
-  ] = useState("");
+  const [investorPhone, setInvestorPhone] =
+    useState("");
 
-  const [
-    investorNotes,
-    setInvestorNotes,
-  ] = useState("");
+  const [investorNotes, setInvestorNotes] =
+    useState("");
 
   const isMobile = screen === "mobile";
   const isTablet = screen === "tablet";
@@ -387,16 +377,10 @@ export default function FinancePermissionsPage() {
 
     updateScreen();
 
-    window.addEventListener(
-      "resize",
-      updateScreen
-    );
+    window.addEventListener("resize", updateScreen);
 
     return () => {
-      window.removeEventListener(
-        "resize",
-        updateScreen
-      );
+      window.removeEventListener("resize", updateScreen);
     };
   }, []);
 
@@ -404,9 +388,7 @@ export default function FinancePermissionsPage() {
     let cancelled = false;
 
     async function run() {
-      await initializePage(
-        () => cancelled
-      );
+      await initializePage(() => cancelled);
     }
 
     void run();
@@ -428,42 +410,39 @@ export default function FinancePermissionsPage() {
 
   const activeInvestors = useMemo(() => {
     return investors.filter(
-      (investor) =>
-        investor.is_active !== false
+      (investor) => investor.is_active !== false
     );
   }, [investors]);
 
-  const availableInvestorsForAccount =
-    useMemo(() => {
-      const linkedInvestorIds = new Set(
-        users
-          .filter(
-            (user) =>
-              user.investor_id &&
-              user.id !== editingUserId
-          )
-          .map((user) =>
-            String(user.investor_id)
-          )
-      );
+  const availableInvestorsForAccount = useMemo(() => {
+    const linkedInvestorIds = new Set(
+      users
+        .filter(
+          (user) =>
+            user.investor_id &&
+            user.id !== editingUserId
+        )
+        .map((user) =>
+          String(user.investor_id)
+        )
+    );
 
-      return activeInvestors.filter(
-        (investor) =>
-          !linkedInvestorIds.has(investor.id)
-      );
-    }, [
-      activeInvestors,
-      users,
-      editingUserId,
-    ]);
+    return activeInvestors.filter(
+      (investor) =>
+        !linkedInvestorIds.has(investor.id)
+    );
+  }, [
+    activeInvestors,
+    users,
+    editingUserId,
+  ]);
 
   async function initializePage(
     isCancelled: () => boolean
   ) {
     setLoading(true);
 
-    const sessionUser =
-      readStoredUser();
+    const sessionUser = readStoredUser();
 
     if (!sessionUser) {
       clearFinanceSession();
@@ -471,12 +450,26 @@ export default function FinancePermissionsPage() {
       return;
     }
 
+    if (!branch) {
+      setLoading(false);
+      alert("مسار الفرع غير صحيح");
+      return;
+    }
+
     if (
       sessionUser.branch_slug &&
       sessionUser.branch_slug !== branch
     ) {
-      clearFinanceSession();
-      router.replace("/login");
+      setLoading(false);
+
+      alert(
+        "هذا الحساب لا يتبع الفرع الحالي"
+      );
+
+      router.replace(
+        `/finance/${sessionUser.branch_slug}`
+      );
+
       return;
     }
 
@@ -488,40 +481,108 @@ export default function FinancePermissionsPage() {
     }
 
     if (!resolvedBranchId) {
-      alert("تعذر تحديد الفرع");
       setLoading(false);
+      alert("تعذر تحديد الفرع");
       return;
     }
 
-    const freshUser =
-      await loadFreshCurrentUser(
-        sessionUser,
-        resolvedBranchId
+    if (
+      sessionUser.branch_id &&
+      String(sessionUser.branch_id) !==
+        String(resolvedBranchId)
+    ) {
+      setLoading(false);
+
+      alert(
+        "هذا الحساب لا يتبع الفرع الحالي"
       );
 
-    if (isCancelled()) {
+      router.replace(
+        sessionUser.branch_slug
+          ? `/finance/${sessionUser.branch_slug}`
+          : `/finance/${branch}`
+      );
+
       return;
     }
 
+    const sessionPermissions =
+      Array.isArray(sessionUser.permissions)
+        ? sessionUser.permissions.filter(
+            (
+              permission: unknown
+            ): permission is string =>
+              typeof permission === "string"
+          )
+        : [];
+
+    const normalizedUser: FinanceUser = {
+      id: String(
+        sessionUser.id ||
+          localStorage.getItem(
+            "finance_user_id"
+          ) ||
+          ""
+      ),
+
+      branch_id: String(
+        resolvedBranchId
+      ),
+
+      full_name:
+        sessionUser.full_name ||
+        localStorage.getItem(
+          "finance_user_name"
+        ) ||
+        "الموظف",
+
+      username:
+        sessionUser.username ||
+        localStorage.getItem(
+          "finance_username"
+        ) ||
+        "",
+
+      role:
+        sessionUser.role ||
+        localStorage.getItem(
+          "finance_role"
+        ) ||
+        "",
+
+      permissions: sessionPermissions,
+
+      investor_id:
+        sessionUser.investor_id || null,
+
+      is_active:
+        sessionUser.is_active !== false,
+
+      created_at:
+        sessionUser.created_at || null,
+
+      updated_at:
+        sessionUser.updated_at || null,
+    };
+
     if (
-      !freshUser ||
-      !freshUser.is_active
+      !normalizedUser.id ||
+      !normalizedUser.username
     ) {
+      setLoading(false);
+
+      alert(
+        "بيانات جلسة الدخول غير مكتملة، سجل الدخول مرة أخرى"
+      );
+
       clearFinanceSession();
       router.replace("/login");
       return;
     }
 
-    if (
-      freshUser.branch_id !==
-      resolvedBranchId
-    ) {
-      clearFinanceSession();
-      router.replace("/login");
-      return;
-    }
+    if (!hasPageAccess(normalizedUser)) {
+      setLoading(false);
 
-    if (!hasPageAccess(freshUser)) {
       alert(
         "لا تملك صلاحية الدخول لهذه الصفحة"
       );
@@ -534,10 +595,11 @@ export default function FinancePermissionsPage() {
     }
 
     setBranchId(resolvedBranchId);
-    setCurrentUser(freshUser);
+    setCurrentUser(normalizedUser);
+
     setEmployeeName(
-      freshUser.full_name ||
-        freshUser.username ||
+      normalizedUser.full_name ||
+        normalizedUser.username ||
         "الموظف"
     );
 
@@ -549,21 +611,15 @@ export default function FinancePermissionsPage() {
     );
   }
 
-  function readStoredUser():
-    | Partial<FinanceUser> & {
-        branch_slug?: string;
-      }
-    | null {
+  function readStoredUser(): StoredFinanceUser | null {
     if (typeof window === "undefined") {
       return null;
     }
 
     const saved =
+      localStorage.getItem("finance_user") ||
       localStorage.getItem(
         "finance_branch_user"
-      ) ||
-      localStorage.getItem(
-        "finance_user"
       );
 
     if (!saved) {
@@ -571,62 +627,19 @@ export default function FinancePermissionsPage() {
     }
 
     try {
-      return JSON.parse(saved);
+      const parsed = JSON.parse(saved);
+
+      if (
+        !parsed ||
+        typeof parsed !== "object"
+      ) {
+        return null;
+      }
+
+      return parsed as StoredFinanceUser;
     } catch {
       return null;
     }
-  }
-
-  async function loadFreshCurrentUser(
-    sessionUser:
-      | Partial<FinanceUser>
-      | null,
-    currentBranchId: string
-  ) {
-    if (!sessionUser) {
-      return null;
-    }
-
-    let query = supabase
-      .from("finance_users")
-      .select(
-        `
-          id,
-          branch_id,
-          full_name,
-          username,
-          role,
-          permissions,
-          investor_id,
-          is_active,
-          created_at,
-          updated_at
-        `
-      )
-      .eq("branch_id", currentBranchId);
-
-    if (sessionUser.id) {
-      query = query.eq(
-        "id",
-        sessionUser.id
-      );
-    } else if (sessionUser.username) {
-      query = query.eq(
-        "username",
-        sessionUser.username
-      );
-    } else {
-      return null;
-    }
-
-    const { data, error } =
-      await query.maybeSingle();
-
-    if (error || !data) {
-      return null;
-    }
-
-    return data as FinanceUser;
   }
 
   function hasPageAccess(
@@ -634,7 +647,7 @@ export default function FinancePermissionsPage() {
   ) {
     return (
       MANAGER_ROLES.includes(user.role) ||
-      user.permissions?.includes(
+      user.permissions.includes(
         "permissions"
       )
     );
@@ -703,31 +716,50 @@ export default function FinancePermissionsPage() {
       }
 
       if (usersResult.error) {
-        throw new Error(
-          usersResult.error.message
+        console.error(
+          "Load users error:",
+          usersResult.error
+        );
+
+        setUsers([]);
+
+        alert(
+          "تم فتح الصفحة، لكن تعذر تحميل قائمة المستخدمين: " +
+            usersResult.error.message
+        );
+      } else {
+        setUsers(
+          (usersResult.data ||
+            []) as FinanceUser[]
         );
       }
 
       if (investorsResult.error) {
-        throw new Error(
-          investorsResult.error.message
+        console.error(
+          "Load investors error:",
+          investorsResult.error
+        );
+
+        setInvestors([]);
+
+        alert(
+          "تم فتح الصفحة، لكن تعذر تحميل قائمة المستثمرين: " +
+            investorsResult.error.message
+        );
+      } else {
+        setInvestors(
+          (investorsResult.data ||
+            []) as FinanceInvestor[]
         );
       }
-
-      setUsers(
-        (usersResult.data ||
-          []) as FinanceUser[]
-      );
-
-      setInvestors(
-        (investorsResult.data ||
-          []) as FinanceInvestor[]
-      );
     } catch (error) {
       console.error(
         "Load permissions data error:",
         error
       );
+
+      setUsers([]);
+      setInvestors([]);
 
       alert(
         error instanceof Error
@@ -1038,7 +1070,8 @@ export default function FinancePermissionsPage() {
                   ? selectedInvestorId
                   : null,
               p_new_password_pin:
-                employeePassword || null,
+                employeePassword ||
+                null,
             }
           );
 
@@ -1354,7 +1387,8 @@ export default function FinancePermissionsPage() {
           investor_name:
             investorNameInput.trim(),
           national_id:
-            investorNationalId || null,
+            investorNationalId ||
+            null,
           phone:
             investorPhone || null,
           notes:
@@ -1486,6 +1520,7 @@ export default function FinancePermissionsPage() {
                   onClick={logout}
                 >
                   <LogoutIcon />
+
                   <span>
                     تسجيل الخروج
                   </span>
@@ -1785,6 +1820,7 @@ export default function FinancePermissionsPage() {
                           {
                             investor.investor_name
                           }
+
                           {investor.national_id
                             ? ` - ${investor.national_id}`
                             : ""}
@@ -2357,7 +2393,9 @@ function getPermissionLabel(
     return "عقود المستثمر";
   }
 
-  for (const group of PERMISSION_GROUPS) {
+  for (
+    const group of PERMISSION_GROUPS
+  ) {
     const permission =
       group.permissions.find(
         (item) =>
@@ -2370,37 +2408,6 @@ function getPermissionLabel(
   }
 
   return permissionKey;
-}
-
-function formatDate(
-  date?: string | null
-) {
-  if (!date) {
-    return "-";
-  }
-
-  const parsedDate = new Date(date);
-
-  if (
-    Number.isNaN(
-      parsedDate.getTime()
-    )
-  ) {
-    return "-";
-  }
-
-  const day = String(
-    parsedDate.getDate()
-  ).padStart(2, "0");
-
-  const month = String(
-    parsedDate.getMonth() + 1
-  ).padStart(2, "0");
-
-  const year =
-    parsedDate.getFullYear();
-
-  return `${day}/${month}/${year}`;
 }
 
 function UserIcon() {
@@ -2535,8 +2542,12 @@ function getHeroStyle(
 ): CSSProperties {
   return {
     position: "relative",
-    minHeight: isMobile ? "auto" : 160,
-    borderRadius: isMobile ? 20 : 24,
+    minHeight: isMobile
+      ? "auto"
+      : 160,
+    borderRadius: isMobile
+      ? 20
+      : 24,
     padding: isMobile
       ? "18px 14px"
       : "22px 26px",
@@ -2663,8 +2674,12 @@ function getMainWorkstationButtonStyle(
   isMobile: boolean
 ): CSSProperties {
   return {
-    width: isMobile ? "100%" : 220,
-    maxWidth: isMobile ? 280 : 220,
+    width: isMobile
+      ? "100%"
+      : 220,
+    maxWidth: isMobile
+      ? 280
+      : 220,
     height: 44,
     border: "none",
     background:
@@ -2701,7 +2716,9 @@ function getHeroTitleBoxStyle(
     direction: "rtl",
     pointerEvents: "none",
     order:
-      screen === "desktop" ? 0 : 1,
+      screen === "desktop"
+        ? 0
+        : 1,
   };
 }
 
@@ -2753,32 +2770,30 @@ const employeeIcon: CSSProperties = {
     "rgba(255,255,255,0.96)",
 };
 
-const employeeDividerSmall: CSSProperties =
-  {
-    width: 1,
-    height: 34,
-    background:
-      "rgba(255,255,255,0.30)",
-  };
+const employeeDividerSmall: CSSProperties = {
+  width: 1,
+  height: 34,
+  background:
+    "rgba(255,255,255,0.30)",
+};
 
-const logoutInlineButton: CSSProperties =
-  {
-    border: "none",
-    background: "transparent",
-    color:
-      "rgba(255,255,255,0.90)",
-    fontSize: 15,
-    fontWeight: 800,
-    display: "flex",
-    alignItems: "center",
-    gap: 9,
-    cursor: "pointer",
-    fontFamily:
-      "var(--font-almarai), sans-serif",
-    padding: 0,
-    whiteSpace: "nowrap",
-    direction: "rtl",
-  };
+const logoutInlineButton: CSSProperties = {
+  border: "none",
+  background: "transparent",
+  color:
+    "rgba(255,255,255,0.90)",
+  fontSize: 15,
+  fontWeight: 800,
+  display: "flex",
+  alignItems: "center",
+  gap: 9,
+  cursor: "pointer",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+  padding: 0,
+  whiteSpace: "nowrap",
+  direction: "rtl",
+};
 
 const heroCircleOne: CSSProperties = {
   position: "absolute",
@@ -2854,7 +2869,8 @@ const tabButton: CSSProperties = {
   padding: 14,
   background: "#ffffff",
   color: "#0d47a1",
-  border: "1px solid #d9e3f5",
+  border:
+    "1px solid #d9e3f5",
   borderRadius: 14,
   fontSize: 15,
   fontWeight: 900,
@@ -2872,7 +2888,8 @@ const activeTabButton: CSSProperties = {
 
 const card: CSSProperties = {
   background: "#ffffff",
-  border: "1px solid #d9e3f5",
+  border:
+    "1px solid #d9e3f5",
   borderRadius: 18,
   padding: 20,
   marginBottom: 16,
@@ -2882,7 +2899,8 @@ const card: CSSProperties = {
 
 const cardHeadingRow: CSSProperties = {
   display: "flex",
-  justifyContent: "space-between",
+  justifyContent:
+    "space-between",
   alignItems: "center",
   gap: 12,
   flexWrap: "wrap",
@@ -2925,7 +2943,8 @@ const input: CSSProperties = {
   width: "100%",
   padding: 13,
   borderRadius: 13,
-  border: "1px solid #d9e3f5",
+  border:
+    "1px solid #d9e3f5",
   fontSize: 15,
   boxSizing: "border-box",
   fontFamily:
@@ -2946,7 +2965,8 @@ const roleGrid: CSSProperties = {
 };
 
 const roleBox: CSSProperties = {
-  border: "1px solid #d9e3f5",
+  border:
+    "1px solid #d9e3f5",
   background: "#f8fbff",
   borderRadius: 14,
   padding: 14,
@@ -2960,14 +2980,16 @@ const roleBox: CSSProperties = {
 
 const selectedRoleBox: CSSProperties = {
   ...roleBox,
-  border: "1px solid #2563eb",
+  border:
+    "1px solid #2563eb",
   background: "#eff6ff",
   color: "#0d47a1",
 };
 
 const investorAccountBox: CSSProperties = {
   marginTop: 14,
-  border: "1px solid #bfdbfe",
+  border:
+    "1px solid #bfdbfe",
   background: "#eff6ff",
   borderRadius: 15,
   padding: 14,
@@ -2976,7 +2998,8 @@ const investorAccountBox: CSSProperties = {
 const investorNotice: CSSProperties = {
   background: "#eff6ff",
   color: "#1e3a8a",
-  border: "1px solid #bfdbfe",
+  border:
+    "1px solid #bfdbfe",
   borderRadius: 13,
   padding: 12,
   fontSize: 14,
@@ -2991,7 +3014,8 @@ const permissionGroups: CSSProperties = {
 };
 
 const permissionGroupCard: CSSProperties = {
-  border: "1px solid #d9e3f5",
+  border:
+    "1px solid #d9e3f5",
   background: "#fbfdff",
   borderRadius: 15,
   padding: 14,
@@ -3011,7 +3035,8 @@ const permissionChecksGrid: CSSProperties = {
 };
 
 const permissionBox: CSSProperties = {
-  border: "1px solid #d9e3f5",
+  border:
+    "1px solid #d9e3f5",
   background: "#ffffff",
   borderRadius: 11,
   padding: 11,
@@ -3023,13 +3048,13 @@ const permissionBox: CSSProperties = {
   cursor: "pointer",
 };
 
-const selectedPermissionBox: CSSProperties =
-  {
-    ...permissionBox,
-    border: "1px solid #60a5fa",
-    background: "#eff6ff",
-    color: "#1e3a8a",
-  };
+const selectedPermissionBox: CSSProperties = {
+  ...permissionBox,
+  border:
+    "1px solid #60a5fa",
+  background: "#eff6ff",
+  color: "#1e3a8a",
+};
 
 const saveButton: CSSProperties = {
   width: "100%",
@@ -3049,7 +3074,8 @@ const saveButton: CSSProperties = {
 
 const cancelEditButton: CSSProperties = {
   padding: "9px 13px",
-  border: "1px solid #cbd5e1",
+  border:
+    "1px solid #cbd5e1",
   borderRadius: 10,
   background: "#f8fafc",
   color: "#475569",
@@ -3068,7 +3094,8 @@ const userCard: CSSProperties = {
     "minmax(0,1fr) auto",
   gap: 14,
   padding: 15,
-  border: "1px solid #e2e8f0",
+  border:
+    "1px solid #e2e8f0",
   borderRadius: 15,
   background: "#fbfdff",
   alignItems: "center",
@@ -3114,7 +3141,8 @@ const permissionTags: CSSProperties = {
 const permissionTag: CSSProperties = {
   background: "#eff6ff",
   color: "#1d4ed8",
-  border: "1px solid #bfdbfe",
+  border:
+    "1px solid #bfdbfe",
   borderRadius: 999,
   padding: "5px 8px",
   fontSize: 11,
@@ -3125,7 +3153,8 @@ const noPermissionTag: CSSProperties = {
   ...permissionTag,
   background: "#f8fafc",
   color: "#64748b",
-  border: "1px solid #e2e8f0",
+  border:
+    "1px solid #e2e8f0",
 };
 
 const activeBadge: CSSProperties = {
@@ -3162,7 +3191,8 @@ const editSmallButton: CSSProperties = {
 const graySmallButton: CSSProperties = {
   background: "#e5e7eb",
   color: "#334155",
-  border: "1px solid #cbd5e1",
+  border:
+    "1px solid #cbd5e1",
   borderRadius: 10,
   padding: "9px 12px",
   fontWeight: 900,
@@ -3174,7 +3204,8 @@ const graySmallButton: CSSProperties = {
 const dangerSmallButton: CSSProperties = {
   background: "#fee2e2",
   color: "#991b1b",
-  border: "1px solid #fecaca",
+  border:
+    "1px solid #fecaca",
   borderRadius: 10,
   padding: "9px 12px",
   fontWeight: 900,
@@ -3191,7 +3222,8 @@ const investorsGrid: CSSProperties = {
 };
 
 const investorCard: CSSProperties = {
-  border: "1px solid #d9e3f5",
+  border:
+    "1px solid #d9e3f5",
   borderRadius: 15,
   padding: 14,
   background: "#fbfdff",
@@ -3199,7 +3231,8 @@ const investorCard: CSSProperties = {
 
 const investorCardTop: CSSProperties = {
   display: "flex",
-  justifyContent: "space-between",
+  justifyContent:
+    "space-between",
   alignItems: "center",
   gap: 10,
   flexWrap: "wrap",
@@ -3210,7 +3243,8 @@ const linkedAccountBox: CSSProperties = {
   marginTop: 10,
   background: "#dcfce7",
   color: "#166534",
-  border: "1px solid #bbf7d0",
+  border:
+    "1px solid #bbf7d0",
   borderRadius: 10,
   padding: 9,
   fontSize: 12,
@@ -3221,7 +3255,8 @@ const noAccountBox: CSSProperties = {
   marginTop: 10,
   background: "#f8fafc",
   color: "#64748b",
-  border: "1px solid #e2e8f0",
+  border:
+    "1px solid #e2e8f0",
   borderRadius: 10,
   padding: 9,
   fontSize: 12,
@@ -3230,7 +3265,8 @@ const noAccountBox: CSSProperties = {
 
 const emptyBox: CSSProperties = {
   background: "#f8fbff",
-  border: "1px dashed #cbd5e1",
+  border:
+    "1px dashed #cbd5e1",
   borderRadius: 14,
   padding: 18,
   textAlign: "center",
@@ -3263,7 +3299,8 @@ const loadingBox: CSSProperties = {
   maxWidth: 850,
   margin: "80px auto",
   background: "#ffffff",
-  border: "1px solid #d9e3f5",
+  border:
+    "1px solid #d9e3f5",
   borderRadius: 18,
   padding: 24,
   textAlign: "center",
