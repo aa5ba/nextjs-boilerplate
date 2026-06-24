@@ -14,7 +14,8 @@ type ActiveTab =
   | "create-user"
   | "users"
   | "create-investor"
-  | "investors";
+  | "investors"
+  | null;
 
 type FinanceUser = {
   id: string;
@@ -284,14 +285,9 @@ export default function FinancePermissionsPage() {
 
   const branch = String(params.branch ?? "");
 
-  const [screen, setScreen] =
-    useState<ScreenType>("desktop");
-
-  const [authChecked, setAuthChecked] =
-    useState(false);
-
-  const [branchId, setBranchId] =
-    useState<string | null>(null);
+  const [screen, setScreen] = useState<ScreenType>("desktop");
+  const [authChecked, setAuthChecked] = useState(false);
+  const [branchId, setBranchId] = useState<string | null>(null);
 
   const [currentUser, setCurrentUser] =
     useState<FinanceUser | null>(null);
@@ -300,7 +296,7 @@ export default function FinancePermissionsPage() {
     useState("الموظف");
 
   const [activeTab, setActiveTab] =
-    useState<ActiveTab>("create-user");
+    useState<ActiveTab>(null);
 
   const [users, setUsers] =
     useState<FinanceUser[]>([]);
@@ -319,9 +315,6 @@ export default function FinancePermissionsPage() {
 
   const [processingUserId, setProcessingUserId] =
     useState<string | null>(null);
-
-  const [managerPin, setManagerPin] =
-    useState("");
 
   const [employeeNameInput, setEmployeeNameInput] =
     useState("");
@@ -399,6 +392,10 @@ export default function FinancePermissionsPage() {
   }, [branch]);
 
   useEffect(() => {
+    if (editingUserId) {
+      return;
+    }
+
     setSelectedPermissions([
       ...DEFAULT_PERMISSIONS[selectedRole],
     ]);
@@ -406,7 +403,7 @@ export default function FinancePermissionsPage() {
     if (selectedRole !== "مستثمر") {
       setSelectedInvestorId("");
     }
-  }, [selectedRole]);
+  }, [selectedRole, editingUserId]);
 
   const activeInvestors = useMemo(() => {
     return investors.filter(
@@ -525,9 +522,7 @@ export default function FinancePermissionsPage() {
           ""
       ),
 
-      branch_id: String(
-        resolvedBranchId
-      ),
+      branch_id: String(resolvedBranchId),
 
       full_name:
         sessionUser.full_name ||
@@ -722,11 +717,6 @@ export default function FinancePermissionsPage() {
         );
 
         setUsers([]);
-
-        alert(
-          "تم فتح الصفحة، لكن تعذر تحميل قائمة المستخدمين: " +
-            usersResult.error.message
-        );
       } else {
         setUsers(
           (usersResult.data ||
@@ -741,11 +731,6 @@ export default function FinancePermissionsPage() {
         );
 
         setInvestors([]);
-
-        alert(
-          "تم فتح الصفحة، لكن تعذر تحميل قائمة المستثمرين: " +
-            investorsResult.error.message
-        );
       } else {
         setInvestors(
           (investorsResult.data ||
@@ -760,12 +745,6 @@ export default function FinancePermissionsPage() {
 
       setUsers([]);
       setInvestors([]);
-
-      alert(
-        error instanceof Error
-          ? error.message
-          : "تعذر تحميل بيانات الموظفين والصلاحيات"
-      );
     } finally {
       if (!isCancelled()) {
         setLoading(false);
@@ -833,9 +812,21 @@ export default function FinancePermissionsPage() {
       return null;
     }
 
-    if (!/^\d{4}$/.test(managerPin)) {
+    const enteredPin = window.prompt(
+      "أدخل الرقم السري الحالي للمدير لإتمام العملية"
+    );
+
+    if (enteredPin === null) {
+      return null;
+    }
+
+    const normalizedPin = enteredPin
+      .replace(/\D/g, "")
+      .slice(0, 4);
+
+    if (!/^\d{4}$/.test(normalizedPin)) {
       alert(
-        "أدخل الرقم السري الحالي للمدير من 4 أرقام للتأكيد"
+        "الرقم السري يجب أن يتكون من 4 أرقام"
       );
 
       return null;
@@ -843,7 +834,7 @@ export default function FinancePermissionsPage() {
 
     return {
       username: currentUser.username,
-      pin: managerPin,
+      pin: normalizedPin,
     };
   }
 
@@ -906,6 +897,21 @@ export default function FinancePermissionsPage() {
     ]);
 
     setSelectedInvestorId("");
+  }
+
+  function returnToMainOptions() {
+    resetUserForm();
+    setActiveTab(null);
+
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
+  }
+
+  function openCreateUser() {
+    resetUserForm();
+    setActiveTab("create-user");
   }
 
   function beginEditUser(
@@ -972,18 +978,11 @@ export default function FinancePermissionsPage() {
       return;
     }
 
-    const credentials =
-      getManagerCredentials();
-
-    if (!credentials) {
-      return;
-    }
-
     if (
       !employeeNameInput.trim()
     ) {
       alert(
-        "يرجى إدخال اسم المستخدم"
+        "يرجى إدخال الاسم الكامل"
       );
 
       return;
@@ -1036,6 +1035,13 @@ export default function FinancePermissionsPage() {
         "اختر المستثمر المرتبط بالحساب"
       );
 
+      return;
+    }
+
+    const credentials =
+      getManagerCredentials();
+
+    if (!credentials) {
       return;
     }
 
@@ -1128,6 +1134,8 @@ export default function FinancePermissionsPage() {
       resetUserForm();
 
       await loadLists(branchId);
+
+      setActiveTab("users");
     } catch (error) {
       console.error(
         "Save finance user error:",
@@ -1173,13 +1181,6 @@ export default function FinancePermissionsPage() {
       return;
     }
 
-    const credentials =
-      getManagerCredentials();
-
-    if (!credentials) {
-      return;
-    }
-
     const confirmed = confirm(
       user.is_active
         ? `هل تريد تعطيل حساب ${user.full_name}؟`
@@ -1187,6 +1188,13 @@ export default function FinancePermissionsPage() {
     );
 
     if (!confirmed) {
+      return;
+    }
+
+    const credentials =
+      getManagerCredentials();
+
+    if (!credentials) {
       return;
     }
 
@@ -1253,18 +1261,18 @@ export default function FinancePermissionsPage() {
       return;
     }
 
-    const credentials =
-      getManagerCredentials();
-
-    if (!credentials) {
-      return;
-    }
-
     const confirmed = confirm(
       `هل أنت متأكد من حذف المستخدم ${user.full_name}؟`
     );
 
     if (!confirmed) {
+      return;
+    }
+
+    const credentials =
+      getManagerCredentials();
+
+    if (!credentials) {
       return;
     }
 
@@ -1414,6 +1422,8 @@ export default function FinancePermissionsPage() {
       );
 
       await loadLists(branchId);
+
+      setActiveTab("investors");
     } catch (error) {
       console.error(
         "Create investor error:",
@@ -1568,94 +1578,143 @@ export default function FinancePermissionsPage() {
           </div>
         </header>
 
-        <section style={managerPinCard}>
-          <Field label="الرقم السري الحالي للمدير للتأكيد">
-            <input
-              style={input}
-              type="password"
-              inputMode="numeric"
-              maxLength={4}
-              value={managerPin}
-              onChange={(event) =>
-                setManagerPin(
-                  event.target.value
-                    .replace(/\D/g, "")
-                    .slice(0, 4)
+        {activeTab === null && (
+          <section style={managementMenu}>
+            <button
+              type="button"
+              style={managementOptionCard}
+              onClick={openCreateUser}
+            >
+              <span
+                style={managementOptionIcon}
+              >
+                <UserPlusIcon />
+              </span>
+
+              <span
+                style={managementOptionContent}
+              >
+                <strong
+                  style={managementOptionTitle}
+                >
+                  إنشاء مستخدم جديد
+                </strong>
+              </span>
+
+              <span
+                style={managementOptionArrow}
+              >
+                ←
+              </span>
+            </button>
+
+            <button
+              type="button"
+              style={managementOptionCard}
+              onClick={() =>
+                setActiveTab("users")
+              }
+            >
+              <span
+                style={managementOptionIcon}
+              >
+                <UsersIcon />
+              </span>
+
+              <span
+                style={managementOptionContent}
+              >
+                <strong
+                  style={managementOptionTitle}
+                >
+                  إدارة المستخدمين
+                </strong>
+              </span>
+
+              <span
+                style={managementOptionArrow}
+              >
+                ←
+              </span>
+            </button>
+
+            <button
+              type="button"
+              style={managementOptionCard}
+              onClick={() =>
+                setActiveTab(
+                  "create-investor"
                 )
               }
-              placeholder="أدخل 4 أرقام"
-              autoComplete="off"
-            />
-          </Field>
-        </section>
+            >
+              <span
+                style={managementOptionIcon}
+              >
+                <InvestorAddIcon />
+              </span>
 
-        <section style={tabs}>
-          <button
-            type="button"
-            style={
-              activeTab ===
-              "create-user"
-                ? activeTabButton
-                : tabButton
-            }
-            onClick={() => {
-              resetUserForm();
+              <span
+                style={managementOptionContent}
+              >
+                <strong
+                  style={managementOptionTitle}
+                >
+                  إنشاء مستثمر
+                </strong>
+              </span>
 
-              setActiveTab(
-                "create-user"
-              );
-            }}
-          >
-            إنشاء مستخدم جديد
-          </button>
+              <span
+                style={managementOptionArrow}
+              >
+                ←
+              </span>
+            </button>
 
-          <button
-            type="button"
-            style={
-              activeTab === "users"
-                ? activeTabButton
-                : tabButton
-            }
-            onClick={() =>
-              setActiveTab("users")
-            }
-          >
-            المستخدمون
-          </button>
+            <button
+              type="button"
+              style={managementOptionCard}
+              onClick={() =>
+                setActiveTab(
+                  "investors"
+                )
+              }
+            >
+              <span
+                style={managementOptionIcon}
+              >
+                <InvestorsIcon />
+              </span>
 
-          <button
-            type="button"
-            style={
-              activeTab ===
-              "create-investor"
-                ? activeTabButton
-                : tabButton
-            }
-            onClick={() =>
-              setActiveTab(
-                "create-investor"
-              )
-            }
-          >
-            إنشاء مستثمر
-          </button>
+              <span
+                style={managementOptionContent}
+              >
+                <strong
+                  style={managementOptionTitle}
+                >
+                  عرض المستثمرين
+                </strong>
+              </span>
 
-          <button
-            type="button"
-            style={
-              activeTab === "investors"
-                ? activeTabButton
-                : tabButton
-            }
-            onClick={() =>
-              setActiveTab(
-                "investors"
-              )
-            }
-          >
-            المستثمرون
-          </button>
-        </section>
+              <span
+                style={managementOptionArrow}
+              >
+                ←
+              </span>
+            </button>
+          </section>
+        )}
+
+        {activeTab !== null && (
+          <div style={sectionNavigation}>
+            <button
+              type="button"
+              style={sectionBackButton}
+              onClick={returnToMainOptions}
+            >
+              → العودة للخيارات
+            </button>
+          </div>
+        )}
 
         {activeTab ===
           "create-user" && (
@@ -1671,7 +1730,10 @@ export default function FinancePermissionsPage() {
                 <button
                   type="button"
                   style={cancelEditButton}
-                  onClick={resetUserForm}
+                  onClick={() => {
+                    resetUserForm();
+                    setActiveTab("users");
+                  }}
                 >
                   إلغاء التعديل
                 </button>
@@ -1872,9 +1934,19 @@ export default function FinancePermissionsPage() {
 
         {activeTab === "users" && (
           <section style={card}>
-            <h2 style={sectionTitle}>
-              قائمة المستخدمين
-            </h2>
+            <div style={cardHeadingRow}>
+              <h2 style={sectionTitle}>
+                إدارة المستخدمين
+              </h2>
+
+              <button
+                type="button"
+                style={addSmallButton}
+                onClick={openCreateUser}
+              >
+                + مستخدم جديد
+              </button>
+            </div>
 
             {users.length === 0 ? (
               <div style={emptyBox}>
@@ -1899,7 +1971,9 @@ export default function FinancePermissionsPage() {
                   return (
                     <article
                       key={user.id}
-                      style={userCard}
+                      style={getUserCardStyle(
+                        isMobile
+                      )}
                     >
                       <div
                         style={
@@ -2179,9 +2253,23 @@ export default function FinancePermissionsPage() {
         {activeTab ===
           "investors" && (
           <section style={card}>
-            <h2 style={sectionTitle}>
-              المستثمرون
-            </h2>
+            <div style={cardHeadingRow}>
+              <h2 style={sectionTitle}>
+                المستثمرون
+              </h2>
+
+              <button
+                type="button"
+                style={addSmallButton}
+                onClick={() =>
+                  setActiveTab(
+                    "create-investor"
+                  )
+                }
+              >
+                + مستثمر جديد
+              </button>
+            </div>
 
             {investors.length === 0 ? (
               <div style={emptyBox}>
@@ -2430,6 +2518,141 @@ function UserIcon() {
         stroke="currentColor"
         strokeWidth="1.8"
         strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function UserPlusIcon() {
+  return (
+    <svg
+      width="25"
+      height="25"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M9.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+
+      <path
+        d="M3.8 19c.7-3.2 2.8-5 5.7-5 1.6 0 3 .5 4 1.5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+
+      <path
+        d="M17.5 12.5v7M14 16h7"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function UsersIcon() {
+  return (
+    <svg
+      width="25"
+      height="25"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+
+      <path
+        d="M3 19c.7-3.2 2.9-5 6-5s5.3 1.8 6 5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+
+      <path
+        d="M16.2 10.8a3 3 0 1 0 0-5.8"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+
+      <path
+        d="M17 14.3c2 .5 3.4 2 4 4.2"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function InvestorAddIcon() {
+  return (
+    <svg
+      width="25"
+      height="25"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M4 8.5h12v10H4v-10Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+
+      <path
+        d="M7 8.5V6.8c0-1 .8-1.8 1.8-1.8h2.4c1 0 1.8.8 1.8 1.8v1.7"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+
+      <path
+        d="M18.5 11.5v7M15 15h7"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function InvestorsIcon() {
+  return (
+    <svg
+      width="25"
+      height="25"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M4 8h16v11H4V8Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+
+      <path
+        d="M8 8V6.5A1.5 1.5 0 0 1 9.5 5h5A1.5 1.5 0 0 1 16 6.5V8"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+
+      <path
+        d="M4 12.5h16M10 12.5v2h4v-2"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
       />
     </svg>
   );
@@ -2755,6 +2978,24 @@ function getHeroActionBoxStyle(
   };
 }
 
+function getUserCardStyle(
+  isMobile: boolean
+): CSSProperties {
+  return {
+    display: "grid",
+    gridTemplateColumns: isMobile
+      ? "1fr"
+      : "minmax(0,1fr) auto",
+    gap: 14,
+    padding: 15,
+    border:
+      "1px solid #e2e8f0",
+    borderRadius: 15,
+    background: "#fbfdff",
+    alignItems: "center",
+  };
+}
+
 const employeeIcon: CSSProperties = {
   width: 38,
   height: 38,
@@ -2847,43 +3088,84 @@ const heroDots: CSSProperties = {
   zIndex: 2,
 };
 
-const managerPinCard: CSSProperties = {
-  background: "#ffffff",
-  border: "1px solid #d9e3f5",
-  borderRadius: 18,
-  padding: 16,
-  marginBottom: 14,
-  boxShadow:
-    "0 8px 20px rgba(15,23,42,0.04)",
-};
-
-const tabs: CSSProperties = {
+const managementMenu: CSSProperties = {
   display: "grid",
   gridTemplateColumns:
-    "repeat(auto-fit,minmax(190px,1fr))",
-  gap: 10,
-  marginBottom: 14,
+    "repeat(auto-fit,minmax(240px,1fr))",
+  gap: 14,
+  marginBottom: 18,
 };
 
-const tabButton: CSSProperties = {
-  padding: 14,
+const managementOptionCard: CSSProperties = {
+  width: "100%",
+  minHeight: 108,
   background: "#ffffff",
-  color: "#0d47a1",
   border:
     "1px solid #d9e3f5",
-  borderRadius: 14,
-  fontSize: 15,
-  fontWeight: 900,
+  borderRadius: 18,
+  padding: "18px 20px",
+  display: "grid",
+  gridTemplateColumns:
+    "auto minmax(0,1fr) auto",
+  alignItems: "center",
+  gap: 14,
+  color: "#0d47a1",
   cursor: "pointer",
+  textAlign: "right",
+  boxShadow:
+    "0 8px 20px rgba(15,23,42,0.04)",
   fontFamily:
     "var(--font-almarai), sans-serif",
 };
 
-const activeTabButton: CSSProperties = {
-  ...tabButton,
+const managementOptionIcon: CSSProperties = {
+  width: 50,
+  height: 50,
+  borderRadius: 15,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
   background:
-    "linear-gradient(135deg,#0d47a1,#1976d2)",
-  color: "#ffffff",
+    "linear-gradient(135deg,#eff6ff,#dbeafe)",
+  color: "#1d4ed8",
+};
+
+const managementOptionContent: CSSProperties = {
+  minWidth: 0,
+  display: "grid",
+  gap: 5,
+};
+
+const managementOptionTitle: CSSProperties = {
+  fontSize: 17,
+  fontWeight: 900,
+  color: "#0d47a1",
+};
+
+const managementOptionArrow: CSSProperties = {
+  fontSize: 22,
+  fontWeight: 900,
+  color: "#2563eb",
+};
+
+const sectionNavigation: CSSProperties = {
+  display: "flex",
+  justifyContent: "flex-start",
+  marginBottom: 12,
+};
+
+const sectionBackButton: CSSProperties = {
+  border:
+    "1px solid #bfdbfe",
+  background: "#eff6ff",
+  color: "#1d4ed8",
+  borderRadius: 11,
+  padding: "10px 14px",
+  fontSize: 13,
+  fontWeight: 900,
+  cursor: "pointer",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const card: CSSProperties = {
@@ -3081,24 +3363,26 @@ const cancelEditButton: CSSProperties = {
   color: "#475569",
   fontWeight: 900,
   cursor: "pointer",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const addSmallButton: CSSProperties = {
+  padding: "9px 13px",
+  border: "none",
+  borderRadius: 10,
+  background:
+    "linear-gradient(135deg,#2563eb,#0ea5e9)",
+  color: "#ffffff",
+  fontWeight: 900,
+  cursor: "pointer",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const usersList: CSSProperties = {
   display: "grid",
   gap: 12,
-};
-
-const userCard: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns:
-    "minmax(0,1fr) auto",
-  gap: 14,
-  padding: 15,
-  border:
-    "1px solid #e2e8f0",
-  borderRadius: 15,
-  background: "#fbfdff",
-  alignItems: "center",
 };
 
 const userInformation: CSSProperties = {
