@@ -8,23 +8,113 @@ import { getBranchId } from "@/lib/getBranchId";
 
 const ITEMS_PER_PAGE = 25;
 
+const SESSION_KEYS = [
+  "finance_user",
+  "finance_branch_user",
+  "finance_user_id",
+  "finance_user_name",
+  "finance_username",
+  "finance_role",
+  "finance_branch_id",
+  "finance_branch_slug",
+  "finance_branch_name",
+  "finance_organization_name",
+  "finance_permissions",
+  "finance_investor_id",
+  "finance_is_active",
+  "finance_last_login_at",
+] as const;
+
 type ScreenType = "mobile" | "tablet" | "desktop";
+
+type FinanceSession = {
+  id?: string | null;
+  user_id?: string | null;
+  full_name?: string | null;
+  username?: string | null;
+  role?: string | null;
+  branch_id?: string | null;
+  branch_slug?: string | null;
+  branch_name?: string | null;
+  organization_name?: string | null;
+  permissions?: unknown;
+  investor_id?: string | null;
+  is_active?: boolean | null;
+  last_login_at?: string | null;
+};
+
+type CustomerRelation = {
+  full_name?: string | null;
+  national_id?: string | null;
+  phone?: string | null;
+};
+
+type ClosedContract = {
+  id: string;
+  customer_id?: string | null;
+  contract_number?: string | number | null;
+  finance_type?: string | null;
+  paid_amount?: number | string | null;
+  contract_status?: string | null;
+  updated_at?: string | null;
+  finance_customers?:
+    | CustomerRelation
+    | CustomerRelation[]
+    | null;
+};
 
 export default function ClosedContractsPage() {
   const params = useParams();
   const router = useRouter();
 
-  const branch = params.branch as string;
+  const branch = String(params.branch ?? "").trim();
 
-  const [screen, setScreen] = useState<ScreenType>("desktop");
-  const [employeeName, setEmployeeName] = useState("الموظف");
+  const [screen, setScreen] =
+    useState<ScreenType>("desktop");
 
-  const [contracts, setContracts] = useState<any[]>([]);
+  const [employeeName, setEmployeeName] =
+    useState("الموظف");
+
+  const [authChecked, setAuthChecked] =
+    useState(false);
+
+  const [resolvedBranchId, setResolvedBranchId] =
+    useState<string | null>(null);
+
+  const [contracts, setContracts] =
+    useState<ClosedContract[]>([]);
+
+  const [totalCount, setTotalCount] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
+
+  const [loading, setLoading] = useState(true);
+  const [pageError, setPageError] = useState("");
 
   const isMobile = screen === "mobile";
   const isTablet = screen === "tablet";
   const isCompact = isMobile || isTablet;
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(totalCount / ITEMS_PER_PAGE)
+  );
+
+  const pageStart = useMemo(() => {
+    if (totalCount === 0) {
+      return 0;
+    }
+
+    return (
+      (currentPage - 1) * ITEMS_PER_PAGE + 1
+    );
+  }, [currentPage, totalCount]);
+
+  const pageEnd = useMemo(() => {
+    return Math.min(
+      currentPage * ITEMS_PER_PAGE,
+      totalCount
+    );
+  }, [currentPage, totalCount]);
 
   useEffect(() => {
     function updateScreen() {
@@ -40,223 +130,814 @@ export default function ClosedContractsPage() {
     }
 
     updateScreen();
+
     window.addEventListener("resize", updateScreen);
 
-    return () => window.removeEventListener("resize", updateScreen);
+    return () => {
+      window.removeEventListener(
+        "resize",
+        updateScreen
+      );
+    };
   }, []);
 
   useEffect(() => {
-    loadEmployeeName();
-    loadContracts();
-  }, [branch]);
+    let cancelled = false;
 
-  function loadEmployeeName() {
-    if (typeof window === "undefined") return;
+    async function initializePage() {
+      setAuthChecked(false);
+      setResolvedBranchId(null);
+      setContracts([]);
+      setTotalCount(0);
+      setCurrentPage(1);
+      setPageError("");
+      setLoading(true);
 
-    const newName = localStorage.getItem("finance_user_name");
+      if (!branch) {
+        redirectToLogin();
+        return;
+      }
 
-    if (newName) {
-      setEmployeeName(newName);
+      const session = readStoredSession();
+
+      if (!isValidSession(session)) {
+        redirectToLogin();
+        return;
+      }
+
+      const sessionBranchSlug = String(
+        session?.branch_slug ?? ""
+      ).trim();
+
+      if (sessionBranchSlug !== branch) {
+        router.replace(
+          `/finance/${encodeURIComponent(
+            sessionBranchSlug
+          )}`
+        );
+
+        return;
+      }
+
+      try {
+        const currentBranchId =
+          await getBranchId(branch);
+
+        if (cancelled) {
+          return;
+        }
+
+        if (!currentBranchId) {
+          setPageError("تعذر تحديد بيانات الفرع");
+          setLoading(false);
+          setAuthChecked(true);
+          return;
+        }
+
+        const sessionBranchId = String(
+          session?.branch_id ?? ""
+        ).trim();
+
+        if (
+          sessionBranchId !==
+          String(currentBranchId)
+        ) {
+          router.replace(
+            `/finance/${encodeURIComponent(
+              sessionBranchSlug
+            )}`
+          );
+
+          return;
+        }
+
+        applySession(session);
+
+        if (cancelled) {
+          return;
+        }
+
+        setResolvedBranchId(
+          String(currentBranchId)
+        );
+
+        setAuthChecked(true);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        console.error(
+          "Closed contracts initialization error:",
+          error
+        );
+
+        setPageError(
+          "حدث خطأ أثناء التحقق من بيانات الفرع"
+        );
+
+        setLoading(false);
+        setAuthChecked(true);
+      }
+    }
+
+    void initializePage();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [branch, router]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchContracts() {
+      if (
+        !authChecked ||
+        !resolvedBranchId
+      ) {
+        return;
+      }
+
+      await loadContracts(
+        resolvedBranchId,
+        currentPage,
+        () => cancelled
+      );
+    }
+
+    void fetchContracts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    authChecked,
+    resolvedBranchId,
+    currentPage,
+  ]);
+
+  function clearSession() {
+    if (typeof window === "undefined") {
       return;
     }
 
-    const oldUser = localStorage.getItem("finance_user");
+    SESSION_KEYS.forEach((key) => {
+      localStorage.removeItem(key);
+    });
+  }
 
-    if (oldUser) {
-      try {
-        const parsed = JSON.parse(oldUser);
-        setEmployeeName(parsed?.full_name || parsed?.username || "الموظف");
-      } catch {
-        setEmployeeName("الموظف");
+  function redirectToLogin() {
+    clearSession();
+    router.replace("/login");
+  }
+
+  function readStoredSession(): FinanceSession | null {
+    if (typeof window === "undefined") {
+      return null;
+    }
+
+    const rawSession =
+      localStorage.getItem("finance_user") ||
+      localStorage.getItem(
+        "finance_branch_user"
+      );
+
+    if (!rawSession) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(
+        rawSession
+      ) as FinanceSession;
+
+      if (
+        !parsed ||
+        typeof parsed !== "object" ||
+        Array.isArray(parsed)
+      ) {
+        return null;
+      }
+
+      return {
+        ...parsed,
+
+        id:
+          parsed.id ||
+          parsed.user_id ||
+          localStorage.getItem(
+            "finance_user_id"
+          ),
+
+        full_name:
+          parsed.full_name ||
+          localStorage.getItem(
+            "finance_user_name"
+          ) ||
+          null,
+
+        username:
+          parsed.username ||
+          localStorage.getItem(
+            "finance_username"
+          ) ||
+          null,
+
+        role:
+          parsed.role ||
+          localStorage.getItem(
+            "finance_role"
+          ) ||
+          null,
+
+        branch_id:
+          parsed.branch_id ||
+          localStorage.getItem(
+            "finance_branch_id"
+          ) ||
+          null,
+
+        branch_slug:
+          parsed.branch_slug ||
+          localStorage.getItem(
+            "finance_branch_slug"
+          ) ||
+          null,
+
+        branch_name:
+          parsed.branch_name ||
+          localStorage.getItem(
+            "finance_branch_name"
+          ) ||
+          null,
+
+        organization_name:
+          parsed.organization_name ||
+          localStorage.getItem(
+            "finance_organization_name"
+          ) ||
+          null,
+
+        investor_id:
+          parsed.investor_id ||
+          localStorage.getItem(
+            "finance_investor_id"
+          ) ||
+          null,
+
+        last_login_at:
+          parsed.last_login_at ||
+          localStorage.getItem(
+            "finance_last_login_at"
+          ) ||
+          null,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  function isValidSession(
+    session: FinanceSession | null
+  ) {
+    if (!session) {
+      return false;
+    }
+
+    const userId = String(
+      session.id ||
+        session.user_id ||
+        ""
+    ).trim();
+
+    const sessionBranchId = String(
+      session.branch_id || ""
+    ).trim();
+
+    const sessionBranchSlug = String(
+      session.branch_slug || ""
+    ).trim();
+
+    if (
+      !userId ||
+      !sessionBranchId ||
+      !sessionBranchSlug
+    ) {
+      return false;
+    }
+
+    if (session.is_active === false) {
+      return false;
+    }
+
+    const storedIsActive =
+      typeof window !== "undefined"
+        ? localStorage.getItem(
+            "finance_is_active"
+          )
+        : null;
+
+    if (storedIsActive === "false") {
+      return false;
+    }
+
+    return true;
+  }
+
+  function applySession(
+    session: FinanceSession | null
+  ) {
+    if (!session) {
+      setEmployeeName("الموظف");
+      return;
+    }
+
+    const directName =
+      typeof window !== "undefined"
+        ? localStorage.getItem(
+            "finance_user_name"
+          )
+        : null;
+
+    setEmployeeName(
+      directName ||
+        session.full_name ||
+        session.username ||
+        "الموظف"
+    );
+  }
+
+  function logout() {
+    clearSession();
+    router.replace("/login");
+  }
+
+  async function loadContracts(
+    currentBranchId: string,
+    pageNumber: number,
+    isCancelled: () => boolean = () => false
+  ) {
+    setLoading(true);
+    setPageError("");
+
+    try {
+      const from =
+        (pageNumber - 1) * ITEMS_PER_PAGE;
+
+      const to =
+        from + ITEMS_PER_PAGE - 1;
+
+      const { data, error, count } =
+        await supabase
+          .from("finance_contracts")
+          .select(
+            `
+              id,
+              customer_id,
+              contract_number,
+              finance_type,
+              paid_amount,
+              contract_status,
+              updated_at,
+              finance_customers (
+                full_name,
+                national_id,
+                phone
+              )
+            `,
+            {
+              count: "exact",
+            }
+          )
+          .eq("branch_id", currentBranchId)
+          .in("contract_status", [
+            "تم السداد",
+            "ملغي",
+          ])
+          .order("updated_at", {
+            ascending: false,
+          })
+          .range(from, to);
+
+      if (isCancelled()) {
+        return;
+      }
+
+      if (error) {
+        console.error(
+          "Closed contracts loading error:",
+          error
+        );
+
+        setContracts([]);
+        setTotalCount(0);
+
+        setPageError(
+          error.message ||
+            "تعذر تحميل العقود المنتهية"
+        );
+
+        return;
+      }
+
+      const safeCount = count ?? 0;
+
+      const calculatedTotalPages = Math.max(
+        1,
+        Math.ceil(
+          safeCount / ITEMS_PER_PAGE
+        )
+      );
+
+      if (
+        pageNumber > calculatedTotalPages
+      ) {
+        setCurrentPage(calculatedTotalPages);
+        return;
+      }
+
+      setContracts(
+        (data || []) as ClosedContract[]
+      );
+
+      setTotalCount(safeCount);
+    } catch (error) {
+      if (isCancelled()) {
+        return;
+      }
+
+      console.error(
+        "Unexpected closed contracts error:",
+        error
+      );
+
+      setContracts([]);
+      setTotalCount(0);
+
+      setPageError(
+        "حدث خطأ غير متوقع أثناء تحميل العقود المنتهية"
+      );
+    } finally {
+      if (!isCancelled()) {
+        setLoading(false);
       }
     }
   }
 
-  function logout() {
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("finance_user");
-      localStorage.removeItem("finance_user_name");
-      localStorage.removeItem("finance_branch_user");
+  function getCustomer(
+    contract: ClosedContract
+  ): CustomerRelation | null {
+    if (
+      Array.isArray(
+        contract.finance_customers
+      )
+    ) {
+      return (
+        contract.finance_customers[0] ||
+        null
+      );
     }
 
-    router.push(`/finance/${branch}/login`);
+    return (
+      contract.finance_customers || null
+    );
   }
 
-  const totalPages = Math.max(1, Math.ceil(contracts.length / ITEMS_PER_PAGE));
+  function getCustomerName(
+    contract: ClosedContract
+  ) {
+    return (
+      getCustomer(contract)?.full_name ||
+      "-"
+    );
+  }
 
-  const paginatedContracts = useMemo(() => {
-    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    return contracts.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-  }, [contracts, currentPage]);
+  function formatMoney(value: unknown) {
+    const number = Number(value ?? 0);
 
-  async function loadContracts() {
-    const branchId = await getBranchId(branch);
-
-    if (!branchId) {
-      setContracts([]);
-      return;
+    if (!Number.isFinite(number)) {
+      return "0";
     }
 
-    const { data } = await supabase
-      .from("finance_contracts")
-      .select("*, finance_customers(full_name, national_id, phone)")
-      .eq("branch_id", branchId)
-      .in("contract_status", ["تم السداد", "ملغي"])
-      .order("updated_at", { ascending: false });
+    return number.toLocaleString("ar-SA");
+  }
 
-    setContracts(data || []);
-    setCurrentPage(1);
+  if (!authChecked) {
+    return null;
   }
 
   return (
-    <main dir="rtl" style={getPageStyle(isMobile)}>
-      <div style={getContainerStyle(isCompact)}>
-        <header style={getHeroStyle(isMobile)}>
+    <main
+      dir="rtl"
+      style={getPageStyle(isMobile)}
+    >
+      <div
+        style={getContainerStyle(
+          isCompact
+        )}
+      >
+        <header
+          style={getHeroStyle(isMobile)}
+        >
           <div style={heroCircleOne} />
           <div style={heroCircleTwo} />
           <div style={heroCircleThree} />
           <div style={heroDots} />
 
-          <div style={getHeroContentStyle(screen)}>
-            <div style={getHeroUserCardStyle(screen)}>
-              <div style={getEmployeeTopRowStyle(screen)}>
+          <div
+            style={getHeroContentStyle(
+              screen
+            )}
+          >
+            <div
+              style={getHeroUserCardStyle(
+                screen
+              )}
+            >
+              <div
+                style={getEmployeeTopRowStyle(
+                  screen
+                )}
+              >
                 <div style={employeeIcon}>
                   <UserIcon />
                 </div>
 
-                <div style={getEmployeeNameStyle(isMobile)}>
+                <div
+                  style={getEmployeeNameStyle(
+                    isMobile
+                  )}
+                >
                   {employeeName}
                 </div>
 
-                {!isMobile && <div style={employeeDividerSmall} />}
+                {!isMobile && (
+                  <div
+                    style={
+                      employeeDividerSmall
+                    }
+                  />
+                )}
 
-                <button style={logoutInlineButton} onClick={logout}>
+                <button
+                  type="button"
+                  style={logoutInlineButton}
+                  onClick={logout}
+                >
                   <LogoutIcon />
                   <span>تسجيل الخروج</span>
                 </button>
               </div>
 
               <button
-                style={getMainWorkstationButtonStyle(isMobile)}
-                onClick={() => router.push(`/finance/${branch}`)}
+                type="button"
+                style={getMainWorkstationButtonStyle(
+                  isMobile
+                )}
+                onClick={() =>
+                  router.push(
+                    `/finance/${branch}`
+                  )
+                }
               >
                 <HomeIcon />
-                <span>محطة العمل الرئيسية</span>
+                <span>
+                  محطة العمل الرئيسية
+                </span>
               </button>
             </div>
 
-            <div style={getHeroTitleBoxStyle(screen)}>
-              <h1 style={getTitleStyle(screen)}>العقود المنتهية</h1>
+            <div
+              style={getHeroTitleBoxStyle(
+                screen
+              )}
+            >
+              <h1
+                style={getTitleStyle(screen)}
+              >
+                العقود المنتهية
+              </h1>
             </div>
 
-            <div style={getHeroActionBoxStyle(screen)} />
+            <div
+              style={getHeroActionBoxStyle(
+                screen
+              )}
+            />
           </div>
         </header>
 
         <section style={card}>
           <div style={listHeader}>
-            <h2 style={sectionTitle}>قائمة العقود المنتهية</h2>
+            <h2 style={sectionTitle}>
+              قائمة العقود المنتهية
+            </h2>
 
-            {contracts.length > 0 && (
-              <span style={pageInfo}>
-                صفحة {currentPage} من {totalPages} - عرض{" "}
-                {paginatedContracts.length} من {contracts.length}
-              </span>
-            )}
+            {!loading &&
+              !pageError &&
+              totalCount > 0 && (
+                <span style={pageInfo}>
+                  صفحة {currentPage} من{" "}
+                  {totalPages} - عرض{" "}
+                  {pageStart} إلى {pageEnd} من{" "}
+                  {totalCount}
+                </span>
+              )}
           </div>
 
-          <div style={tableScroll}>
-            <div style={tableHeader}>
-              <span>رقم العقد</span>
-              <span>العميل</span>
-              <span>نوع التمويل</span>
-              <span>المسدد</span>
-              <span>الحالة</span>
+          {loading ? (
+            <div style={loadingBox}>
+              جاري تحميل العقود المنتهية...
             </div>
+          ) : pageError ? (
+            <div style={errorBox}>
+              <div>{pageError}</div>
 
-            {contracts.length === 0 ? (
-              <div style={emptyBox}>لا توجد عقود منتهية</div>
-            ) : (
-              paginatedContracts.map((contract) => (
-                <div
-                  key={contract.id}
-                  style={tableRow}
-                  onClick={() =>
-                    router.push(`/finance/${branch}/contracts/${contract.id}`)
+              <button
+                type="button"
+                style={retryButton}
+                onClick={() => {
+                  if (resolvedBranchId) {
+                    void loadContracts(
+                      resolvedBranchId,
+                      currentPage
+                    );
                   }
-                >
-                  <span>{contract.contract_number}</span>
+                }}
+              >
+                إعادة المحاولة
+              </button>
+            </div>
+          ) : (
+            <div style={tableScroll}>
+              <div style={tableHeader}>
+                <span>رقم العقد</span>
+                <span>العميل</span>
+                <span>نوع التمويل</span>
+                <span>المسدد</span>
+                <span>الحالة</span>
+              </div>
 
-                  <span
-                    style={customerLink}
-                    onClick={(e) => {
-                      e.stopPropagation();
-
+              {contracts.length === 0 ? (
+                <div style={emptyBox}>
+                  لا توجد عقود منتهية
+                </div>
+              ) : (
+                contracts.map((contract) => (
+                  <div
+                    key={contract.id}
+                    style={tableRow}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() =>
                       router.push(
-                        `/finance/${branch}/customers/${contract.customer_id}`
-                      );
+                        `/finance/${branch}/contracts/${contract.id}`
+                      )
+                    }
+                    onKeyDown={(event) => {
+                      if (
+                        event.key === "Enter" ||
+                        event.key === " "
+                      ) {
+                        event.preventDefault();
+
+                        router.push(
+                          `/finance/${branch}/contracts/${contract.id}`
+                        );
+                      }
                     }}
                   >
-                    {contract.finance_customers?.full_name || "-"}
-                  </span>
+                    <span>
+                      {contract.contract_number ||
+                        "-"}
+                    </span>
 
-                  <span>{contract.finance_type}</span>
-                  <span>{contract.paid_amount || 0} ر.س</span>
+                    <button
+                      type="button"
+                      style={customerLink}
+                      onClick={(event) => {
+                        event.stopPropagation();
 
-                  <span>
-                    <span
-                      style={{
-                        ...statusBadge,
-                        ...(contract.contract_status === "ملغي"
-                          ? canceledBadge
-                          : paidBadge),
+                        if (
+                          !contract.customer_id
+                        ) {
+                          return;
+                        }
+
+                        router.push(
+                          `/finance/${branch}/customers/${contract.customer_id}`
+                        );
                       }}
                     >
-                      {contract.contract_status || "-"}
+                      {getCustomerName(contract)}
+                    </button>
+
+                    <span>
+                      {contract.finance_type || "-"}
                     </span>
+
+                    <span>
+                      {formatMoney(
+                        contract.paid_amount
+                      )}{" "}
+                      ر.س
+                    </span>
+
+                    <span>
+                      <span
+                        style={{
+                          ...statusBadge,
+
+                          ...(contract.contract_status ===
+                          "ملغي"
+                            ? canceledBadge
+                            : paidBadge),
+                        }}
+                      >
+                        {contract.contract_status ||
+                          "-"}
+                      </span>
+                    </span>
+                  </div>
+                ))
+              )}
+
+              {totalCount > ITEMS_PER_PAGE && (
+                <div style={paginationBox}>
+                  <button
+                    type="button"
+                    style={{
+                      ...paginationButton,
+
+                      opacity:
+                        currentPage === 1
+                          ? 0.5
+                          : 1,
+
+                      cursor:
+                        currentPage === 1
+                          ? "not-allowed"
+                          : "pointer",
+                    }}
+                    disabled={currentPage === 1}
+                    onClick={() =>
+                      setCurrentPage((page) =>
+                        Math.max(page - 1, 1)
+                      )
+                    }
+                  >
+                    السابق
+                  </button>
+
+                  <span style={paginationText}>
+                    صفحة {currentPage} من{" "}
+                    {totalPages}
                   </span>
+
+                  <button
+                    type="button"
+                    style={{
+                      ...paginationButton,
+
+                      opacity:
+                        currentPage ===
+                        totalPages
+                          ? 0.5
+                          : 1,
+
+                      cursor:
+                        currentPage ===
+                        totalPages
+                          ? "not-allowed"
+                          : "pointer",
+                    }}
+                    disabled={
+                      currentPage === totalPages
+                    }
+                    onClick={() =>
+                      setCurrentPage((page) =>
+                        Math.min(
+                          page + 1,
+                          totalPages
+                        )
+                      )
+                    }
+                  >
+                    التالي
+                  </button>
                 </div>
-              ))
-            )}
-
-            {contracts.length > ITEMS_PER_PAGE && (
-              <div style={paginationBox}>
-                <button
-                  style={{
-                    ...paginationButton,
-                    opacity: currentPage === 1 ? 0.5 : 1,
-                  }}
-                  disabled={currentPage === 1}
-                  onClick={() =>
-                    setCurrentPage((page) => Math.max(page - 1, 1))
-                  }
-                >
-                  السابق
-                </button>
-
-                <span style={paginationText}>
-                  صفحة {currentPage} من {totalPages}
-                </span>
-
-                <button
-                  style={{
-                    ...paginationButton,
-                    opacity: currentPage === totalPages ? 0.5 : 1,
-                  }}
-                  disabled={currentPage === totalPages}
-                  onClick={() =>
-                    setCurrentPage((page) => Math.min(page + 1, totalPages))
-                  }
-                >
-                  التالي
-                </button>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
         </section>
 
         <div style={backWrapper}>
-          <button style={backButton} onClick={() => router.back()}>
+          <button
+            type="button"
+            style={backButton}
+            onClick={() => router.back()}
+          >
             ← رجوع
           </button>
         </div>
@@ -267,12 +948,19 @@ export default function ClosedContractsPage() {
 
 function UserIcon() {
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M12 12.2a4.2 4.2 0 1 0 0-8.4 4.2 4.2 0 0 0 0 8.4Z"
         stroke="currentColor"
         strokeWidth="1.8"
       />
+
       <path
         d="M4.8 20.2c.8-3.5 3.6-5.4 7.2-5.4s6.4 1.9 7.2 5.4"
         stroke="currentColor"
@@ -285,19 +973,27 @@ function UserIcon() {
 
 function LogoutIcon() {
   return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M9.5 7V5.8c0-1 .8-1.8 1.8-1.8h6.1c1 0 1.8.8 1.8 1.8v12.4c0 1-.8 1.8-1.8 1.8h-6.1c-1 0-1.8-.8-1.8-1.8V17"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
       />
+
       <path
         d="M4.8 12h9.5"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
       />
+
       <path
         d="M7.8 8.8 4.6 12l3.2 3.2"
         stroke="currentColor"
@@ -311,7 +1007,13 @@ function LogoutIcon() {
 
 function HomeIcon() {
   return (
-    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="21"
+      height="21"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M3.8 11.2 12 4.5l8.2 6.7"
         stroke="currentColor"
@@ -319,12 +1021,14 @@ function HomeIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+
       <path
         d="M6.2 10.4v9.1h11.6v-9.1"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinejoin="round"
       />
+
       <path
         d="M10 19.5v-5.2h4v5.2"
         stroke="currentColor"
@@ -335,7 +1039,9 @@ function HomeIcon() {
   );
 }
 
-function getPageStyle(isMobile: boolean): CSSProperties {
+function getPageStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     minHeight: "100vh",
     backgroundColor: "#f6f9ff",
@@ -348,13 +1054,18 @@ function getPageStyle(isMobile: boolean): CSSProperties {
     `,
     backgroundSize: "cover",
     backgroundPosition: "center",
-    backgroundAttachment: isMobile ? "scroll" : "fixed",
+    backgroundAttachment: isMobile
+      ? "scroll"
+      : "fixed",
     padding: isMobile ? 10 : 18,
-    fontFamily: "var(--font-almarai), sans-serif",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
   };
 }
 
-function getContainerStyle(isCompact: boolean): CSSProperties {
+function getContainerStyle(
+  isCompact: boolean
+): CSSProperties {
   return {
     width: "100%",
     maxWidth: isCompact ? 980 : 1180,
@@ -362,12 +1073,16 @@ function getContainerStyle(isCompact: boolean): CSSProperties {
   };
 }
 
-function getHeroStyle(isMobile: boolean): CSSProperties {
+function getHeroStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     position: "relative",
     minHeight: isMobile ? "auto" : 160,
     borderRadius: isMobile ? 20 : 24,
-    padding: isMobile ? "18px 14px" : "22px 26px",
+    padding: isMobile
+      ? "18px 14px"
+      : "22px 26px",
     marginBottom: 14,
     overflow: "hidden",
     border: "none",
@@ -379,7 +1094,9 @@ function getHeroStyle(isMobile: boolean): CSSProperties {
   };
 }
 
-function getHeroContentStyle(screen: ScreenType): CSSProperties {
+function getHeroContentStyle(
+  screen: ScreenType
+): CSSProperties {
   if (screen === "mobile") {
     return {
       position: "relative",
@@ -413,14 +1130,17 @@ function getHeroContentStyle(screen: ScreenType): CSSProperties {
     zIndex: 3,
     minHeight: 116,
     display: "grid",
-    gridTemplateColumns: "minmax(250px, 315px) 1fr minmax(220px, 315px)",
+    gridTemplateColumns:
+      "minmax(250px, 315px) 1fr minmax(220px, 315px)",
     alignItems: "center",
     gap: 16,
     direction: "ltr",
   };
 }
 
-function getHeroUserCardStyle(screen: ScreenType): CSSProperties {
+function getHeroUserCardStyle(
+  screen: ScreenType
+): CSSProperties {
   if (screen === "mobile") {
     return {
       width: "100%",
@@ -456,7 +1176,9 @@ function getHeroUserCardStyle(screen: ScreenType): CSSProperties {
   };
 }
 
-function getEmployeeTopRowStyle(screen: ScreenType): CSSProperties {
+function getEmployeeTopRowStyle(
+  screen: ScreenType
+): CSSProperties {
   if (screen === "mobile") {
     return {
       minHeight: 42,
@@ -494,32 +1216,40 @@ function getEmployeeTopRowStyle(screen: ScreenType): CSSProperties {
   };
 }
 
-function getEmployeeNameStyle(isMobile: boolean): CSSProperties {
+function getEmployeeNameStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     color: "#ffffff",
     fontSize: isMobile ? 15 : 17,
     fontWeight: 900,
     whiteSpace: "nowrap",
     direction: "rtl",
-    textShadow: "0 4px 10px rgba(15,23,42,0.18)",
+    textShadow:
+      "0 4px 10px rgba(15,23,42,0.18)",
   };
 }
 
-function getMainWorkstationButtonStyle(isMobile: boolean): CSSProperties {
+function getMainWorkstationButtonStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     width: isMobile ? "100%" : 220,
     maxWidth: isMobile ? 280 : 220,
     height: 44,
     border: "none",
-    background: "linear-gradient(135deg,#72e77d,#22c55e 58%,#16a34a)",
+    background:
+      "linear-gradient(135deg,#72e77d,#22c55e 58%,#16a34a)",
     color: "#ffffff",
     borderRadius: 999,
     padding: "0 18px",
     fontSize: 14,
     fontWeight: 900,
     cursor: "pointer",
-    fontFamily: "var(--font-almarai), sans-serif",
-    boxShadow: "0 8px 18px rgba(22,163,74,0.20)",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
+    boxShadow:
+      "0 8px 18px rgba(22,163,74,0.20)",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
@@ -529,7 +1259,9 @@ function getMainWorkstationButtonStyle(isMobile: boolean): CSSProperties {
   };
 }
 
-function getHeroTitleBoxStyle(screen: ScreenType): CSSProperties {
+function getHeroTitleBoxStyle(
+  screen: ScreenType
+): CSSProperties {
   return {
     position: "relative",
     zIndex: 4,
@@ -544,29 +1276,36 @@ function getHeroTitleBoxStyle(screen: ScreenType): CSSProperties {
   };
 }
 
-function getTitleStyle(screen: ScreenType): CSSProperties {
+function getTitleStyle(
+  screen: ScreenType
+): CSSProperties {
   return {
     margin: 0,
     color: "#ffffff",
-    fontSize: screen === "mobile" ? 26 : screen === "tablet" ? 28 : 30,
+    fontSize:
+      screen === "mobile"
+        ? 26
+        : screen === "tablet"
+          ? 28
+          : 30,
     lineHeight: 1.35,
     fontWeight: 900,
     letterSpacing: "-0.4px",
-    textShadow: "0 5px 14px rgba(15,23,42,0.14)",
+    textShadow:
+      "0 5px 14px rgba(15,23,42,0.14)",
     whiteSpace: "nowrap",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
   };
 }
 
-function getHeroActionBoxStyle(screen: ScreenType): CSSProperties {
-  if (screen === "mobile") {
-    return {
-      display: "none",
-      width: "100%",
-      order: 3,
-    };
-  }
-
-  if (screen === "tablet") {
+function getHeroActionBoxStyle(
+  screen: ScreenType
+): CSSProperties {
+  if (
+    screen === "mobile" ||
+    screen === "tablet"
+  ) {
     return {
       display: "none",
       width: "100%",
@@ -588,7 +1327,8 @@ const employeeIcon: CSSProperties = {
   width: 38,
   height: 38,
   borderRadius: "50%",
-  border: "1.5px solid rgba(255,255,255,0.34)",
+  border:
+    "1.5px solid rgba(255,255,255,0.34)",
   background: "rgba(255,255,255,0.06)",
   display: "flex",
   alignItems: "center",
@@ -614,7 +1354,8 @@ const logoutInlineButton: CSSProperties = {
   alignItems: "center",
   gap: 9,
   cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
   padding: 0,
   whiteSpace: "nowrap",
   direction: "rtl",
@@ -675,7 +1416,8 @@ const card: CSSProperties = {
   borderRadius: 18,
   padding: 20,
   marginBottom: 16,
-  boxShadow: "0 8px 20px rgba(15,23,42,0.04)",
+  boxShadow:
+    "0 8px 20px rgba(15,23,42,0.04)",
 };
 
 const listHeader: CSSProperties = {
@@ -692,6 +1434,8 @@ const sectionTitle: CSSProperties = {
   color: "#0d47a1",
   fontSize: 22,
   fontWeight: 900,
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const pageInfo: CSSProperties = {
@@ -707,7 +1451,8 @@ const tableScroll: CSSProperties = {
 
 const tableHeader: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1fr 2fr 1.5fr 1fr 1fr",
+  gridTemplateColumns:
+    "1fr 2fr 1.5fr 1fr 1fr",
   gap: 12,
   minWidth: 850,
   background: "#f4f8ff",
@@ -720,18 +1465,27 @@ const tableHeader: CSSProperties = {
 
 const tableRow: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1fr 2fr 1.5fr 1fr 1fr",
+  gridTemplateColumns:
+    "1fr 2fr 1.5fr 1fr 1fr",
   gap: 12,
   minWidth: 850,
   padding: 14,
   borderBottom: "1px solid #eef2f7",
   cursor: "pointer",
+  alignItems: "center",
 };
 
 const customerLink: CSSProperties = {
   cursor: "pointer",
   color: "#0d47a1",
   fontWeight: "bold",
+  border: "none",
+  background: "transparent",
+  padding: 0,
+  textAlign: "right",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+  fontSize: "inherit",
 };
 
 const statusBadge: CSSProperties = {
@@ -767,6 +1521,40 @@ const emptyBox: CSSProperties = {
   color: "#6b7280",
 };
 
+const loadingBox: CSSProperties = {
+  background: "#f8fbff",
+  border: "1px solid #d9e3f5",
+  borderRadius: 14,
+  padding: 22,
+  textAlign: "center",
+  color: "#0d47a1",
+  fontWeight: 900,
+};
+
+const errorBox: CSSProperties = {
+  background: "#fff7ed",
+  border: "1px solid #fed7aa",
+  borderRadius: 14,
+  padding: 22,
+  textAlign: "center",
+  color: "#9a3412",
+  fontWeight: 900,
+};
+
+const retryButton: CSSProperties = {
+  marginTop: 14,
+  padding: "10px 18px",
+  border: "none",
+  borderRadius: 12,
+  background: "#0d47a1",
+  color: "#ffffff",
+  fontSize: 14,
+  fontWeight: 900,
+  cursor: "pointer",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
 const paginationBox: CSSProperties = {
   minWidth: 850,
   marginTop: 18,
@@ -786,7 +1574,8 @@ const paginationButton: CSSProperties = {
   fontSize: 15,
   fontWeight: "bold",
   cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const paginationText: CSSProperties = {
@@ -802,13 +1591,16 @@ const backWrapper: CSSProperties = {
 
 const backButton: CSSProperties = {
   padding: "11px 18px",
-  background: "linear-gradient(135deg,#22c55e,#15803d)",
+  background:
+    "linear-gradient(135deg,#22c55e,#15803d)",
   color: "#ffffff",
   border: "none",
   borderRadius: 12,
   fontSize: 14,
   fontWeight: 900,
   cursor: "pointer",
-  boxShadow: "0 5px 14px rgba(22,163,74,0.22)",
-  fontFamily: "var(--font-almarai), sans-serif",
+  boxShadow:
+    "0 5px 14px rgba(22,163,74,0.22)",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
