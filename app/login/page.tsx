@@ -203,7 +203,9 @@ export default function LoginPage() {
     );
   }
 
-  function normalizePermissions(value: unknown): string[] {
+  function normalizePermissions(
+    value: unknown
+  ): string[] {
     if (!Array.isArray(value)) {
       return [];
     }
@@ -232,11 +234,15 @@ export default function LoginPage() {
         error
       );
 
-      throw new Error("BRANCH_LOGIN_FAILED");
+      throw new Error(
+        "BRANCH_LOGIN_FAILED"
+      );
     }
 
     const result = Array.isArray(data)
-      ? (data[0] as FinanceLoginResult | undefined)
+      ? (data[0] as
+          | FinanceLoginResult
+          | undefined)
       : undefined;
 
     if (!result) {
@@ -310,7 +316,7 @@ export default function LoginPage() {
           : null,
 
       is_active:
-        result.is_active !== false,
+        result.is_active ?? true,
 
       last_login_at:
         result.last_login_at
@@ -351,7 +357,9 @@ export default function LoginPage() {
     }
 
     const result = Array.isArray(data)
-      ? (data[0] as CustomerLoginResult | undefined)
+      ? (data[0] as
+          | CustomerLoginResult
+          | undefined)
       : undefined;
 
     if (!result) {
@@ -394,9 +402,10 @@ export default function LoginPage() {
     const normalizedIdentifier =
       loginIdentifier.trim();
 
-    const normalizedPassword = password
-      .replace(/\D/g, "")
-      .slice(0, 4);
+    const normalizedPassword =
+      password
+        .replace(/\D/g, "")
+        .slice(0, 4);
 
     const customerPhoneRegex =
       /^05\d{8}$/;
@@ -415,7 +424,11 @@ export default function LoginPage() {
       return;
     }
 
-    if (!pinRegex.test(normalizedPassword)) {
+    if (
+      !pinRegex.test(
+        normalizedPassword
+      )
+    ) {
       setMessage(
         "كلمة المرور يجب أن تكون 4 أرقام"
       );
@@ -522,7 +535,9 @@ export default function LoginPage() {
           autoComplete="current-password"
           disabled={loading}
           onKeyDown={(event) => {
-            if (event.key === "Enter") {
+            if (
+              event.key === "Enter"
+            ) {
               void handleLogin();
             }
           }}
