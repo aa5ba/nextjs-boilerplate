@@ -7,7 +7,6 @@ import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
 
 type ScreenType = "mobile" | "tablet" | "desktop";
-
 type UserRole = "مدير" | "موظف" | "مستثمر";
 
 type ActiveTab =
@@ -28,6 +27,7 @@ type FinanceUser = {
   is_active: boolean;
   created_at?: string | null;
   updated_at?: string | null;
+  last_login_at?: string | null;
 };
 
 type StoredFinanceUser = Partial<FinanceUser> & {
@@ -292,64 +292,42 @@ export default function FinancePermissionsPage() {
   const [currentUser, setCurrentUser] =
     useState<FinanceUser | null>(null);
 
-  const [employeeName, setEmployeeName] =
-    useState("الموظف");
+  const [employeeName, setEmployeeName] = useState("الموظف");
 
-  const [activeTab, setActiveTab] =
-    useState<ActiveTab>(null);
+  const [activeTab, setActiveTab] = useState<ActiveTab>(null);
 
-  const [users, setUsers] =
-    useState<FinanceUser[]>([]);
+  const [users, setUsers] = useState<FinanceUser[]>([]);
+  const [investors, setInvestors] = useState<FinanceInvestor[]>([]);
 
-  const [investors, setInvestors] =
-    useState<FinanceInvestor[]>([]);
+  const [managerPin, setManagerPin] = useState("");
 
-  const [loading, setLoading] =
-    useState(true);
-
-  const [savingUser, setSavingUser] =
-    useState(false);
-
-  const [savingInvestor, setSavingInvestor] =
-    useState(false);
+  const [loading, setLoading] = useState(true);
+  const [savingUser, setSavingUser] = useState(false);
+  const [savingInvestor, setSavingInvestor] = useState(false);
 
   const [processingUserId, setProcessingUserId] =
     useState<string | null>(null);
 
-  const [employeeNameInput, setEmployeeNameInput] =
-    useState("");
-
-  const [employeeUsername, setEmployeeUsername] =
-    useState("");
-
-  const [employeePassword, setEmployeePassword] =
-    useState("");
+  const [employeeNameInput, setEmployeeNameInput] = useState("");
+  const [employeeUsername, setEmployeeUsername] = useState("");
+  const [employeePassword, setEmployeePassword] = useState("");
 
   const [selectedRole, setSelectedRole] =
     useState<UserRole>("موظف");
 
-  const [selectedPermissions, setSelectedPermissions] =
-    useState<string[]>([
-      ...DEFAULT_PERMISSIONS.موظف,
-    ]);
+  const [selectedPermissions, setSelectedPermissions] = useState<
+    string[]
+  >([...DEFAULT_PERMISSIONS.موظف]);
 
-  const [selectedInvestorId, setSelectedInvestorId] =
-    useState("");
+  const [selectedInvestorId, setSelectedInvestorId] = useState("");
 
   const [editingUserId, setEditingUserId] =
     useState<string | null>(null);
 
-  const [investorNameInput, setInvestorNameInput] =
-    useState("");
-
-  const [investorNationalId, setInvestorNationalId] =
-    useState("");
-
-  const [investorPhone, setInvestorPhone] =
-    useState("");
-
-  const [investorNotes, setInvestorNotes] =
-    useState("");
+  const [investorNameInput, setInvestorNameInput] = useState("");
+  const [investorNationalId, setInvestorNationalId] = useState("");
+  const [investorPhone, setInvestorPhone] = useState("");
+  const [investorNotes, setInvestorNotes] = useState("");
 
   const isMobile = screen === "mobile";
   const isTablet = screen === "tablet";
@@ -416,28 +394,22 @@ export default function FinancePermissionsPage() {
       users
         .filter(
           (user) =>
-            user.investor_id &&
+            Boolean(user.investor_id) &&
             user.id !== editingUserId
         )
-        .map((user) =>
-          String(user.investor_id)
-        )
+        .map((user) => String(user.investor_id))
     );
 
     return activeInvestors.filter(
-      (investor) =>
-        !linkedInvestorIds.has(investor.id)
+      (investor) => !linkedInvestorIds.has(investor.id)
     );
-  }, [
-    activeInvestors,
-    users,
-    editingUserId,
-  ]);
+  }, [activeInvestors, users, editingUserId]);
 
   async function initializePage(
     isCancelled: () => boolean
   ) {
     setLoading(true);
+    setAuthChecked(false);
 
     const sessionUser = readStoredUser();
 
@@ -459,9 +431,7 @@ export default function FinancePermissionsPage() {
     ) {
       setLoading(false);
 
-      alert(
-        "هذا الحساب لا يتبع الفرع الحالي"
-      );
+      alert("هذا الحساب لا يتبع الفرع الحالي");
 
       router.replace(
         `/finance/${sessionUser.branch_slug}`
@@ -470,8 +440,7 @@ export default function FinancePermissionsPage() {
       return;
     }
 
-    const resolvedBranchId =
-      await getBranchId(branch);
+    const resolvedBranchId = await getBranchId(branch);
 
     if (isCancelled()) {
       return;
@@ -490,9 +459,7 @@ export default function FinancePermissionsPage() {
     ) {
       setLoading(false);
 
-      alert(
-        "هذا الحساب لا يتبع الفرع الحالي"
-      );
+      alert("هذا الحساب لا يتبع الفرع الحالي");
 
       router.replace(
         sessionUser.branch_slug
@@ -503,17 +470,74 @@ export default function FinancePermissionsPage() {
       return;
     }
 
-    const sessionPermissions =
-      Array.isArray(sessionUser.permissions)
-        ? sessionUser.permissions.filter(
-            (
-              permission: unknown
-            ): permission is string =>
-              typeof permission === "string"
-          )
-        : [];
+    const normalizedUser = normalizeStoredUser(
+      sessionUser,
+      resolvedBranchId
+    );
 
-    const normalizedUser: FinanceUser = {
+    if (
+      !normalizedUser.id ||
+      !normalizedUser.username
+    ) {
+      setLoading(false);
+
+      alert(
+        "بيانات جلسة الدخول غير مكتملة، سجل الدخول مرة أخرى"
+      );
+
+      clearFinanceSession();
+      router.replace("/login");
+      return;
+    }
+
+    if (!normalizedUser.is_active) {
+      setLoading(false);
+
+      alert("تم تعطيل هذا الحساب");
+
+      clearFinanceSession();
+      router.replace("/login");
+      return;
+    }
+
+    if (!hasPageAccess(normalizedUser)) {
+      setLoading(false);
+
+      alert("لا تملك صلاحية الدخول لهذه الصفحة");
+
+      router.replace(`/finance/${branch}`);
+      return;
+    }
+
+    setBranchId(resolvedBranchId);
+    setCurrentUser(normalizedUser);
+
+    setEmployeeName(
+      normalizedUser.full_name ||
+        normalizedUser.username ||
+        "الموظف"
+    );
+
+    setAuthChecked(true);
+    setLoading(false);
+  }
+
+  function normalizeStoredUser(
+    sessionUser: StoredFinanceUser,
+    resolvedBranchId: string
+  ): FinanceUser {
+    const permissions = Array.isArray(
+      sessionUser.permissions
+    )
+      ? sessionUser.permissions.filter(
+          (
+            permission
+          ): permission is string =>
+            typeof permission === "string"
+        )
+      : [];
+
+    return {
       id: String(
         sessionUser.id ||
           localStorage.getItem(
@@ -545,7 +569,7 @@ export default function FinancePermissionsPage() {
         ) ||
         "",
 
-      permissions: sessionPermissions,
+      permissions,
 
       investor_id:
         sessionUser.investor_id || null,
@@ -558,52 +582,128 @@ export default function FinancePermissionsPage() {
 
       updated_at:
         sessionUser.updated_at || null,
+
+      last_login_at:
+        sessionUser.last_login_at || null,
     };
+  }
 
-    if (
-      !normalizedUser.id ||
-      !normalizedUser.username
-    ) {
-      setLoading(false);
+  function normalizeRpcUser(
+    value: unknown
+  ): FinanceUser {
+    const user =
+      value && typeof value === "object"
+        ? (value as Record<string, unknown>)
+        : {};
 
-      alert(
-        "بيانات جلسة الدخول غير مكتملة، سجل الدخول مرة أخرى"
-      );
+    return {
+      id: String(
+        user.user_id ??
+          user.id ??
+          ""
+      ),
 
-      clearFinanceSession();
-      router.replace("/login");
-      return;
-    }
+      branch_id: String(
+        user.branch_id ?? ""
+      ),
 
-    if (!hasPageAccess(normalizedUser)) {
-      setLoading(false);
+      full_name: String(
+        user.full_name ?? ""
+      ),
 
-      alert(
-        "لا تملك صلاحية الدخول لهذه الصفحة"
-      );
+      username: String(
+        user.username ?? ""
+      ),
 
-      router.replace(
-        `/finance/${branch}`
-      );
+      role: String(
+        user.role ?? ""
+      ),
 
-      return;
-    }
+      permissions: Array.isArray(
+        user.permissions
+      )
+        ? user.permissions.filter(
+            (
+              permission
+            ): permission is string =>
+              typeof permission === "string"
+          )
+        : [],
 
-    setBranchId(resolvedBranchId);
-    setCurrentUser(normalizedUser);
+      investor_id:
+        user.investor_id
+          ? String(user.investor_id)
+          : null,
 
-    setEmployeeName(
-      normalizedUser.full_name ||
-        normalizedUser.username ||
-        "الموظف"
-    );
+      is_active:
+        user.is_active !== false,
 
-    setAuthChecked(true);
+      created_at:
+        user.created_at
+          ? String(user.created_at)
+          : null,
 
-    await loadLists(
-      resolvedBranchId,
-      isCancelled
-    );
+      updated_at:
+        user.updated_at
+          ? String(user.updated_at)
+          : null,
+
+      last_login_at:
+        user.last_login_at
+          ? String(user.last_login_at)
+          : null,
+    };
+  }
+
+  function normalizeRpcInvestor(
+    value: unknown
+  ): FinanceInvestor {
+    const investor =
+      value && typeof value === "object"
+        ? (value as Record<string, unknown>)
+        : {};
+
+    return {
+      id: String(
+        investor.investor_id ??
+          investor.id ??
+          ""
+      ),
+
+      branch_id: String(
+        investor.branch_id ?? ""
+      ),
+
+      investor_name: String(
+        investor.investor_name ?? ""
+      ),
+
+      national_id:
+        investor.national_id
+          ? String(investor.national_id)
+          : null,
+
+      phone:
+        investor.phone
+          ? String(investor.phone)
+          : null,
+
+      notes:
+        investor.notes
+          ? String(investor.notes)
+          : null,
+
+      is_active:
+        investor.is_active !== false,
+
+      is_primary:
+        investor.is_primary === true,
+
+      created_at:
+        investor.created_at
+          ? String(investor.created_at)
+          : null,
+    };
   }
 
   function readStoredUser(): StoredFinanceUser | null {
@@ -646,110 +746,6 @@ export default function FinancePermissionsPage() {
         "permissions"
       )
     );
-  }
-
-  async function loadLists(
-    currentBranchId: string,
-    isCancelled: () => boolean = () =>
-      false
-  ) {
-    try {
-      const [
-        usersResult,
-        investorsResult,
-      ] = await Promise.all([
-        supabase
-          .from("finance_users")
-          .select(
-            `
-              id,
-              branch_id,
-              full_name,
-              username,
-              role,
-              permissions,
-              investor_id,
-              is_active,
-              created_at,
-              updated_at
-            `
-          )
-          .eq(
-            "branch_id",
-            currentBranchId
-          )
-          .order("created_at", {
-            ascending: false,
-          }),
-
-        supabase
-          .from("finance_investors")
-          .select(
-            `
-              id,
-              branch_id,
-              investor_name,
-              national_id,
-              phone,
-              notes,
-              is_active,
-              is_primary,
-              created_at
-            `
-          )
-          .eq(
-            "branch_id",
-            currentBranchId
-          )
-          .order("created_at", {
-            ascending: false,
-          }),
-      ]);
-
-      if (isCancelled()) {
-        return;
-      }
-
-      if (usersResult.error) {
-        console.error(
-          "Load users error:",
-          usersResult.error
-        );
-
-        setUsers([]);
-      } else {
-        setUsers(
-          (usersResult.data ||
-            []) as FinanceUser[]
-        );
-      }
-
-      if (investorsResult.error) {
-        console.error(
-          "Load investors error:",
-          investorsResult.error
-        );
-
-        setInvestors([]);
-      } else {
-        setInvestors(
-          (investorsResult.data ||
-            []) as FinanceInvestor[]
-        );
-      }
-    } catch (error) {
-      console.error(
-        "Load permissions data error:",
-        error
-      );
-
-      setUsers([]);
-      setInvestors([]);
-    } finally {
-      if (!isCancelled()) {
-        setLoading(false);
-      }
-    }
   }
 
   function clearFinanceSession() {
@@ -799,21 +795,41 @@ export default function FinancePermissionsPage() {
   }
 
   function logout() {
+    setManagerPin("");
     clearFinanceSession();
     router.replace("/login");
   }
 
-  function getManagerCredentials() {
-    if (!currentUser?.username) {
-      alert(
-        "تعذر تحديد حساب المدير الحالي"
-      );
+  function isCredentialError(
+    message: string
+  ) {
+    const text = message.toLowerCase();
 
-      return null;
+    return (
+      text.includes("بيانات المدير") ||
+      text.includes("غير صحيحة") ||
+      text.includes("غير نشط") ||
+      text.includes("لا تملك صلاحية")
+    );
+  }
+
+  function getErrorMessage(
+    error: unknown,
+    fallback: string
+  ) {
+    return error instanceof Error &&
+      error.message
+      ? error.message
+      : fallback;
+  }
+
+  function requestManagerPin() {
+    if (managerPin) {
+      return managerPin;
     }
 
     const enteredPin = window.prompt(
-      "أدخل الرقم السري الحالي للمدير لإتمام العملية"
+      "أدخل الرقم السري الحالي للمدير لإدارة المستخدمين والصلاحيات"
     );
 
     if (enteredPin === null) {
@@ -824,7 +840,11 @@ export default function FinancePermissionsPage() {
       .replace(/\D/g, "")
       .slice(0, 4);
 
-    if (!/^\d{4}$/.test(normalizedPin)) {
+    if (
+      !/^\d{4}$/.test(
+        normalizedPin
+      )
+    ) {
       alert(
         "الرقم السري يجب أن يتكون من 4 أرقام"
       );
@@ -832,10 +852,159 @@ export default function FinancePermissionsPage() {
       return null;
     }
 
-    return {
-      username: currentUser.username,
-      pin: normalizedPin,
-    };
+    setManagerPin(normalizedPin);
+
+    return normalizedPin;
+  }
+
+  async function loadLists(
+    currentBranchId: string,
+    pin: string,
+    isCancelled: () => boolean = () =>
+      false
+  ) {
+    if (!currentUser?.username) {
+      alert(
+        "تعذر تحديد حساب المدير الحالي"
+      );
+
+      return false;
+    }
+
+    setLoading(true);
+
+    try {
+      const [
+        usersResult,
+        investorsResult,
+      ] = await Promise.all([
+        supabase.rpc(
+          "list_finance_branch_users_secure",
+          {
+            p_branch_id:
+              currentBranchId,
+
+            p_actor_username:
+              currentUser.username,
+
+            p_actor_pin: pin,
+          }
+        ),
+
+        supabase.rpc(
+          "list_finance_branch_investors_secure",
+          {
+            p_branch_id:
+              currentBranchId,
+
+            p_actor_username:
+              currentUser.username,
+
+            p_actor_pin: pin,
+          }
+        ),
+      ]);
+
+      if (isCancelled()) {
+        return false;
+      }
+
+      if (usersResult.error) {
+        throw new Error(
+          usersResult.error.message
+        );
+      }
+
+      if (investorsResult.error) {
+        throw new Error(
+          investorsResult.error.message
+        );
+      }
+
+      setUsers(
+        Array.isArray(
+          usersResult.data
+        )
+          ? usersResult.data.map(
+              normalizeRpcUser
+            )
+          : []
+      );
+
+      setInvestors(
+        Array.isArray(
+          investorsResult.data
+        )
+          ? investorsResult.data.map(
+              normalizeRpcInvestor
+            )
+          : []
+      );
+
+      return true;
+    } catch (error) {
+      const message = getErrorMessage(
+        error,
+        "تعذر تحميل بيانات إدارة المستخدمين"
+      );
+
+      console.error(
+        "Load permissions data error:",
+        error
+      );
+
+      if (
+        isCredentialError(message)
+      ) {
+        setManagerPin("");
+      }
+
+      setUsers([]);
+      setInvestors([]);
+
+      alert(message);
+
+      return false;
+    } finally {
+      if (!isCancelled()) {
+        setLoading(false);
+      }
+    }
+  }
+
+  async function openProtectedTab(
+    tab: Exclude<ActiveTab, null>
+  ) {
+    if (!branchId) {
+      alert("تعذر تحديد الفرع");
+      return;
+    }
+
+    const pin = requestManagerPin();
+
+    if (!pin) {
+      return;
+    }
+
+    const loaded = await loadLists(
+      branchId,
+      pin
+    );
+
+    if (!loaded) {
+      return;
+    }
+
+    if (tab === "create-user") {
+      resetUserForm();
+    }
+
+    setActiveTab(tab);
+
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
   }
 
   function validateUsername(
@@ -909,11 +1078,6 @@ export default function FinancePermissionsPage() {
     });
   }
 
-  function openCreateUser() {
-    resetUserForm();
-    setActiveTab("create-user");
-  }
-
   function beginEditUser(
     user: FinanceUser
   ) {
@@ -953,11 +1117,7 @@ export default function FinancePermissionsPage() {
     setSelectedPermissions(
       normalizedRole === "مستثمر"
         ? [...INVESTOR_PERMISSIONS]
-        : Array.isArray(
-              user.permissions
-            )
-          ? [...user.permissions]
-          : []
+        : [...(user.permissions || [])]
     );
 
     setSelectedInvestorId(
@@ -973,8 +1133,14 @@ export default function FinancePermissionsPage() {
   }
 
   async function saveUser() {
-    if (!branchId) {
-      alert("تعذر تحديد الفرع");
+    if (
+      !branchId ||
+      !currentUser?.username
+    ) {
+      alert(
+        "تعذر تحديد الفرع أو المستخدم الحالي"
+      );
+
       return;
     }
 
@@ -1038,10 +1204,9 @@ export default function FinancePermissionsPage() {
       return;
     }
 
-    const credentials =
-      getManagerCredentials();
+    const pin = requestManagerPin();
 
-    if (!credentials) {
+    if (!pin) {
       return;
     }
 
@@ -1049,37 +1214,47 @@ export default function FinancePermissionsPage() {
       setSavingUser(true);
 
       if (editingUserId) {
-        const { error } =
-          await supabase.rpc(
-            "update_finance_user_atomic",
-            {
-              p_branch_id: branchId,
-              p_actor_username:
-                credentials.username,
-              p_actor_pin:
-                credentials.pin,
-              p_user_id:
-                editingUserId,
-              p_full_name:
-                employeeNameInput.trim(),
-              p_username:
-                employeeUsername.trim(),
-              p_role: selectedRole,
-              p_permissions:
-                selectedRole ===
-                "مستثمر"
-                  ? INVESTOR_PERMISSIONS
-                  : selectedPermissions,
-              p_investor_id:
-                selectedRole ===
-                "مستثمر"
-                  ? selectedInvestorId
-                  : null,
-              p_new_password_pin:
-                employeePassword ||
-                null,
-            }
-          );
+        const {
+          data,
+          error,
+        } = await supabase.rpc(
+          "update_finance_user_atomic",
+          {
+            p_branch_id: branchId,
+
+            p_actor_username:
+              currentUser.username,
+
+            p_actor_pin: pin,
+
+            p_user_id:
+              editingUserId,
+
+            p_full_name:
+              employeeNameInput.trim(),
+
+            p_username:
+              employeeUsername.trim(),
+
+            p_role: selectedRole,
+
+            p_permissions:
+              selectedRole ===
+              "مستثمر"
+                ? INVESTOR_PERMISSIONS
+                : selectedPermissions,
+
+            p_investor_id:
+              selectedRole ===
+              "مستثمر"
+                ? selectedInvestorId
+                : null,
+
+            p_new_password_pin:
+              employeePassword ||
+              null,
+          }
+        );
 
         if (error) {
           throw new Error(
@@ -1087,42 +1262,69 @@ export default function FinancePermissionsPage() {
           );
         }
 
+        if (
+          !Array.isArray(data) ||
+          data.length === 0
+        ) {
+          throw new Error(
+            "لم يتم تحديث المستخدم"
+          );
+        }
+
         alert(
           "تم تعديل المستخدم بنجاح"
         );
       } else {
-        const { error } =
-          await supabase.rpc(
-            "create_finance_user_atomic",
-            {
-              p_branch_id: branchId,
-              p_actor_username:
-                credentials.username,
-              p_actor_pin:
-                credentials.pin,
-              p_full_name:
-                employeeNameInput.trim(),
-              p_username:
-                employeeUsername.trim(),
-              p_password_pin:
-                employeePassword,
-              p_role: selectedRole,
-              p_permissions:
-                selectedRole ===
-                "مستثمر"
-                  ? INVESTOR_PERMISSIONS
-                  : selectedPermissions,
-              p_investor_id:
-                selectedRole ===
-                "مستثمر"
-                  ? selectedInvestorId
-                  : null,
-            }
-          );
+        const {
+          data,
+          error,
+        } = await supabase.rpc(
+          "create_finance_user_atomic",
+          {
+            p_branch_id: branchId,
+
+            p_actor_username:
+              currentUser.username,
+
+            p_actor_pin: pin,
+
+            p_full_name:
+              employeeNameInput.trim(),
+
+            p_username:
+              employeeUsername.trim(),
+
+            p_password_pin:
+              employeePassword,
+
+            p_role: selectedRole,
+
+            p_permissions:
+              selectedRole ===
+              "مستثمر"
+                ? INVESTOR_PERMISSIONS
+                : selectedPermissions,
+
+            p_investor_id:
+              selectedRole ===
+              "مستثمر"
+                ? selectedInvestorId
+                : null,
+          }
+        );
 
         if (error) {
           throw new Error(
             error.message
+          );
+        }
+
+        if (
+          !Array.isArray(data) ||
+          data.length === 0
+        ) {
+          throw new Error(
+            "لم يتم إنشاء المستخدم"
           );
         }
 
@@ -1133,20 +1335,32 @@ export default function FinancePermissionsPage() {
 
       resetUserForm();
 
-      await loadLists(branchId);
+      const loaded = await loadLists(
+        branchId,
+        pin
+      );
 
-      setActiveTab("users");
+      if (loaded) {
+        setActiveTab("users");
+      }
     } catch (error) {
+      const message = getErrorMessage(
+        error,
+        "تعذر حفظ المستخدم"
+      );
+
       console.error(
         "Save finance user error:",
         error
       );
 
-      alert(
-        error instanceof Error
-          ? error.message
-          : "تعذر حفظ المستخدم"
-      );
+      if (
+        isCredentialError(message)
+      ) {
+        setManagerPin("");
+      }
+
+      alert(message);
     } finally {
       setSavingUser(false);
     }
@@ -1155,7 +1369,10 @@ export default function FinancePermissionsPage() {
   async function toggleUserStatus(
     user: FinanceUser
   ) {
-    if (!branchId) {
+    if (
+      !branchId ||
+      !currentUser?.username
+    ) {
       return;
     }
 
@@ -1172,7 +1389,7 @@ export default function FinancePermissionsPage() {
     }
 
     if (
-      user.id === currentUser?.id
+      user.id === currentUser.id
     ) {
       alert(
         "لا يمكنك تعطيل حسابك الحالي"
@@ -1181,38 +1398,42 @@ export default function FinancePermissionsPage() {
       return;
     }
 
-    const confirmed = confirm(
-      user.is_active
-        ? `هل تريد تعطيل حساب ${user.full_name}؟`
-        : `هل تريد تفعيل حساب ${user.full_name}؟`
-    );
+    const confirmed =
+      window.confirm(
+        user.is_active
+          ? `هل تريد تعطيل حساب ${user.full_name}؟`
+          : `هل تريد تفعيل حساب ${user.full_name}؟`
+      );
 
     if (!confirmed) {
       return;
     }
 
-    const credentials =
-      getManagerCredentials();
+    const pin = requestManagerPin();
 
-    if (!credentials) {
+    if (!pin) {
       return;
     }
 
     try {
       setProcessingUserId(user.id);
 
-      const { error } =
-        await supabase.rpc(
-          "toggle_finance_user_status_atomic",
-          {
-            p_branch_id: branchId,
-            p_actor_username:
-              credentials.username,
-            p_actor_pin:
-              credentials.pin,
-            p_user_id: user.id,
-          }
-        );
+      const {
+        data,
+        error,
+      } = await supabase.rpc(
+        "toggle_finance_user_status_atomic",
+        {
+          p_branch_id: branchId,
+
+          p_actor_username:
+            currentUser.username,
+
+          p_actor_pin: pin,
+
+          p_user_id: user.id,
+        }
+      );
 
       if (error) {
         throw new Error(
@@ -1220,13 +1441,43 @@ export default function FinancePermissionsPage() {
         );
       }
 
-      await loadLists(branchId);
-    } catch (error) {
+      if (
+        !Array.isArray(data) ||
+        data.length === 0
+      ) {
+        throw new Error(
+          "لم يتم تعديل حالة المستخدم"
+        );
+      }
+
       alert(
-        error instanceof Error
-          ? error.message
-          : "تعذر تعديل حالة المستخدم"
+        user.is_active
+          ? "تم تعطيل المستخدم بنجاح"
+          : "تم تفعيل المستخدم بنجاح"
       );
+
+      await loadLists(
+        branchId,
+        pin
+      );
+    } catch (error) {
+      const message = getErrorMessage(
+        error,
+        "تعذر تعديل حالة المستخدم"
+      );
+
+      console.error(
+        "Toggle finance user error:",
+        error
+      );
+
+      if (
+        isCredentialError(message)
+      ) {
+        setManagerPin("");
+      }
+
+      alert(message);
     } finally {
       setProcessingUserId(null);
     }
@@ -1235,7 +1486,10 @@ export default function FinancePermissionsPage() {
   async function deleteUser(
     user: FinanceUser
   ) {
-    if (!branchId) {
+    if (
+      !branchId ||
+      !currentUser?.username
+    ) {
       return;
     }
 
@@ -1252,7 +1506,7 @@ export default function FinancePermissionsPage() {
     }
 
     if (
-      user.id === currentUser?.id
+      user.id === currentUser.id
     ) {
       alert(
         "لا يمكنك حذف حسابك الحالي"
@@ -1261,36 +1515,40 @@ export default function FinancePermissionsPage() {
       return;
     }
 
-    const confirmed = confirm(
-      `هل أنت متأكد من حذف المستخدم ${user.full_name}؟`
-    );
+    const confirmed =
+      window.confirm(
+        `هل أنت متأكد من حذف المستخدم ${user.full_name}؟`
+      );
 
     if (!confirmed) {
       return;
     }
 
-    const credentials =
-      getManagerCredentials();
+    const pin = requestManagerPin();
 
-    if (!credentials) {
+    if (!pin) {
       return;
     }
 
     try {
       setProcessingUserId(user.id);
 
-      const { error } =
-        await supabase.rpc(
-          "delete_finance_user_atomic",
-          {
-            p_branch_id: branchId,
-            p_actor_username:
-              credentials.username,
-            p_actor_pin:
-              credentials.pin,
-            p_user_id: user.id,
-          }
-        );
+      const {
+        data,
+        error,
+      } = await supabase.rpc(
+        "delete_finance_user_atomic",
+        {
+          p_branch_id: branchId,
+
+          p_actor_username:
+            currentUser.username,
+
+          p_actor_pin: pin,
+
+          p_user_id: user.id,
+        }
+      );
 
       if (error) {
         throw new Error(
@@ -1298,25 +1556,55 @@ export default function FinancePermissionsPage() {
         );
       }
 
+      if (
+        !Array.isArray(data) ||
+        data.length === 0
+      ) {
+        throw new Error(
+          "لم يتم حذف المستخدم"
+        );
+      }
+
       alert(
         "تم حذف المستخدم بنجاح"
       );
 
-      await loadLists(branchId);
-    } catch (error) {
-      alert(
-        error instanceof Error
-          ? error.message
-          : "تعذر حذف المستخدم"
+      await loadLists(
+        branchId,
+        pin
       );
+    } catch (error) {
+      const message = getErrorMessage(
+        error,
+        "تعذر حذف المستخدم"
+      );
+
+      console.error(
+        "Delete finance user error:",
+        error
+      );
+
+      if (
+        isCredentialError(message)
+      ) {
+        setManagerPin("");
+      }
+
+      alert(message);
     } finally {
       setProcessingUserId(null);
     }
   }
 
   async function createInvestor() {
-    if (!branchId) {
-      alert("تعذر تحديد الفرع");
+    if (
+      !branchId ||
+      !currentUser?.username
+    ) {
+      alert(
+        "تعذر تحديد الفرع أو المستخدم الحالي"
+      );
+
       return;
     }
 
@@ -1356,59 +1644,56 @@ export default function FinancePermissionsPage() {
       return;
     }
 
+    const pin = requestManagerPin();
+
+    if (!pin) {
+      return;
+    }
+
     try {
       setSavingInvestor(true);
 
-      if (investorNationalId) {
-        const {
-          data: duplicateInvestor,
-          error: duplicateError,
-        } = await supabase
-          .from("finance_investors")
-          .select("id")
-          .eq("branch_id", branchId)
-          .eq(
-            "national_id",
-            investorNationalId
-          )
-          .maybeSingle();
+      const {
+        data,
+        error,
+      } = await supabase.rpc(
+        "create_finance_investor_atomic",
+        {
+          p_branch_id: branchId,
 
-        if (duplicateError) {
-          throw new Error(
-            duplicateError.message
-          );
-        }
+          p_actor_username:
+            currentUser.username,
 
-        if (duplicateInvestor) {
-          alert(
-            "يوجد مستثمر مسجل بنفس رقم الهوية"
-          );
+          p_actor_pin: pin,
 
-          return;
-        }
-      }
-
-      const { error } = await supabase
-        .from("finance_investors")
-        .insert({
-          branch_id: branchId,
-          investor_name:
+          p_investor_name:
             investorNameInput.trim(),
-          national_id:
+
+          p_national_id:
             investorNationalId ||
             null,
-          phone:
+
+          p_phone:
             investorPhone || null,
-          notes:
+
+          p_notes:
             investorNotes.trim() ||
             null,
-          is_active: true,
-          is_primary: false,
-        });
+        }
+      );
 
       if (error) {
         throw new Error(
           error.message
+        );
+      }
+
+      if (
+        !Array.isArray(data) ||
+        data.length === 0
+      ) {
+        throw new Error(
+          "لم يتم إنشاء المستثمر"
         );
       }
 
@@ -1421,20 +1706,32 @@ export default function FinancePermissionsPage() {
         "تم إنشاء المستثمر بنجاح دون إنشاء حساب دخول"
       );
 
-      await loadLists(branchId);
+      const loaded = await loadLists(
+        branchId,
+        pin
+      );
 
-      setActiveTab("investors");
+      if (loaded) {
+        setActiveTab("investors");
+      }
     } catch (error) {
+      const message = getErrorMessage(
+        error,
+        "تعذر إنشاء المستثمر"
+      );
+
       console.error(
         "Create investor error:",
         error
       );
 
-      alert(
-        error instanceof Error
-          ? error.message
-          : "تعذر إنشاء المستثمر"
-      );
+      if (
+        isCredentialError(message)
+      ) {
+        setManagerPin("");
+      }
+
+      alert(message);
     } finally {
       setSavingInvestor(false);
     }
@@ -1583,7 +1880,11 @@ export default function FinancePermissionsPage() {
             <button
               type="button"
               style={managementOptionCard}
-              onClick={openCreateUser}
+              onClick={() =>
+                void openProtectedTab(
+                  "create-user"
+                )
+              }
             >
               <span
                 style={managementOptionIcon}
@@ -1612,7 +1913,9 @@ export default function FinancePermissionsPage() {
               type="button"
               style={managementOptionCard}
               onClick={() =>
-                setActiveTab("users")
+                void openProtectedTab(
+                  "users"
+                )
               }
             >
               <span
@@ -1642,7 +1945,7 @@ export default function FinancePermissionsPage() {
               type="button"
               style={managementOptionCard}
               onClick={() =>
-                setActiveTab(
+                void openProtectedTab(
                   "create-investor"
                 )
               }
@@ -1674,7 +1977,7 @@ export default function FinancePermissionsPage() {
               type="button"
               style={managementOptionCard}
               onClick={() =>
-                setActiveTab(
+                void openProtectedTab(
                   "investors"
                 )
               }
@@ -1920,7 +2223,9 @@ export default function FinancePermissionsPage() {
             <button
               type="button"
               style={saveButton}
-              onClick={saveUser}
+              onClick={() =>
+                void saveUser()
+              }
               disabled={savingUser}
             >
               {savingUser
@@ -1942,7 +2247,13 @@ export default function FinancePermissionsPage() {
               <button
                 type="button"
                 style={addSmallButton}
-                onClick={openCreateUser}
+                onClick={() => {
+                  resetUserForm();
+
+                  setActiveTab(
+                    "create-user"
+                  );
+                }}
               >
                 + مستخدم جديد
               </button>
@@ -2110,7 +2421,7 @@ export default function FinancePermissionsPage() {
                             isProcessing
                           }
                           onClick={() =>
-                            toggleUserStatus(
+                            void toggleUserStatus(
                               user
                             )
                           }
@@ -2133,7 +2444,9 @@ export default function FinancePermissionsPage() {
                             isProcessing
                           }
                           onClick={() =>
-                            deleteUser(user)
+                            void deleteUser(
+                              user
+                            )
                           }
                         >
                           حذف
@@ -2238,7 +2551,9 @@ export default function FinancePermissionsPage() {
             <button
               type="button"
               style={saveButton}
-              onClick={createInvestor}
+              onClick={() =>
+                void createInvestor()
+              }
               disabled={
                 savingInvestor
               }
