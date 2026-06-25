@@ -5,42 +5,177 @@ import type { CSSProperties } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
-import { normalizeNumber, toNumber } from "@/lib/numberUtils";
+import {
+  normalizeNumber,
+  toNumber,
+} from "@/lib/numberUtils";
 import { getOrganizationSettings } from "@/lib/getOrganizationSettings";
 
 type ScreenType = "mobile" | "tablet" | "desktop";
+
+type FinanceSession = {
+  id?: string | null;
+  user_id?: string | null;
+  full_name?: string | null;
+  username?: string | null;
+  role?: string | null;
+  roles?: unknown;
+  branch_id?: string | null;
+  branch_slug?: string | null;
+  branch_name?: string | null;
+  organization_name?: string | null;
+  permissions?: unknown;
+  investor_id?: string | null;
+  is_active?: boolean | null;
+  last_login_at?: string | null;
+};
+
+type CustomerRelation = {
+  full_name?: string | null;
+};
+
+type ContractData = {
+  id: string;
+  branch_id?: string | null;
+  customer_id?: string | null;
+  contract_status?: string | null;
+
+  investor_id?: string | null;
+  investor_name?: string | null;
+
+  product_id?: string | null;
+  product_name?: string | null;
+
+  product_quantity?: number | string | null;
+
+  print_party_type?: string | null;
+  print_party_name?: string | null;
+  print_party_identifier?: string | null;
+
+  debt_amount?: number | string | null;
+  payment_amount?: number | string | null;
+  paid_amount?: number | string | null;
+  remaining_amount?: number | string | null;
+  installment_amount?: number | string | null;
+
+  payment_type?: string | null;
+  payment_due_date?: string | null;
+  legal_city?: string | null;
+  notes?: string | null;
+
+  finance_customers?:
+    | CustomerRelation
+    | CustomerRelation[]
+    | null;
+};
+
+type Investor = {
+  id: string;
+  investor_name: string;
+  national_id?: string | null;
+  is_active?: boolean | null;
+};
+
+type Product = {
+  id: string;
+  product_name: string;
+  is_active?: boolean | null;
+};
+
+type UpdateContractResult = {
+  contract_id: string;
+  investor_id: string;
+  product_id: string;
+  product_quantity: number | string;
+  new_remaining_amount: number | string;
+};
+
+const SESSION_KEYS = [
+  "finance_user",
+  "finance_branch_user",
+  "finance_user_id",
+  "finance_user_name",
+  "finance_username",
+  "finance_role",
+  "finance_branch_id",
+  "finance_branch_slug",
+  "finance_branch_name",
+  "finance_organization_name",
+  "finance_permissions",
+  "finance_investor_id",
+  "finance_is_active",
+  "finance_last_login_at",
+] as const;
+
+const MANAGER_ROLES = [
+  "main_admin",
+  "branch_manager",
+  "مدير فرع",
+  "مدير رئيسي",
+  "مدير",
+];
 
 export default function EditContractPage() {
   const params = useParams();
   const router = useRouter();
 
-  const branch = params.branch as string;
-  const contractId = params.id as string;
+  const branch = String(params.branch ?? "").trim();
+  const contractId = String(params.id ?? "").trim();
 
-  const [screen, setScreen] = useState<ScreenType>("desktop");
-  const [employeeName, setEmployeeName] = useState("الموظف");
+  const [screen, setScreen] =
+    useState<ScreenType>("desktop");
 
-  const [branchId, setBranchId] = useState<string | null>(null);
-  const [contract, setContract] = useState<any>(null);
+  const [authChecked, setAuthChecked] =
+    useState(false);
 
-  const [investors, setInvestors] = useState<any[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
+  const [employeeId, setEmployeeId] = useState("");
+  const [employeeName, setEmployeeName] =
+    useState("الموظف");
+
+  const [roles, setRoles] = useState<string[]>([]);
+  const [permissions, setPermissions] = useState<
+    string[]
+  >([]);
+
+  const [branchId, setBranchId] =
+    useState<string | null>(null);
+
+  const [contract, setContract] =
+    useState<ContractData | null>(null);
+
+  const [investors, setInvestors] = useState<
+    Investor[]
+  >([]);
+
+  const [products, setProducts] = useState<
+    Product[]
+  >([]);
 
   const [investorId, setInvestorId] = useState("");
   const [productId, setProductId] = useState("");
-  const [productQuantity, setProductQuantity] = useState("");
-  const [printPartyType, setPrintPartyType] = useState("organization");
+  const [productQuantity, setProductQuantity] =
+    useState("");
+
+  const [printPartyType, setPrintPartyType] =
+    useState("organization");
 
   const [debtAmount, setDebtAmount] = useState("");
-  const [paymentAmount, setPaymentAmount] = useState("");
-  const [installmentAmount, setInstallmentAmount] = useState("");
+  const [paymentAmount, setPaymentAmount] =
+    useState("");
+
+  const [installmentAmount, setInstallmentAmount] =
+    useState("");
+
   const [paymentType, setPaymentType] = useState("");
-  const [paymentDueDate, setPaymentDueDate] = useState("");
+  const [paymentDueDate, setPaymentDueDate] =
+    useState("");
+
   const [legalCity, setLegalCity] = useState("");
   const [notes, setNotes] = useState("");
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [pageError, setPageError] = useState("");
 
   const isMobile = screen === "mobile";
   const isTablet = screen === "tablet";
@@ -60,140 +195,848 @@ export default function EditContractPage() {
     }
 
     updateScreen();
+
     window.addEventListener("resize", updateScreen);
 
-    return () => window.removeEventListener("resize", updateScreen);
+    return () => {
+      window.removeEventListener(
+        "resize",
+        updateScreen
+      );
+    };
   }, []);
 
   useEffect(() => {
-    loadEmployeeName();
-    loadData();
+    let cancelled = false;
+
+    async function initializePage() {
+      setAuthChecked(false);
+      setLoading(true);
+      setPageError("");
+      setContract(null);
+      setInvestors([]);
+      setProducts([]);
+      setBranchId(null);
+
+      if (!branch || !contractId) {
+        redirectToLogin();
+        return;
+      }
+
+      const session = readStoredSession();
+
+      if (!isValidSession(session)) {
+        redirectToLogin();
+        return;
+      }
+
+      const sessionBranchSlug = String(
+        session?.branch_slug ?? ""
+      ).trim();
+
+      if (sessionBranchSlug !== branch) {
+        router.replace(
+          `/finance/${encodeURIComponent(
+            sessionBranchSlug
+          )}`
+        );
+
+        return;
+      }
+
+      applySession(session);
+
+      if (!canEditContract(session)) {
+        setPageError(
+          "ليس لديك صلاحية تعديل العقود"
+        );
+
+        setAuthChecked(true);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const currentBranchId =
+          await getBranchId(branch);
+
+        if (cancelled) {
+          return;
+        }
+
+        if (!currentBranchId) {
+          setPageError("تعذر تحديد بيانات الفرع");
+          setAuthChecked(true);
+          setLoading(false);
+          return;
+        }
+
+        const sessionBranchId = String(
+          session?.branch_id ?? ""
+        ).trim();
+
+        if (
+          sessionBranchId !==
+          String(currentBranchId)
+        ) {
+          router.replace(
+            `/finance/${encodeURIComponent(
+              sessionBranchSlug
+            )}`
+          );
+
+          return;
+        }
+
+        setBranchId(String(currentBranchId));
+        setAuthChecked(true);
+
+        await loadData(
+          String(currentBranchId),
+          () => cancelled
+        );
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        console.error(
+          "Edit contract initialization error:",
+          error
+        );
+
+        setPageError(
+          "حدث خطأ أثناء تحميل بيانات تعديل العقد"
+        );
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void initializePage();
+
+    return () => {
+      cancelled = true;
+    };
   }, [branch, contractId]);
 
-  function loadEmployeeName() {
-    if (typeof window === "undefined") return;
-
-    const newName = localStorage.getItem("finance_user_name");
-
-    if (newName) {
-      setEmployeeName(newName);
+  function clearSession() {
+    if (typeof window === "undefined") {
       return;
     }
 
-    const oldUser = localStorage.getItem("finance_user");
+    SESSION_KEYS.forEach((key) => {
+      localStorage.removeItem(key);
+    });
+  }
 
-    if (oldUser) {
-      try {
-        const parsed = JSON.parse(oldUser);
-        setEmployeeName(parsed?.full_name || parsed?.username || "الموظف");
-      } catch {
-        setEmployeeName("الموظف");
+  function redirectToLogin() {
+    clearSession();
+    router.replace("/login");
+  }
+
+  function readStoredSession(): FinanceSession | null {
+    if (typeof window === "undefined") {
+      return null;
+    }
+
+    const rawSession =
+      localStorage.getItem("finance_user") ||
+      localStorage.getItem(
+        "finance_branch_user"
+      );
+
+    if (!rawSession) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(
+        rawSession
+      ) as FinanceSession;
+
+      if (
+        !parsed ||
+        typeof parsed !== "object" ||
+        Array.isArray(parsed)
+      ) {
+        return null;
+      }
+
+      return {
+        ...parsed,
+
+        id:
+          parsed.id ||
+          parsed.user_id ||
+          localStorage.getItem(
+            "finance_user_id"
+          ),
+
+        full_name:
+          parsed.full_name ||
+          localStorage.getItem(
+            "finance_user_name"
+          ) ||
+          null,
+
+        username:
+          parsed.username ||
+          localStorage.getItem(
+            "finance_username"
+          ) ||
+          null,
+
+        role:
+          parsed.role ||
+          localStorage.getItem(
+            "finance_role"
+          ) ||
+          null,
+
+        branch_id:
+          parsed.branch_id ||
+          localStorage.getItem(
+            "finance_branch_id"
+          ) ||
+          null,
+
+        branch_slug:
+          parsed.branch_slug ||
+          localStorage.getItem(
+            "finance_branch_slug"
+          ) ||
+          null,
+
+        branch_name:
+          parsed.branch_name ||
+          localStorage.getItem(
+            "finance_branch_name"
+          ) ||
+          null,
+
+        organization_name:
+          parsed.organization_name ||
+          localStorage.getItem(
+            "finance_organization_name"
+          ) ||
+          null,
+
+        investor_id:
+          parsed.investor_id ||
+          localStorage.getItem(
+            "finance_investor_id"
+          ) ||
+          null,
+
+        last_login_at:
+          parsed.last_login_at ||
+          localStorage.getItem(
+            "finance_last_login_at"
+          ) ||
+          null,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  function normalizeStringArray(
+    value: unknown
+  ): string[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value.filter(
+      (item): item is string =>
+        typeof item === "string" &&
+        item.trim().length > 0
+    );
+  }
+
+  function isValidSession(
+    session: FinanceSession | null
+  ) {
+    if (!session) {
+      return false;
+    }
+
+    const userId = String(
+      session.id || session.user_id || ""
+    ).trim();
+
+    const sessionBranchId = String(
+      session.branch_id || ""
+    ).trim();
+
+    const sessionBranchSlug = String(
+      session.branch_slug || ""
+    ).trim();
+
+    if (
+      !userId ||
+      !sessionBranchId ||
+      !sessionBranchSlug
+    ) {
+      return false;
+    }
+
+    if (session.is_active === false) {
+      return false;
+    }
+
+    const savedIsActive =
+      typeof window !== "undefined"
+        ? localStorage.getItem(
+            "finance_is_active"
+          )
+        : null;
+
+    if (savedIsActive === "false") {
+      return false;
+    }
+
+    return true;
+  }
+
+  function getSessionRoles(
+    session: FinanceSession | null
+  ) {
+    if (!session) {
+      return [];
+    }
+
+    const sessionRoles = normalizeStringArray(
+      session.roles
+    );
+
+    if (
+      typeof session.role === "string" &&
+      session.role.trim() &&
+      !sessionRoles.includes(session.role.trim())
+    ) {
+      sessionRoles.push(session.role.trim());
+    }
+
+    return sessionRoles;
+  }
+
+  function getSessionPermissions(
+    session: FinanceSession | null
+  ) {
+    if (!session) {
+      return [];
+    }
+
+    let sessionPermissions = normalizeStringArray(
+      session.permissions
+    );
+
+    if (
+      sessionPermissions.length === 0 &&
+      typeof window !== "undefined"
+    ) {
+      const rawPermissions =
+        localStorage.getItem(
+          "finance_permissions"
+        );
+
+      if (rawPermissions) {
+        try {
+          sessionPermissions =
+            normalizeStringArray(
+              JSON.parse(rawPermissions)
+            );
+        } catch {
+          sessionPermissions = [];
+        }
+      }
+    }
+
+    return sessionPermissions;
+  }
+
+  function canEditContract(
+    session: FinanceSession | null
+  ) {
+    const sessionRoles = getSessionRoles(session);
+    const sessionPermissions =
+      getSessionPermissions(session);
+
+    const isManager = sessionRoles.some((role) =>
+      MANAGER_ROLES.includes(role)
+    );
+
+    if (isManager) {
+      return true;
+    }
+
+    return [
+      "contracts_edit",
+      "contracts_update",
+      "edit_contract",
+      "contracts",
+    ].some((permission) =>
+      sessionPermissions.includes(permission)
+    );
+  }
+
+  function applySession(
+    session: FinanceSession | null
+  ) {
+    if (!session) {
+      setEmployeeId("");
+      setEmployeeName("الموظف");
+      setRoles([]);
+      setPermissions([]);
+      return;
+    }
+
+    const resolvedEmployeeId = String(
+      session.id || session.user_id || ""
+    ).trim();
+
+    const directName =
+      typeof window !== "undefined"
+        ? localStorage.getItem(
+            "finance_user_name"
+          )
+        : null;
+
+    const resolvedEmployeeName =
+      directName ||
+      session.full_name ||
+      session.username ||
+      "الموظف";
+
+    setEmployeeId(resolvedEmployeeId);
+    setEmployeeName(resolvedEmployeeName);
+    setRoles(getSessionRoles(session));
+    setPermissions(
+      getSessionPermissions(session)
+    );
+  }
+
+  function logout() {
+    clearSession();
+    router.replace("/login");
+  }
+
+  function getCustomer(
+    currentContract: ContractData | null
+  ) {
+    const relation =
+      currentContract?.finance_customers;
+
+    if (Array.isArray(relation)) {
+      return relation[0] || null;
+    }
+
+    return relation || null;
+  }
+
+  function getCustomerName(
+    currentContract: ContractData | null
+  ) {
+    return (
+      getCustomer(currentContract)?.full_name ||
+      ""
+    );
+  }
+
+  async function loadData(
+    currentBranchId: string,
+    isCancelled: () => boolean = () => false
+  ) {
+    setLoading(true);
+    setPageError("");
+
+    try {
+      const [
+        investorsResult,
+        productsResult,
+        contractResult,
+      ] = await Promise.all([
+        supabase
+          .from("finance_investors")
+          .select(
+            "id, investor_name, national_id, is_active"
+          )
+          .eq("branch_id", currentBranchId)
+          .eq("is_active", true)
+          .order("created_at", {
+            ascending: false,
+          }),
+
+        supabase
+          .from("finance_products")
+          .select(
+            "id, product_name, is_active"
+          )
+          .eq("branch_id", currentBranchId)
+          .eq("is_active", true)
+          .order("created_at", {
+            ascending: false,
+          }),
+
+        supabase
+          .from("finance_contracts")
+          .select(
+            `
+              id,
+              branch_id,
+              customer_id,
+              contract_status,
+              investor_id,
+              investor_name,
+              product_id,
+              product_name,
+              product_quantity,
+              print_party_type,
+              print_party_name,
+              print_party_identifier,
+              debt_amount,
+              payment_amount,
+              paid_amount,
+              remaining_amount,
+              installment_amount,
+              payment_type,
+              payment_due_date,
+              legal_city,
+              notes,
+              finance_customers (
+                full_name
+              )
+            `
+          )
+          .eq("id", contractId)
+          .eq("branch_id", currentBranchId)
+          .maybeSingle(),
+      ]);
+
+      if (isCancelled()) {
+        return;
+      }
+
+      if (investorsResult.error) {
+        throw new Error(
+          investorsResult.error.message
+        );
+      }
+
+      if (productsResult.error) {
+        throw new Error(
+          productsResult.error.message
+        );
+      }
+
+      if (contractResult.error) {
+        throw new Error(
+          contractResult.error.message
+        );
+      }
+
+      if (!contractResult.data) {
+        setPageError(
+          "العقد غير موجود أو لا يتبع هذا الفرع"
+        );
+
+        return;
+      }
+
+      const loadedContract =
+        contractResult.data as ContractData;
+
+      setInvestors(
+        (investorsResult.data || []) as Investor[]
+      );
+
+      setProducts(
+        (productsResult.data || []) as Product[]
+      );
+
+      setContract(loadedContract);
+
+      setInvestorId(
+        loadedContract.investor_id || ""
+      );
+
+      setProductId(
+        loadedContract.product_id || ""
+      );
+
+      setProductQuantity(
+        String(
+          loadedContract.product_quantity ?? ""
+        )
+      );
+
+      setPrintPartyType(
+        loadedContract.print_party_type ||
+          "organization"
+      );
+
+      setDebtAmount(
+        String(loadedContract.debt_amount ?? "")
+      );
+
+      setPaymentAmount(
+        String(
+          loadedContract.payment_amount ?? ""
+        )
+      );
+
+      setInstallmentAmount(
+        String(
+          loadedContract.installment_amount ?? ""
+        )
+      );
+
+      setPaymentType(
+        loadedContract.payment_type || ""
+      );
+
+      setPaymentDueDate(
+        loadedContract.payment_due_date || ""
+      );
+
+      setLegalCity(
+        loadedContract.legal_city || ""
+      );
+
+      setNotes(loadedContract.notes || "");
+    } catch (error) {
+      if (isCancelled()) {
+        return;
+      }
+
+      console.error(
+        "Edit contract loading error:",
+        error
+      );
+
+      setPageError(
+        error instanceof Error
+          ? error.message
+          : "تعذر تحميل بيانات العقد"
+      );
+
+      setContract(null);
+      setInvestors([]);
+      setProducts([]);
+    } finally {
+      if (!isCancelled()) {
+        setLoading(false);
       }
     }
   }
 
-  function logout() {
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("finance_user");
-      localStorage.removeItem("finance_user_name");
-      localStorage.removeItem("finance_branch_user");
+  function getRpcErrorMessage(message: string) {
+    if (message.includes("USER_NOT_FOUND")) {
+      return "المستخدم غير موجود أو غير نشط";
     }
 
-    router.push(`/finance/${branch}/login`);
-  }
-
-  async function loadData() {
-    setLoading(true);
-
-    const currentBranchId = await getBranchId(branch);
-    setBranchId(currentBranchId);
-
-    if (!currentBranchId) {
-      setLoading(false);
-      return;
+    if (
+      message.includes("USER_BRANCH_MISMATCH")
+    ) {
+      return "المستخدم لا يتبع هذا الفرع";
     }
 
-    const { data: investorsData } = await supabase
-      .from("finance_investors")
-      .select("*")
-      .eq("branch_id", currentBranchId)
-      .eq("is_active", true)
-      .order("created_at", { ascending: false });
-
-    const { data: productsData } = await supabase
-      .from("finance_products")
-      .select("*")
-      .eq("branch_id", currentBranchId)
-      .eq("is_active", true)
-      .order("created_at", { ascending: false });
-
-    const { data: contractData } = await supabase
-      .from("finance_contracts")
-      .select("*, finance_customers(full_name)")
-      .eq("id", contractId)
-      .eq("branch_id", currentBranchId)
-      .single();
-
-    setInvestors(investorsData || []);
-    setProducts(productsData || []);
-    setContract(contractData);
-
-    if (contractData) {
-      setInvestorId(contractData.investor_id || "");
-      setProductId(contractData.product_id || "");
-      setProductQuantity(String(contractData.product_quantity || ""));
-      setPrintPartyType(contractData.print_party_type || "organization");
-
-      setDebtAmount(String(contractData.debt_amount || ""));
-      setPaymentAmount(String(contractData.payment_amount || ""));
-      setInstallmentAmount(String(contractData.installment_amount || ""));
-      setPaymentType(contractData.payment_type || "");
-      setPaymentDueDate(contractData.payment_due_date || "");
-      setLegalCity(contractData.legal_city || "");
-      setNotes(contractData.notes || "");
+    if (
+      message.includes("PERMISSION_DENIED")
+    ) {
+      return "ليس لديك صلاحية تعديل العقود";
     }
 
-    setLoading(false);
+    if (
+      message.includes("CONTRACT_NOT_FOUND")
+    ) {
+      return "العقد غير موجود أو لا يتبع هذا الفرع";
+    }
+
+    if (
+      message.includes("INVESTOR_NOT_FOUND")
+    ) {
+      return "المستثمر غير موجود أو غير نشط";
+    }
+
+    if (
+      message.includes("PRODUCT_NOT_FOUND")
+    ) {
+      return "المنتج غير موجود أو غير نشط";
+    }
+
+    if (
+      message.includes("INVENTORY_NOT_FOUND")
+    ) {
+      return "لا يوجد مخزون للمستثمر والمنتج المحدد";
+    }
+
+    if (
+      message.includes("INSUFFICIENT_INVENTORY")
+    ) {
+      return "الكمية المطلوبة أكبر من المخزون المتاح";
+    }
+
+    if (
+      message.includes("INVALID_QUANTITY")
+    ) {
+      return "أدخل كمية صحيحة";
+    }
+
+    if (
+      message.includes("INVALID_AMOUNTS")
+    ) {
+      return "تأكد من صحة مبالغ العقد";
+    }
+
+    if (
+      message.includes("PAYMENT_LESS_THAN_PAID")
+    ) {
+      return "مبلغ السداد الجديد أقل من المبلغ المسدد فعليًا";
+    }
+
+    return (
+      message ||
+      "حدث خطأ أثناء تعديل العقد"
+    );
   }
 
   async function saveContract() {
-    if (saving) return;
-
-    if (!branchId || !contract) {
-      alert("تعذر تحميل العقد");
+    if (saving) {
       return;
     }
 
-    if (!investorId || !productId || !productQuantity) {
-      alert("اختر المستثمر والمنتج والكمية");
+    if (
+      !branchId ||
+      !contract ||
+      !employeeId
+    ) {
+      alert("تعذر تحديد العقد أو المستخدم أو الفرع");
       return;
     }
 
-    if (!debtAmount || !paymentAmount) {
-      alert("أكمل مبالغ العقد");
+    if (!investorId) {
+      alert("اختر المستثمر");
       return;
     }
 
-    const selectedInvestor = investors.find((x) => x.id === investorId);
-    const selectedProduct = products.find((x) => x.id === productId);
-
-    if (!selectedInvestor || !selectedProduct) {
-      alert("تعذر تحديد المستثمر أو المنتج");
+    if (!productId) {
+      alert("اختر المنتج");
       return;
     }
 
-    const newQty = toNumber(productQuantity);
-    const oldQty = Number(contract.product_quantity || 0);
+    if (!productQuantity) {
+      alert("أدخل كمية المنتجات");
+      return;
+    }
 
-    if (newQty <= 0) {
+    if (!debtAmount) {
+      alert("أدخل مبلغ الدين");
+      return;
+    }
+
+    if (!paymentAmount) {
+      alert("أدخل مبلغ السداد");
+      return;
+    }
+
+    if (!paymentType) {
+      alert("اختر نوع السداد");
+      return;
+    }
+
+    if (!paymentDueDate) {
+      alert("حدد تاريخ الاستحقاق");
+      return;
+    }
+
+    if (!legalCity.trim()) {
+      alert("أدخل مدينة التقاضي");
+      return;
+    }
+
+    const selectedInvestor = investors.find(
+      (investor) => investor.id === investorId
+    );
+
+    const selectedProduct = products.find(
+      (product) => product.id === productId
+    );
+
+    if (!selectedInvestor) {
+      alert("تعذر تحديد المستثمر");
+      return;
+    }
+
+    if (!selectedProduct) {
+      alert("تعذر تحديد المنتج");
+      return;
+    }
+
+    const newQuantity = toNumber(
+      productQuantity
+    );
+
+    const debt = toNumber(debtAmount);
+    const payment = toNumber(paymentAmount);
+
+    const installment = installmentAmount
+      ? toNumber(installmentAmount)
+      : 0;
+
+    const alreadyPaid = Number(
+      contract.paid_amount ?? 0
+    );
+
+    if (
+      !Number.isFinite(newQuantity) ||
+      newQuantity <= 0
+    ) {
       alert("أدخل كمية صحيحة");
+      return;
+    }
+
+    if (
+      !Number.isFinite(debt) ||
+      debt <= 0
+    ) {
+      alert("أدخل مبلغ دين صحيح");
+      return;
+    }
+
+    if (
+      !Number.isFinite(payment) ||
+      payment <= 0
+    ) {
+      alert("أدخل مبلغ سداد صحيح");
+      return;
+    }
+
+    if (payment < alreadyPaid) {
+      alert(
+        "مبلغ السداد الجديد لا يمكن أن يكون أقل من المبلغ المسدد"
+      );
+
+      return;
+    }
+
+    if (
+      installment < 0 ||
+      !Number.isFinite(installment)
+    ) {
+      alert("أدخل قيمة قسط صحيحة");
       return;
     }
 
     try {
       setSaving(true);
 
-      const organizationSettings = await getOrganizationSettings();
+      const organizationSettings =
+        await getOrganizationSettings();
 
       const printPartyName =
         printPartyType === "organization"
@@ -205,468 +1048,489 @@ export default function EditContractPage() {
           ? organizationSettings.commercialRecord
           : selectedInvestor.national_id;
 
-      const investorChanged = contract.investor_id !== investorId;
-      const productChanged = contract.product_id !== productId;
-      const quantityChanged = oldQty !== newQty;
+      if (!printPartyName?.trim()) {
+        alert(
+          "تعذر تحديد اسم الطرف الأول في الطباعة"
+        );
 
-      if (investorChanged || productChanged || quantityChanged) {
-        await adjustInventory({
-          oldInvestorId: contract.investor_id,
-          oldProductId: contract.product_id,
-          oldQty,
-          newInvestorId: investorId,
-          newProductId: productId,
-          newQty,
-          customerId: contract.customer_id,
-          customerName: contract.finance_customers?.full_name || "",
-        });
+        return;
       }
 
-      const debt = toNumber(debtAmount);
-      const payment = toNumber(paymentAmount);
-      const paid = Number(contract.paid_amount || 0);
-      const remaining = Math.max(payment - paid, 0);
+      const { data, error } = await supabase.rpc(
+        "update_finance_contract_atomic",
+        {
+          p_branch_id: branchId,
+          p_contract_id: contractId,
 
-      const { error } = await supabase
-        .from("finance_contracts")
-        .update({
-          investor_id: selectedInvestor.id,
-          investor_name: selectedInvestor.investor_name,
-          product_id: selectedProduct.id,
-          product_name: selectedProduct.product_name,
-          product_quantity: newQty,
+          p_employee_id: employeeId,
+          p_employee_name:
+            employeeName || "الموظف",
 
-          print_party_type: printPartyType,
-          print_party_name: printPartyName,
-          print_party_identifier: printPartyIdentifier || null,
+          p_investor_id: investorId,
+          p_investor_name:
+            selectedInvestor.investor_name,
 
-          first_party_type: printPartyType,
-          first_party_name: printPartyName,
-          first_party_identifier: printPartyIdentifier || null,
+          p_product_id: productId,
+          p_product_name:
+            selectedProduct.product_name,
 
-          debt_amount: debt,
-          payment_amount: payment,
-          installment_amount: toNumber(installmentAmount),
-          payment_type: paymentType,
-          payment_due_date: paymentDueDate,
-          legal_city: legalCity,
-          notes,
-          remaining_amount: remaining,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", contractId)
-        .eq("branch_id", branchId);
+          p_product_quantity: newQuantity,
+
+          p_print_party_type: printPartyType,
+          p_print_party_name: printPartyName,
+          p_print_party_identifier:
+            printPartyIdentifier || null,
+
+          p_debt_amount: debt,
+          p_payment_amount: payment,
+          p_installment_amount: installment,
+
+          p_payment_type: paymentType,
+          p_payment_due_date: paymentDueDate,
+
+          p_legal_city: legalCity.trim(),
+          p_notes: notes.trim() || null,
+        }
+      );
 
       if (error) {
-        throw new Error(error.message);
+        throw new Error(
+          getRpcErrorMessage(error.message)
+        );
       }
 
-      await supabase.from("finance_activity_logs").insert([
-        {
-          branch_id: branchId,
-          activity_type: "تعديل عقد",
-          description: `تم تعديل عقد العميل ${
-            contract.finance_customers?.full_name || ""
-          }`,
-          customer_id: contract.customer_id,
-          contract_id: contractId,
-          customer_name: contract.finance_customers?.full_name || "",
-          employee_name: "المدير",
-          status: contract.contract_status || "نشط",
-        },
-      ]);
+      const rawResult = Array.isArray(data)
+        ? data[0]
+        : data;
+
+      const result =
+        rawResult as UpdateContractResult | null;
+
+      if (!result?.contract_id) {
+        throw new Error(
+          "لم يتم استلام نتيجة تعديل العقد"
+        );
+      }
 
       alert("تم حفظ تعديل العقد بنجاح");
-      router.push(`/finance/${branch}/contracts/${contractId}`);
-    } catch (error: any) {
-      alert(error.message || "حدث خطأ أثناء تعديل العقد");
+
+      router.push(
+        `/finance/${branch}/contracts/${contractId}`
+      );
+    } catch (error) {
+      console.error(
+        "Save contract error:",
+        error
+      );
+
+      const message =
+        error instanceof Error
+          ? error.message
+          : "حدث خطأ أثناء تعديل العقد";
+
+      alert(getRpcErrorMessage(message));
     } finally {
       setSaving(false);
     }
   }
 
-  async function adjustInventory({
-    oldInvestorId,
-    oldProductId,
-    oldQty,
-    newInvestorId,
-    newProductId,
-    newQty,
-    customerId,
-    customerName,
-  }: any) {
-    if (!branchId) {
-      throw new Error("تعذر تحديد الفرع");
-    }
+  function renderHero() {
+    return (
+      <header style={getHeroStyle(isMobile)}>
+        <div style={heroCircleOne} />
+        <div style={heroCircleTwo} />
+        <div style={heroCircleThree} />
+        <div style={heroDots} />
 
-    const isSameStock =
-      oldInvestorId === newInvestorId && oldProductId === newProductId;
+        <div style={getHeroContentStyle(screen)}>
+          <div style={getHeroUserCardStyle(screen)}>
+            <div
+              style={getEmployeeTopRowStyle(screen)}
+            >
+              <div style={employeeIcon}>
+                <UserIcon />
+              </div>
 
-    const { data: newStock, error: newStockError } = await supabase
-      .from("finance_inventory")
-      .select("*")
-      .eq("branch_id", branchId)
-      .eq("investor_id", newInvestorId)
-      .eq("product_id", newProductId)
-      .maybeSingle();
+              <div
+                style={getEmployeeNameStyle(
+                  isMobile
+                )}
+              >
+                {employeeName}
+              </div>
 
-    if (newStockError) {
-      throw new Error(newStockError.message);
-    }
+              {!isMobile && (
+                <div
+                  style={employeeDividerSmall}
+                />
+              )}
 
-    if (!newStock) {
-      throw new Error("لا يوجد مخزون للمستثمر والمنتج الجديد");
-    }
+              <button
+                type="button"
+                style={logoutInlineButton}
+                onClick={logout}
+              >
+                <LogoutIcon />
+                <span>تسجيل الخروج</span>
+              </button>
+            </div>
 
-    const currentNewStockQty = Number(newStock.quantity || 0);
+            <button
+              type="button"
+              style={getMainWorkstationButtonStyle(
+                isMobile
+              )}
+              onClick={() =>
+                router.push(
+                  `/finance/${branch}`
+                )
+              }
+            >
+              <HomeIcon />
+              <span>
+                محطة العمل الرئيسية
+              </span>
+            </button>
+          </div>
 
-    if (isSameStock) {
-      const difference = newQty - oldQty;
+          <div
+            style={getHeroTitleBoxStyle(screen)}
+          >
+            <h1 style={getTitleStyle(screen)}>
+              تعديل العقد
+            </h1>
+          </div>
 
-      if (difference === 0) return;
+          <div
+            style={getHeroActionBoxStyle(screen)}
+          />
+        </div>
+      </header>
+    );
+  }
 
-      if (difference > 0 && currentNewStockQty < difference) {
-        throw new Error("الكمية الجديدة أكبر من المخزون المتاح");
-      }
-
-      const afterQty =
-        difference > 0
-          ? currentNewStockQty - difference
-          : currentNewStockQty + Math.abs(difference);
-
-      const { error: updateError } = await supabase
-        .from("finance_inventory")
-        .update({
-          quantity: afterQty,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", newStock.id);
-
-      if (updateError) {
-        throw new Error(updateError.message);
-      }
-
-      const movementType = difference > 0 ? "خصم" : "إرجاع";
-      const movementQty = Math.abs(difference);
-
-      await supabase.from("finance_inventory_movements").insert([
-        {
-          branch_id: branchId,
-          investor_id: newInvestorId,
-          product_id: newProductId,
-          contract_id: contractId,
-          customer_id: customerId,
-          movement_type: movementType,
-          quantity: movementQty,
-          before_quantity: currentNewStockQty,
-          after_quantity: afterQty,
-          notes: `${movementType} فرق الكمية بسبب تعديل عقد العميل ${customerName}`,
-          created_by: "المدير",
-        },
-      ]);
-
-      return;
-    }
-
-    if (currentNewStockQty < newQty) {
-      throw new Error("الكمية الجديدة أكبر من المخزون المتاح");
-    }
-
-    let oldStock: any = null;
-
-    if (oldInvestorId && oldProductId && oldQty > 0) {
-      const { data: oldStockData, error: oldStockError } = await supabase
-        .from("finance_inventory")
-        .select("*")
-        .eq("branch_id", branchId)
-        .eq("investor_id", oldInvestorId)
-        .eq("product_id", oldProductId)
-        .maybeSingle();
-
-      if (oldStockError) {
-        throw new Error(oldStockError.message);
-      }
-
-      oldStock = oldStockData;
-    }
-
-    if (oldInvestorId && oldProductId && oldQty > 0 && oldStock) {
-      const beforeOld = Number(oldStock.quantity || 0);
-      const afterOld = beforeOld + oldQty;
-
-      const { error: returnError } = await supabase
-        .from("finance_inventory")
-        .update({
-          quantity: afterOld,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", oldStock.id);
-
-      if (returnError) {
-        throw new Error(returnError.message);
-      }
-
-      await supabase.from("finance_inventory_movements").insert([
-        {
-          branch_id: branchId,
-          investor_id: oldInvestorId,
-          product_id: oldProductId,
-          contract_id: contractId,
-          customer_id: customerId,
-          movement_type: "إرجاع",
-          quantity: oldQty,
-          before_quantity: beforeOld,
-          after_quantity: afterOld,
-          notes: `إرجاع كمية بسبب تعديل عقد العميل ${customerName}`,
-          created_by: "المدير",
-        },
-      ]);
-    }
-
-    const afterNew = currentNewStockQty - newQty;
-
-    const { error: deductError } = await supabase
-      .from("finance_inventory")
-      .update({
-        quantity: afterNew,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", newStock.id);
-
-    if (deductError) {
-      throw new Error(deductError.message);
-    }
-
-    await supabase.from("finance_inventory_movements").insert([
-      {
-        branch_id: branchId,
-        investor_id: newInvestorId,
-        product_id: newProductId,
-        contract_id: contractId,
-        customer_id: customerId,
-        movement_type: "خصم",
-        quantity: newQty,
-        before_quantity: currentNewStockQty,
-        after_quantity: afterNew,
-        notes: `خصم كمية جديدة بسبب تعديل عقد العميل ${customerName}`,
-        created_by: "المدير",
-      },
-    ]);
+  if (!authChecked) {
+    return null;
   }
 
   if (loading) {
     return (
-      <main dir="rtl" style={getPageStyle(isMobile)}>
-        <div style={getContainerStyle(isCompact)}>
-          <header style={getHeroStyle(isMobile)}>
-            <div style={heroCircleOne} />
-            <div style={heroCircleTwo} />
-            <div style={heroCircleThree} />
-            <div style={heroDots} />
+      <main
+        dir="rtl"
+        style={getPageStyle(isMobile)}
+      >
+        <div
+          style={getContainerStyle(isCompact)}
+        >
+          {renderHero()}
 
-            <div style={getHeroContentStyle(screen)}>
-              <div style={getHeroUserCardStyle(screen)}>
-                <div style={getEmployeeTopRowStyle(screen)}>
-                  <div style={employeeIcon}>
-                    <UserIcon />
-                  </div>
+          <div style={loadingBox}>
+            جاري تحميل العقد...
+          </div>
+        </div>
+      </main>
+    );
+  }
 
-                  <div style={getEmployeeNameStyle(isMobile)}>
-                    {employeeName}
-                  </div>
+  if (pageError || !contract) {
+    return (
+      <main
+        dir="rtl"
+        style={getPageStyle(isMobile)}
+      >
+        <div
+          style={getContainerStyle(isCompact)}
+        >
+          {renderHero()}
 
-                  {!isMobile && <div style={employeeDividerSmall} />}
+          <div style={errorBox}>
+            {pageError ||
+              "لم يتم العثور على العقد"}
+          </div>
 
-                  <button style={logoutInlineButton} onClick={logout}>
-                    <LogoutIcon />
-                    <span>تسجيل الخروج</span>
-                  </button>
-                </div>
-
-                <button
-                  style={getMainWorkstationButtonStyle(isMobile)}
-                  onClick={() => router.push(`/finance/${branch}`)}
-                >
-                  <HomeIcon />
-                  <span>محطة العمل الرئيسية</span>
-                </button>
-              </div>
-
-              <div style={getHeroTitleBoxStyle(screen)}>
-                <h1 style={getTitleStyle(screen)}>تعديل العقد</h1>
-              </div>
-
-              <div style={getHeroActionBoxStyle(screen)} />
-            </div>
-          </header>
-
-          <div style={loadingBox}>جاري تحميل العقد...</div>
+          <div style={backWrapper}>
+            <button
+              type="button"
+              style={backButton}
+              onClick={() => router.back()}
+            >
+              ← رجوع
+            </button>
+          </div>
         </div>
       </main>
     );
   }
 
   return (
-    <main dir="rtl" style={getPageStyle(isMobile)}>
-      <div style={getContainerStyle(isCompact)}>
-        <header style={getHeroStyle(isMobile)}>
-          <div style={heroCircleOne} />
-          <div style={heroCircleTwo} />
-          <div style={heroCircleThree} />
-          <div style={heroDots} />
-
-          <div style={getHeroContentStyle(screen)}>
-            <div style={getHeroUserCardStyle(screen)}>
-              <div style={getEmployeeTopRowStyle(screen)}>
-                <div style={employeeIcon}>
-                  <UserIcon />
-                </div>
-
-                <div style={getEmployeeNameStyle(isMobile)}>
-                  {employeeName}
-                </div>
-
-                {!isMobile && <div style={employeeDividerSmall} />}
-
-                <button style={logoutInlineButton} onClick={logout}>
-                  <LogoutIcon />
-                  <span>تسجيل الخروج</span>
-                </button>
-              </div>
-
-              <button
-                style={getMainWorkstationButtonStyle(isMobile)}
-                onClick={() => router.push(`/finance/${branch}`)}
-              >
-                <HomeIcon />
-                <span>محطة العمل الرئيسية</span>
-              </button>
-            </div>
-
-            <div style={getHeroTitleBoxStyle(screen)}>
-              <h1 style={getTitleStyle(screen)}>تعديل العقد</h1>
-            </div>
-
-            <div style={getHeroActionBoxStyle(screen)} />
-          </div>
-        </header>
+    <main
+      dir="rtl"
+      style={getPageStyle(isMobile)}
+    >
+      <div
+        style={getContainerStyle(isCompact)}
+      >
+        {renderHero()}
 
         <section style={card}>
-          <h2 style={sectionTitle}>المخزون والطرف الأول</h2>
+          <h2 style={sectionTitle}>
+            المخزون والطرف الأول
+          </h2>
+
+          <label style={fieldLabel}>
+            المستثمر المرتبط بالمخزون
+          </label>
 
           <select
             style={input}
             value={investorId}
-            onChange={(e) => setInvestorId(e.target.value)}
+            disabled={saving}
+            onChange={(event) =>
+              setInvestorId(event.target.value)
+            }
           >
-            <option value="">اختر المستثمر</option>
+            <option value="">
+              اختر المستثمر
+            </option>
+
             {investors.map((investor) => (
-              <option key={investor.id} value={investor.id}>
+              <option
+                key={investor.id}
+                value={investor.id}
+              >
                 {investor.investor_name}
               </option>
             ))}
           </select>
 
+          <label style={fieldLabel}>
+            المنتج
+          </label>
+
           <select
             style={input}
             value={productId}
-            onChange={(e) => setProductId(e.target.value)}
+            disabled={saving}
+            onChange={(event) =>
+              setProductId(event.target.value)
+            }
           >
-            <option value="">اختر المنتج</option>
+            <option value="">
+              اختر المنتج
+            </option>
+
             {products.map((product) => (
-              <option key={product.id} value={product.id}>
+              <option
+                key={product.id}
+                value={product.id}
+              >
                 {product.product_name}
               </option>
             ))}
           </select>
+
+          <label style={fieldLabel}>
+            كمية المنتجات
+          </label>
 
           <input
             style={input}
             inputMode="numeric"
             placeholder="الكمية"
             value={productQuantity}
-            onChange={(e) =>
-              setProductQuantity(normalizeNumber(e.target.value))
+            disabled={saving}
+            onChange={(event) =>
+              setProductQuantity(
+                normalizeNumber(
+                  event.target.value
+                )
+              )
             }
           />
+
+          <label style={fieldLabel}>
+            الطرف الأول في الطباعة
+          </label>
 
           <select
             style={input}
             value={printPartyType}
-            onChange={(e) => setPrintPartyType(e.target.value)}
+            disabled={saving}
+            onChange={(event) =>
+              setPrintPartyType(
+                event.target.value
+              )
+            }
           >
-            <option value="organization">الطرف الأول في الطباعة: المنظمة</option>
-            <option value="investor">الطرف الأول في الطباعة: المستثمر</option>
+            <option value="organization">
+              المنظمة
+            </option>
+
+            <option value="investor">
+              المستثمر
+            </option>
           </select>
         </section>
 
         <section style={card}>
-          <h2 style={sectionTitle}>بيانات العقد</h2>
+          <h2 style={sectionTitle}>
+            بيانات العقد
+          </h2>
+
+          <label style={fieldLabel}>
+            مبلغ الدين
+          </label>
 
           <input
             style={input}
             inputMode="numeric"
             placeholder="مبلغ الدين"
             value={debtAmount}
-            onChange={(e) => setDebtAmount(normalizeNumber(e.target.value))}
+            disabled={saving}
+            onChange={(event) =>
+              setDebtAmount(
+                normalizeNumber(
+                  event.target.value
+                )
+              )
+            }
           />
+
+          <label style={fieldLabel}>
+            مبلغ السداد
+          </label>
 
           <input
             style={input}
             inputMode="numeric"
             placeholder="مبلغ السداد"
             value={paymentAmount}
-            onChange={(e) => setPaymentAmount(normalizeNumber(e.target.value))}
+            disabled={saving}
+            onChange={(event) =>
+              setPaymentAmount(
+                normalizeNumber(
+                  event.target.value
+                )
+              )
+            }
           />
+
+          <label style={fieldLabel}>
+            قيمة القسط
+          </label>
 
           <input
             style={input}
             inputMode="numeric"
             placeholder="القسط"
             value={installmentAmount}
-            onChange={(e) =>
-              setInstallmentAmount(normalizeNumber(e.target.value))
+            disabled={saving}
+            onChange={(event) =>
+              setInstallmentAmount(
+                normalizeNumber(
+                  event.target.value
+                )
+              )
             }
           />
+
+          <label style={fieldLabel}>
+            نوع السداد
+          </label>
 
           <select
             style={input}
             value={paymentType}
-            onChange={(e) => setPaymentType(e.target.value)}
+            disabled={saving}
+            onChange={(event) =>
+              setPaymentType(
+                event.target.value
+              )
+            }
           >
-            <option value="">نوع السداد</option>
-            <option value="موعد محدد">موعد محدد</option>
-            <option value="شهري مجدول">شهري مجدول</option>
+            <option value="">
+              اختر نوع السداد
+            </option>
+
+            <option value="موعد محدد">
+              موعد محدد
+            </option>
+
+            <option value="شهري مجدول">
+              شهري مجدول
+            </option>
           </select>
+
+          <label style={fieldLabel}>
+            تاريخ الاستحقاق
+          </label>
 
           <input
             style={input}
             type="date"
             value={paymentDueDate}
-            onChange={(e) => setPaymentDueDate(e.target.value)}
+            disabled={saving}
+            onChange={(event) =>
+              setPaymentDueDate(
+                event.target.value
+              )
+            }
           />
+
+          <label style={fieldLabel}>
+            مدينة التقاضي
+          </label>
 
           <input
             style={input}
             placeholder="مدينة التقاضي"
             value={legalCity}
-            onChange={(e) => setLegalCity(e.target.value)}
+            disabled={saving}
+            onChange={(event) =>
+              setLegalCity(event.target.value)
+            }
           />
+
+          <label style={fieldLabel}>
+            الملاحظات
+          </label>
 
           <textarea
             style={textarea}
             placeholder="ملاحظات"
             value={notes}
-            onChange={(e) => setNotes(e.target.value)}
+            disabled={saving}
+            onChange={(event) =>
+              setNotes(event.target.value)
+            }
           />
 
-          <button style={saveButton} onClick={saveContract} disabled={saving}>
-            {saving ? "جاري الحفظ..." : "حفظ التعديلات"}
+          <button
+            type="button"
+            style={{
+              ...saveButton,
+              opacity: saving ? 0.7 : 1,
+              cursor: saving
+                ? "not-allowed"
+                : "pointer",
+            }}
+            onClick={() =>
+              void saveContract()
+            }
+            disabled={saving}
+          >
+            {saving
+              ? "جاري الحفظ..."
+              : "حفظ التعديلات"}
           </button>
         </section>
 
         <div style={backWrapper}>
-          <button style={backButton} onClick={() => router.back()}>
+          <button
+            type="button"
+            style={backButton}
+            onClick={() => router.back()}
+          >
             ← رجوع
           </button>
         </div>
@@ -677,12 +1541,19 @@ export default function EditContractPage() {
 
 function UserIcon() {
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M12 12.2a4.2 4.2 0 1 0 0-8.4 4.2 4.2 0 0 0 0 8.4Z"
         stroke="currentColor"
         strokeWidth="1.8"
       />
+
       <path
         d="M4.8 20.2c.8-3.5 3.6-5.4 7.2-5.4s6.4 1.9 7.2 5.4"
         stroke="currentColor"
@@ -695,19 +1566,27 @@ function UserIcon() {
 
 function LogoutIcon() {
   return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M9.5 7V5.8c0-1 .8-1.8 1.8-1.8h6.1c1 0 1.8.8 1.8 1.8v12.4c0 1-.8 1.8-1.8 1.8h-6.1c-1 0-1.8-.8-1.8-1.8V17"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
       />
+
       <path
         d="M4.8 12h9.5"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
       />
+
       <path
         d="M7.8 8.8 4.6 12l3.2 3.2"
         stroke="currentColor"
@@ -721,7 +1600,13 @@ function LogoutIcon() {
 
 function HomeIcon() {
   return (
-    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="21"
+      height="21"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M3.8 11.2 12 4.5l8.2 6.7"
         stroke="currentColor"
@@ -729,12 +1614,14 @@ function HomeIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+
       <path
         d="M6.2 10.4v9.1h11.6v-9.1"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinejoin="round"
       />
+
       <path
         d="M10 19.5v-5.2h4v5.2"
         stroke="currentColor"
@@ -745,7 +1632,9 @@ function HomeIcon() {
   );
 }
 
-function getPageStyle(isMobile: boolean): CSSProperties {
+function getPageStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     minHeight: "100vh",
     backgroundColor: "#f6f9ff",
@@ -758,13 +1647,18 @@ function getPageStyle(isMobile: boolean): CSSProperties {
     `,
     backgroundSize: "cover",
     backgroundPosition: "center",
-    backgroundAttachment: isMobile ? "scroll" : "fixed",
+    backgroundAttachment: isMobile
+      ? "scroll"
+      : "fixed",
     padding: isMobile ? 10 : 18,
-    fontFamily: "var(--font-almarai), sans-serif",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
   };
 }
 
-function getContainerStyle(isCompact: boolean): CSSProperties {
+function getContainerStyle(
+  isCompact: boolean
+): CSSProperties {
   return {
     width: "100%",
     maxWidth: isCompact ? 980 : 1180,
@@ -772,12 +1666,16 @@ function getContainerStyle(isCompact: boolean): CSSProperties {
   };
 }
 
-function getHeroStyle(isMobile: boolean): CSSProperties {
+function getHeroStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     position: "relative",
     minHeight: isMobile ? "auto" : 160,
     borderRadius: isMobile ? 20 : 24,
-    padding: isMobile ? "18px 14px" : "22px 26px",
+    padding: isMobile
+      ? "18px 14px"
+      : "22px 26px",
     marginBottom: 14,
     overflow: "hidden",
     border: "none",
@@ -789,7 +1687,9 @@ function getHeroStyle(isMobile: boolean): CSSProperties {
   };
 }
 
-function getHeroContentStyle(screen: ScreenType): CSSProperties {
+function getHeroContentStyle(
+  screen: ScreenType
+): CSSProperties {
   if (screen === "mobile") {
     return {
       position: "relative",
@@ -823,14 +1723,17 @@ function getHeroContentStyle(screen: ScreenType): CSSProperties {
     zIndex: 3,
     minHeight: 116,
     display: "grid",
-    gridTemplateColumns: "minmax(250px, 315px) 1fr minmax(220px, 315px)",
+    gridTemplateColumns:
+      "minmax(250px, 315px) 1fr minmax(220px, 315px)",
     alignItems: "center",
     gap: 16,
     direction: "ltr",
   };
 }
 
-function getHeroUserCardStyle(screen: ScreenType): CSSProperties {
+function getHeroUserCardStyle(
+  screen: ScreenType
+): CSSProperties {
   if (screen === "mobile") {
     return {
       width: "100%",
@@ -866,7 +1769,9 @@ function getHeroUserCardStyle(screen: ScreenType): CSSProperties {
   };
 }
 
-function getEmployeeTopRowStyle(screen: ScreenType): CSSProperties {
+function getEmployeeTopRowStyle(
+  screen: ScreenType
+): CSSProperties {
   if (screen === "mobile") {
     return {
       minHeight: 42,
@@ -904,32 +1809,40 @@ function getEmployeeTopRowStyle(screen: ScreenType): CSSProperties {
   };
 }
 
-function getEmployeeNameStyle(isMobile: boolean): CSSProperties {
+function getEmployeeNameStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     color: "#ffffff",
     fontSize: isMobile ? 15 : 17,
     fontWeight: 900,
     whiteSpace: "nowrap",
     direction: "rtl",
-    textShadow: "0 4px 10px rgba(15,23,42,0.18)",
+    textShadow:
+      "0 4px 10px rgba(15,23,42,0.18)",
   };
 }
 
-function getMainWorkstationButtonStyle(isMobile: boolean): CSSProperties {
+function getMainWorkstationButtonStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     width: isMobile ? "100%" : 220,
     maxWidth: isMobile ? 280 : 220,
     height: 44,
     border: "none",
-    background: "linear-gradient(135deg,#72e77d,#22c55e 58%,#16a34a)",
+    background:
+      "linear-gradient(135deg,#72e77d,#22c55e 58%,#16a34a)",
     color: "#ffffff",
     borderRadius: 999,
     padding: "0 18px",
     fontSize: 14,
     fontWeight: 900,
     cursor: "pointer",
-    fontFamily: "var(--font-almarai), sans-serif",
-    boxShadow: "0 8px 18px rgba(22,163,74,0.20)",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
+    boxShadow:
+      "0 8px 18px rgba(22,163,74,0.20)",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
@@ -939,7 +1852,9 @@ function getMainWorkstationButtonStyle(isMobile: boolean): CSSProperties {
   };
 }
 
-function getHeroTitleBoxStyle(screen: ScreenType): CSSProperties {
+function getHeroTitleBoxStyle(
+  screen: ScreenType
+): CSSProperties {
   return {
     position: "relative",
     zIndex: 4,
@@ -954,29 +1869,36 @@ function getHeroTitleBoxStyle(screen: ScreenType): CSSProperties {
   };
 }
 
-function getTitleStyle(screen: ScreenType): CSSProperties {
+function getTitleStyle(
+  screen: ScreenType
+): CSSProperties {
   return {
     margin: 0,
     color: "#ffffff",
-    fontSize: screen === "mobile" ? 26 : screen === "tablet" ? 28 : 30,
+    fontSize:
+      screen === "mobile"
+        ? 26
+        : screen === "tablet"
+          ? 28
+          : 30,
     lineHeight: 1.35,
     fontWeight: 900,
     letterSpacing: "-0.4px",
-    textShadow: "0 5px 14px rgba(15,23,42,0.14)",
+    textShadow:
+      "0 5px 14px rgba(15,23,42,0.14)",
     whiteSpace: "nowrap",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
   };
 }
 
-function getHeroActionBoxStyle(screen: ScreenType): CSSProperties {
-  if (screen === "mobile") {
-    return {
-      display: "none",
-      width: "100%",
-      order: 3,
-    };
-  }
-
-  if (screen === "tablet") {
+function getHeroActionBoxStyle(
+  screen: ScreenType
+): CSSProperties {
+  if (
+    screen === "mobile" ||
+    screen === "tablet"
+  ) {
     return {
       display: "none",
       width: "100%",
@@ -998,7 +1920,8 @@ const employeeIcon: CSSProperties = {
   width: 38,
   height: 38,
   borderRadius: "50%",
-  border: "1.5px solid rgba(255,255,255,0.34)",
+  border:
+    "1.5px solid rgba(255,255,255,0.34)",
   background: "rgba(255,255,255,0.06)",
   display: "flex",
   alignItems: "center",
@@ -1024,7 +1947,8 @@ const logoutInlineButton: CSSProperties = {
   alignItems: "center",
   gap: 9,
   cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
   padding: 0,
   whiteSpace: "nowrap",
   direction: "rtl",
@@ -1085,7 +2009,8 @@ const card: CSSProperties = {
   borderRadius: 18,
   padding: 20,
   marginBottom: 16,
-  boxShadow: "0 8px 20px rgba(15,23,42,0.04)",
+  boxShadow:
+    "0 8px 20px rgba(15,23,42,0.04)",
 };
 
 const sectionTitle: CSSProperties = {
@@ -1093,6 +2018,18 @@ const sectionTitle: CSSProperties = {
   color: "#0d47a1",
   fontSize: 22,
   fontWeight: 900,
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const fieldLabel: CSSProperties = {
+  display: "block",
+  marginBottom: 7,
+  color: "#0f172a",
+  fontSize: 14,
+  fontWeight: 900,
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const input: CSSProperties = {
@@ -1104,7 +2041,8 @@ const input: CSSProperties = {
   marginBottom: 12,
   boxSizing: "border-box",
   background: "white",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const textarea: CSSProperties = {
@@ -1117,7 +2055,8 @@ const textarea: CSSProperties = {
   marginBottom: 12,
   boxSizing: "border-box",
   background: "white",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
   resize: "vertical",
 };
 
@@ -1129,9 +2068,10 @@ const saveButton: CSSProperties = {
   border: "none",
   borderRadius: 14,
   fontSize: 17,
-  fontWeight: "bold",
+  fontWeight: 900,
   cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const loadingBox: CSSProperties = {
@@ -1141,8 +2081,21 @@ const loadingBox: CSSProperties = {
   padding: 20,
   textAlign: "center",
   color: "#0d47a1",
-  fontWeight: "bold",
-  boxShadow: "0 8px 20px rgba(15,23,42,0.04)",
+  fontWeight: 900,
+  boxShadow:
+    "0 8px 20px rgba(15,23,42,0.04)",
+};
+
+const errorBox: CSSProperties = {
+  background: "#fff7ed",
+  border: "1px solid #fed7aa",
+  borderRadius: 18,
+  padding: 20,
+  textAlign: "center",
+  color: "#9a3412",
+  fontWeight: 900,
+  boxShadow:
+    "0 8px 20px rgba(15,23,42,0.04)",
 };
 
 const backWrapper: CSSProperties = {
@@ -1153,13 +2106,16 @@ const backWrapper: CSSProperties = {
 
 const backButton: CSSProperties = {
   padding: "11px 18px",
-  background: "linear-gradient(135deg,#22c55e,#15803d)",
+  background:
+    "linear-gradient(135deg,#22c55e,#15803d)",
   color: "#ffffff",
   border: "none",
   borderRadius: 12,
   fontSize: 14,
   fontWeight: 900,
   cursor: "pointer",
-  boxShadow: "0 5px 14px rgba(22,163,74,0.22)",
-  fontFamily: "var(--font-almarai), sans-serif",
+  boxShadow:
+    "0 5px 14px rgba(22,163,74,0.22)",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
