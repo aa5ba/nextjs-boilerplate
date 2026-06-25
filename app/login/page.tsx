@@ -14,6 +14,10 @@ type FinanceUserSession = {
   branch_slug: string;
   branch_name: string;
   organization_name: string;
+  permissions: string[];
+  investor_id: string | null;
+  is_active: boolean;
+  last_login_at: string | null;
 };
 
 type CustomerSession = {
@@ -32,6 +36,10 @@ type FinanceLoginResult = {
   branch_slug: string | null;
   branch_name: string | null;
   organization_name: string | null;
+  permissions: unknown;
+  investor_id: string | null;
+  is_active: boolean | null;
+  last_login_at: string | null;
 };
 
 type CustomerLoginResult = {
@@ -44,62 +52,30 @@ type CustomerLoginResult = {
 export default function LoginPage() {
   const router = useRouter();
 
-  const [loginIdentifier, setLoginIdentifier] =
-    useState("");
-
-  const [password, setPassword] =
-    useState("");
-
-  const [loading, setLoading] =
-    useState(false);
-
-  const [message, setMessage] =
-    useState("");
+  const [loginIdentifier, setLoginIdentifier] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
 
   function clearFinanceSession() {
     if (typeof window === "undefined") {
       return;
     }
 
-    localStorage.removeItem(
-      "finance_user"
-    );
-
-    localStorage.removeItem(
-      "finance_branch_user"
-    );
-
-    localStorage.removeItem(
-      "finance_user_id"
-    );
-
-    localStorage.removeItem(
-      "finance_user_name"
-    );
-
-    localStorage.removeItem(
-      "finance_username"
-    );
-
-    localStorage.removeItem(
-      "finance_role"
-    );
-
-    localStorage.removeItem(
-      "finance_branch_id"
-    );
-
-    localStorage.removeItem(
-      "finance_branch_slug"
-    );
-
-    localStorage.removeItem(
-      "finance_branch_name"
-    );
-
-    localStorage.removeItem(
-      "finance_organization_name"
-    );
+    localStorage.removeItem("finance_user");
+    localStorage.removeItem("finance_branch_user");
+    localStorage.removeItem("finance_user_id");
+    localStorage.removeItem("finance_user_name");
+    localStorage.removeItem("finance_username");
+    localStorage.removeItem("finance_role");
+    localStorage.removeItem("finance_branch_id");
+    localStorage.removeItem("finance_branch_slug");
+    localStorage.removeItem("finance_branch_name");
+    localStorage.removeItem("finance_organization_name");
+    localStorage.removeItem("finance_permissions");
+    localStorage.removeItem("finance_investor_id");
+    localStorage.removeItem("finance_is_active");
+    localStorage.removeItem("finance_last_login_at");
   }
 
   function clearCustomerSession() {
@@ -107,25 +83,11 @@ export default function LoginPage() {
       return;
     }
 
-    localStorage.removeItem(
-      "customer_user"
-    );
-
-    localStorage.removeItem(
-      "customer_id"
-    );
-
-    localStorage.removeItem(
-      "customer_name"
-    );
-
-    localStorage.removeItem(
-      "customer_phone"
-    );
-
-    localStorage.removeItem(
-      "customer_sector"
-    );
+    localStorage.removeItem("customer_user");
+    localStorage.removeItem("customer_id");
+    localStorage.removeItem("customer_name");
+    localStorage.removeItem("customer_phone");
+    localStorage.removeItem("customer_sector");
   }
 
   function saveFinanceSession(
@@ -135,15 +97,8 @@ export default function LoginPage() {
       return;
     }
 
-    const serializedUser =
-      JSON.stringify(financeUser);
+    const serializedUser = JSON.stringify(financeUser);
 
-    /*
-      finance_user هو المفتاح الأساسي.
-
-      finance_branch_user محفوظ أيضًا
-      للتوافق مع الصفحات الأقدم في محطة العمل.
-    */
     localStorage.setItem(
       "finance_user",
       serializedUser
@@ -193,6 +148,26 @@ export default function LoginPage() {
       "finance_organization_name",
       financeUser.organization_name
     );
+
+    localStorage.setItem(
+      "finance_permissions",
+      JSON.stringify(financeUser.permissions)
+    );
+
+    localStorage.setItem(
+      "finance_investor_id",
+      financeUser.investor_id || ""
+    );
+
+    localStorage.setItem(
+      "finance_is_active",
+      financeUser.is_active ? "true" : "false"
+    );
+
+    localStorage.setItem(
+      "finance_last_login_at",
+      financeUser.last_login_at || ""
+    );
   }
 
   function saveCustomerSession(
@@ -228,21 +203,28 @@ export default function LoginPage() {
     );
   }
 
+  function normalizePermissions(value: unknown): string[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value.filter(
+      (permission): permission is string =>
+        typeof permission === "string"
+    );
+  }
+
   async function handleBranchLogin(
     normalizedUsername: string,
     normalizedPassword: string
   ) {
-    const { data, error } =
-      await supabase.rpc(
-        "verify_finance_branch_login",
-        {
-          p_username:
-            normalizedUsername,
-
-          p_password:
-            normalizedPassword,
-        }
-      );
+    const { data, error } = await supabase.rpc(
+      "verify_finance_branch_login",
+      {
+        p_username: normalizedUsername,
+        p_password: normalizedPassword,
+      }
+    );
 
     if (error) {
       console.error(
@@ -250,20 +232,24 @@ export default function LoginPage() {
         error
       );
 
-      throw new Error(
-        "BRANCH_LOGIN_FAILED"
-      );
+      throw new Error("BRANCH_LOGIN_FAILED");
     }
 
     const result = Array.isArray(data)
-      ? (data[0] as
-          | FinanceLoginResult
-          | undefined)
+      ? (data[0] as FinanceLoginResult | undefined)
       : undefined;
 
     if (!result) {
       setMessage(
         "اسم المستخدم أو كلمة المرور غير صحيحة"
+      );
+
+      return;
+    }
+
+    if (!result.id || !result.branch_id) {
+      setMessage(
+        "بيانات حساب الموظف غير مكتملة"
       );
 
       return;
@@ -277,40 +263,62 @@ export default function LoginPage() {
       return;
     }
 
+    if (result.is_active === false) {
+      setMessage(
+        "هذا الحساب معطل"
+      );
+
+      return;
+    }
+
     clearFinanceSession();
     clearCustomerSession();
 
-    const financeUser: FinanceUserSession =
-      {
-        id: String(result.id),
+    const financeUser: FinanceUserSession = {
+      id: String(result.id),
 
-        full_name:
-          result.full_name || "",
+      full_name:
+        result.full_name || "",
 
-        username:
-          result.username ||
-          normalizedUsername,
+      username:
+        result.username ||
+        normalizedUsername,
 
-        role: result.role || "",
+      role:
+        result.role || "",
 
-        branch_id: String(
-          result.branch_id
+      branch_id:
+        String(result.branch_id),
+
+      branch_slug:
+        String(result.branch_slug),
+
+      branch_name:
+        result.branch_name || "",
+
+      organization_name:
+        result.organization_name || "",
+
+      permissions:
+        normalizePermissions(
+          result.permissions
         ),
 
-        branch_slug:
-          result.branch_slug,
+      investor_id:
+        result.investor_id
+          ? String(result.investor_id)
+          : null,
 
-        branch_name:
-          result.branch_name || "",
+      is_active:
+        result.is_active !== false,
 
-        organization_name:
-          result.organization_name ||
-          "",
-      };
+      last_login_at:
+        result.last_login_at
+          ? String(result.last_login_at)
+          : null,
+    };
 
-    saveFinanceSession(
-      financeUser
-    );
+    saveFinanceSession(financeUser);
 
     router.replace(
       `/finance/${encodeURIComponent(
@@ -323,15 +331,13 @@ export default function LoginPage() {
     normalizedPhone: string,
     normalizedPassword: string
   ) {
-    const { data, error } =
-      await supabase.rpc(
-        "verify_customer_login",
-        {
-          p_phone: normalizedPhone,
-          p_password:
-            normalizedPassword,
-        }
-      );
+    const { data, error } = await supabase.rpc(
+      "verify_customer_login",
+      {
+        p_phone: normalizedPhone,
+        p_password: normalizedPassword,
+      }
+    );
 
     if (error) {
       console.error(
@@ -345,9 +351,7 @@ export default function LoginPage() {
     }
 
     const result = Array.isArray(data)
-      ? (data[0] as
-          | CustomerLoginResult
-          | undefined)
+      ? (data[0] as CustomerLoginResult | undefined)
       : undefined;
 
     if (!result) {
@@ -361,24 +365,21 @@ export default function LoginPage() {
     clearFinanceSession();
     clearCustomerSession();
 
-    const customerUser: CustomerSession =
-      {
-        id: String(result.id),
+    const customerUser: CustomerSession = {
+      id: String(result.id),
 
-        full_name:
-          result.full_name || "",
+      full_name:
+        result.full_name || "",
 
-        phone:
-          result.phone ||
-          normalizedPhone,
+      phone:
+        result.phone ||
+        normalizedPhone,
 
-        work_sector:
-          result.work_sector || "",
-      };
+      work_sector:
+        result.work_sector || "",
+    };
 
-    saveCustomerSession(
-      customerUser
-    );
+    saveCustomerSession(customerUser);
 
     router.replace("/customer");
   }
@@ -393,10 +394,9 @@ export default function LoginPage() {
     const normalizedIdentifier =
       loginIdentifier.trim();
 
-    const normalizedPassword =
-      password
-        .replace(/\D/g, "")
-        .slice(0, 4);
+    const normalizedPassword = password
+      .replace(/\D/g, "")
+      .slice(0, 4);
 
     const customerPhoneRegex =
       /^05\d{8}$/;
@@ -404,7 +404,8 @@ export default function LoginPage() {
     const usernameRegex =
       /^[\u0600-\u06FFa-zA-Z0-9_.-]{2,35}$/;
 
-    const pinRegex = /^\d{4}$/;
+    const pinRegex =
+      /^\d{4}$/;
 
     if (!normalizedIdentifier) {
       setMessage(
@@ -414,11 +415,7 @@ export default function LoginPage() {
       return;
     }
 
-    if (
-      !pinRegex.test(
-        normalizedPassword
-      )
-    ) {
+    if (!pinRegex.test(normalizedPassword)) {
       setMessage(
         "كلمة المرور يجب أن تكون 4 أرقام"
       );
@@ -525,9 +522,7 @@ export default function LoginPage() {
           autoComplete="current-password"
           disabled={loading}
           onKeyDown={(event) => {
-            if (
-              event.key === "Enter"
-            ) {
+            if (event.key === "Enter") {
               void handleLogin();
             }
           }}
