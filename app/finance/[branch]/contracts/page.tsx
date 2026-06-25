@@ -8,7 +8,39 @@ import { getBranchId } from "@/lib/getBranchId";
 
 const ITEMS_PER_PAGE = 25;
 
+const FINANCE_SESSION_KEYS = [
+  "finance_user",
+  "finance_branch_user",
+  "finance_user_id",
+  "finance_user_name",
+  "finance_username",
+  "finance_role",
+  "finance_branch_id",
+  "finance_branch_slug",
+  "finance_branch_name",
+  "finance_organization_name",
+  "finance_permissions",
+  "finance_investor_id",
+  "finance_is_active",
+  "finance_last_login_at",
+] as const;
+
 type ScreenType = "mobile" | "tablet" | "desktop";
+
+type FinanceUserSession = {
+  id?: string | null;
+  full_name?: string | null;
+  username?: string | null;
+  name?: string | null;
+  role?: string | null;
+  roles?: unknown;
+  branch_id?: string | null;
+  branch_slug?: string | null;
+  permissions?: unknown;
+  investor_id?: string | null;
+  is_active?: boolean | null;
+  last_login_at?: string | null;
+};
 
 type CustomerRelation = {
   full_name: string | null;
@@ -34,29 +66,41 @@ type Contract = {
   remaining_amount?: number | string | null;
   created_at?: string | null;
   contract_issue_date_gregorian?: string | null;
-  finance_customers: CustomerRelation | CustomerRelation[] | null;
+  finance_customers:
+    | CustomerRelation
+    | CustomerRelation[]
+    | null;
 };
 
 export default function FinanceContractsPage() {
   const params = useParams();
   const router = useRouter();
 
-  const branch = String(params.branch ?? "");
+  const branch = String(params.branch ?? "").trim();
 
   const [authChecked, setAuthChecked] = useState(false);
-  const [screen, setScreen] = useState<ScreenType>("desktop");
-  const [employeeName, setEmployeeName] = useState("الموظف");
+  const [screen, setScreen] =
+    useState<ScreenType>("desktop");
+  const [employeeName, setEmployeeName] =
+    useState("الموظف");
 
-  const [contracts, setContracts] = useState<Contract[]>([]);
+  const [contracts, setContracts] = useState<
+    Contract[]
+  >([]);
   const [loading, setLoading] = useState(true);
 
-  const [permissions, setPermissions] = useState<string[]>([]);
+  const [permissions, setPermissions] = useState<
+    string[]
+  >([]);
   const [roles, setRoles] = useState<string[]>([]);
 
   const [searchText, setSearchText] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [investorFilter, setInvestorFilter] = useState("");
-  const [productFilter, setProductFilter] = useState("");
+  const [statusFilter, setStatusFilter] =
+    useState("");
+  const [investorFilter, setInvestorFilter] =
+    useState("");
+  const [productFilter, setProductFilter] =
+    useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
 
@@ -83,7 +127,10 @@ export default function FinanceContractsPage() {
     window.addEventListener("resize", updateScreen);
 
     return () => {
-      window.removeEventListener("resize", updateScreen);
+      window.removeEventListener(
+        "resize",
+        updateScreen
+      );
     };
   }, []);
 
@@ -91,16 +138,56 @@ export default function FinanceContractsPage() {
     let cancelled = false;
 
     async function initializePage() {
+      setAuthChecked(false);
       setLoading(true);
 
-      const isLoggedIn = checkLogin();
+      const session = readFinanceSession();
 
-      if (!isLoggedIn || cancelled) return;
+      if (cancelled) return;
 
-      loadEmployeeName();
-      loadCurrentUserPermissions();
+      if (!isValidSession(session)) {
+        redirectToLogin();
+        return;
+      }
 
-      await loadContracts(() => cancelled);
+      const currentBranchId =
+        await getBranchId(branch);
+
+      if (cancelled) return;
+
+      if (!currentBranchId) {
+        clearFinanceSession();
+        router.replace("/login");
+        return;
+      }
+
+      const sessionBranchId = String(
+        session?.branch_id ?? ""
+      ).trim();
+
+      const sessionBranchSlug = String(
+        session?.branch_slug ?? ""
+      ).trim();
+
+      if (
+        sessionBranchId !== String(currentBranchId) ||
+        sessionBranchSlug !== branch
+      ) {
+        clearFinanceSession();
+        router.replace("/login");
+        return;
+      }
+
+      applySession(session);
+
+      if (cancelled) return;
+
+      setAuthChecked(true);
+
+      await loadContracts(
+        () => cancelled,
+        currentBranchId
+      );
     }
 
     void initializePage();
@@ -121,36 +208,22 @@ export default function FinanceContractsPage() {
     toDate,
   ]);
 
-  function checkLogin() {
-    if (typeof window === "undefined") return false;
-
-    const savedUser = localStorage.getItem("finance_user");
-    const savedBranchUser = localStorage.getItem(
-      "finance_branch_user"
-    );
-    const savedUserName = localStorage.getItem(
-      "finance_user_name"
-    );
-
-    if (!savedUser && !savedBranchUser && !savedUserName) {
-      router.replace(`/finance/${branch}/login`);
-      return false;
-    }
-
-    setAuthChecked(true);
-    return true;
-  }
-
-  function loadEmployeeName() {
+  function clearFinanceSession() {
     if (typeof window === "undefined") return;
 
-    const directName = localStorage.getItem(
-      "finance_user_name"
-    );
+    FINANCE_SESSION_KEYS.forEach((key) => {
+      localStorage.removeItem(key);
+    });
+  }
 
-    if (directName) {
-      setEmployeeName(directName);
-      return;
+  function redirectToLogin() {
+    clearFinanceSession();
+    router.replace("/login");
+  }
+
+  function readFinanceSession(): FinanceUserSession | null {
+    if (typeof window === "undefined") {
+      return null;
     }
 
     const savedUser =
@@ -158,85 +231,160 @@ export default function FinanceContractsPage() {
       localStorage.getItem("finance_branch_user");
 
     if (!savedUser) {
-      setEmployeeName("الموظف");
-      return;
+      return null;
     }
 
     try {
-      const parsed = JSON.parse(savedUser);
+      const parsed = JSON.parse(
+        savedUser
+      ) as FinanceUserSession;
 
-      setEmployeeName(
-        parsed?.full_name ||
-          parsed?.username ||
-          parsed?.name ||
-          "الموظف"
-      );
+      if (
+        !parsed ||
+        typeof parsed !== "object" ||
+        Array.isArray(parsed)
+      ) {
+        return null;
+      }
+
+      return parsed;
     } catch {
-      setEmployeeName("الموظف");
+      return null;
     }
   }
 
-  function loadCurrentUserPermissions() {
-    if (typeof window === "undefined") {
+  function isValidSession(
+    session: FinanceUserSession | null
+  ) {
+    if (!session) return false;
+
+    const userId = String(
+      session.id ?? ""
+    ).trim();
+
+    const branchId = String(
+      session.branch_id ?? ""
+    ).trim();
+
+    const branchSlug = String(
+      session.branch_slug ?? ""
+    ).trim();
+
+    if (!userId || !branchId || !branchSlug) {
+      return false;
+    }
+
+    if (session.is_active === false) {
+      return false;
+    }
+
+    if (!branch || branchSlug !== branch) {
+      return false;
+    }
+
+    return true;
+  }
+
+  function normalizeStringArray(
+    value: unknown
+  ): string[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value.filter(
+      (item): item is string =>
+        typeof item === "string" &&
+        item.trim().length > 0
+    );
+  }
+
+  function applySession(
+    session: FinanceUserSession | null
+  ) {
+    if (!session) {
+      setEmployeeName("الموظف");
       setRoles([]);
       setPermissions([]);
       return;
     }
 
-    const savedUser =
-      localStorage.getItem("finance_user") ||
-      localStorage.getItem("finance_branch_user");
+    const directName =
+      typeof window !== "undefined"
+        ? localStorage.getItem(
+            "finance_user_name"
+          )
+        : null;
 
-    const legacyRole = localStorage.getItem("finance_role");
+    setEmployeeName(
+      directName ||
+        session.full_name ||
+        session.username ||
+        session.name ||
+        "الموظف"
+    );
 
-    if (!savedUser) {
-      setRoles(legacyRole ? [legacyRole] : []);
-      setPermissions([]);
-      return;
+    const sessionRoles = normalizeStringArray(
+      session.roles
+    );
+
+    if (
+      sessionRoles.length === 0 &&
+      typeof session.role === "string" &&
+      session.role.trim()
+    ) {
+      sessionRoles.push(session.role.trim());
     }
 
-    try {
-      const parsedUser = JSON.parse(savedUser);
+    const legacyRole =
+      typeof window !== "undefined"
+        ? localStorage.getItem("finance_role")
+        : null;
 
-      const currentRoles: string[] = Array.isArray(
-        parsedUser?.roles
-      )
-        ? parsedUser.roles.filter(
-            (role: unknown): role is string =>
-              typeof role === "string"
-          )
-        : typeof parsedUser?.role === "string"
-          ? [parsedUser.role]
-          : [];
+    if (
+      legacyRole &&
+      !sessionRoles.includes(legacyRole)
+    ) {
+      sessionRoles.push(legacyRole);
+    }
 
-      const currentPermissions: string[] = Array.isArray(
-        parsedUser?.permissions
-      )
-        ? parsedUser.permissions.filter(
-            (permission: unknown): permission is string =>
-              typeof permission === "string"
-          )
-        : [];
+    let sessionPermissions =
+      normalizeStringArray(
+        session.permissions
+      );
 
-      if (
-        legacyRole &&
-        !currentRoles.includes(legacyRole)
-      ) {
-        currentRoles.push(legacyRole);
+    if (
+      sessionPermissions.length === 0 &&
+      typeof window !== "undefined"
+    ) {
+      const savedPermissions =
+        localStorage.getItem(
+          "finance_permissions"
+        );
+
+      if (savedPermissions) {
+        try {
+          sessionPermissions =
+            normalizeStringArray(
+              JSON.parse(savedPermissions)
+            );
+        } catch {
+          sessionPermissions = [];
+        }
       }
-
-      setRoles(currentRoles);
-      setPermissions(currentPermissions);
-    } catch {
-      setRoles(legacyRole ? [legacyRole] : []);
-      setPermissions([]);
     }
+
+    setRoles(sessionRoles);
+    setPermissions(sessionPermissions);
   }
 
-  function hasPermission(...permissionKeys: string[]) {
+  function hasPermission(
+    ...permissionKeys: string[]
+  ) {
     const isManager =
       roles.includes("main_admin") ||
       roles.includes("branch_manager") ||
+      roles.includes("مدير فرع") ||
       roles.includes("مدير رئيسي") ||
       roles.includes("مدير");
 
@@ -248,14 +396,8 @@ export default function FinanceContractsPage() {
   }
 
   function logout() {
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("finance_user");
-      localStorage.removeItem("finance_user_name");
-      localStorage.removeItem("finance_branch_user");
-      localStorage.removeItem("finance_role");
-    }
-
-    router.replace(`/finance/${branch}/login`);
+    clearFinanceSession();
+    router.replace("/login");
   }
 
   function go(path: string) {
@@ -263,12 +405,15 @@ export default function FinanceContractsPage() {
   }
 
   async function loadContracts(
-    isCancelled: () => boolean = () => false
+    isCancelled: () => boolean = () => false,
+    resolvedBranchId?: string
   ) {
     setLoading(true);
 
     try {
-      const currentBranchId = await getBranchId(branch);
+      const currentBranchId =
+        resolvedBranchId ||
+        (await getBranchId(branch));
 
       if (isCancelled()) return;
 
@@ -298,15 +443,31 @@ export default function FinanceContractsPage() {
       if (isCancelled()) return;
 
       if (error) {
-        alert(error.message || "تعذر تحميل العقود");
+        console.error(
+          "Contracts loading error:",
+          error
+        );
+
+        alert(
+          error.message || "تعذر تحميل العقود"
+        );
+
         setContracts([]);
         return;
       }
 
       setContracts((data || []) as Contract[]);
-    } catch {
+    } catch (error) {
+      console.error(
+        "Unexpected contracts loading error:",
+        error
+      );
+
       if (!isCancelled()) {
-        alert("حدث خطأ غير متوقع أثناء تحميل العقود");
+        alert(
+          "حدث خطأ غير متوقع أثناء تحميل العقود"
+        );
+
         setContracts([]);
       }
     } finally {
@@ -319,10 +480,14 @@ export default function FinanceContractsPage() {
   function normalizeDigits(value: unknown) {
     return String(value ?? "")
       .replace(/[٠-٩]/g, (digit) =>
-        "٠١٢٣٤٥٦٧٨٩".indexOf(digit).toString()
+        "٠١٢٣٤٥٦٧٨٩"
+          .indexOf(digit)
+          .toString()
       )
       .replace(/[۰-۹]/g, (digit) =>
-        "۰۱۲۳۴۵۶۷۸۹".indexOf(digit).toString()
+        "۰۱۲۳۴۵۶۷۸۹"
+          .indexOf(digit)
+          .toString()
       );
   }
 
@@ -351,7 +516,9 @@ export default function FinanceContractsPage() {
     );
   }
 
-  function getCustomerNationalId(contract: Contract) {
+  function getCustomerNationalId(
+    contract: Contract
+  ) {
     const customer = getCustomerData(contract);
 
     return (
@@ -385,7 +552,9 @@ export default function FinanceContractsPage() {
     }
 
     if (fromDate) {
-      const from = new Date(`${fromDate}T00:00:00`);
+      const from = new Date(
+        `${fromDate}T00:00:00`
+      );
 
       if (contractDate < from) {
         return false;
@@ -393,7 +562,9 @@ export default function FinanceContractsPage() {
     }
 
     if (toDate) {
-      const to = new Date(`${toDate}T23:59:59.999`);
+      const to = new Date(
+        `${toDate}T23:59:59.999`
+      );
 
       if (contractDate > to) {
         return false;
@@ -403,71 +574,93 @@ export default function FinanceContractsPage() {
     return true;
   }
 
-  const investorOptions = useMemo<string[]>(() => {
-    return Array.from(
-      new Set(
-        contracts
-          .map((contract) => contract.investor_name)
-          .filter(
-            (investor): investor is string =>
-              typeof investor === "string" &&
-              investor.trim().length > 0
-          )
-      )
-    ).sort((first, second) =>
-      first.localeCompare(second, "ar")
-    );
-  }, [contracts]);
+  const investorOptions = useMemo<string[]>(
+    () => {
+      return Array.from(
+        new Set(
+          contracts
+            .map(
+              (contract) =>
+                contract.investor_name
+            )
+            .filter(
+              (
+                investor
+              ): investor is string =>
+                typeof investor === "string" &&
+                investor.trim().length > 0
+            )
+        )
+      ).sort((first, second) =>
+        first.localeCompare(second, "ar")
+      );
+    },
+    [contracts]
+  );
 
-  const productOptions = useMemo<string[]>(() => {
-    return Array.from(
-      new Set(
-        contracts
-          .map((contract) => contract.product_name)
-          .filter(
-            (product): product is string =>
-              typeof product === "string" &&
-              product.trim().length > 0
-          )
-      )
-    ).sort((first, second) =>
-      first.localeCompare(second, "ar")
-    );
-  }, [contracts]);
+  const productOptions = useMemo<string[]>(
+    () => {
+      return Array.from(
+        new Set(
+          contracts
+            .map(
+              (contract) =>
+                contract.product_name
+            )
+            .filter(
+              (
+                product
+              ): product is string =>
+                typeof product === "string" &&
+                product.trim().length > 0
+            )
+        )
+      ).sort((first, second) =>
+        first.localeCompare(second, "ar")
+      );
+    },
+    [contracts]
+  );
 
   const filteredContracts = useMemo(() => {
-    const query = normalizeSearchValue(searchText);
+    const query =
+      normalizeSearchValue(searchText);
 
     return contracts.filter((contract) => {
-      const searchableText = normalizeSearchValue(
-        [
-          contract.contract_number,
-          getCustomerName(contract),
-          getCustomerNationalId(contract),
-          getCustomerPhone(contract),
-          contract.investor_name,
-          contract.product_name,
-          contract.payment_amount,
-          contract.debt_amount,
-          contract.paid_amount,
-          contract.remaining_amount,
-        ].join(" ")
-      );
+      const searchableText =
+        normalizeSearchValue(
+          [
+            contract.contract_number,
+            getCustomerName(contract),
+            getCustomerNationalId(contract),
+            getCustomerPhone(contract),
+            contract.investor_name,
+            contract.product_name,
+            contract.payment_amount,
+            contract.debt_amount,
+            contract.paid_amount,
+            contract.remaining_amount,
+          ].join(" ")
+        );
 
       const matchesSearch =
-        !query || searchableText.includes(query);
+        !query ||
+        searchableText.includes(query);
 
       const matchesStatus =
         !statusFilter ||
-        contract.contract_status === statusFilter;
+        contract.contract_status ===
+          statusFilter;
 
       const matchesInvestor =
         !investorFilter ||
-        contract.investor_name === investorFilter;
+        contract.investor_name ===
+          investorFilter;
 
       const matchesProduct =
         !productFilter ||
-        contract.product_name === productFilter;
+        contract.product_name ===
+          productFilter;
 
       return (
         matchesSearch &&
@@ -490,7 +683,8 @@ export default function FinanceContractsPage() {
   const totalPages = Math.max(
     1,
     Math.ceil(
-      filteredContracts.length / ITEMS_PER_PAGE
+      filteredContracts.length /
+        ITEMS_PER_PAGE
     )
   );
 
@@ -541,9 +735,17 @@ export default function FinanceContractsPage() {
   function statusStyle(
     status?: string | null
   ): CSSProperties {
-    if (status === "تم السداد") return paidStatus;
-    if (status === "متأخر") return lateStatus;
-    if (status === "ملغي") return cancelledStatus;
+    if (status === "تم السداد") {
+      return paidStatus;
+    }
+
+    if (status === "متأخر") {
+      return lateStatus;
+    }
+
+    if (status === "ملغي") {
+      return cancelledStatus;
+    }
 
     return activeStatus;
   }
@@ -557,14 +759,14 @@ export default function FinanceContractsPage() {
       return "-";
     }
 
-    return parsedDate.toLocaleDateString(
-      "ar-SA-u-ca-gregory",
+    return new Intl.DateTimeFormat(
+      "en-GB-u-ca-gregory",
       {
+        day: "2-digit",
+        month: "2-digit",
         year: "numeric",
-        month: "short",
-        day: "numeric",
       }
-    );
+    ).format(parsedDate);
   }
 
   if (!authChecked) {
@@ -582,17 +784,25 @@ export default function FinanceContractsPage() {
 
           <div style={getHeroContentStyle(screen)}>
             <div style={getHeroUserCardStyle(screen)}>
-              <div style={getEmployeeTopRowStyle(screen)}>
+              <div
+                style={getEmployeeTopRowStyle(screen)}
+              >
                 <div style={employeeIcon}>
                   <UserIcon />
                 </div>
 
-                <div style={getEmployeeNameStyle(isMobile)}>
+                <div
+                  style={getEmployeeNameStyle(
+                    isMobile
+                  )}
+                >
                   {employeeName}
                 </div>
 
                 {!isMobile && (
-                  <div style={employeeDividerSmall} />
+                  <div
+                    style={employeeDividerSmall}
+                  />
                 )}
 
                 <button
@@ -611,21 +821,29 @@ export default function FinanceContractsPage() {
                   isMobile
                 )}
                 onClick={() =>
-                  router.push(`/finance/${branch}`)
+                  router.push(
+                    `/finance/${branch}`
+                  )
                 }
               >
                 <HomeIcon />
-                <span>محطة العمل الرئيسية</span>
+                <span>
+                  محطة العمل الرئيسية
+                </span>
               </button>
             </div>
 
-            <div style={getHeroTitleBoxStyle(screen)}>
+            <div
+              style={getHeroTitleBoxStyle(screen)}
+            >
               <h1 style={getTitleStyle(screen)}>
                 العقود
               </h1>
             </div>
 
-            <div style={getHeroActionBoxStyle(screen)} />
+            <div
+              style={getHeroActionBoxStyle(screen)}
+            />
           </div>
         </header>
 
@@ -644,7 +862,9 @@ export default function FinanceContractsPage() {
                 <ActionButton
                   icon="📄"
                   title="إنشاء عقد جديد"
-                  onClick={() => go("contracts/new")}
+                  onClick={() =>
+                    go("contracts/new")
+                  }
                 />
               )}
 
@@ -658,7 +878,9 @@ export default function FinanceContractsPage() {
                   icon="🧾"
                   title="إنشاء سند جديد"
                   onClick={() =>
-                    go("contracts/promissory-note/new")
+                    go(
+                      "contracts/promissory-note/new"
+                    )
                   }
                 />
               )}
@@ -673,7 +895,9 @@ export default function FinanceContractsPage() {
                   icon="🔎"
                   title="البحث عن سند"
                   onClick={() =>
-                    go("contracts/promissory-note/search")
+                    go(
+                      "contracts/promissory-note/search"
+                    )
                   }
                 />
               )}
@@ -681,19 +905,25 @@ export default function FinanceContractsPage() {
               <ActionButton
                 icon="📂"
                 title="العقود القائمة"
-                onClick={() => go("contracts/active")}
+                onClick={() =>
+                  go("contracts/active")
+                }
               />
 
               <ActionButton
                 icon="✅"
                 title="العقود المنتهية"
-                onClick={() => go("contracts/closed")}
+                onClick={() =>
+                  go("contracts/closed")
+                }
               />
 
               <ActionButton
                 icon="🔄"
                 title="تحديث النتائج"
-                onClick={() => void loadContracts()}
+                onClick={() =>
+                  void loadContracts()
+                }
               />
             </section>
 
@@ -710,7 +940,9 @@ export default function FinanceContractsPage() {
                     value={searchText}
                     placeholder="اسم، هوية، جوال، رقم عقد، مستثمر، منتج"
                     onChange={(event) =>
-                      setSearchText(event.target.value)
+                      setSearchText(
+                        event.target.value
+                      )
                     }
                   />
                 </Field>
@@ -728,7 +960,9 @@ export default function FinanceContractsPage() {
                     <option value="">
                       كل الحالات
                     </option>
-                    <option value="نشط">نشط</option>
+                    <option value="نشط">
+                      نشط
+                    </option>
                     <option value="متأخر">
                       متأخر
                     </option>
@@ -782,14 +1016,16 @@ export default function FinanceContractsPage() {
                       كل المنتجات
                     </option>
 
-                    {productOptions.map((product) => (
-                      <option
-                        key={product}
-                        value={product}
-                      >
-                        {product}
-                      </option>
-                    ))}
+                    {productOptions.map(
+                      (product) => (
+                        <option
+                          key={product}
+                          value={product}
+                        >
+                          {product}
+                        </option>
+                      )
+                    )}
                   </select>
                 </Field>
 
@@ -799,7 +1035,9 @@ export default function FinanceContractsPage() {
                     type="date"
                     value={fromDate}
                     onChange={(event) =>
-                      setFromDate(event.target.value)
+                      setFromDate(
+                        event.target.value
+                      )
                     }
                   />
                 </Field>
@@ -810,7 +1048,9 @@ export default function FinanceContractsPage() {
                     type="date"
                     value={toDate}
                     onChange={(event) =>
-                      setToDate(event.target.value)
+                      setToDate(
+                        event.target.value
+                      )
                     }
                   />
                 </Field>
@@ -853,16 +1093,19 @@ export default function FinanceContractsPage() {
                   نتائج العقود
                 </h2>
 
-                {filteredContracts.length > 0 && (
+                {filteredContracts.length >
+                  0 && (
                   <span style={pageInfo}>
-                    صفحة {currentPage} من {totalPages} -
-                    عرض {paginatedContracts.length} من{" "}
+                    صفحة {currentPage} من{" "}
+                    {totalPages} - عرض{" "}
+                    {paginatedContracts.length} من{" "}
                     {filteredContracts.length}
                   </span>
                 )}
               </div>
 
-              {filteredContracts.length === 0 ? (
+              {filteredContracts.length ===
+              0 ? (
                 <div style={emptyBox}>
                   لا توجد عقود مطابقة للبحث
                 </div>
@@ -875,10 +1118,14 @@ export default function FinanceContractsPage() {
                         type="button"
                         style={contractCard}
                         onClick={() =>
-                          go(`contracts/${contract.id}`)
+                          go(
+                            `contracts/${contract.id}`
+                          )
                         }
                       >
-                        <div style={contractTop}>
+                        <div
+                          style={contractTop}
+                        >
                           <strong>
                             عقد رقم{" "}
                             {contract.contract_number ||
@@ -895,10 +1142,14 @@ export default function FinanceContractsPage() {
                           </span>
                         </div>
 
-                        <div style={contractGrid}>
+                        <div
+                          style={contractGrid}
+                        >
                           <span>
                             👤{" "}
-                            {getCustomerName(contract)}
+                            {getCustomerName(
+                              contract
+                            )}
                           </span>
 
                           <span>
@@ -910,7 +1161,9 @@ export default function FinanceContractsPage() {
 
                           <span>
                             📱{" "}
-                            {getCustomerPhone(contract)}
+                            {getCustomerPhone(
+                              contract
+                            )}
                           </span>
 
                           <span>
@@ -921,7 +1174,8 @@ export default function FinanceContractsPage() {
 
                           <span>
                             📦{" "}
-                            {contract.product_name || "-"}
+                            {contract.product_name ||
+                              "-"}
                           </span>
 
                           <span>
@@ -929,15 +1183,20 @@ export default function FinanceContractsPage() {
                             {Number(
                               contract.payment_amount ||
                                 0
-                            ).toLocaleString("ar-SA")}{" "}
+                            ).toLocaleString(
+                              "ar-SA"
+                            )}{" "}
                             ر.س
                           </span>
 
                           <span>
                             ✅ المسدد:{" "}
                             {Number(
-                              contract.paid_amount || 0
-                            ).toLocaleString("ar-SA")}{" "}
+                              contract.paid_amount ||
+                                0
+                            ).toLocaleString(
+                              "ar-SA"
+                            )}{" "}
                             ر.س
                           </span>
 
@@ -946,7 +1205,9 @@ export default function FinanceContractsPage() {
                             {Number(
                               contract.remaining_amount ||
                                 0
-                            ).toLocaleString("ar-SA")}{" "}
+                            ).toLocaleString(
+                              "ar-SA"
+                            )}{" "}
                             ر.س
                           </span>
 
@@ -963,7 +1224,9 @@ export default function FinanceContractsPage() {
 
                   {filteredContracts.length >
                     ITEMS_PER_PAGE && (
-                    <div style={paginationBox}>
+                    <div
+                      style={paginationBox}
+                    >
                       <button
                         type="button"
                         style={{
@@ -977,17 +1240,25 @@ export default function FinanceContractsPage() {
                               ? "not-allowed"
                               : "pointer",
                         }}
-                        disabled={currentPage === 1}
+                        disabled={
+                          currentPage === 1
+                        }
                         onClick={() =>
-                          setCurrentPage((page) =>
-                            Math.max(page - 1, 1)
+                          setCurrentPage(
+                            (pageNumber) =>
+                              Math.max(
+                                pageNumber - 1,
+                                1
+                              )
                           )
                         }
                       >
                         السابق
                       </button>
 
-                      <span style={paginationText}>
+                      <span
+                        style={paginationText}
+                      >
                         صفحة {currentPage} من{" "}
                         {totalPages}
                       </span>
@@ -997,23 +1268,27 @@ export default function FinanceContractsPage() {
                         style={{
                           ...paginationButton,
                           opacity:
-                            currentPage === totalPages
+                            currentPage ===
+                            totalPages
                               ? 0.5
                               : 1,
                           cursor:
-                            currentPage === totalPages
+                            currentPage ===
+                            totalPages
                               ? "not-allowed"
                               : "pointer",
                         }}
                         disabled={
-                          currentPage === totalPages
+                          currentPage ===
+                          totalPages
                         }
                         onClick={() =>
-                          setCurrentPage((page) =>
-                            Math.min(
-                              page + 1,
-                              totalPages
-                            )
+                          setCurrentPage(
+                            (pageNumber) =>
+                              Math.min(
+                                pageNumber + 1,
+                                totalPages
+                              )
                           )
                         }
                       >
@@ -1031,7 +1306,7 @@ export default function FinanceContractsPage() {
                 style={backButton}
                 onClick={() => router.back()}
               >
-                الرجوع
+                ← رجوع
               </button>
             </div>
           </>
@@ -1050,7 +1325,10 @@ function Field({
 }) {
   return (
     <div style={fieldBox}>
-      <label style={labelStyle}>{label}</label>
+      <label style={labelStyle}>
+        {label}
+      </label>
+
       {children}
     </div>
   );
@@ -1600,6 +1878,8 @@ const sectionTitle: CSSProperties = {
   color: "#0d47a1",
   fontSize: 22,
   fontWeight: 900,
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const resultsHeader: CSSProperties = {
@@ -1811,7 +2091,7 @@ const backWrapper: CSSProperties = {
 const backButton: CSSProperties = {
   padding: "11px 18px",
   background:
-    "linear-gradient(135deg,#64748b,#334155)",
+    "linear-gradient(135deg,#22c55e,#16a34a)",
   color: "#ffffff",
   border: "none",
   borderRadius: 12,
@@ -1819,7 +2099,7 @@ const backButton: CSSProperties = {
   fontWeight: 900,
   cursor: "pointer",
   boxShadow:
-    "0 5px 14px rgba(51,65,85,0.22)",
+    "0 5px 14px rgba(22,163,74,0.24)",
   fontFamily:
     "var(--font-almarai), sans-serif",
 };
