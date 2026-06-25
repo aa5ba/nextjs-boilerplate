@@ -49,10 +49,36 @@ type CustomerLoginResult = {
   work_sector: string | null;
 };
 
+const FINANCE_SESSION_KEYS = [
+  "finance_user",
+  "finance_branch_user",
+  "finance_user_id",
+  "finance_user_name",
+  "finance_username",
+  "finance_role",
+  "finance_branch_id",
+  "finance_branch_slug",
+  "finance_branch_name",
+  "finance_organization_name",
+  "finance_permissions",
+  "finance_investor_id",
+  "finance_is_active",
+  "finance_last_login_at",
+] as const;
+
+const CUSTOMER_SESSION_KEYS = [
+  "customer_user",
+  "customer_id",
+  "customer_name",
+  "customer_phone",
+  "customer_sector",
+] as const;
+
 export default function LoginPage() {
   const router = useRouter();
 
-  const [loginIdentifier, setLoginIdentifier] = useState("");
+  const [loginIdentifier, setLoginIdentifier] =
+    useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
@@ -62,20 +88,9 @@ export default function LoginPage() {
       return;
     }
 
-    localStorage.removeItem("finance_user");
-    localStorage.removeItem("finance_branch_user");
-    localStorage.removeItem("finance_user_id");
-    localStorage.removeItem("finance_user_name");
-    localStorage.removeItem("finance_username");
-    localStorage.removeItem("finance_role");
-    localStorage.removeItem("finance_branch_id");
-    localStorage.removeItem("finance_branch_slug");
-    localStorage.removeItem("finance_branch_name");
-    localStorage.removeItem("finance_organization_name");
-    localStorage.removeItem("finance_permissions");
-    localStorage.removeItem("finance_investor_id");
-    localStorage.removeItem("finance_is_active");
-    localStorage.removeItem("finance_last_login_at");
+    FINANCE_SESSION_KEYS.forEach((key) => {
+      localStorage.removeItem(key);
+    });
   }
 
   function clearCustomerSession() {
@@ -83,11 +98,9 @@ export default function LoginPage() {
       return;
     }
 
-    localStorage.removeItem("customer_user");
-    localStorage.removeItem("customer_id");
-    localStorage.removeItem("customer_name");
-    localStorage.removeItem("customer_phone");
-    localStorage.removeItem("customer_sector");
+    CUSTOMER_SESSION_KEYS.forEach((key) => {
+      localStorage.removeItem(key);
+    });
   }
 
   function saveFinanceSession(
@@ -212,8 +225,45 @@ export default function LoginPage() {
 
     return value.filter(
       (permission): permission is string =>
-        typeof permission === "string"
+        typeof permission === "string" &&
+        permission.trim().length > 0
     );
+  }
+
+  function getFinanceLoginResult(
+    data: unknown
+  ): FinanceLoginResult | null {
+    const result = Array.isArray(data)
+      ? data[0]
+      : data;
+
+    if (
+      !result ||
+      typeof result !== "object" ||
+      Array.isArray(result)
+    ) {
+      return null;
+    }
+
+    return result as FinanceLoginResult;
+  }
+
+  function getCustomerLoginResult(
+    data: unknown
+  ): CustomerLoginResult | null {
+    const result = Array.isArray(data)
+      ? data[0]
+      : data;
+
+    if (
+      !result ||
+      typeof result !== "object" ||
+      Array.isArray(result)
+    ) {
+      return null;
+    }
+
+    return result as CustomerLoginResult;
   }
 
   async function handleBranchLogin(
@@ -234,16 +284,10 @@ export default function LoginPage() {
         error
       );
 
-      throw new Error(
-        "BRANCH_LOGIN_FAILED"
-      );
+      throw new Error("BRANCH_LOGIN_FAILED");
     }
 
-    const result = Array.isArray(data)
-      ? (data[0] as
-          | FinanceLoginResult
-          | undefined)
-      : undefined;
+    const result = getFinanceLoginResult(data);
 
     if (!result) {
       setMessage(
@@ -254,26 +298,19 @@ export default function LoginPage() {
     }
 
     if (!result.id || !result.branch_id) {
-      setMessage(
-        "بيانات حساب الموظف غير مكتملة"
-      );
-
+      setMessage("بيانات حساب الموظف غير مكتملة");
       return;
     }
 
     if (!result.branch_slug) {
-      setMessage(
-        "مسار الفرع غير مكتمل"
-      );
-
+      setMessage("مسار الفرع غير مكتمل");
       return;
     }
 
-    if (result.is_active === false) {
-      setMessage(
-        "هذا الحساب معطل"
-      );
+    const isActive = result.is_active !== false;
 
+    if (!isActive) {
+      setMessage("هذا الحساب معطل");
       return;
     }
 
@@ -287,8 +324,7 @@ export default function LoginPage() {
         result.full_name || "",
 
       username:
-        result.username ||
-        normalizedUsername,
+        result.username || normalizedUsername,
 
       role:
         result.role || "",
@@ -316,7 +352,7 @@ export default function LoginPage() {
           : null,
 
       is_active:
-        result.is_active ?? true,
+        isActive,
 
       last_login_at:
         result.last_login_at
@@ -351,22 +387,21 @@ export default function LoginPage() {
         error
       );
 
-      throw new Error(
-        "CUSTOMER_LOGIN_FAILED"
-      );
+      throw new Error("CUSTOMER_LOGIN_FAILED");
     }
 
-    const result = Array.isArray(data)
-      ? (data[0] as
-          | CustomerLoginResult
-          | undefined)
-      : undefined;
+    const result = getCustomerLoginResult(data);
 
     if (!result) {
       setMessage(
         "رقم الجوال أو كلمة المرور غير صحيحة"
       );
 
+      return;
+    }
+
+    if (!result.id) {
+      setMessage("بيانات حساب العميل غير مكتملة");
       return;
     }
 
@@ -380,8 +415,7 @@ export default function LoginPage() {
         result.full_name || "",
 
       phone:
-        result.phone ||
-        normalizedPhone,
+        result.phone || normalizedPhone,
 
       work_sector:
         result.work_sector || "",
@@ -402,19 +436,16 @@ export default function LoginPage() {
     const normalizedIdentifier =
       loginIdentifier.trim();
 
-    const normalizedPassword =
-      password
-        .replace(/\D/g, "")
-        .slice(0, 4);
+    const normalizedPassword = password
+      .replace(/\D/g, "")
+      .slice(0, 4);
 
-    const customerPhoneRegex =
-      /^05\d{8}$/;
+    const customerPhoneRegex = /^05\d{8}$/;
 
     const usernameRegex =
       /^[\u0600-\u06FFa-zA-Z0-9_.-]{2,35}$/;
 
-    const pinRegex =
-      /^\d{4}$/;
+    const pinRegex = /^\d{4}$/;
 
     if (!normalizedIdentifier) {
       setMessage(
@@ -424,11 +455,7 @@ export default function LoginPage() {
       return;
     }
 
-    if (
-      !pinRegex.test(
-        normalizedPassword
-      )
-    ) {
+    if (!pinRegex.test(normalizedPassword)) {
       setMessage(
         "كلمة المرور يجب أن تكون 4 أرقام"
       );
@@ -443,9 +470,7 @@ export default function LoginPage() {
 
     if (
       !isCustomerPhone &&
-      !usernameRegex.test(
-        normalizedIdentifier
-      )
+      !usernameRegex.test(normalizedIdentifier)
     ) {
       setMessage(
         "اسم المستخدم أو رقم الجوال غير صحيح"
@@ -486,17 +511,11 @@ export default function LoginPage() {
     <div dir="rtl" style={page}>
       <div style={card}>
         <div style={logoBox}>
-          <div style={logoCircle}>
-            ا
-          </div>
+          <div style={logoCircle}>ا</div>
 
-          <h1 style={title}>
-            تسجيل الدخول
-          </h1>
+          <h1 style={title}>تسجيل الدخول</h1>
 
-          <p style={subtitle}>
-            برنامج احتساب
-          </p>
+          <p style={subtitle}>برنامج احتساب</p>
         </div>
 
         <input
@@ -520,10 +539,9 @@ export default function LoginPage() {
           placeholder="كلمة المرور"
           value={password}
           onChange={(event) => {
-            const value =
-              event.target.value
-                .replace(/\D/g, "")
-                .slice(0, 4);
+            const value = event.target.value
+              .replace(/\D/g, "")
+              .slice(0, 4);
 
             setPassword(value);
             setMessage("");
@@ -535,9 +553,7 @@ export default function LoginPage() {
           autoComplete="current-password"
           disabled={loading}
           onKeyDown={(event) => {
-            if (
-              event.key === "Enter"
-            ) {
+            if (event.key === "Enter") {
               void handleLogin();
             }
           }}
@@ -545,9 +561,7 @@ export default function LoginPage() {
 
         <button
           type="button"
-          onClick={() =>
-            void handleLogin()
-          }
+          onClick={() => void handleLogin()}
           disabled={loading}
           style={{
             ...buttonStyle,
@@ -556,9 +570,7 @@ export default function LoginPage() {
               ? "not-allowed"
               : "pointer",
 
-            opacity: loading
-              ? 0.75
-              : 1,
+            opacity: loading ? 0.75 : 1,
           }}
         >
           {loading
@@ -567,10 +579,7 @@ export default function LoginPage() {
         </button>
 
         {message && (
-          <p
-            role="alert"
-            style={messageStyle}
-          >
+          <p role="alert" style={messageStyle}>
             {message}
           </p>
         )}
