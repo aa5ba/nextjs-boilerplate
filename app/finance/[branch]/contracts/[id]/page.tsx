@@ -22,9 +22,15 @@ type FinanceSession = {
   full_name?: string | null;
   username?: string | null;
   role?: string | null;
+  roles?: unknown;
   branch_id?: string | null;
   branch_slug?: string | null;
   branch_name?: string | null;
+  organization_name?: string | null;
+  permissions?: unknown;
+  investor_id?: string | null;
+  is_active?: boolean | null;
+  last_login_at?: string | null;
 };
 
 type CustomerRelation = {
@@ -136,6 +142,7 @@ type Contract = {
 
   finance_customers?:
     | CustomerRelation
+    | CustomerRelation[]
     | null;
 };
 
@@ -226,7 +233,11 @@ const SESSION_KEYS = [
   "finance_branch_slug",
   "finance_branch_name",
   "finance_organization_name",
-];
+  "finance_permissions",
+  "finance_investor_id",
+  "finance_is_active",
+  "finance_last_login_at",
+] as const;
 
 export default function FinanceContractDetailsPage() {
   const params = useParams();
@@ -234,11 +245,11 @@ export default function FinanceContractDetailsPage() {
 
   const branch = String(
     params.branch ?? ""
-  );
+  ).trim();
 
   const contractId = String(
     params.id ?? ""
-  );
+  ).trim();
 
   const [screen, setScreen] =
     useState<ScreenType>("desktop");
@@ -262,6 +273,9 @@ export default function FinanceContractDetailsPage() {
 
   const [loading, setLoading] =
     useState(true);
+
+  const [pageError, setPageError] =
+    useState("");
 
   const [
     cancellingPaymentId,
@@ -316,7 +330,15 @@ export default function FinanceContractDetailsPage() {
   }, []);
 
   useEffect(() => {
-    void initializePage();
+    let cancelled = false;
+
+    void initializePage(
+      () => cancelled
+    );
+
+    return () => {
+      cancelled = true;
+    };
   }, [branch, contractId]);
 
   function clearSession() {
@@ -331,6 +353,11 @@ export default function FinanceContractDetailsPage() {
     });
   }
 
+  function redirectToLogin() {
+    clearSession();
+    router.replace("/login");
+  }
+
   function readStoredSession():
     | FinanceSession
     | null {
@@ -342,154 +369,368 @@ export default function FinanceContractDetailsPage() {
 
     const rawSession =
       localStorage.getItem(
-        "finance_branch_user"
+        "finance_user"
       ) ||
       localStorage.getItem(
-        "finance_user"
+        "finance_branch_user"
       );
 
-    if (rawSession) {
-      try {
-        const parsed =
-          JSON.parse(
-            rawSession
-          ) as FinanceSession;
-
-        return {
-          ...parsed,
-
-          id:
-            parsed.id ||
-            parsed.user_id ||
-            localStorage.getItem(
-              "finance_user_id"
-            ),
-
-          full_name:
-            parsed.full_name ||
-            localStorage.getItem(
-              "finance_user_name"
-            ) ||
-            null,
-
-          username:
-            parsed.username ||
-            localStorage.getItem(
-              "finance_username"
-            ) ||
-            null,
-
-          role:
-            parsed.role ||
-            localStorage.getItem(
-              "finance_role"
-            ) ||
-            null,
-
-          branch_id:
-            parsed.branch_id ||
-            localStorage.getItem(
-              "finance_branch_id"
-            ) ||
-            null,
-
-          branch_slug:
-            parsed.branch_slug ||
-            localStorage.getItem(
-              "finance_branch_slug"
-            ) ||
-            null,
-
-          branch_name:
-            parsed.branch_name ||
-            localStorage.getItem(
-              "finance_branch_name"
-            ) ||
-            null,
-        };
-      } catch {
-        return null;
-      }
-    }
-
-    const legacyUserId =
-      localStorage.getItem(
-        "finance_user_id"
-      );
-
-    const legacyUsername =
-      localStorage.getItem(
-        "finance_username"
-      );
-
-    if (
-      !legacyUserId &&
-      !legacyUsername
-    ) {
+    if (!rawSession) {
       return null;
     }
 
-    return {
-      id: legacyUserId,
+    try {
+      const parsed =
+        JSON.parse(
+          rawSession
+        ) as FinanceSession;
 
-      full_name:
-        localStorage.getItem(
-          "finance_user_name"
-        ),
+      if (
+        !parsed ||
+        typeof parsed !== "object" ||
+        Array.isArray(parsed)
+      ) {
+        return null;
+      }
 
-      username: legacyUsername,
+      return {
+        ...parsed,
 
-      role:
-        localStorage.getItem(
-          "finance_role"
-        ),
+        id:
+          parsed.id ||
+          parsed.user_id ||
+          localStorage.getItem(
+            "finance_user_id"
+          ),
 
-      branch_id:
-        localStorage.getItem(
-          "finance_branch_id"
-        ),
+        full_name:
+          parsed.full_name ||
+          localStorage.getItem(
+            "finance_user_name"
+          ) ||
+          null,
 
-      branch_slug:
-        localStorage.getItem(
-          "finance_branch_slug"
-        ),
+        username:
+          parsed.username ||
+          localStorage.getItem(
+            "finance_username"
+          ) ||
+          null,
 
-      branch_name:
-        localStorage.getItem(
-          "finance_branch_name"
-        ),
-    };
+        role:
+          parsed.role ||
+          localStorage.getItem(
+            "finance_role"
+          ) ||
+          null,
+
+        branch_id:
+          parsed.branch_id ||
+          localStorage.getItem(
+            "finance_branch_id"
+          ) ||
+          null,
+
+        branch_slug:
+          parsed.branch_slug ||
+          localStorage.getItem(
+            "finance_branch_slug"
+          ) ||
+          null,
+
+        branch_name:
+          parsed.branch_name ||
+          localStorage.getItem(
+            "finance_branch_name"
+          ) ||
+          null,
+
+        organization_name:
+          parsed.organization_name ||
+          localStorage.getItem(
+            "finance_organization_name"
+          ) ||
+          null,
+
+        investor_id:
+          parsed.investor_id ||
+          localStorage.getItem(
+            "finance_investor_id"
+          ) ||
+          null,
+
+        last_login_at:
+          parsed.last_login_at ||
+          localStorage.getItem(
+            "finance_last_login_at"
+          ) ||
+          null,
+      };
+    } catch {
+      return null;
+    }
   }
 
-  async function initializePage() {
+  function isValidSession(
+    session: FinanceSession | null
+  ) {
+    if (!session) {
+      return false;
+    }
+
+    const userId = String(
+      session.id ||
+        session.user_id ||
+        ""
+    ).trim();
+
+    const sessionBranchId = String(
+      session.branch_id || ""
+    ).trim();
+
+    const sessionBranchSlug = String(
+      session.branch_slug || ""
+    ).trim();
+
+    if (
+      !userId ||
+      !sessionBranchId ||
+      !sessionBranchSlug
+    ) {
+      return false;
+    }
+
+    if (
+      session.is_active === false
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
+  function getCustomerRelation(
+    currentContract:
+      | Contract
+      | null
+  ) {
+    const relation =
+      currentContract
+        ?.finance_customers;
+
+    if (Array.isArray(relation)) {
+      return relation[0] || null;
+    }
+
+    return relation || null;
+  }
+
+  function saveRefreshedSession(
+    session: FinanceSession,
+    safeBranchId: string,
+    branchData: {
+      branch_slug?: string | null;
+      branch_name?: string | null;
+      organization_name?: string | null;
+    }
+  ) {
+    if (
+      typeof window === "undefined"
+    ) {
+      return;
+    }
+
+    const resolvedEmployeeName =
+      session.full_name ||
+      session.username ||
+      "الموظف";
+
+    const refreshedSession: FinanceSession = {
+      ...session,
+
+      id:
+        session.id ||
+        session.user_id ||
+        "",
+
+      full_name:
+        resolvedEmployeeName,
+
+      username:
+        session.username || "",
+
+      role:
+        session.role || "",
+
+      branch_id:
+        safeBranchId,
+
+      branch_slug:
+        branchData.branch_slug ||
+        branch,
+
+      branch_name:
+        branchData.branch_name ||
+        session.branch_name ||
+        "",
+
+      organization_name:
+        branchData.organization_name ||
+        session.organization_name ||
+        "",
+
+      is_active:
+        session.is_active !== false,
+    };
+
+    const serializedSession =
+      JSON.stringify(
+        refreshedSession
+      );
+
+    localStorage.setItem(
+      "finance_user",
+      serializedSession
+    );
+
+    localStorage.setItem(
+      "finance_branch_user",
+      serializedSession
+    );
+
+    localStorage.setItem(
+      "finance_user_id",
+      String(
+        refreshedSession.id || ""
+      )
+    );
+
+    localStorage.setItem(
+      "finance_user_name",
+      resolvedEmployeeName
+    );
+
+    localStorage.setItem(
+      "finance_username",
+      String(
+        refreshedSession.username ||
+          ""
+      )
+    );
+
+    localStorage.setItem(
+      "finance_role",
+      String(
+        refreshedSession.role || ""
+      )
+    );
+
+    localStorage.setItem(
+      "finance_branch_id",
+      safeBranchId
+    );
+
+    localStorage.setItem(
+      "finance_branch_slug",
+      String(
+        refreshedSession.branch_slug ||
+          branch
+      )
+    );
+
+    localStorage.setItem(
+      "finance_branch_name",
+      String(
+        refreshedSession.branch_name ||
+          ""
+      )
+    );
+
+    localStorage.setItem(
+      "finance_organization_name",
+      String(
+        refreshedSession.organization_name ||
+          ""
+      )
+    );
+
+    localStorage.setItem(
+      "finance_permissions",
+      JSON.stringify(
+        Array.isArray(
+          refreshedSession.permissions
+        )
+          ? refreshedSession.permissions
+          : []
+      )
+    );
+
+    localStorage.setItem(
+      "finance_investor_id",
+      String(
+        refreshedSession.investor_id ||
+          ""
+      )
+    );
+
+    localStorage.setItem(
+      "finance_is_active",
+      refreshedSession.is_active ===
+        false
+        ? "false"
+        : "true"
+    );
+
+    localStorage.setItem(
+      "finance_last_login_at",
+      String(
+        refreshedSession.last_login_at ||
+          ""
+      )
+    );
+
+    setEmployeeName(
+      resolvedEmployeeName
+    );
+  }
+
+  async function initializePage(
+    isCancelled: () => boolean =
+      () => false
+  ) {
     try {
       setLoading(true);
+      setPageError("");
+      setContract(null);
+      setNote(null);
+      setPayments([]);
 
       if (
         !branch ||
         !contractId
       ) {
-        clearSession();
-        router.replace("/login");
+        redirectToLogin();
         return;
       }
 
       const storedSession =
         readStoredSession();
 
-      if (!storedSession) {
-        clearSession();
-        router.replace("/login");
+      if (
+        !isValidSession(
+          storedSession
+        )
+      ) {
+        redirectToLogin();
         return;
       }
 
       if (
-        storedSession.branch_slug &&
-        storedSession.branch_slug !==
-          branch
+        storedSession?.branch_slug !==
+        branch
       ) {
         router.replace(
-          `/finance/${storedSession.branch_slug}`
+          `/finance/${storedSession?.branch_slug}`
         );
         return;
       }
@@ -506,170 +747,88 @@ export default function FinanceContractDetailsPage() {
         .eq("is_active", true)
         .maybeSingle();
 
-      if (
-        branchError ||
-        !branchData?.id
-      ) {
-        clearSession();
-        router.replace("/login");
+      if (isCancelled()) {
+        return;
+      }
+
+      if (branchError) {
+        console.error(
+          "Branch verification error:",
+          branchError
+        );
+
+        setPageError(
+          branchError.message ||
+            "تعذر التحقق من بيانات الفرع"
+        );
+
+        return;
+      }
+
+      if (!branchData?.id) {
+        redirectToLogin();
         return;
       }
 
       const safeBranchId =
         String(branchData.id);
 
-      if (
-        storedSession.branch_id &&
-        storedSession.branch_id !==
-          safeBranchId
-      ) {
-        if (
-          storedSession.branch_slug
-        ) {
-          router.replace(
-            `/finance/${storedSession.branch_slug}`
-          );
-        } else {
-          clearSession();
-          router.replace("/login");
-        }
-
-        return;
-      }
-
-      let userQuery = supabase
-        .from(
-          "finance_branch_users"
-        )
-        .select(
-          "id, full_name, username, role, branch_id, is_active"
-        )
-        .eq(
-          "branch_id",
-          safeBranchId
-        )
-        .eq("is_active", true);
-
-      if (storedSession.id) {
-        userQuery = userQuery.eq(
-          "id",
-          storedSession.id
+      const storedBranchId =
+        String(
+          storedSession?.branch_id ||
+            ""
         );
-      } else if (
-        storedSession.username
-      ) {
-        userQuery = userQuery.eq(
-          "username",
-          storedSession.username
-        );
-      } else {
-        clearSession();
-        router.replace("/login");
-        return;
-      }
-
-      const {
-        data: userData,
-        error: userError,
-      } =
-        await userQuery.maybeSingle();
 
       if (
-        userError ||
-        !userData?.id
+        storedBranchId !==
+        safeBranchId
       ) {
-        clearSession();
-        router.replace("/login");
+        router.replace(
+          `/finance/${storedSession?.branch_slug}`
+        );
         return;
       }
 
-      const resolvedEmployeeName =
-        userData.full_name ||
-        userData.username ||
-        storedSession.full_name ||
-        storedSession.username ||
-        "الموظف";
+      if (!storedSession) {
+        redirectToLogin();
+        return;
+      }
 
-      setEmployeeName(
-        resolvedEmployeeName
+      saveRefreshedSession(
+        storedSession,
+        safeBranchId,
+        branchData
       );
 
       setBranchId(safeBranchId);
 
-      if (
-        typeof window !== "undefined"
-      ) {
-        localStorage.setItem(
-          "finance_user_id",
-          String(userData.id)
-        );
-
-        localStorage.setItem(
-          "finance_user_name",
-          resolvedEmployeeName
-        );
-
-        localStorage.setItem(
-          "finance_username",
-          String(
-            userData.username ||
-              storedSession.username ||
-              ""
-          )
-        );
-
-        localStorage.setItem(
-          "finance_role",
-          String(
-            userData.role ||
-              storedSession.role ||
-              ""
-          )
-        );
-
-        localStorage.setItem(
-          "finance_branch_id",
-          safeBranchId
-        );
-
-        localStorage.setItem(
-          "finance_branch_slug",
-          branch
-        );
-
-        localStorage.setItem(
-          "finance_branch_name",
-          String(
-            branchData.branch_name ||
-              ""
-          )
-        );
-
-        localStorage.setItem(
-          "finance_organization_name",
-          String(
-            branchData.organization_name ||
-              ""
-          )
-        );
-      }
-
       await loadData(
-        safeBranchId
+        safeBranchId,
+        isCancelled
       );
     } catch (error) {
+      if (isCancelled()) {
+        return;
+      }
+
       const message =
         error instanceof Error
           ? error.message
           : "تعذر تحميل تفاصيل العقد";
 
-      alert(message);
+      console.error(
+        "Contract details initialization error:",
+        error
+      );
 
+      setPageError(message);
       setContract(null);
       setNote(null);
       setPayments([]);
     } finally {
-      setLoading(false);
+      if (!isCancelled()) {
+        setLoading(false);
+      }
     }
   }
 
@@ -679,7 +838,9 @@ export default function FinanceContractDetailsPage() {
   }
 
   async function loadData(
-    currentBranchId = branchId
+    currentBranchId = branchId,
+    isCancelled: () => boolean =
+      () => false
   ) {
     if (!currentBranchId) {
       return;
@@ -743,6 +904,10 @@ export default function FinanceContractDetailsPage() {
           ascending: false,
         }),
     ]);
+
+    if (isCancelled()) {
+      return;
+    }
 
     if (
       contractResult.error
@@ -1175,20 +1340,22 @@ export default function FinanceContractDetailsPage() {
   }
 
   function getCustomerName() {
+    const customer =
+      getCustomerRelation(contract);
+
     return (
-      contract
-        ?.finance_customers
-        ?.full_name ||
+      customer?.full_name ||
       contract?.customer_name ||
       "-"
     );
   }
 
   function getCustomerNationalId() {
+    const customer =
+      getCustomerRelation(contract);
+
     return (
-      contract
-        ?.finance_customers
-        ?.national_id ||
+      customer?.national_id ||
       contract
         ?.customer_national_id ||
       "-"
@@ -1196,20 +1363,22 @@ export default function FinanceContractDetailsPage() {
   }
 
   function getCustomerPhone() {
+    const customer =
+      getCustomerRelation(contract);
+
     return (
-      contract
-        ?.finance_customers
-        ?.phone ||
+      customer?.phone ||
       contract?.customer_phone ||
       "-"
     );
   }
 
   function getCustomerBirthHijri() {
+    const customer =
+      getCustomerRelation(contract);
+
     return (
-      contract
-        ?.finance_customers
-        ?.birth_hijri ||
+      customer?.birth_hijri ||
       contract
         ?.customer_birth_hijri ||
       "-"
@@ -1217,13 +1386,12 @@ export default function FinanceContractDetailsPage() {
   }
 
   function getCustomerWorkName() {
+    const customer =
+      getCustomerRelation(contract);
+
     return (
-      contract
-        ?.finance_customers
-        ?.work_name ||
-      contract
-        ?.finance_customers
-        ?.work ||
+      customer?.work_name ||
+      customer?.work ||
       contract
         ?.customer_work_name ||
       "-"
@@ -1231,10 +1399,11 @@ export default function FinanceContractDetailsPage() {
   }
 
   function getCustomerAddress() {
+    const customer =
+      getCustomerRelation(contract);
+
     return (
-      contract
-        ?.finance_customers
-        ?.address ||
+      customer?.address ||
       "-"
     );
   }
@@ -1255,13 +1424,16 @@ export default function FinanceContractDetailsPage() {
       return String(date);
     }
 
-    return parsedDate.toLocaleString(
-      "ar-SA-u-ca-gregory",
+    return new Intl.DateTimeFormat(
+      "en-GB-u-ca-gregory",
       {
-        dateStyle: "short",
-        timeStyle: "short",
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
       }
-    );
+    ).format(parsedDate);
   }
 
   function formatDateOnly(
@@ -1280,9 +1452,14 @@ export default function FinanceContractDetailsPage() {
       return String(date);
     }
 
-    return parsedDate.toLocaleDateString(
-      "ar-SA-u-ca-gregory"
-    );
+    return new Intl.DateTimeFormat(
+      "en-GB-u-ca-gregory",
+      {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      }
+    ).format(parsedDate);
   }
 
   function formatMoney(
@@ -1319,7 +1496,8 @@ export default function FinanceContractDetailsPage() {
 
     return activeStatus;
   }
-    if (loading) {
+
+  if (loading) {
     return (
       <main
         dir="rtl"
@@ -1349,6 +1527,55 @@ export default function FinanceContractDetailsPage() {
           <div style={loadingBox}>
             جاري تحميل تفاصيل
             العقد...
+          </div>
+        </div>
+
+        <GlobalResponsiveStyles />
+      </main>
+    );
+  }
+
+  if (pageError) {
+    return (
+      <main
+        dir="rtl"
+        style={getPageStyle(
+          isMobile
+        )}
+      >
+        <div
+          style={getContainerStyle(
+            isCompact
+          )}
+        >
+          <PageHero
+            screen={screen}
+            employeeName={
+              employeeName
+            }
+            title="تعذر تحميل العقد"
+            onLogout={logout}
+            onHome={() =>
+              router.push(
+                `/finance/${branch}`
+              )
+            }
+          />
+
+          <div style={errorBox}>
+            {pageError}
+          </div>
+
+          <div style={backWrapper}>
+            <button
+              type="button"
+              style={backButton}
+              onClick={() =>
+                router.back()
+              }
+            >
+              ← رجوع
+            </button>
           </div>
         </div>
 
@@ -1605,10 +1832,9 @@ export default function FinanceContractDetailsPage() {
 
           <Row
             label="تاريخ الاستحقاق"
-            value={
-              contract.payment_due_date ||
-              "-"
-            }
+            value={formatDateOnly(
+              contract.payment_due_date
+            )}
           />
 
           <Row
@@ -1621,11 +1847,10 @@ export default function FinanceContractDetailsPage() {
 
           <Row
             label="تاريخ تحرير العقد"
-            value={
+            value={formatDateOnly(
               contract.contract_issue_date_gregorian ||
-              contract.contract_date_gregorian ||
-              "-"
-            }
+                contract.contract_date_gregorian
+            )}
           />
 
           <Row
@@ -1740,10 +1965,9 @@ export default function FinanceContractDetailsPage() {
 
               <Row
                 label="تاريخ الاستحقاق"
-                value={
-                  note.due_date ||
-                  "-"
-                }
+                value={formatDateOnly(
+                  note.due_date
+                )}
               />
 
               <Row
@@ -2185,6 +2409,7 @@ function ActionButton({
     </button>
   );
 }
+
 function UserIcon() {
   return (
     <svg
@@ -2894,6 +3119,26 @@ const loadingBox: CSSProperties = {
   textAlign: "center",
 
   color: "#0d47a1",
+
+  fontWeight: 900,
+
+  boxShadow:
+    "0 8px 20px rgba(15,23,42,0.04)",
+};
+
+const errorBox: CSSProperties = {
+  background: "#fff7ed",
+
+  border:
+    "1px solid #fed7aa",
+
+  borderRadius: 18,
+
+  padding: 20,
+
+  textAlign: "center",
+
+  color: "#9a3412",
 
   fontWeight: 900,
 
