@@ -1,21 +1,10 @@
 "use client";
 
 import { normalizeNumber, toNumber } from "@/lib/numberUtils";
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import type {
-  CSSProperties,
-  ReactNode,
-} from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { createPortal } from "react-dom";
-import {
-  useParams,
-  useRouter,
-} from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
 
@@ -56,6 +45,7 @@ type BranchSession = {
   role?: string | null;
   roles?: unknown;
   permissions?: unknown;
+  investor_id?: string | null;
   is_active?: boolean | null;
 };
 
@@ -122,10 +112,10 @@ export default function NewFinanceContractPage() {
   const [authChecked, setAuthChecked] =
     useState(false);
 
-  const [pageLoading, setPageLoading] =
+  const [referenceDataLoading, setReferenceDataLoading] =
     useState(true);
 
-  const [loadError, setLoadError] =
+  const [referenceDataError, setReferenceDataError] =
     useState("");
 
   const [employeeId, setEmployeeId] =
@@ -145,10 +135,8 @@ export default function NewFinanceContractPage() {
   const [branchId, setBranchId] =
     useState<string | null>(null);
 
-  const [
-    organizationName,
-    setOrganizationName,
-  ] = useState("");
+  const [organizationName, setOrganizationName] =
+    useState("");
 
   const [
     organizationIdentifier,
@@ -179,10 +167,8 @@ export default function NewFinanceContractPage() {
     setCustomerBirthHijri,
   ] = useState("");
 
-  const [
-    customerPhone,
-    setCustomerPhone,
-  ] = useState("");
+  const [customerPhone, setCustomerPhone] =
+    useState("");
 
   const [
     customerWorkName,
@@ -204,10 +190,8 @@ export default function NewFinanceContractPage() {
     setCustomerWasFound,
   ] = useState(false);
 
-  const [
-    hasGuarantor,
-    setHasGuarantor,
-  ] = useState(false);
+  const [hasGuarantor, setHasGuarantor] =
+    useState(false);
 
   const [guarantorId, setGuarantorId] =
     useState<string | null>(null);
@@ -274,9 +258,9 @@ export default function NewFinanceContractPage() {
   const [
     printPartyType,
     setPrintPartyType,
-  ] = useState<
-    "organization" | "investor"
-  >("organization");
+  ] = useState<"organization" | "investor">(
+    "organization"
+  );
 
   const [debtAmount, setDebtAmount] =
     useState("");
@@ -286,10 +270,8 @@ export default function NewFinanceContractPage() {
     setPaymentAmount,
   ] = useState("");
 
-  const [
-    paymentType,
-    setPaymentType,
-  ] = useState("موعد محدد");
+  const [paymentType, setPaymentType] =
+    useState("موعد محدد");
 
   const [
     paymentDueDate,
@@ -315,17 +297,14 @@ export default function NewFinanceContractPage() {
   const [
     creationMode,
     setCreationMode,
-  ] = useState<CreationMode>(
-    "contract_only"
-  );
+  ] = useState<CreationMode>("contract_only");
 
   const [saving, setSaving] =
     useState(false);
 
   const isMobile = screen === "mobile";
   const isTablet = screen === "tablet";
-  const isCompact =
-    isMobile || isTablet;
+  const isCompact = isMobile || isTablet;
 
   const canCreatePromissoryNote =
     useMemo(() => {
@@ -380,178 +359,207 @@ export default function NewFinanceContractPage() {
     let cancelled = false;
 
     async function initializePage() {
-      try {
-        setAuthChecked(false);
-        setPageLoading(true);
-        setLoadError("");
+      if (typeof window === "undefined") {
+        return;
+      }
 
-        if (
-          typeof window ===
-          "undefined"
-        ) {
-          return;
-        }
+      setReferenceDataError("");
+      setReferenceDataLoading(true);
 
-        const rawSession =
-          localStorage.getItem(
-            "finance_user"
-          ) ||
-          localStorage.getItem(
-            "finance_branch_user"
-          );
+      const parsedSession =
+        readFinanceSession();
 
-        if (!rawSession) {
-          router.replace("/login");
-          return;
-        }
+      if (!parsedSession) {
+        clearFinanceSession();
+        router.replace("/login");
+        return;
+      }
 
-        let parsedSession: BranchSession;
+      if (parsedSession.is_active === false) {
+        clearFinanceSession();
+        router.replace("/login");
+        return;
+      }
 
+      const storedEmployeeId =
+        String(
+          parsedSession.id ||
+            localStorage.getItem(
+              "finance_user_id"
+            ) ||
+            ""
+        ).trim();
+
+      const storedBranchId =
+        String(
+          parsedSession.branch_id ||
+            localStorage.getItem(
+              "finance_branch_id"
+            ) ||
+            ""
+        ).trim();
+
+      const storedBranchSlug =
+        String(
+          parsedSession.branch_slug ||
+            localStorage.getItem(
+              "finance_branch_slug"
+            ) ||
+            ""
+        ).trim();
+
+      if (
+        storedBranchSlug &&
+        storedBranchSlug !== branch
+      ) {
+        router.replace(
+          `/finance/${storedBranchSlug}`
+        );
+        return;
+      }
+
+      if (!storedEmployeeId) {
+        clearFinanceSession();
+        router.replace("/login");
+        return;
+      }
+
+      const localEmployeeName =
+        localStorage.getItem(
+          "finance_user_name"
+        ) ||
+        parsedSession.full_name ||
+        parsedSession.username ||
+        parsedSession.name ||
+        "الموظف";
+
+      const localRole =
+        String(
+          parsedSession.role ||
+            localStorage.getItem(
+              "finance_role"
+            ) ||
+            ""
+        ).trim();
+
+      const localPermissions =
+        getStoredPermissions(
+          parsedSession.permissions
+        );
+
+      const localOrganizationName =
+        localStorage.getItem(
+          "finance_organization_name"
+        ) || "";
+
+      setEmployeeId(storedEmployeeId);
+      setEmployeeName(localEmployeeName);
+      setEmployeeRole(localRole);
+      setEmployeePermissions(
+        localPermissions
+      );
+
+      setOrganizationName(
+        localOrganizationName
+      );
+
+      if (storedBranchId) {
+        setBranchId(storedBranchId);
+
+        localStorage.setItem(
+          "finance_branch_id",
+          storedBranchId
+        );
+
+        localStorage.setItem(
+          "finance_branch_slug",
+          branch
+        );
+      }
+
+      setAuthChecked(true);
+
+      let resolvedBranchId =
+        storedBranchId;
+
+      if (!resolvedBranchId) {
         try {
-          parsedSession =
-            JSON.parse(
-              rawSession
-            ) as BranchSession;
-        } catch {
-          clearFinanceSession();
-          router.replace("/login");
-          return;
-        }
+          const fetchedBranchId =
+            await getBranchId(branch);
 
-        if (
-          !parsedSession ||
-          typeof parsedSession !==
-            "object" ||
-          Array.isArray(parsedSession)
-        ) {
-          clearFinanceSession();
-          router.replace("/login");
-          return;
-        }
+          if (cancelled) {
+            return;
+          }
 
-        if (
-          parsedSession.is_active ===
-          false
-        ) {
-          clearFinanceSession();
-          router.replace("/login");
-          return;
-        }
+          if (!fetchedBranchId) {
+            setReferenceDataError(
+              "تعذر تحديد الفرع"
+            );
 
-        const storedEmployeeId =
-          String(
-            parsedSession.id ||
-              localStorage.getItem(
-                "finance_user_id"
-              ) ||
-              ""
-          ).trim();
+            setReferenceDataLoading(
+              false
+            );
 
-        const storedBranchId =
-          String(
-            parsedSession.branch_id ||
-              localStorage.getItem(
-                "finance_branch_id"
-              ) ||
-              ""
-          ).trim();
+            return;
+          }
 
-        const storedBranchSlug =
-          String(
-            parsedSession.branch_slug ||
-              localStorage.getItem(
-                "finance_branch_slug"
-              ) ||
-              ""
-          ).trim();
+          resolvedBranchId =
+            String(fetchedBranchId);
 
-        if (!storedEmployeeId) {
-          clearFinanceSession();
-          router.replace("/login");
-          return;
-        }
+          setBranchId(resolvedBranchId);
 
-        if (
-          storedBranchSlug &&
-          storedBranchSlug !== branch
-        ) {
-          router.replace(
-            `/finance/${storedBranchSlug}`
+          localStorage.setItem(
+            "finance_branch_id",
+            resolvedBranchId
           );
+
+          localStorage.setItem(
+            "finance_branch_slug",
+            branch
+          );
+        } catch (error: unknown) {
+          if (cancelled) {
+            return;
+          }
+
+          setReferenceDataError(
+            getErrorMessage(
+              error,
+              "تعذر تحديد الفرع"
+            )
+          );
+
+          setReferenceDataLoading(
+            false
+          );
+
           return;
         }
+      }
 
-        const currentBranchId =
-          await getBranchId(branch);
-
-        if (cancelled) {
-          return;
-        }
-
-        if (!currentBranchId) {
-          clearFinanceSession();
-          router.replace("/login");
-          return;
-        }
-
-        if (
-          storedBranchId &&
-          storedBranchId !==
-            String(currentBranchId)
-        ) {
-          clearFinanceSession();
-          router.replace("/login");
-          return;
-        }
-
+      try {
         const [
-          userResult,
           branchResult,
           investorsResult,
           productsResult,
         ] = await Promise.all([
           supabase
-            .from(
-              "finance_branch_users"
-            )
-            .select(
-              "id, branch_id, full_name, username, role, permissions, is_active"
-            )
-            .eq(
-              "id",
-              storedEmployeeId
-            )
-            .eq(
-              "branch_id",
-              currentBranchId
-            )
-            .maybeSingle(),
-
-          supabase
             .from("finance_branches")
             .select(
               "id, branch_slug, organization_name, commercial_record, is_active"
             )
-            .eq(
-              "id",
-              currentBranchId
-            )
-            .eq(
-              "branch_slug",
-              branch
-            )
+            .eq("id", resolvedBranchId)
+            .eq("branch_slug", branch)
             .maybeSingle(),
 
           supabase
-            .from(
-              "finance_investors"
-            )
+            .from("finance_investors")
             .select(
               "id, investor_name, national_id"
             )
             .eq(
               "branch_id",
-              currentBranchId
+              resolvedBranchId
             )
             .eq("is_active", true)
             .order("created_at", {
@@ -559,15 +567,13 @@ export default function NewFinanceContractPage() {
             }),
 
           supabase
-            .from(
-              "finance_products"
-            )
+            .from("finance_products")
             .select(
               "id, product_name"
             )
             .eq(
               "branch_id",
-              currentBranchId
+              resolvedBranchId
             )
             .eq("is_active", true)
             .order("created_at", {
@@ -579,160 +585,92 @@ export default function NewFinanceContractPage() {
           return;
         }
 
-        if (userResult.error) {
-          throw new Error(
-            `تعذر التحقق من الموظف: ${userResult.error.message}`
-          );
-        }
-
-        if (
-          !userResult.data ||
-          !userResult.data.is_active
-        ) {
-          clearFinanceSession();
-          router.replace("/login");
-          return;
-        }
+        const errors: string[] = [];
 
         if (branchResult.error) {
-          throw new Error(
-            `تعذر التحقق من الفرع: ${branchResult.error.message}`
+          console.error(
+            "Branch loading error:",
+            branchResult.error
+          );
+
+          errors.push(
+            "تعذر تحميل بيانات المؤسسة"
+          );
+        } else if (branchResult.data) {
+          if (
+            branchResult.data.is_active ===
+            false
+          ) {
+            errors.push(
+              "الفرع غير نشط حاليًا"
+            );
+          }
+
+          const fetchedOrganizationName =
+            branchResult.data
+              .organization_name || "";
+
+          const fetchedIdentifier =
+            branchResult.data
+              .commercial_record || "";
+
+          setOrganizationName(
+            fetchedOrganizationName ||
+              localOrganizationName
+          );
+
+          setOrganizationIdentifier(
+            fetchedIdentifier
+          );
+
+          if (fetchedOrganizationName) {
+            localStorage.setItem(
+              "finance_organization_name",
+              fetchedOrganizationName
+            );
+          }
+        }
+
+        if (investorsResult.error) {
+          console.error(
+            "Investors loading error:",
+            investorsResult.error
+          );
+
+          errors.push(
+            "تعذر تحميل المستثمرين"
+          );
+
+          setInvestors([]);
+        } else {
+          setInvestors(
+            (investorsResult.data ||
+              []) as InvestorRecord[]
           );
         }
 
-        if (
-          !branchResult.data ||
-          !branchResult.data.is_active
-        ) {
-          clearFinanceSession();
-          router.replace("/login");
-          return;
-        }
+        if (productsResult.error) {
+          console.error(
+            "Products loading error:",
+            productsResult.error
+          );
 
-        if (
-          investorsResult.error
-        ) {
-          throw new Error(
-            investorsResult.error.message
+          errors.push(
+            "تعذر تحميل المنتجات"
+          );
+
+          setProducts([]);
+        } else {
+          setProducts(
+            (productsResult.data ||
+              []) as ProductRecord[]
           );
         }
 
-        if (
-          productsResult.error
-        ) {
-          throw new Error(
-            productsResult.error.message
+        if (errors.length > 0) {
+          setReferenceDataError(
+            errors.join("، ")
           );
-        }
-
-        const storedName =
-          localStorage.getItem(
-            "finance_user_name"
-          );
-
-        const currentEmployeeName =
-          userResult.data.full_name ||
-          userResult.data.username ||
-          parsedSession.full_name ||
-          parsedSession.username ||
-          parsedSession.name ||
-          storedName ||
-          "الموظف";
-
-        const currentPermissions =
-          Array.isArray(
-            userResult.data.permissions
-          )
-            ? userResult.data.permissions.filter(
-                (
-                  permission
-                ): permission is string =>
-                  typeof permission ===
-                    "string" &&
-                  permission.trim()
-                    .length > 0
-              )
-            : [];
-
-        setEmployeeId(
-          String(
-            userResult.data.id
-          )
-        );
-
-        setEmployeeName(
-          currentEmployeeName
-        );
-
-        setEmployeeRole(
-          userResult.data.role || ""
-        );
-
-        setEmployeePermissions(
-          currentPermissions
-        );
-
-        setBranchId(
-          String(currentBranchId)
-        );
-
-        setOrganizationName(
-          branchResult.data
-            .organization_name || ""
-        );
-
-        setOrganizationIdentifier(
-          branchResult.data
-            .commercial_record || ""
-        );
-
-        setInvestors(
-          (investorsResult.data ||
-            []) as InvestorRecord[]
-        );
-
-        setProducts(
-          (productsResult.data ||
-            []) as ProductRecord[]
-        );
-
-        localStorage.setItem(
-          "finance_user_id",
-          String(
-            userResult.data.id
-          )
-        );
-
-        localStorage.setItem(
-          "finance_user_name",
-          currentEmployeeName
-        );
-
-        localStorage.setItem(
-          "finance_branch_id",
-          String(currentBranchId)
-        );
-
-        localStorage.setItem(
-          "finance_branch_slug",
-          branch
-        );
-
-        localStorage.setItem(
-          "finance_role",
-          userResult.data.role ||
-            ""
-        );
-
-        localStorage.setItem(
-          "finance_permissions",
-          JSON.stringify(
-            currentPermissions
-          )
-        );
-
-        if (!cancelled) {
-          setAuthChecked(true);
         }
       } catch (error: unknown) {
         if (cancelled) {
@@ -740,21 +678,21 @@ export default function NewFinanceContractPage() {
         }
 
         console.error(
-          "New contract initialization error:",
+          "New contract reference data error:",
           error
         );
 
-        setLoadError(
+        setReferenceDataError(
           getErrorMessage(
             error,
-            "تعذر تحميل صفحة إنشاء العقد"
+            "تعذر تحميل بيانات إنشاء العقد"
           )
         );
-
-        setAuthChecked(true);
       } finally {
         if (!cancelled) {
-          setPageLoading(false);
+          setReferenceDataLoading(
+            false
+          );
         }
       }
     }
@@ -769,83 +707,76 @@ export default function NewFinanceContractPage() {
   useEffect(() => {
     let cancelled = false;
 
-    const timer =
-      window.setTimeout(
-        async () => {
-          if (
-            !branchId ||
-            customerNationalId.length !==
-              10
-          ) {
+    const timer = window.setTimeout(
+      async () => {
+        if (
+          !branchId ||
+          customerNationalId.length !==
+            10
+        ) {
+          return;
+        }
+
+        try {
+          setCustomerLookupLoading(
+            true
+          );
+
+          const {
+            data,
+            error,
+          } = await supabase
+            .from("finance_customers")
+            .select(
+              "id, full_name, national_id, birth_hijri, phone, work_name, address"
+            )
+            .eq("branch_id", branchId)
+            .eq(
+              "national_id",
+              customerNationalId
+            )
+            .maybeSingle();
+
+          if (cancelled) {
             return;
           }
 
-          try {
-            setCustomerLookupLoading(
-              true
+          if (error) {
+            throw new Error(
+              error.message
+            );
+          }
+
+          if (data) {
+            applyCustomerData(
+              data as CustomerRecord
             );
 
-            const {
-              data,
-              error,
-            } = await supabase
-              .from(
-                "finance_customers"
-              )
-              .select(
-                "id, full_name, national_id, birth_hijri, phone, work_name, address"
-              )
-              .eq(
-                "branch_id",
-                branchId
-              )
-              .eq(
-                "national_id",
-                customerNationalId
-              )
-              .maybeSingle();
-
-            if (cancelled) {
-              return;
-            }
-
-            if (error) {
-              throw new Error(
-                error.message
-              );
-            }
-
-            if (data) {
-              applyCustomerData(
-                data as CustomerRecord
-              );
-
-              setCustomerWasFound(
-                true
-              );
-            } else {
-              setCustomerId(null);
-              setCustomerWasFound(
-                false
-              );
-            }
-          } catch {
-            if (!cancelled) {
-              setCustomerId(null);
-              setCustomerWasFound(
-                false
-              );
-            }
-          } finally {
-            if (!cancelled) {
-              setCustomerLookupLoading(
-                false
-              );
-            }
+            setCustomerWasFound(true);
+          } else {
+            setCustomerId(null);
+            setCustomerWasFound(false);
           }
-        },
-        400
-      );
+        } catch (error) {
+          console.error(
+            "Customer lookup error:",
+            error
+          );
+
+          if (!cancelled) {
+            setCustomerId(null);
+            setCustomerWasFound(false);
+          }
+        } finally {
+          if (!cancelled) {
+            setCustomerLookupLoading(
+              false
+            );
+          }
+        }
+      },
+      400
+    );
 
     return () => {
       cancelled = true;
@@ -859,84 +790,77 @@ export default function NewFinanceContractPage() {
   useEffect(() => {
     let cancelled = false;
 
-    const timer =
-      window.setTimeout(
-        async () => {
-          if (
-            !hasGuarantor ||
-            !branchId ||
-            guarantorNationalId.length !==
-              10
-          ) {
+    const timer = window.setTimeout(
+      async () => {
+        if (
+          !hasGuarantor ||
+          !branchId ||
+          guarantorNationalId.length !==
+            10
+        ) {
+          return;
+        }
+
+        try {
+          setGuarantorLookupLoading(
+            true
+          );
+
+          const {
+            data,
+            error,
+          } = await supabase
+            .from("finance_customers")
+            .select(
+              "id, full_name, national_id, birth_hijri, phone, work_name, address"
+            )
+            .eq("branch_id", branchId)
+            .eq(
+              "national_id",
+              guarantorNationalId
+            )
+            .maybeSingle();
+
+          if (cancelled) {
             return;
           }
 
-          try {
-            setGuarantorLookupLoading(
-              true
+          if (error) {
+            throw new Error(
+              error.message
+            );
+          }
+
+          if (data) {
+            applyGuarantorData(
+              data as CustomerRecord
             );
 
-            const {
-              data,
-              error,
-            } = await supabase
-              .from(
-                "finance_customers"
-              )
-              .select(
-                "id, full_name, national_id, birth_hijri, phone, work_name, address"
-              )
-              .eq(
-                "branch_id",
-                branchId
-              )
-              .eq(
-                "national_id",
-                guarantorNationalId
-              )
-              .maybeSingle();
-
-            if (cancelled) {
-              return;
-            }
-
-            if (error) {
-              throw new Error(
-                error.message
-              );
-            }
-
-            if (data) {
-              applyGuarantorData(
-                data as CustomerRecord
-              );
-
-              setGuarantorWasFound(
-                true
-              );
-            } else {
-              setGuarantorId(null);
-              setGuarantorWasFound(
-                false
-              );
-            }
-          } catch {
-            if (!cancelled) {
-              setGuarantorId(null);
-              setGuarantorWasFound(
-                false
-              );
-            }
-          } finally {
-            if (!cancelled) {
-              setGuarantorLookupLoading(
-                false
-              );
-            }
+            setGuarantorWasFound(true);
+          } else {
+            setGuarantorId(null);
+            setGuarantorWasFound(false);
           }
-        },
-        400
-      );
+        } catch (error) {
+          console.error(
+            "Guarantor lookup error:",
+            error
+          );
+
+          if (!cancelled) {
+            setGuarantorId(null);
+            setGuarantorWasFound(false);
+          }
+        } finally {
+          if (!cancelled) {
+            setGuarantorLookupLoading(
+              false
+            );
+          }
+        }
+      },
+      400
+    );
 
     return () => {
       cancelled = true;
@@ -968,14 +892,8 @@ export default function NewFinanceContractPage() {
         .from("finance_inventory")
         .select("quantity")
         .eq("branch_id", branchId)
-        .eq(
-          "investor_id",
-          investorId
-        )
-        .eq(
-          "product_id",
-          productId
-        )
+        .eq("investor_id", investorId)
+        .eq("product_id", productId)
         .maybeSingle();
 
       if (cancelled) {
@@ -983,15 +901,18 @@ export default function NewFinanceContractPage() {
       }
 
       if (error) {
+        console.error(
+          "Inventory lookup error:",
+          error
+        );
+
         setAvailableStock(0);
         return;
       }
 
       setAvailableStock(
         data
-          ? Number(
-              data.quantity || 0
-            )
+          ? Number(data.quantity || 0)
           : 0
       );
     }
@@ -1022,10 +943,104 @@ export default function NewFinanceContractPage() {
     creationMode,
   ]);
 
+  function readFinanceSession():
+    | BranchSession
+    | null {
+    if (
+      typeof window === "undefined"
+    ) {
+      return null;
+    }
+
+    const rawSession =
+      localStorage.getItem(
+        "finance_branch_user"
+      ) ||
+      localStorage.getItem(
+        "finance_user"
+      );
+
+    if (!rawSession) {
+      return null;
+    }
+
+    try {
+      const parsed =
+        JSON.parse(
+          rawSession
+        ) as BranchSession;
+
+      if (
+        !parsed ||
+        typeof parsed !== "object" ||
+        Array.isArray(parsed)
+      ) {
+        return null;
+      }
+
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+
+  function getStoredPermissions(
+    sessionPermissions: unknown
+  ): string[] {
+    const directPermissions =
+      normalizeStringArray(
+        sessionPermissions
+      );
+
+    if (
+      directPermissions.length > 0
+    ) {
+      return directPermissions;
+    }
+
+    if (
+      typeof window === "undefined"
+    ) {
+      return [];
+    }
+
+    const storedPermissions =
+      localStorage.getItem(
+        "finance_permissions"
+      );
+
+    if (!storedPermissions) {
+      return [];
+    }
+
+    try {
+      return normalizeStringArray(
+        JSON.parse(
+          storedPermissions
+        )
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  function normalizeStringArray(
+    value: unknown
+  ): string[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value.filter(
+      (item): item is string =>
+        typeof item === "string" &&
+        item.trim().length > 0
+    );
+  }
+
   function clearFinanceSession() {
     if (
-      typeof window ===
-      "undefined"
+      typeof window === "undefined"
     ) {
       return;
     }
@@ -1040,6 +1055,10 @@ export default function NewFinanceContractPage() {
   function logout() {
     clearFinanceSession();
     router.replace("/login");
+  }
+
+  function retryReferenceData() {
+    window.location.reload();
   }
 
   function applyCustomerData(
@@ -1098,19 +1117,17 @@ export default function NewFinanceContractPage() {
     value: string
   ) {
     const normalized =
-      normalizeDigits(
-        value
-      ).slice(0, 10);
+      normalizeDigits(value).slice(
+        0,
+        10
+      );
 
     if (
       normalized !==
       customerNationalId
     ) {
       setCustomerId(null);
-
-      setCustomerWasFound(
-        false
-      );
+      setCustomerWasFound(false);
 
       if (
         normalized.length < 10
@@ -1128,19 +1145,17 @@ export default function NewFinanceContractPage() {
     value: string
   ) {
     const normalized =
-      normalizeDigits(
-        value
-      ).slice(0, 10);
+      normalizeDigits(value).slice(
+        0,
+        10
+      );
 
     if (
       normalized !==
       guarantorNationalId
     ) {
       setGuarantorId(null);
-
-      setGuarantorWasFound(
-        false
-      );
+      setGuarantorWasFound(false);
 
       if (
         normalized.length < 10
@@ -1181,25 +1196,37 @@ export default function NewFinanceContractPage() {
     if (!nextValue) {
       setGuarantorId(null);
 
-      setGuarantorNationalId(
-        ""
-      );
+      setGuarantorNationalId("");
 
       clearGuarantorDataFields();
 
-      setGuarantorWasFound(
-        false
-      );
+      setGuarantorWasFound(false);
     }
   }
 
   function validateForm() {
     if (!branchId) {
-      return "تعذر تحديد الفرع";
+      return "بيانات الفرع ما زالت قيد التحميل";
     }
 
     if (!employeeId) {
       return "تعذر تحديد الموظف المسجل";
+    }
+
+    if (
+      referenceDataLoading
+    ) {
+      return "انتظر حتى يكتمل تحميل المستثمرين والمنتجات";
+    }
+
+    if (
+      referenceDataError &&
+      (
+        investors.length === 0 ||
+        products.length === 0
+      )
+    ) {
+      return "تعذر تحميل المستثمرين أو المنتجات";
     }
 
     if (
@@ -1349,18 +1376,14 @@ export default function NewFinanceContractPage() {
       return;
     }
 
-    if (
-      !branchId ||
-      !employeeId
-    ) {
+    if (!branchId || !employeeId) {
       return;
     }
 
     const selectedInvestor =
       investors.find(
         (investor) =>
-          investor.id ===
-          investorId
+          investor.id === investorId
       );
 
     const selectedProduct =
@@ -1373,13 +1396,12 @@ export default function NewFinanceContractPage() {
       alert(
         "تعذر تحديد المستثمر"
       );
+
       return;
     }
 
     if (!selectedProduct) {
-      alert(
-        "تعذر تحديد المنتج"
-      );
+      alert("تعذر تحديد المنتج");
       return;
     }
 
@@ -1422,14 +1444,9 @@ export default function NewFinanceContractPage() {
       } = await supabase.rpc(
         "create_finance_contract_complete_atomic",
         {
-          p_branch_id:
-            branchId,
-
-          p_employee_id:
-            employeeId,
-
-          p_employee_name:
-            employeeName,
+          p_branch_id: branchId,
+          p_employee_id: employeeId,
+          p_employee_name: employeeName,
 
           p_customer_full_name:
             customerFullName.trim(),
@@ -1474,16 +1491,13 @@ export default function NewFinanceContractPage() {
             printPartyName || "",
 
           p_print_party_identifier:
-            printPartyIdentifier ||
-            "",
+            printPartyIdentifier || "",
 
           p_debt_amount:
             toNumber(debtAmount),
 
           p_payment_amount:
-            toNumber(
-              paymentAmount
-            ),
+            toNumber(paymentAmount),
 
           p_payment_type:
             paymentType,
@@ -1498,9 +1512,7 @@ export default function NewFinanceContractPage() {
             legalCity.trim(),
 
           p_judicial_amount:
-            toNumber(
-              judicialAmount
-            ),
+            toNumber(judicialAmount),
 
           p_notes:
             notes.trim(),
@@ -1608,13 +1620,10 @@ export default function NewFinanceContractPage() {
 
   const investorOptions:
     SelectOption[] =
-    investors.map(
-      (investor) => ({
-        value: investor.id,
-        label:
-          investor.investor_name,
-      })
-    );
+    investors.map((investor) => ({
+      value: investor.id,
+      label: investor.investor_name,
+    }));
 
   const productOptions:
     SelectOption[] =
@@ -1623,58 +1632,14 @@ export default function NewFinanceContractPage() {
       label: product.product_name,
     }));
 
-  if (
-    !authChecked ||
-    pageLoading
-  ) {
-    return (
-      <main
-        dir="rtl"
-        style={getPageStyle(
-          isMobile
-        )}
-      >
-        <div style={loadingCard}>
-          جاري تحميل صفحة إنشاء
-          العقد...
-        </div>
-      </main>
-    );
-  }
-
-  if (loadError) {
-    return (
-      <main
-        dir="rtl"
-        style={getPageStyle(
-          isMobile
-        )}
-      >
-        <div style={errorCard}>
-          <strong>{loadError}</strong>
-
-          <button
-            type="button"
-            style={
-              secondaryButton
-            }
-            onClick={() =>
-              router.back()
-            }
-          >
-            ← رجوع
-          </button>
-        </div>
-      </main>
-    );
+  if (!authChecked) {
+    return null;
   }
 
   return (
     <main
       dir="rtl"
-      style={getPageStyle(
-        isMobile
-      )}
+      style={getPageStyle(isMobile)}
     >
       <div
         style={getContainerStyle(
@@ -1682,22 +1647,11 @@ export default function NewFinanceContractPage() {
         )}
       >
         <header
-          style={getHeroStyle(
-            isMobile
-          )}
+          style={getHeroStyle(isMobile)}
         >
-          <div
-            style={heroCircleOne}
-          />
-
-          <div
-            style={heroCircleTwo}
-          />
-
-          <div
-            style={heroCircleThree}
-          />
-
+          <div style={heroCircleOne} />
+          <div style={heroCircleTwo} />
+          <div style={heroCircleThree} />
           <div style={heroDots} />
 
           <div
@@ -1715,9 +1669,7 @@ export default function NewFinanceContractPage() {
                   screen
                 )}
               >
-                <div
-                  style={employeeIcon}
-                >
+                <div style={employeeIcon}>
                   <UserIcon />
                 </div>
 
@@ -1745,7 +1697,6 @@ export default function NewFinanceContractPage() {
                   onClick={logout}
                 >
                   <LogoutIcon />
-
                   <span>
                     تسجيل الخروج
                   </span>
@@ -1793,10 +1744,31 @@ export default function NewFinanceContractPage() {
           </div>
         </header>
 
+        {referenceDataError && (
+          <section
+            style={inlineErrorCard}
+          >
+            <span>
+              {referenceDataError}
+            </span>
+
+            <button
+              type="button"
+              style={
+                inlineRetryButton
+              }
+              onClick={
+                retryReferenceData
+              }
+            >
+              إعادة المحاولة
+            </button>
+          </section>
+        )}
+
         <section style={card}>
           <h2 style={sectionTitle}>
-            بيانات العميل (الطرف
-            الثاني)
+            بيانات العميل (الطرف الثاني)
           </h2>
 
           <div
@@ -1823,21 +1795,16 @@ export default function NewFinanceContractPage() {
                   value={
                     customerNationalId
                   }
-                  onChange={(
-                    event
-                  ) =>
+                  onChange={(event) =>
                     handleCustomerNationalIdChange(
-                      event.target
-                        .value
+                      event.target.value
                     )
                   }
                 />
 
                 {customerLookupLoading && (
                   <span
-                    style={
-                      lookupStatus
-                    }
+                    style={lookupStatus}
                   >
                     جاري التحقق...
                   </span>
@@ -1865,12 +1832,9 @@ export default function NewFinanceContractPage() {
                 value={
                   customerFullName
                 }
-                onChange={(
-                  event
-                ) =>
+                onChange={(event) =>
                   setCustomerFullName(
-                    event.target
-                      .value
+                    event.target.value
                   )
                 }
                 placeholder="الاسم الكامل"
@@ -1886,13 +1850,10 @@ export default function NewFinanceContractPage() {
                 value={
                   customerBirthHijri
                 }
-                onChange={(
-                  event
-                ) =>
+                onChange={(event) =>
                   setCustomerBirthHijri(
                     normalizeHijriDate(
-                      event.target
-                        .value
+                      event.target.value
                     )
                   )
                 }
@@ -1908,13 +1869,10 @@ export default function NewFinanceContractPage() {
               <input
                 style={fieldInput}
                 value={customerPhone}
-                onChange={(
-                  event
-                ) =>
+                onChange={(event) =>
                   setCustomerPhone(
                     normalizeDigits(
-                      event.target
-                        .value
+                      event.target.value
                     ).slice(0, 10)
                   )
                 }
@@ -1930,12 +1888,9 @@ export default function NewFinanceContractPage() {
                 value={
                   customerWorkName
                 }
-                onChange={(
-                  event
-                ) =>
+                onChange={(event) =>
                   setCustomerWorkName(
-                    event.target
-                      .value
+                    event.target.value
                   )
                 }
                 placeholder="اسم جهة العمل"
@@ -1951,12 +1906,9 @@ export default function NewFinanceContractPage() {
                 value={
                   customerAddress
                 }
-                onChange={(
-                  event
-                ) =>
+                onChange={(event) =>
                   setCustomerAddress(
-                    event.target
-                      .value
+                    event.target.value
                   )
                 }
                 placeholder="عنوان العميل"
@@ -1972,9 +1924,31 @@ export default function NewFinanceContractPage() {
         </section>
 
         <section style={card}>
-          <h2 style={sectionTitle}>
-            المخزون والطرف الأول
-          </h2>
+          <div
+            style={
+              sectionTitleRow
+            }
+          >
+            <h2
+              style={{
+                ...sectionTitle,
+                marginBottom: 0,
+              }}
+            >
+              المخزون والطرف الأول
+            </h2>
+
+            {referenceDataLoading && (
+              <span
+                style={
+                  localLoadingBadge
+                }
+              >
+                جاري تحميل المستثمرين
+                والمنتجات...
+              </span>
+            )}
+          </div>
 
           <div
             style={getFieldsGridStyle(
@@ -1987,22 +1961,21 @@ export default function NewFinanceContractPage() {
             >
               <CustomSelect
                 value={investorId}
-                placeholder="اختر المستثمر"
+                placeholder={
+                  referenceDataLoading
+                    ? "جاري تحميل المستثمرين..."
+                    : investors.length ===
+                        0
+                      ? "لا يوجد مستثمرون"
+                      : "اختر المستثمر"
+                }
                 options={
                   investorOptions
                 }
-                onChange={(
-                  value
-                ) => {
-                  setInvestorId(
-                    value
-                  );
-
+                onChange={(value) => {
+                  setInvestorId(value);
                   setProductId("");
-
-                  setAvailableStock(
-                    null
-                  );
+                  setAvailableStock(null);
                 }}
               />
             </Field>
@@ -2013,7 +1986,13 @@ export default function NewFinanceContractPage() {
             >
               <CustomSelect
                 value={productId}
-                placeholder="اختر المنتج"
+                placeholder={
+                  referenceDataLoading
+                    ? "جاري تحميل المنتجات..."
+                    : products.length === 0
+                      ? "لا توجد منتجات"
+                      : "اختر المنتج"
+                }
                 options={
                   productOptions
                 }
@@ -2034,13 +2013,10 @@ export default function NewFinanceContractPage() {
                 value={
                   productQuantity
                 }
-                onChange={(
-                  event
-                ) =>
+                onChange={(event) =>
                   setProductQuantity(
                     normalizeNumber(
-                      event.target
-                        .value
+                      event.target.value
                     )
                   )
                 }
@@ -2054,14 +2030,12 @@ export default function NewFinanceContractPage() {
                     null &&
                   toNumber(
                     productQuantity
-                  ) >
-                    availableStock
+                  ) > availableStock
                     ? stockDanger
                     : stockInfo
                 }
               >
-                {availableStock ===
-                null
+                {availableStock === null
                   ? "اختر المستثمر والمنتج"
                   : availableStock}
               </div>
@@ -2090,9 +2064,7 @@ export default function NewFinanceContractPage() {
                       "المستثمر",
                   },
                 ]}
-                onChange={(
-                  value
-                ) =>
+                onChange={(value) =>
                   setPrintPartyType(
                     value as
                       | "organization"
@@ -2123,12 +2095,9 @@ export default function NewFinanceContractPage() {
                 style={fieldInput}
                 placeholder="مثال: تمويل منتج"
                 value={financeType}
-                onChange={(
-                  event
-                ) =>
+                onChange={(event) =>
                   setFinanceType(
-                    event.target
-                      .value
+                    event.target.value
                   )
                 }
               />
@@ -2143,13 +2112,10 @@ export default function NewFinanceContractPage() {
                 inputMode="decimal"
                 placeholder="0.00"
                 value={debtAmount}
-                onChange={(
-                  event
-                ) =>
+                onChange={(event) =>
                   setDebtAmount(
                     normalizeNumber(
-                      event.target
-                        .value
+                      event.target.value
                     )
                   )
                 }
@@ -2167,13 +2133,10 @@ export default function NewFinanceContractPage() {
                 value={
                   paymentAmount
                 }
-                onChange={(
-                  event
-                ) =>
+                onChange={(event) =>
                   setPaymentAmount(
                     normalizeNumber(
-                      event.target
-                        .value
+                      event.target.value
                     )
                   )
                 }
@@ -2248,12 +2211,9 @@ export default function NewFinanceContractPage() {
                 style={fieldInput}
                 placeholder="اسم المدينة"
                 value={legalCity}
-                onChange={(
-                  event
-                ) =>
+                onChange={(event) =>
                   setLegalCity(
-                    event.target
-                      .value
+                    event.target.value
                   )
                 }
               />
@@ -2270,13 +2230,10 @@ export default function NewFinanceContractPage() {
                 value={
                   judicialAmount
                 }
-                onChange={(
-                  event
-                ) =>
+                onChange={(event) =>
                   setJudicialAmount(
                     normalizeNumber(
-                      event.target
-                        .value
+                      event.target.value
                     )
                   )
                 }
@@ -2347,21 +2304,16 @@ export default function NewFinanceContractPage() {
                     value={
                       guarantorNationalId
                     }
-                    onChange={(
-                      event
-                    ) =>
+                    onChange={(event) =>
                       handleGuarantorNationalIdChange(
-                        event.target
-                          .value
+                        event.target.value
                       )
                     }
                   />
 
                   {guarantorLookupLoading && (
                     <span
-                      style={
-                        lookupStatus
-                      }
+                      style={lookupStatus}
                     >
                       جاري التحقق...
                     </span>
@@ -2389,12 +2341,9 @@ export default function NewFinanceContractPage() {
                   value={
                     guarantorFullName
                   }
-                  onChange={(
-                    event
-                  ) =>
+                  onChange={(event) =>
                     setGuarantorFullName(
-                      event.target
-                        .value
+                      event.target.value
                     )
                   }
                   placeholder="الاسم الكامل"
@@ -2410,13 +2359,10 @@ export default function NewFinanceContractPage() {
                   value={
                     guarantorBirthHijri
                   }
-                  onChange={(
-                    event
-                  ) =>
+                  onChange={(event) =>
                     setGuarantorBirthHijri(
                       normalizeHijriDate(
-                        event.target
-                          .value
+                        event.target.value
                       )
                     )
                   }
@@ -2434,13 +2380,10 @@ export default function NewFinanceContractPage() {
                   value={
                     guarantorPhone
                   }
-                  onChange={(
-                    event
-                  ) =>
+                  onChange={(event) =>
                     setGuarantorPhone(
                       normalizeDigits(
-                        event.target
-                          .value
+                        event.target.value
                       ).slice(0, 10)
                     )
                   }
@@ -2456,12 +2399,9 @@ export default function NewFinanceContractPage() {
                   value={
                     guarantorWorkName
                   }
-                  onChange={(
-                    event
-                  ) =>
+                  onChange={(event) =>
                     setGuarantorWorkName(
-                      event.target
-                        .value
+                      event.target.value
                     )
                   }
                   placeholder="اسم جهة العمل"
@@ -2477,12 +2417,9 @@ export default function NewFinanceContractPage() {
                   value={
                     guarantorAddress
                   }
-                  onChange={(
-                    event
-                  ) =>
+                  onChange={(event) =>
                     setGuarantorAddress(
-                      event.target
-                        .value
+                      event.target.value
                     )
                   }
                   placeholder="عنوان الكفيل"
@@ -2505,11 +2442,7 @@ export default function NewFinanceContractPage() {
             طريقة الإنشاء
           </h2>
 
-          <div
-            style={
-              creationModeGrid
-            }
-          >
+          <div style={creationModeGrid}>
             <button
               type="button"
               style={{
@@ -2576,8 +2509,7 @@ export default function NewFinanceContractPage() {
                     permissionText
                   }
                 >
-                  لا تملك صلاحية إنشاء
-                  سند
+                  لا تملك صلاحية إنشاء سند
                 </small>
               )}
             </button>
@@ -2609,24 +2541,31 @@ export default function NewFinanceContractPage() {
             type="button"
             style={{
               ...primaryButton,
-              opacity: saving
-                ? 0.68
-                : 1,
-              cursor: saving
-                ? "not-allowed"
-                : "pointer",
+              opacity:
+                saving ||
+                referenceDataLoading
+                  ? 0.68
+                  : 1,
+              cursor:
+                saving ||
+                referenceDataLoading
+                  ? "not-allowed"
+                  : "pointer",
             }}
-            onClick={
-              createContract
+            onClick={createContract}
+            disabled={
+              saving ||
+              referenceDataLoading
             }
-            disabled={saving}
           >
             {saving
               ? "جاري تنفيذ العملية..."
-              : creationMode ===
-                  "contract_and_note"
-                ? "إنشاء العقد والسند"
-                : "إنشاء العقد"}
+              : referenceDataLoading
+                ? "جاري تجهيز بيانات العقد..."
+                : creationMode ===
+                    "contract_and_note"
+                  ? "إنشاء العقد والسند"
+                  : "إنشاء العقد"}
           </button>
         </section>
 
@@ -2672,9 +2611,7 @@ function Field({
         <span>{label}</span>
 
         {required && (
-          <span
-            style={requiredMark}
-          >
+          <span style={requiredMark}>
             *
           </span>
         )}
@@ -2700,19 +2637,15 @@ function CustomSelect({
   value: string;
   placeholder: string;
   options: SelectOption[];
-  onChange: (
-    value: string
-  ) => void;
+  onChange: (value: string) => void;
 }) {
   const [open, setOpen] =
     useState(false);
 
-  const [
-    menuRect,
-    setMenuRect,
-  ] = useState<DropdownRect | null>(
-    null
-  );
+  const [menuRect, setMenuRect] =
+    useState<DropdownRect | null>(
+      null
+    );
 
   const wrapperRef =
     useRef<HTMLDivElement | null>(
@@ -2882,56 +2815,46 @@ function CustomSelect({
             }}
           >
             {options.length === 0 ? (
-              <div
-                style={emptyOption}
-              >
+              <div style={emptyOption}>
                 لا توجد خيارات متاحة
               </div>
             ) : (
-              options.map(
-                (option) => (
-                  <button
-                    key={
-                      option.value
-                    }
-                    type="button"
-                    disabled={
+              options.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  disabled={
+                    option.disabled
+                  }
+                  style={{
+                    ...selectOptionButton,
+                    ...(option.value ===
+                    value
+                      ? selectedOptionButton
+                      : {}),
+                    ...(option.disabled
+                      ? disabledOptionButton
+                      : {}),
+                  }}
+                  onPointerDown={(
+                    event
+                  ) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+
+                    if (
                       option.disabled
+                    ) {
+                      return;
                     }
-                    style={{
-                      ...selectOptionButton,
-                      ...(option.value ===
-                      value
-                        ? selectedOptionButton
-                        : {}),
-                      ...(option.disabled
-                        ? disabledOptionButton
-                        : {}),
-                    }}
-                    onPointerDown={(
-                      event
-                    ) => {
-                      event.preventDefault();
 
-                      event.stopPropagation();
-
-                      if (
-                        option.disabled
-                      ) {
-                        return;
-                      }
-
-                      onChange(
-                        option.value
-                      );
-
-                      closeMenu();
-                    }}
-                  >
-                    {option.label}
-                  </button>
-                )
-              )
+                    onChange(option.value);
+                    closeMenu();
+                  }}
+                >
+                  {option.label}
+                </button>
+              ))
             )}
           </div>,
           document.body
@@ -2946,9 +2869,7 @@ function ProfessionalDatePicker({
   placeholder,
 }: {
   value: string;
-  onChange: (
-    value: string
-  ) => void;
+  onChange: (value: string) => void;
   placeholder: string;
 }) {
   const initialDate =
@@ -2998,11 +2919,8 @@ function ProfessionalDatePicker({
     month: number,
     day: number
   ) {
-    const date = new Date(
-      year,
-      month,
-      day
-    );
+    const date =
+      new Date(year, month, day);
 
     onChange(
       formatLocalDate(date)
@@ -3047,9 +2965,7 @@ function ProfessionalDatePicker({
     <>
       <button
         type="button"
-        style={
-          datePickerButton
-        }
+        style={datePickerButton}
         onClick={() =>
           setOpen(true)
         }
@@ -3062,9 +2978,7 @@ function ProfessionalDatePicker({
           }
         >
           {value
-            ? formatDisplayDate(
-                value
-              )
+            ? formatDisplayDate(value)
             : placeholder}
         </span>
 
@@ -3083,16 +2997,12 @@ function ProfessionalDatePicker({
           >
             <div
               style={calendarModal}
-              onPointerDown={(
-                event
-              ) =>
+              onPointerDown={(event) =>
                 event.stopPropagation()
               }
             >
               <div
-                style={
-                  calendarHeader
-                }
+                style={calendarHeader}
               >
                 <button
                   type="button"
@@ -3168,8 +3078,7 @@ function ProfessionalDatePicker({
 
                     const currentValue =
                       `${visibleYear}-${String(
-                        visibleMonth +
-                          1
+                        visibleMonth + 1
                       ).padStart(
                         2,
                         "0"
@@ -3219,9 +3128,7 @@ function ProfessionalDatePicker({
               </div>
 
               <div
-                style={
-                  calendarFooter
-                }
+                style={calendarFooter}
               >
                 <button
                   type="button"
@@ -3388,11 +3295,7 @@ function parseDateValue(
     Number(match[3]);
 
   const date =
-    new Date(
-      year,
-      month,
-      day
-    );
+    new Date(year, month, day);
 
   if (
     date.getFullYear() !== year ||
@@ -3825,9 +3728,7 @@ function getHeroStyle(
 function getHeroContentStyle(
   screen: ScreenType
 ): CSSProperties {
-  if (
-    screen === "mobile"
-  ) {
+  if (screen === "mobile") {
     return {
       position: "relative",
       zIndex: 3,
@@ -3839,15 +3740,12 @@ function getHeroContentStyle(
     };
   }
 
-  if (
-    screen === "tablet"
-  ) {
+  if (screen === "tablet") {
     return {
       position: "relative",
       zIndex: 3,
       display: "grid",
-      gridTemplateColumns:
-        "1fr",
+      gridTemplateColumns: "1fr",
       justifyItems: "center",
       gap: 18,
       direction: "rtl",
@@ -3870,9 +3768,7 @@ function getHeroContentStyle(
 function getHeroUserCardStyle(
   screen: ScreenType
 ): CSSProperties {
-  if (
-    screen === "mobile"
-  ) {
+  if (screen === "mobile") {
     return {
       width: "100%",
       display: "grid",
@@ -3883,9 +3779,7 @@ function getHeroUserCardStyle(
     };
   }
 
-  if (
-    screen === "tablet"
-  ) {
+  if (screen === "tablet") {
     return {
       width: "100%",
       maxWidth: 520,
@@ -4057,8 +3951,7 @@ function getFieldsGridStyle(
   };
 }
 
-const employeeIcon:
-  CSSProperties = {
+const employeeIcon: CSSProperties = {
   width: 38,
   height: 38,
   borderRadius: "50%",
@@ -4074,8 +3967,7 @@ const employeeIcon:
   flex: "0 0 auto",
 };
 
-const employeeDividerSmall:
-  CSSProperties = {
+const employeeDividerSmall: CSSProperties = {
   width: 1,
   height: 34,
   background:
@@ -4083,8 +3975,7 @@ const employeeDividerSmall:
   flex: "0 0 auto",
 };
 
-const logoutInlineButton:
-  CSSProperties = {
+const logoutInlineButton: CSSProperties = {
   border: "none",
   background: "transparent",
   color:
@@ -4102,8 +3993,7 @@ const logoutInlineButton:
   direction: "rtl",
 };
 
-const heroCircleOne:
-  CSSProperties = {
+const heroCircleOne: CSSProperties = {
   position: "absolute",
   width: 210,
   height: 210,
@@ -4116,8 +4006,7 @@ const heroCircleOne:
   zIndex: 1,
 };
 
-const heroCircleTwo:
-  CSSProperties = {
+const heroCircleTwo: CSSProperties = {
   position: "absolute",
   width: 245,
   height: 245,
@@ -4130,8 +4019,7 @@ const heroCircleTwo:
   zIndex: 1,
 };
 
-const heroCircleThree:
-  CSSProperties = {
+const heroCircleThree: CSSProperties = {
   position: "absolute",
   width: 150,
   height: 150,
@@ -4144,8 +4032,7 @@ const heroCircleThree:
   zIndex: 1,
 };
 
-const heroDots:
-  CSSProperties = {
+const heroDots: CSSProperties = {
   position: "absolute",
   top: 28,
   right: 34,
@@ -4158,8 +4045,39 @@ const heroDots:
   zIndex: 2,
 };
 
-const card:
-  CSSProperties = {
+const inlineErrorCard: CSSProperties = {
+  marginBottom: 14,
+  padding: "12px 14px",
+  borderRadius: 14,
+  border:
+    "1px solid #fecaca",
+  background: "#fff7f7",
+  color: "#991b1b",
+  display: "flex",
+  alignItems: "center",
+  justifyContent:
+    "space-between",
+  gap: 12,
+  flexWrap: "wrap",
+  fontSize: 13,
+  fontWeight: 900,
+};
+
+const inlineRetryButton: CSSProperties = {
+  minHeight: 38,
+  border: "none",
+  borderRadius: 10,
+  padding: "8px 14px",
+  background:
+    "linear-gradient(135deg,#22c55e,#15803d)",
+  color: "#ffffff",
+  cursor: "pointer",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+  fontWeight: 900,
+};
+
+const card: CSSProperties = {
   background:
     "rgba(255,255,255,0.97)",
   border:
@@ -4172,8 +4090,28 @@ const card:
   overflow: "visible",
 };
 
-const sectionTitle:
-  CSSProperties = {
+const sectionTitleRow: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent:
+    "space-between",
+  gap: 12,
+  flexWrap: "wrap",
+  marginBottom: 20,
+};
+
+const localLoadingBadge: CSSProperties = {
+  padding: "7px 10px",
+  borderRadius: 999,
+  border:
+    "1px solid #bfdbfe",
+  background: "#eff6ff",
+  color: "#1d4ed8",
+  fontSize: 12,
+  fontWeight: 900,
+};
+
+const sectionTitle: CSSProperties = {
   margin: "0 0 20px 0",
   color: "#0d47a1",
   fontSize: 21,
@@ -4183,16 +4121,14 @@ const sectionTitle:
     "var(--font-almarai), sans-serif",
 };
 
-const fieldWrapper:
-  CSSProperties = {
+const fieldWrapper: CSSProperties = {
   minWidth: 0,
   display: "flex",
   flexDirection: "column",
   gap: 8,
 };
 
-const fieldLabel:
-  CSSProperties = {
+const fieldLabel: CSSProperties = {
   minHeight: 22,
   display: "flex",
   alignItems: "center",
@@ -4203,22 +4139,19 @@ const fieldLabel:
   fontWeight: 900,
 };
 
-const requiredMark:
-  CSSProperties = {
+const requiredMark: CSSProperties = {
   color: "#dc2626",
   fontSize: 16,
   fontWeight: 900,
 };
 
-const fieldHint:
-  CSSProperties = {
+const fieldHint: CSSProperties = {
   color: "#64748b",
   fontSize: 12,
   fontWeight: 700,
 };
 
-const fieldInput:
-  CSSProperties = {
+const fieldInput: CSSProperties = {
   width: "100%",
   minHeight: 56,
   padding: "13px 15px",
@@ -4235,21 +4168,18 @@ const fieldInput:
     "var(--font-almarai), sans-serif",
 };
 
-const textarea:
-  CSSProperties = {
+const textarea: CSSProperties = {
   ...fieldInput,
   minHeight: 125,
   resize: "vertical",
 };
 
-const lookupInputWrapper:
-  CSSProperties = {
+const lookupInputWrapper: CSSProperties = {
   position: "relative",
   width: "100%",
 };
 
-const lookupStatus:
-  CSSProperties = {
+const lookupStatus: CSSProperties = {
   position: "absolute",
   left: 14,
   top: "50%",
@@ -4261,8 +4191,7 @@ const lookupStatus:
   pointerEvents: "none",
 };
 
-const foundStatusBadge:
-  CSSProperties = {
+const foundStatusBadge: CSSProperties = {
   position: "absolute",
   left: 10,
   top: "50%",
@@ -4279,14 +4208,12 @@ const foundStatusBadge:
   pointerEvents: "none",
 };
 
-const selectWrapper:
-  CSSProperties = {
+const selectWrapper: CSSProperties = {
   position: "relative",
   width: "100%",
 };
 
-const selectButton:
-  CSSProperties = {
+const selectButton: CSSProperties = {
   width: "100%",
   minHeight: 56,
   padding: "12px 15px",
@@ -4310,15 +4237,13 @@ const selectButton:
     "0 2px 5px rgba(15,23,42,0.025)",
 };
 
-const selectButtonOpen:
-  CSSProperties = {
+const selectButtonOpen: CSSProperties = {
   borderColor: "#3b82f6",
   boxShadow:
     "0 0 0 4px rgba(59,130,246,0.11)",
 };
 
-const selectValue:
-  CSSProperties = {
+const selectValue: CSSProperties = {
   color: "#0f172a",
   fontSize: 15,
   fontWeight: 800,
@@ -4327,15 +4252,13 @@ const selectValue:
   whiteSpace: "nowrap",
 };
 
-const selectPlaceholder:
-  CSSProperties = {
+const selectPlaceholder: CSSProperties = {
   color: "#64748b",
   fontSize: 15,
   fontWeight: 700,
 };
 
-const selectArrow:
-  CSSProperties = {
+const selectArrow: CSSProperties = {
   color: "#2563eb",
   fontSize: 11,
   transition:
@@ -4343,8 +4266,7 @@ const selectArrow:
   flex: "0 0 auto",
 };
 
-const selectOptionsMenu:
-  CSSProperties = {
+const selectOptionsMenu: CSSProperties = {
   position: "fixed",
   maxHeight: 280,
   overflowY: "auto",
@@ -4359,8 +4281,7 @@ const selectOptionsMenu:
   boxSizing: "border-box",
 };
 
-const selectOptionButton:
-  CSSProperties = {
+const selectOptionButton: CSSProperties = {
   width: "100%",
   minHeight: 46,
   border: "none",
@@ -4377,21 +4298,18 @@ const selectOptionButton:
     "var(--font-almarai), sans-serif",
 };
 
-const selectedOptionButton:
-  CSSProperties = {
+const selectedOptionButton: CSSProperties = {
   background:
     "linear-gradient(135deg,#2563eb,#0ea5e9)",
   color: "#ffffff",
 };
 
-const disabledOptionButton:
-  CSSProperties = {
+const disabledOptionButton: CSSProperties = {
   opacity: 0.5,
   cursor: "not-allowed",
 };
 
-const emptyOption:
-  CSSProperties = {
+const emptyOption: CSSProperties = {
   padding: 14,
   color: "#64748b",
   textAlign: "center",
@@ -4399,8 +4317,7 @@ const emptyOption:
   fontWeight: 800,
 };
 
-const datePickerButton:
-  CSSProperties = {
+const datePickerButton: CSSProperties = {
   ...fieldInput,
   cursor: "pointer",
   display: "flex",
@@ -4413,20 +4330,17 @@ const datePickerButton:
   color: "#2563eb",
 };
 
-const datePickerValue:
-  CSSProperties = {
+const datePickerValue: CSSProperties = {
   color: "#0f172a",
   fontWeight: 800,
 };
 
-const datePickerPlaceholder:
-  CSSProperties = {
+const datePickerPlaceholder: CSSProperties = {
   color: "#64748b",
   fontWeight: 700,
 };
 
-const calendarOverlay:
-  CSSProperties = {
+const calendarOverlay: CSSProperties = {
   position: "fixed",
   inset: 0,
   zIndex: 200000,
@@ -4439,8 +4353,7 @@ const calendarOverlay:
   backdropFilter: "blur(5px)",
 };
 
-const calendarModal:
-  CSSProperties = {
+const calendarModal: CSSProperties = {
   width: "100%",
   maxWidth: 430,
   padding: 20,
@@ -4455,8 +4368,7 @@ const calendarModal:
     "var(--font-almarai), sans-serif",
 };
 
-const calendarHeader:
-  CSSProperties = {
+const calendarHeader: CSSProperties = {
   display: "grid",
   gridTemplateColumns:
     "48px 1fr 48px",
@@ -4465,8 +4377,7 @@ const calendarHeader:
   marginBottom: 18,
 };
 
-const calendarNavigationButton:
-  CSSProperties = {
+const calendarNavigationButton: CSSProperties = {
   width: 48,
   height: 48,
   border: "none",
@@ -4478,16 +4389,14 @@ const calendarNavigationButton:
   fontWeight: 900,
 };
 
-const calendarMonthTitle:
-  CSSProperties = {
+const calendarMonthTitle: CSSProperties = {
   textAlign: "center",
   color: "#0f172a",
   fontSize: 18,
   fontWeight: 900,
 };
 
-const calendarWeekGrid:
-  CSSProperties = {
+const calendarWeekGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns:
     "repeat(7, 1fr)",
@@ -4495,8 +4404,7 @@ const calendarWeekGrid:
   marginBottom: 8,
 };
 
-const calendarWeekDay:
-  CSSProperties = {
+const calendarWeekDay: CSSProperties = {
   textAlign: "center",
   color: "#64748b",
   fontSize: 13,
@@ -4504,16 +4412,14 @@ const calendarWeekDay:
   padding: "6px 0",
 };
 
-const calendarDaysGrid:
-  CSSProperties = {
+const calendarDaysGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns:
     "repeat(7, 1fr)",
   gap: 6,
 };
 
-const calendarDayButton:
-  CSSProperties = {
+const calendarDayButton: CSSProperties = {
   aspectRatio: "1 / 1",
   minHeight: 42,
   border: "none",
@@ -4527,15 +4433,13 @@ const calendarDayButton:
     "var(--font-almarai), sans-serif",
 };
 
-const calendarTodayButton:
-  CSSProperties = {
+const calendarTodayButton: CSSProperties = {
   border:
     "1.5px solid #22c55e",
   color: "#15803d",
 };
 
-const calendarSelectedButton:
-  CSSProperties = {
+const calendarSelectedButton: CSSProperties = {
   background:
     "linear-gradient(135deg,#2563eb,#0ea5e9)",
   color: "#ffffff",
@@ -4544,8 +4448,7 @@ const calendarSelectedButton:
     "0 6px 14px rgba(37,99,235,0.24)",
 };
 
-const calendarFooter:
-  CSSProperties = {
+const calendarFooter: CSSProperties = {
   display: "grid",
   gridTemplateColumns:
     "1fr 1fr",
@@ -4553,8 +4456,7 @@ const calendarFooter:
   marginTop: 18,
 };
 
-const calendarTodayAction:
-  CSSProperties = {
+const calendarTodayAction: CSSProperties = {
   minHeight: 46,
   border: "none",
   borderRadius: 13,
@@ -4568,8 +4470,7 @@ const calendarTodayAction:
     "var(--font-almarai), sans-serif",
 };
 
-const calendarCancelAction:
-  CSSProperties = {
+const calendarCancelAction: CSSProperties = {
   minHeight: 46,
   border:
     "1px solid #cbd5e1",
@@ -4583,8 +4484,7 @@ const calendarCancelAction:
     "var(--font-almarai), sans-serif",
 };
 
-const stockInfo:
-  CSSProperties = {
+const stockInfo: CSSProperties = {
   width: "100%",
   minHeight: 56,
   boxSizing: "border-box",
@@ -4600,8 +4500,7 @@ const stockInfo:
   fontWeight: 900,
 };
 
-const stockDanger:
-  CSSProperties = {
+const stockDanger: CSSProperties = {
   ...stockInfo,
   background: "#fef2f2",
   color: "#991b1b",
@@ -4609,16 +4508,14 @@ const stockDanger:
     "1.5px solid #fecaca",
 };
 
-const creationModeGrid:
-  CSSProperties = {
+const creationModeGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns:
     "repeat(auto-fit,minmax(260px,1fr))",
   gap: 14,
 };
 
-const creationModeButton:
-  CSSProperties = {
+const creationModeButton: CSSProperties = {
   minHeight: 116,
   padding: 18,
   borderRadius: 17,
@@ -4640,8 +4537,7 @@ const creationModeButton:
     "var(--font-almarai), sans-serif",
 };
 
-const creationModeButtonActive:
-  CSSProperties = {
+const creationModeButtonActive: CSSProperties = {
   borderColor: "#2563eb",
   background:
     "linear-gradient(135deg,#eff6ff,#e0f2fe)",
@@ -4650,20 +4546,17 @@ const creationModeButtonActive:
   color: "#0d47a1",
 };
 
-const creationModeButtonDisabled:
-  CSSProperties = {
+const creationModeButtonDisabled: CSSProperties = {
   opacity: 0.55,
   cursor: "not-allowed",
 };
 
-const permissionText:
-  CSSProperties = {
+const permissionText: CSSProperties = {
   color: "#b91c1c",
   fontWeight: 900,
 };
 
-const primaryButton:
-  CSSProperties = {
+const primaryButton: CSSProperties = {
   width: "100%",
   minHeight: 56,
   marginTop: 18,
@@ -4681,31 +4574,14 @@ const primaryButton:
     "var(--font-almarai), sans-serif",
 };
 
-const secondaryButton:
-  CSSProperties = {
-  marginTop: 18,
-  padding: "11px 18px",
-  border: "none",
-  borderRadius: 12,
-  background:
-    "linear-gradient(135deg,#22c55e,#15803d)",
-  color: "#ffffff",
-  cursor: "pointer",
-  fontWeight: 900,
-  fontFamily:
-    "var(--font-almarai), sans-serif",
-};
-
-const backWrapper:
-  CSSProperties = {
+const backWrapper: CSSProperties = {
   display: "flex",
   justifyContent: "center",
   marginTop: 18,
   marginBottom: 12,
 };
 
-const backButton:
-  CSSProperties = {
+const backButton: CSSProperties = {
   padding: "11px 20px",
   background:
     "linear-gradient(135deg,#22c55e,#15803d)",
@@ -4719,30 +4595,4 @@ const backButton:
     "0 5px 14px rgba(22,163,74,0.22)",
   fontFamily:
     "var(--font-almarai), sans-serif",
-};
-
-const loadingCard:
-  CSSProperties = {
-  maxWidth: 620,
-  margin: "80px auto",
-  padding: 28,
-  borderRadius: 18,
-  background: "#ffffff",
-  border:
-    "1px solid #d9e3f5",
-  color: "#0d47a1",
-  fontSize: 17,
-  fontWeight: 900,
-  textAlign: "center",
-  boxShadow:
-    "0 12px 30px rgba(15,23,42,0.06)",
-};
-
-const errorCard:
-  CSSProperties = {
-  ...loadingCard,
-  color: "#991b1b",
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
 };
