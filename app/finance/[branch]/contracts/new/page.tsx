@@ -2104,7 +2104,7 @@ export default function NewFinanceContractPage() {
             </Field>
 
             <Field
-              label="مبلغ الدين"
+              label="مبلغ الدين (القيمه المسلّمه للعميل )"
               required
             >
               <input
@@ -2123,7 +2123,7 @@ export default function NewFinanceContractPage() {
             </Field>
 
             <Field
-              label="مبلغ السداد"
+              label="مبلغ السداد (المطلوب سداده )"
               required
             >
               <input
