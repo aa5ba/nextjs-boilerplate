@@ -170,6 +170,26 @@ function getMonthOptions() {
   return options;
 }
 
+function getErrorMessage(
+  error: unknown,
+  fallback: string
+) {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof (error as { message?: unknown }).message === "string"
+  ) {
+    return (error as { message: string }).message;
+  }
+
+  return fallback;
+}
+
 export default function ExpensesPage() {
   const params = useParams();
   const router = useRouter();
@@ -817,47 +837,36 @@ export default function ExpensesPage() {
     try {
       setProcessLoadingId(invoice.id);
 
-      const processedAt =
-        new Date().toISOString();
+      const { data, error } = await supabase.rpc(
+        "process_expense_invoice_atomic",
+        {
+          p_branch_id: branchId,
+          p_invoice_id: invoice.id,
+          p_actor_user_id: currentUserId,
+        }
+      );
 
-      const { data, error } = await supabase
-        .from("finance_expense_invoices")
-        .update({
-          processing_status: "processed",
-          processed_at: processedAt,
-          processed_by_user_id: currentUserId,
-          processed_by_name: employeeName,
-          updated_at: processedAt,
-        })
-        .eq("id", invoice.id)
-        .eq("branch_id", branchId)
-        .eq("processing_status", "pending")
-        .select(
-          `
-            id,
-            processing_status,
-            processed_at,
-            processed_by_user_id,
-            processed_by_name
-          `
-        );
+      if (error) {
+        throw error;
+      }
 
-      if (error) throw error;
-
-      if (!data || data.length === 0) {
+      if (
+        !Array.isArray(data) ||
+        data.length === 0
+      ) {
         throw new Error(
-          "لم تتم معالجة الفاتورة. ربما تمت معالجتها مسبقًا أو أنها تابعة لفرع آخر."
+          "لم تتم معالجة الفاتورة."
         );
       }
 
       await loadInvoices();
     } catch (error: unknown) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "حدث خطأ أثناء معالجة الفاتورة.";
-
-      alert(message);
+      alert(
+        getErrorMessage(
+          error,
+          "حدث خطأ أثناء معالجة الفاتورة."
+        )
+      );
     } finally {
       setProcessLoadingId(null);
     }
@@ -866,7 +875,12 @@ export default function ExpensesPage() {
   async function deleteInvoice(
     invoice: ExpenseInvoice
   ) {
-    if (!branchId) return;
+    if (!branchId || !currentUserId) {
+      alert(
+        "تعذر تحديد الفرع أو حساب الموظف."
+      );
+      return;
+    }
 
     if (!canDeleteInvoice(invoice)) {
       alert(
@@ -884,38 +898,25 @@ export default function ExpensesPage() {
     try {
       setDeleteLoadingId(invoice.id);
 
-      let deleteQuery = supabase
-        .from("finance_expense_invoices")
-        .delete()
-        .eq("id", invoice.id)
-        .eq("branch_id", branchId);
-
-      if (
-        !isManager &&
-        !hasPermission(
-          EXPENSE_PERMISSIONS.DELETE_ALL
-        )
-      ) {
-        if (!currentUserId) {
-          throw new Error(
-            "تعذر تحديد حساب الموظف الحالي."
-          );
+      const { data, error } = await supabase.rpc(
+        "delete_expense_invoice_atomic",
+        {
+          p_branch_id: branchId,
+          p_invoice_id: invoice.id,
+          p_actor_user_id: currentUserId,
         }
+      );
 
-        deleteQuery = deleteQuery.eq(
-          "created_by_user_id",
-          currentUserId
-        );
+      if (error) {
+        throw error;
       }
 
-      const { data, error } =
-        await deleteQuery.select("id");
-
-      if (error) throw error;
-
-      if (!data || data.length === 0) {
+      if (
+        !Array.isArray(data) ||
+        data.length === 0
+      ) {
         throw new Error(
-          "لم يتم حذف الفاتورة. قد تكون الفاتورة من فرع آخر أو ليست لديك صلاحية حذفها."
+          "لم يتم حذف الفاتورة."
         );
       }
 
@@ -930,12 +931,12 @@ export default function ExpensesPage() {
         await loadInvoices();
       }
     } catch (error: unknown) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "حدث خطأ أثناء حذف الفاتورة.";
-
-      alert(message);
+      alert(
+        getErrorMessage(
+          error,
+          "حدث خطأ أثناء حذف الفاتورة."
+        )
+      );
     } finally {
       setDeleteLoadingId(null);
     }
@@ -1726,9 +1727,7 @@ export default function ExpensesPage() {
                               >
                                 {isProcessing
                                   ? "جاري المعالجة..."
-                                  : isProcessed
-                                    ? "تمت المعالجة"
-                                    : "تمت المعالجة"}
+                                  : "تمت المعالجة"}
                               </button>
                             )}
 
