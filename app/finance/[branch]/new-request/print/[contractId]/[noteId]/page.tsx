@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useState,
 } from "react";
 import type { CSSProperties } from "react";
@@ -13,6 +14,11 @@ import {
 } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
+
+type BeneficiaryType =
+  | "organization"
+  | "investor"
+  | "other";
 
 type CustomerRelation = {
   id?: string | null;
@@ -40,7 +46,9 @@ type BranchRecord = {
   branch_slug?: string | null;
   branch_name?: string | null;
   organization_name?: string | null;
+  organization_phone?: string | null;
   phone?: string | null;
+  organization_address?: string | null;
   city?: string | null;
   commercial_record?: string | null;
   is_active?: boolean | null;
@@ -109,26 +117,72 @@ type PromissoryNoteRecord = {
   id: string;
   branch_id?: string | null;
   contract_id?: string | null;
+  customer_id?: string | null;
 
   note_number?: string | number | null;
-  amount?: number | string | null;
-  due_date?: string | null;
+  note_mode?: string | null;
+
+  beneficiary_type?: BeneficiaryType | null;
+  beneficiary_investor_id?: string | null;
+  beneficiary_customer_id?: string | null;
+  beneficiary_name?: string | null;
+  beneficiary_identifier?: string | null;
+  beneficiary_phone?: string | null;
+  beneficiary_birth_date_type?: string | null;
+  beneficiary_birth_hijri?: string | null;
+  beneficiary_birth_gregorian?: string | null;
+  beneficiary_nationality?: string | null;
+  beneficiary_address?: string | null;
+  beneficiary_work_name?: string | null;
+  beneficiary_identity_source?: string | null;
+  beneficiary_notes?: string | null;
 
   debtor_name?: string | null;
   debtor_national_id?: string | null;
   debtor_phone?: string | null;
+  debtor_birth_date_type?: string | null;
+  debtor_birth_hijri?: string | null;
+  debtor_birth_gregorian?: string | null;
+  debtor_nationality?: string | null;
+  debtor_address?: string | null;
+  debtor_work_name?: string | null;
+  debtor_identity_source?: string | null;
+  debtor_notes?: string | null;
 
-  note_issue_date_gregorian?: string | null;
-  note_date_gregorian?: string | null;
+  amount?: number | string | null;
+  amount_words?: string | null;
 
   city?: string | null;
   notes?: string | null;
+  status?: string | null;
+
+  due_date?: string | null;
+  due_phrase?: string | null;
+
+  note_issue_date_gregorian?: string | null;
+  note_issue_date_hijri?: string | null;
+  note_date_gregorian?: string | null;
+  note_date_hijri?: string | null;
 
   has_guarantor?: boolean | null;
+  guarantor_customer_id?: string | null;
   guarantor_name?: string | null;
   guarantor_national_id?: string | null;
   guarantor_phone?: string | null;
+  guarantor_work_name?: string | null;
+  guarantor_birth_date_type?: string | null;
   guarantor_birth_hijri?: string | null;
+  guarantor_birth_gregorian?: string | null;
+  guarantor_nationality?: string | null;
+  guarantor_address?: string | null;
+  guarantor_identity_source?: string | null;
+  guarantor_notes?: string | null;
+
+  created_by?: string | null;
+  created_at?: string | null;
+
+  legal_body_text?: string | null;
+  legal_footer_text?: string | null;
 };
 
 type OrganizationSettings = {
@@ -137,9 +191,6 @@ type OrganizationSettings = {
   city: string;
   commercialRecord: string;
 };
-
-const SESSION_DURATION_MS = 60 * 60 * 1000;
-const ACTIVITY_REFRESH_INTERVAL_MS = 60 * 1000;
 
 const SESSION_KEYS = [
   "finance_user",
@@ -160,6 +211,12 @@ const SESSION_KEYS = [
   "finance_last_activity_at",
   "finance_return_to",
 ] as const;
+
+const FIXED_DUE_PHRASE =
+  "وتستحق الدفع عند الطلب";
+
+const LEGAL_FOOTER_TEXT =
+  "هذا السند واجب الدفع بموجب قرار مجلس الوزراء رقم ٦٩٢ و تاريخ ٢٦ / ٩ / ١٣٨٣ هـ\nوالمتوج بالمرسوم الملكي رقم ٣٧ و تاريخ ١١ / ١٠ / ١٣٨٣ هـ / نظام الأوراق التجاريه - ويسري على هذا السند جميع القرارات والأنظمه والتنظيمات في المملكة العربية السعودية";
 
 export default function PrintNewRequestPage() {
   const params = useParams();
@@ -189,6 +246,9 @@ export default function PrintNewRequestPage() {
 
   const [branchId, setBranchId] =
     useState<string | null>(null);
+
+  const [branchData, setBranchData] =
+    useState<BranchRecord | null>(null);
 
   const [contract, setContract] =
     useState<ContractRecord | null>(null);
@@ -269,72 +329,27 @@ export default function PrintNewRequestPage() {
     }
   }
 
-  function isValidSession(
-    session: FinanceSession | null
-  ) {
-    if (!session) {
-      return false;
-    }
-
-    const userId = String(
-      session.id ||
-        session.user_id ||
-        ""
-    ).trim();
-
-    const sessionBranchSlug = String(
-      session.branch_slug || ""
-    ).trim();
-
-    if (
-      !userId ||
-      !sessionBranchSlug
-    ) {
-      return false;
-    }
-
-    if (
-      session.is_active === false
-    ) {
-      return false;
-    }
-
-    const expiresAt = Number(
-      localStorage.getItem(
-        "finance_session_expires_at"
-      ) || 0
-    );
-
-    if (
-      expiresAt > 0 &&
-      Date.now() >= expiresAt
-    ) {
-      return false;
-    }
-
-    return true;
-  }
-
-  function renewFinanceSession() {
+  function clearFinanceSession({
+    preserveReturnPath = false,
+  }: {
+    preserveReturnPath?: boolean;
+  } = {}) {
     if (
       typeof window === "undefined"
     ) {
       return;
     }
 
-    const now = Date.now();
+    SESSION_KEYS.forEach((key) => {
+      if (
+        preserveReturnPath &&
+        key === "finance_return_to"
+      ) {
+        return;
+      }
 
-    localStorage.setItem(
-      "finance_last_activity_at",
-      String(now)
-    );
-
-    localStorage.setItem(
-      "finance_session_expires_at",
-      String(
-        now + SESSION_DURATION_MS
-      )
-    );
+      localStorage.removeItem(key);
+    });
   }
 
   function getCurrentReturnPath() {
@@ -371,29 +386,6 @@ export default function PrintNewRequestPage() {
     return true;
   }
 
-  function clearSession({
-    preserveReturnPath = false,
-  }: {
-    preserveReturnPath?: boolean;
-  } = {}) {
-    if (
-      typeof window === "undefined"
-    ) {
-      return;
-    }
-
-    SESSION_KEYS.forEach((key) => {
-      if (
-        preserveReturnPath &&
-        key === "finance_return_to"
-      ) {
-        return;
-      }
-
-      localStorage.removeItem(key);
-    });
-  }
-
   function redirectToLogin(
     preserveReturnPath = true
   ) {
@@ -417,7 +409,7 @@ export default function PrintNewRequestPage() {
       );
     }
 
-    clearSession({
+    clearFinanceSession({
       preserveReturnPath,
     });
 
@@ -481,7 +473,9 @@ export default function PrintNewRequestPage() {
                 branch_slug,
                 branch_name,
                 organization_name,
+                organization_phone,
                 phone,
+                organization_address,
                 city,
                 commercial_record,
                 is_active
@@ -538,7 +532,75 @@ export default function PrintNewRequestPage() {
             .from(
               "finance_promissory_notes"
             )
-            .select("*")
+            .select(
+              `
+                id,
+                note_number,
+                branch_id,
+                contract_id,
+                customer_id,
+                note_mode,
+
+                beneficiary_type,
+                beneficiary_investor_id,
+                beneficiary_customer_id,
+                beneficiary_name,
+                beneficiary_identifier,
+                beneficiary_phone,
+                beneficiary_birth_date_type,
+                beneficiary_birth_hijri,
+                beneficiary_birth_gregorian,
+                beneficiary_nationality,
+                beneficiary_address,
+                beneficiary_work_name,
+                beneficiary_identity_source,
+                beneficiary_notes,
+
+                debtor_name,
+                debtor_national_id,
+                debtor_phone,
+                debtor_birth_date_type,
+                debtor_birth_hijri,
+                debtor_birth_gregorian,
+                debtor_nationality,
+                debtor_address,
+                debtor_work_name,
+                debtor_identity_source,
+                debtor_notes,
+
+                amount,
+                amount_words,
+                city,
+                notes,
+                status,
+                due_date,
+                due_phrase,
+
+                note_issue_date_gregorian,
+                note_issue_date_hijri,
+                note_date_gregorian,
+                note_date_hijri,
+
+                has_guarantor,
+                guarantor_customer_id,
+                guarantor_name,
+                guarantor_national_id,
+                guarantor_phone,
+                guarantor_work_name,
+                guarantor_birth_date_type,
+                guarantor_birth_hijri,
+                guarantor_birth_gregorian,
+                guarantor_nationality,
+                guarantor_address,
+                guarantor_identity_source,
+                guarantor_notes,
+
+                created_by,
+                created_at,
+                legal_body_text,
+                legal_footer_text
+              `
+            )
             .eq("id", noteId)
             .eq(
               "contract_id",
@@ -595,29 +657,33 @@ export default function PrintNewRequestPage() {
           );
         }
 
-        const branchData =
+        const loadedBranch =
           branchResult.data as BranchRecord;
 
         const organizationName =
-          branchData.organization_name ||
+          loadedBranch.organization_name ||
           localStorage.getItem(
             "finance_organization_name"
           ) ||
           "احتساب";
 
+        setBranchData(loadedBranch);
+
         setOrganizationSettings({
           name: organizationName,
 
           phone:
-            branchData.phone || "",
+            loadedBranch.organization_phone ||
+            loadedBranch.phone ||
+            "",
 
           city:
-            branchData.city ||
-            branchData.branch_name ||
+            loadedBranch.city ||
+            loadedBranch.branch_name ||
             "",
 
           commercialRecord:
-            branchData.commercial_record ||
+            loadedBranch.commercial_record ||
             "",
         });
 
@@ -678,150 +744,6 @@ export default function PrintNewRequestPage() {
   );
 
   useEffect(() => {
-    const style =
-      document.createElement("style");
-
-    style.innerHTML = `
-      @page {
-        size: A4 portrait;
-        margin: 8mm;
-      }
-
-      * {
-        box-sizing: border-box;
-      }
-
-      html,
-      body {
-        margin: 0;
-        min-height: 100%;
-        overflow-x: hidden;
-      }
-
-      button {
-        font-family:
-          var(--font-almarai),
-          sans-serif;
-        -webkit-tap-highlight-color:
-          transparent;
-      }
-
-      @media print {
-        html,
-        body {
-          width: 210mm !important;
-          margin: 0 !important;
-          padding: 0 !important;
-          background: #ffffff !important;
-          overflow: visible !important;
-          -webkit-print-color-adjust:
-            exact !important;
-          print-color-adjust:
-            exact !important;
-        }
-
-        .print-page-main {
-          width: 100% !important;
-          min-height: auto !important;
-          margin: 0 !important;
-          padding: 0 !important;
-          background: #ffffff !important;
-          background-image:
-            none !important;
-        }
-
-        .print-action-buttons,
-        .print-loading-message,
-        .print-error-message {
-          display: none !important;
-        }
-
-        .contract-print-area,
-        .note-print-area {
-          width: 194mm !important;
-          height: 281mm !important;
-          min-height: 281mm !important;
-          max-height: 281mm !important;
-          margin: 0 auto !important;
-          padding: 6mm !important;
-          border: none !important;
-          border-radius: 0 !important;
-          box-shadow: none !important;
-          overflow: hidden !important;
-          box-sizing: border-box !important;
-          page-break-inside:
-            avoid !important;
-          break-inside:
-            avoid-page !important;
-        }
-
-        .contract-print-area {
-          page-break-after:
-            always !important;
-          break-after:
-            page !important;
-        }
-
-        .note-print-area {
-          page-break-before:
-            auto !important;
-          break-before:
-            auto !important;
-        }
-
-        .print-document-header,
-        .print-content-box,
-        .print-signatures,
-        .print-guarantor-box,
-        .print-legal-boxes,
-        .print-info-box,
-        .print-paragraph {
-          page-break-inside:
-            avoid !important;
-          break-inside:
-            avoid-page !important;
-        }
-      }
-
-      @media screen and (max-width: 850px) {
-        .contract-print-area,
-        .note-print-area {
-          width: 100% !important;
-          height: auto !important;
-          min-height: 0 !important;
-          max-height: none !important;
-          padding: 18px !important;
-        }
-
-        .print-document-header {
-          grid-template-columns:
-            1fr !important;
-          text-align: center !important;
-        }
-
-        .print-header-left,
-        .print-header-right {
-          text-align:
-            center !important;
-        }
-
-        .print-signatures,
-        .print-legal-boxes,
-        .print-guarantor-grid {
-          grid-template-columns:
-            1fr !important;
-        }
-      }
-    `;
-
-    document.head.appendChild(style);
-
-    return () => {
-      document.head.removeChild(style);
-    };
-  }, []);
-
-  useEffect(() => {
     let cancelled = false;
 
     async function initializePage() {
@@ -840,9 +762,11 @@ export default function PrintNewRequestPage() {
         !noteId
       ) {
         setPageReady(true);
+
         setPageError(
           "رابط العقد أو السند غير مكتمل"
         );
+
         setLoading(false);
         return;
       }
@@ -850,39 +774,62 @@ export default function PrintNewRequestPage() {
       const session =
         readStoredSession();
 
-      if (!isValidSession(session)) {
+      if (!session) {
         redirectToLogin(true);
         return;
       }
 
-      const sessionBranchSlug =
+      if (
+        session.is_active === false
+      ) {
+        redirectToLogin(true);
+        return;
+      }
+
+      const employeeId = String(
+        session.id ||
+          session.user_id ||
+          localStorage.getItem(
+            "finance_user_id"
+          ) ||
+          ""
+      ).trim();
+
+      if (!employeeId) {
+        redirectToLogin(true);
+        return;
+      }
+
+      const storedBranchSlug =
         String(
-          session?.branch_slug || ""
+          session.branch_slug ||
+            localStorage.getItem(
+              "finance_branch_slug"
+            ) ||
+            ""
         ).trim();
 
       if (
-        sessionBranchSlug !== branch
+        storedBranchSlug &&
+        storedBranchSlug !== branch
       ) {
         router.replace(
-          `/finance/${sessionBranchSlug}`
+          `/finance/${storedBranchSlug}`
         );
 
         return;
       }
 
-      renewFinanceSession();
       setPageReady(true);
 
-      const storedBranchId = String(
-        session?.branch_id ||
-          localStorage.getItem(
-            "finance_branch_id"
-          ) ||
-          ""
-      ).trim();
-
       let resolvedBranchId =
-        storedBranchId;
+        String(
+          session.branch_id ||
+            localStorage.getItem(
+              "finance_branch_id"
+            ) ||
+            ""
+        ).trim();
 
       if (!resolvedBranchId) {
         try {
@@ -959,75 +906,158 @@ export default function PrintNewRequestPage() {
   ]);
 
   useEffect(() => {
-    if (
-      !pageReady ||
-      typeof window === "undefined"
-    ) {
-      return;
-    }
+    const style =
+      document.createElement("style");
 
-    let lastRefresh = 0;
+    style.setAttribute(
+      "data-contract-note-print",
+      "true"
+    );
 
-    function handleActivity() {
-      const now = Date.now();
-
-      if (
-        now - lastRefresh <
-        ACTIVITY_REFRESH_INTERVAL_MS
-      ) {
-        return;
+    style.innerHTML = `
+      @page {
+        size: A4 portrait;
+        margin: 0;
       }
 
-      lastRefresh = now;
-      renewFinanceSession();
-    }
+      * {
+        box-sizing: border-box;
+      }
 
-    const events:
-      Array<keyof WindowEventMap> = [
-      "pointerdown",
-      "keydown",
-      "scroll",
-      "touchstart",
-    ];
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        overflow-x: hidden;
+      }
 
-    events.forEach((eventName) => {
-      window.addEventListener(
-        eventName,
-        handleActivity,
-        { passive: true }
-      );
-    });
+      button {
+        font-family:
+          var(--font-almarai),
+          sans-serif;
+        -webkit-tap-highlight-color:
+          transparent;
+      }
 
-    const timer =
-      window.setInterval(() => {
-        const expiresAt = Number(
-          localStorage.getItem(
-            "finance_session_expires_at"
-          ) || 0
-        );
-
-        if (
-          expiresAt > 0 &&
-          Date.now() >= expiresAt
-        ) {
-          redirectToLogin(true);
+      @media print {
+        html,
+        body {
+          width: 210mm !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #ffffff !important;
+          overflow: visible !important;
+          -webkit-print-color-adjust:
+            exact !important;
+          print-color-adjust:
+            exact !important;
         }
-      }, 30 * 1000);
+
+        .print-page-main {
+          width: 100% !important;
+          min-height: auto !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #ffffff !important;
+          background-image:
+            none !important;
+        }
+
+        .print-action-buttons,
+        .print-loading-message,
+        .print-error-message {
+          display: none !important;
+        }
+
+        .contract-print-area,
+        .note-print-area {
+          width: 210mm !important;
+          height: 297mm !important;
+          min-height: 297mm !important;
+          max-height: 297mm !important;
+          margin: 0 !important;
+          border: none !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
+          overflow: hidden !important;
+          box-sizing: border-box !important;
+          page-break-inside:
+            avoid !important;
+          break-inside:
+            avoid-page !important;
+        }
+
+        .contract-print-area {
+          padding: 8mm 10mm !important;
+          page-break-after:
+            always !important;
+          break-after:
+            page !important;
+        }
+
+        .note-print-area {
+          padding: 8mm 10mm !important;
+          page-break-before:
+            auto !important;
+          break-before:
+            auto !important;
+        }
+
+        .print-document-header,
+        .print-content-box,
+        .print-signatures,
+        .print-guarantor-box,
+        .note-document-header,
+        .note-legal-body,
+        .note-party-grid,
+        .note-signature-grid,
+        .note-guarantor-box,
+        .note-legal-footer {
+          page-break-inside:
+            avoid !important;
+          break-inside:
+            avoid-page !important;
+        }
+      }
+
+      @media screen and (max-width: 850px) {
+        .contract-print-area,
+        .note-print-area {
+          width: 100% !important;
+          height: auto !important;
+          min-height: 0 !important;
+          max-height: none !important;
+          padding: 18px !important;
+        }
+
+        .print-document-header {
+          grid-template-columns:
+            1fr !important;
+          text-align: center !important;
+        }
+
+        .print-header-left,
+        .print-header-right {
+          text-align:
+            center !important;
+        }
+
+        .print-signatures,
+        .print-guarantor-grid,
+        .note-party-grid,
+        .note-guarantor-grid {
+          grid-template-columns:
+            1fr !important;
+        }
+      }
+    `;
+
+    document.head.appendChild(style);
 
     return () => {
-      events.forEach((eventName) => {
-        window.removeEventListener(
-          eventName,
-          handleActivity
-        );
-      });
-
-      window.clearInterval(timer);
+      document.head.removeChild(style);
     };
-  }, [
-    pageReady,
-    pathname,
-  ]);
+  }, []);
 
   function retryLoading() {
     if (!branchId) {
@@ -1055,88 +1085,6 @@ export default function PrintNewRequestPage() {
     return relation || null;
   }
 
-  function formatMoney(
-    value: unknown
-  ) {
-    const number = Number(
-      value || 0
-    );
-
-    if (!Number.isFinite(number)) {
-      return "0.00";
-    }
-
-    return number.toLocaleString(
-      "en-US",
-      {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }
-    );
-  }
-
-  function formatDateOnly(
-    value?: string | null
-  ) {
-    if (!value) {
-      return "-";
-    }
-
-    const directMatch =
-      /^(\d{4})-(\d{2})-(\d{2})$/.exec(
-        value
-      );
-
-    if (directMatch) {
-      return `${directMatch[3]}/${directMatch[2]}/${directMatch[1]}`;
-    }
-
-    const parsedDate =
-      new Date(value);
-
-    if (
-      Number.isNaN(
-        parsedDate.getTime()
-      )
-    ) {
-      return String(value);
-    }
-
-    return new Intl.DateTimeFormat(
-      "en-GB-u-ca-gregory",
-      {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-      }
-    ).format(parsedDate);
-  }
-
-  function isWithoutGuarantor(
-    value?: string | null
-  ) {
-    const normalized = String(
-      value || ""
-    )
-      .trim()
-      .toLowerCase();
-
-    if (!normalized) {
-      return false;
-    }
-
-    return [
-      "بدون كفيل",
-      "لا يوجد كفيل",
-      "لايوجد كفيل",
-      "لا يوجد",
-      "لايوجد",
-      "بدون",
-      "none",
-      "no guarantor",
-    ].includes(normalized);
-  }
-
   function printDocuments() {
     if (
       loading ||
@@ -1151,7 +1099,6 @@ export default function PrintNewRequestPage() {
       return;
     }
 
-    renewFinanceSession();
     window.print();
   }
 
@@ -1237,12 +1184,12 @@ export default function PrintNewRequestPage() {
     );
 
   const noteIssueDate =
-    formatDateOnly(
-      note?.note_issue_date_gregorian ||
-        note?.note_date_gregorian ||
-        contract?.contract_issue_date_gregorian ||
-        contract?.contract_date_gregorian
-    );
+    note?.note_issue_date_gregorian ||
+    note?.note_date_gregorian ||
+    note?.created_at ||
+    contract?.contract_issue_date_gregorian ||
+    contract?.contract_date_gregorian ||
+    null;
 
   const rawDueDate =
     contract?.payment_due_date ||
@@ -1251,12 +1198,6 @@ export default function PrintNewRequestPage() {
 
   const dueDate =
     formatDateOnly(rawDueDate);
-
-  const noteDueDate =
-    formatDateOnly(
-      note?.due_date ||
-        contract?.payment_due_date
-    );
 
   const installmentAmount =
     Number(
@@ -1317,6 +1258,49 @@ export default function PrintNewRequestPage() {
     note?.guarantor_birth_hijri ||
     "................";
 
+  const beneficiaryName =
+    note?.beneficiary_name?.trim() ||
+    firstPartyName ||
+    "................";
+
+  const beneficiaryIdentifier =
+    note?.beneficiary_identifier?.trim() ||
+    firstPartyIdentifier ||
+    "";
+
+  const beneficiaryIdentifierLabel =
+    note?.beneficiary_type ===
+      "organization" ||
+    (!note?.beneficiary_type &&
+      !isInvestorParty)
+      ? "السجل التجاري"
+      : "رقم الهوية";
+
+  const noteAmount = Number(
+    note?.amount ||
+      contract?.payment_amount ||
+      contract?.debt_amount ||
+      0
+  );
+
+  const safeNoteAmount =
+    Number.isFinite(noteAmount)
+      ? noteAmount
+      : 0;
+
+  const amountWords =
+    note?.amount_words?.trim() ||
+    amountToArabicWords(
+      safeNoteAmount
+    );
+
+  const noteCity =
+    note?.city ||
+    contract?.legal_city ||
+    branchData?.city ||
+    branchData?.branch_name ||
+    "................";
+
   return (
     <main
       dir="rtl"
@@ -1354,9 +1338,9 @@ export default function PrintNewRequestPage() {
         <>
           <section
             className="contract-print-area"
-            style={printArea}
+            style={contractPrintArea}
           >
-            <PrintHeader
+            <ContractPrintHeader
               title="عقد اتفاق بيع"
               rightInfo={
                 organizationSettings
@@ -1372,21 +1356,15 @@ export default function PrintNewRequestPage() {
 
             <div
               className="print-content-box"
-              style={contentBox}
+              style={contractContentBox}
             >
-              <p
-                className="print-paragraph"
-                style={paragraph}
-              >
+              <p style={contractParagraph}>
                 الحمد لله والصلاة
                 والسلام على من لا نبي
                 بعده، وبعد:
               </p>
 
-              <p
-                className="print-paragraph"
-                style={paragraph}
-              >
+              <p style={contractParagraph}>
                 أقر أنا الموقع أدناه
                 الطرف الثاني /{" "}
                 <strong>
@@ -1425,10 +1403,7 @@ export default function PrintNewRequestPage() {
                 .
               </p>
 
-              <p
-                className="print-paragraph"
-                style={paragraph}
-              >
+              <p style={contractParagraph}>
                 وذلك مقابل /{" "}
                 <strong>
                   {contract.product_name ||
@@ -1448,10 +1423,7 @@ export default function PrintNewRequestPage() {
                 ريال سعودي.
               </p>
 
-              <p
-                className="print-paragraph"
-                style={paragraph}
-              >
+              <p style={contractParagraph}>
                 ويلتزم الطرف الثاني
                 بسداد مبلغ وقدره /{" "}
                 <strong>
@@ -1504,10 +1476,7 @@ export default function PrintNewRequestPage() {
                 )}
               </p>
 
-              <p
-                className="print-paragraph"
-                style={paragraph}
-              >
+              <p style={contractParagraph}>
                 وتكون مدينة التقاضي /{" "}
                 <strong>
                   {contract.legal_city ||
@@ -1520,10 +1489,7 @@ export default function PrintNewRequestPage() {
                 contract.judicial_amount ||
                   0
               ) > 0 && (
-                <p
-                  className="print-paragraph"
-                  style={paragraph}
-                >
+                <p style={contractParagraph}>
                   ويكون المبلغ القضائي
                   المتفق عليه /{" "}
                   <strong>
@@ -1535,10 +1501,7 @@ export default function PrintNewRequestPage() {
                 </p>
               )}
 
-              <p
-                className="print-paragraph"
-                style={paragraph}
-              >
+              <p style={contractParagraph}>
                 كما يقر الطرف الثاني
                 بأنه اطلع على كامل بنود
                 هذا العقد، وأنه ملتزم
@@ -1551,10 +1514,7 @@ export default function PrintNewRequestPage() {
               </p>
 
               {contract.notes && (
-                <p
-                  className="print-paragraph"
-                  style={paragraph}
-                >
+                <p style={contractParagraph}>
                   ملاحظات:{" "}
                   <strong>
                     {contract.notes}
@@ -1565,9 +1525,11 @@ export default function PrintNewRequestPage() {
 
             <div
               className="print-signatures"
-              style={signatures}
+              style={contractSignatures}
             >
-              <div style={signatureBox}>
+              <div
+                style={contractSignatureBox}
+              >
                 <strong>
                   الطرف الأول البائع
                 </strong>
@@ -1592,7 +1554,9 @@ export default function PrintNewRequestPage() {
                 </div>
               </div>
 
-              <div style={signatureBox}>
+              <div
+                style={contractSignatureBox}
+              >
                 <strong>
                   الطرف الثاني المشتري
                 </strong>
@@ -1620,7 +1584,9 @@ export default function PrintNewRequestPage() {
             {hasGuarantor && (
               <div
                 className="print-guarantor-box"
-                style={guarantorBox}
+                style={
+                  contractGuarantorBox
+                }
               >
                 <strong>
                   الكفيل الغارم
@@ -1628,7 +1594,9 @@ export default function PrintNewRequestPage() {
 
                 <div
                   className="print-guarantor-grid"
-                  style={guarantorGrid}
+                  style={
+                    contractGuarantorGrid
+                  }
                 >
                   <div>
                     الاسم /{" "}
@@ -1663,230 +1631,412 @@ export default function PrintNewRequestPage() {
 
           <section
             className="note-print-area"
-            style={secondPrintArea}
+            style={notePrintArea}
           >
-            <PrintHeader
-              title="سند لأمر"
-              rightInfo={
-                organizationSettings
-              }
-              leftItems={[
-                `رقم السند: ${
-                  note.note_number ||
-                  "-"
-                }`,
-                `تاريخ تحرير السند: ${noteIssueDate}`,
-              ]}
-            />
-
-            <div
-              className="print-content-box"
-              style={contentBox}
+            <header
+              className="note-document-header"
+              style={noteDocumentHeader}
             >
-              <p
-                className="print-paragraph"
-                style={paragraph}
+              <div
+                style={noteTopRow}
               >
-                بموجب هذا السند أتعهد
-                أنا الموقع أدناه بأن
-                أدفع لأمر الطرف المستفيد
-                /{" "}
-                <strong>
-                  {firstPartyName}
-                </strong>
+                <div
+                  style={
+                    noteCountryBlock
+                  }
+                >
+                  <strong>
+                    المملكة العربية
+                    السعودية
+                  </strong>
 
-                {firstPartyIdentifier ? (
-                  <>
-                    ،{" "}
-                    {
-                      firstPartyIdentifierLabel
-                    }{" "}
-                    /{" "}
+                  <span>
+                    {branchData?.city ||
+                      branchData?.branch_name ||
+                      "................"}
+                  </span>
+                </div>
+
+                <div
+                  style={noteTopMeta}
+                >
+                  <span>
+                    رقم السند:{" "}
                     <strong>
-                      {
-                        firstPartyIdentifier
-                      }
+                      {formatNoteNumber(
+                        note.note_number ??
+                          null
+                      )}
                     </strong>
-                  </>
-                ) : null}{" "}
-                مبلغًا وقدره{" "}
+                  </span>
+
+                  <span>
+                    تاريخ التحرير:{" "}
+                    <strong>
+                      {formatDisplayDate(
+                        noteIssueDate
+                      )}
+                    </strong>
+                  </span>
+                </div>
+              </div>
+
+              <h1
+                style={noteDocumentTitle}
+              >
+                سند لأمر
+              </h1>
+
+              <div
+                style={
+                  noteDocumentAmountBox
+                }
+              >
+                <span
+                  style={
+                    noteDocumentAmountLabel
+                  }
+                >
+                  قيمة السند
+                </span>
+
+                <strong
+                  style={
+                    noteDocumentAmountValue
+                  }
+                >
+                  {formatMoney(
+                    safeNoteAmount
+                  )}{" "}
+                  ريال سعودي
+                </strong>
+              </div>
+            </header>
+
+            <section
+              className="note-legal-body"
+              style={noteLegalBodySection}
+            >
+              <p style={noteLegalParagraph}>
+                حُرر هذا السند في مدينة{" "}
+                <strong>
+                  {noteCity}
+                </strong>{" "}
+                بتاريخ{" "}
+                <strong>
+                  {formatDisplayDate(
+                    noteIssueDate
+                  )}
+                </strong>{" "}
+                وقيمة السند{" "}
                 <strong>
                   {formatMoney(
-                    note.amount ||
-                      contract.payment_amount ||
-                      contract.debt_amount
+                    safeNoteAmount
                   )}
                 </strong>{" "}
                 ريال سعودي.
               </p>
 
-              <p
-                className="print-paragraph"
-                style={paragraph}
-              >
-                ويستحق هذا المبلغ في
-                تاريخ{" "}
+              <p style={noteLegalParagraph}>
+                بموجب هذا السند أتعهد
+                أنا الموقع أدناه بأن
+                أدفع لأمر{" "}
                 <strong>
-                  {noteDueDate}
+                  {beneficiaryName}
+                </strong>{" "}
+                المستفيد، المبلغ الموضح
+                أعلاه وقدره{" "}
+                <strong>
+                  {amountWords}
                 </strong>
-                ، دون مماطلة أو تأخير،
-                ويعد هذا السند التزامًا
-                واجب الوفاء حسب الأنظمة
-                المعمول بها.
+                .
               </p>
 
-              <div
-                className="print-info-box"
-                style={infoBox}
-              >
-                <div>
-                  اسم المدين /{" "}
-                  {note.debtor_name ||
-                    customerName}
-                </div>
+              <p style={noteLegalParagraph}>
+                وذلك قيمة المبلغ المستحق
+                على المدين للمستفيد،{" "}
+                <strong>
+                  {note.due_phrase ||
+                    FIXED_DUE_PHRASE}
+                </strong>
+                .
+              </p>
 
-                <div>
-                  رقم الهوية /{" "}
-                  {note.debtor_national_id ||
-                    nationalId}
-                </div>
+              <p style={noteLegalParagraph}>
+                وبموجب هذا السند يسقط
+                المدين كافة حقوق التقديم
+                والمطالبة والاحتجاج
+                والإخطار بالامتناع عن
+                الوفاء.
+              </p>
 
-                <div>
-                  رقم الجوال /{" "}
-                  {note.debtor_phone ||
-                    phone}
-                </div>
+              <p style={noteLegalParagraph}>
+                ويجوز لحامل هذا السند
+                المستفيد تقديم وإظهار
+                هذا السند لأي طرف دون
+                موافقة المدين.
+              </p>
 
-                <div>
-                  العنوان /{" "}
-                  {note.city ||
-                    contract.legal_city ||
-                    customer?.address ||
-                    "................"}
-                </div>
+              <p style={noteLegalParagraph}>
+                وللمستفيد حق الرجوع بدون
+                مصروفات أو احتجاج أو
+                إخطار لعدم الوفاء، وهذا
+                السند واجب الدفع دون
+                تعطيل.
+              </p>
+
+              <p style={noteLegalParagraph}>
+                وفي حالة الترافع والنزاع
+                يكون الفصل في المحاكم
+                التنفيذية المختصة في
+                المكان الذي يرغب فيه
+                المدعي.
+              </p>
+            </section>
+
+            <section
+              className="note-party-grid"
+              style={notePartyGrid}
+            >
+              <div style={notePartyBox}>
+                <h2
+                  style={notePartyBoxTitle}
+                >
+                  بيانات المستفيد
+                </h2>
+
+                <NoteDataRow
+                  label="الاسم"
+                  value={beneficiaryName}
+                />
+
+                {beneficiaryIdentifier && (
+                  <NoteDataRow
+                    label={
+                      beneficiaryIdentifierLabel
+                    }
+                    value={
+                      beneficiaryIdentifier
+                    }
+                  />
+                )}
+
+                {note.beneficiary_phone && (
+                  <NoteDataRow
+                    label="رقم الجوال"
+                    value={
+                      note.beneficiary_phone
+                    }
+                  />
+                )}
               </div>
 
-              {note.notes && (
-                <p
-                  className="print-paragraph"
-                  style={paragraph}
+              <div style={notePartyBox}>
+                <h2
+                  style={notePartyBoxTitle}
                 >
-                  ملاحظات:{" "}
-                  <strong>
-                    {note.notes}
-                  </strong>
-                </p>
-              )}
-            </div>
+                  بيانات المدين
+                </h2>
 
-            <div
-              className="print-signatures"
-              style={signatures}
+                <NoteDataRow
+                  label="الاسم"
+                  value={
+                    note.debtor_name ||
+                    customerName
+                  }
+                />
+
+                <NoteDataRow
+                  label="رقم الهوية"
+                  value={
+                    note.debtor_national_id ||
+                    nationalId
+                  }
+                />
+
+                <NoteDataRow
+                  label="رقم الجوال"
+                  value={
+                    note.debtor_phone ||
+                    phone
+                  }
+                />
+
+                {(note.debtor_address ||
+                  customer?.address) && (
+                  <NoteDataRow
+                    label="العنوان"
+                    value={
+                      note.debtor_address ||
+                      customer?.address ||
+                      "................"
+                    }
+                  />
+                )}
+
+                {note.debtor_work_name && (
+                  <NoteDataRow
+                    label="العمل"
+                    value={
+                      note.debtor_work_name
+                    }
+                  />
+                )}
+              </div>
+            </section>
+
+            {note.notes?.trim() && (
+              <section
+                style={noteNotesBox}
+              >
+                <strong
+                  style={noteNotesTitle}
+                >
+                  ملاحظات السند:
+                </strong>
+
+                <span>
+                  {note.notes.trim()}
+                </span>
+              </section>
+            )}
+
+            <section
+              className="note-signature-grid"
+              style={{
+                ...noteSignatureGrid,
+
+                gridTemplateColumns:
+                  hasGuarantor
+                    ? "repeat(2,minmax(0,1fr))"
+                    : "minmax(0,1fr)",
+              }}
             >
-              <div style={signatureBox}>
-                <strong>المدين</strong>
+              <div
+                style={noteSignatureBox}
+              >
+                <h2
+                  style={
+                    noteSignatureTitle
+                  }
+                >
+                  توقيع المدين
+                </h2>
 
-                <div>
-                  الاسم /{" "}
+                <div
+                  style={
+                    noteSignatureName
+                  }
+                >
+                  الاسم:{" "}
                   {note.debtor_name ||
                     customerName}
                 </div>
 
-                <div>
-                  رقم الهوية /{" "}
-                  {note.debtor_national_id ||
-                    nationalId}
-                </div>
-
-                <div>
-                  الجوال /{" "}
-                  {note.debtor_phone ||
-                    phone}
-                </div>
-
-                <div>
-                  التوقيع /
-                  ................
-                </div>
-
-                <div>
-                  البصمة /
-                  ................
+                <div
+                  style={
+                    noteSignatureLine
+                  }
+                >
+                  التوقيع:
                 </div>
               </div>
 
               {hasGuarantor && (
-                <div style={signatureBox}>
-                  <strong>
-                    الكفيل
-                  </strong>
+                <div
+                  style={
+                    noteSignatureBox
+                  }
+                >
+                  <h2
+                    style={
+                      noteSignatureTitle
+                    }
+                  >
+                    توقيع الكفيل
+                  </h2>
 
-                  <div>
-                    الاسم /{" "}
+                  <div
+                    style={
+                      noteSignatureName
+                    }
+                  >
+                    الاسم:{" "}
                     {guarantorName}
                   </div>
 
-                  <div>
-                    رقم الهوية /{" "}
-                    {
-                      guarantorNationalId
+                  <div
+                    style={
+                      noteSignatureLine
                     }
-                  </div>
-
-                  <div>
-                    الجوال /{" "}
-                    {guarantorPhone}
-                  </div>
-
-                  <div>
-                    تاريخ الميلاد /{" "}
-                    {
-                      guarantorBirthHijri
-                    }
-                  </div>
-
-                  <div>
-                    التوقيع /
-                    ................
-                  </div>
-
-                  <div>
-                    البصمة /
-                    ................
+                  >
+                    التوقيع:
                   </div>
                 </div>
               )}
-            </div>
+            </section>
 
-            <div
-              className="print-legal-boxes"
-              style={legalBoxes}
+            {hasGuarantor && (
+              <section
+                className="note-guarantor-box"
+                style={
+                  noteGuarantorDetailsBox
+                }
+              >
+                <h2
+                  style={
+                    noteGuarantorTitle
+                  }
+                >
+                  بيانات الكفيل
+                </h2>
+
+                <div
+                  className="note-guarantor-grid"
+                  style={
+                    noteGuarantorDetailsGrid
+                  }
+                >
+                  <NoteDataRow
+                    label="الاسم"
+                    value={
+                      guarantorName
+                    }
+                  />
+
+                  <NoteDataRow
+                    label="رقم الهوية"
+                    value={
+                      guarantorNationalId
+                    }
+                  />
+
+                  <NoteDataRow
+                    label="رقم الجوال"
+                    value={
+                      guarantorPhone
+                    }
+                  />
+
+                  {note.guarantor_work_name && (
+                    <NoteDataRow
+                      label="العمل"
+                      value={
+                        note.guarantor_work_name
+                      }
+                    />
+                  )}
+                </div>
+              </section>
+            )}
+
+            <footer
+              className="note-legal-footer"
+              style={noteLegalFooterBox}
             >
-              <div style={legalBox}>
-                هذا السند واجب الدفع
-                بدون تعامل بموجب قرار
-                مجلس الوزراء الموقر رقم
-                692 بتاريخ 1383/9/26 هـ
-                والمتوج بالمرسوم الملكي
-                الكريم رقم 37 بتاريخ
-                1383/10/11 هـ نظام
-                الأوراق التجارية.
-              </div>
-
-              <div style={legalBox}>
-                بموجب هذا السند يحق
-                لطالب الدين والكفيل
-                الغارم حقوق التقدم
-                والمطالبة والاحتجاج
-                والإخطار بالامتناع عن
-                الوفاء والمتعلقة بهذا
-                السند، كما يجوز لمدعي
-                موجب هذا السند الرجوع
-                للمدين أو الكفيل الغارم
-                منفردين أو مجتمعين ودون
-                مراعاة أو ترتيب.
-              </div>
-            </div>
+              {note.legal_footer_text?.trim() ||
+                LEGAL_FOOTER_TEXT}
+            </footer>
           </section>
         </>
       )}
@@ -1924,7 +2074,7 @@ export default function PrintNewRequestPage() {
           }
           onClick={printDocuments}
         >
-          🖨️ طباعة العقد والسند
+          مشاركة / حفظ PDF
         </button>
 
         <button
@@ -1941,7 +2091,7 @@ export default function PrintNewRequestPage() {
   );
 }
 
-function PrintHeader({
+function ContractPrintHeader({
   title,
   rightInfo,
   leftItems,
@@ -1953,11 +2103,11 @@ function PrintHeader({
   return (
     <div
       className="print-document-header"
-      style={header}
+      style={contractHeader}
     >
       <div
         className="print-header-right"
-        style={headerRight}
+        style={contractHeaderRight}
       >
         <div>
           المملكة العربية السعودية
@@ -1990,13 +2140,15 @@ function PrintHeader({
         )}
       </div>
 
-      <div style={documentTitle}>
+      <div
+        style={contractDocumentTitle}
+      >
         {title}
       </div>
 
       <div
         className="print-header-left"
-        style={headerLeft}
+        style={contractHeaderLeft}
       >
         {leftItems.map(
           (item, index) => (
@@ -2012,11 +2164,33 @@ function PrintHeader({
   );
 }
 
+function NoteDataRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div style={noteDataRow}>
+      <span style={noteDataLabel}>
+        {label}:
+      </span>
+
+      <strong style={noteDataValue}>
+        {value}
+      </strong>
+    </div>
+  );
+}
+
 function getErrorMessage(
   error: unknown,
   fallback: string
 ) {
-  if (error instanceof Error) {
+  if (
+    error instanceof Error
+  ) {
     return (
       error.message || fallback
     );
@@ -2031,10 +2205,410 @@ function getErrorMessage(
   return fallback;
 }
 
+function formatMoney(
+  value: unknown
+) {
+  const number = Number(
+    value || 0
+  );
+
+  if (!Number.isFinite(number)) {
+    return "0";
+  }
+
+  return new Intl.NumberFormat(
+    "ar-SA",
+    {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }
+  ).format(number);
+}
+
+function formatDateOnly(
+  value?: string | null
+) {
+  if (!value) {
+    return "-";
+  }
+
+  const directMatch =
+    /^(\d{4})-(\d{2})-(\d{2})$/.exec(
+      value
+    );
+
+  if (directMatch) {
+    return `${directMatch[3]}/${directMatch[2]}/${directMatch[1]}`;
+  }
+
+  const parsedDate =
+    new Date(value);
+
+  if (
+    Number.isNaN(
+      parsedDate.getTime()
+    )
+  ) {
+    return String(value);
+  }
+
+  return new Intl.DateTimeFormat(
+    "en-GB-u-ca-gregory",
+    {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    }
+  ).format(parsedDate);
+}
+
+function formatDisplayDate(
+  value?: string | null
+) {
+  if (!value) {
+    return "—";
+  }
+
+  const datePart =
+    String(value).slice(0, 10);
+
+  const parts =
+    datePart.split("-");
+
+  if (
+    parts.length !== 3
+  ) {
+    return String(value);
+  }
+
+  const [
+    year,
+    month,
+    day,
+  ] = parts;
+
+  if (
+    !year ||
+    !month ||
+    !day
+  ) {
+    return String(value);
+  }
+
+  return `${day}-${month}-${year}`;
+}
+
+function formatNoteNumber(
+  value:
+    | string
+    | number
+    | null
+    | undefined
+) {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return "—";
+  }
+
+  const numericValue =
+    Number(value);
+
+  if (
+    Number.isFinite(
+      numericValue
+    )
+  ) {
+    return String(
+      Math.trunc(
+        numericValue
+      )
+    ).padStart(6, "0");
+  }
+
+  return String(value);
+}
+
+function isWithoutGuarantor(
+  value?: string | null
+) {
+  const normalized = String(
+    value || ""
+  )
+    .trim()
+    .toLowerCase();
+
+  if (!normalized) {
+    return false;
+  }
+
+  return [
+    "بدون كفيل",
+    "لا يوجد كفيل",
+    "لايوجد كفيل",
+    "لا يوجد",
+    "لايوجد",
+    "بدون",
+    "none",
+    "no guarantor",
+  ].includes(normalized);
+}
+
+function amountToArabicWords(
+  value: number
+) {
+  const safeValue =
+    Math.abs(value);
+
+  const riyals =
+    Math.floor(safeValue);
+
+  const halalas =
+    Math.round(
+      (safeValue - riyals) *
+        100
+    );
+
+  const riyalWords =
+    riyals === 0
+      ? "صفر"
+      : integerToArabicWords(
+          riyals
+        );
+
+  let result =
+    `${riyalWords} ريال سعودي`;
+
+  if (halalas > 0) {
+    result +=
+      ` و${integerToArabicWords(
+        halalas
+      )} هللة`;
+  }
+
+  return `${result} فقط لا غير`;
+}
+
+function integerToArabicWords(
+  value: number
+): string {
+  const integer =
+    Math.floor(
+      Math.abs(value)
+    );
+
+  if (integer === 0) {
+    return "صفر";
+  }
+
+  const groups = [
+    {
+      value: 1_000_000_000,
+      singular: "مليار",
+      dual: "ملياران",
+      plural: "مليارات",
+    },
+    {
+      value: 1_000_000,
+      singular: "مليون",
+      dual: "مليونان",
+      plural: "ملايين",
+    },
+    {
+      value: 1_000,
+      singular: "ألف",
+      dual: "ألفان",
+      plural: "آلاف",
+    },
+  ];
+
+  let remaining = integer;
+  const parts: string[] = [];
+
+  for (
+    const group of groups
+  ) {
+    const count =
+      Math.floor(
+        remaining /
+          group.value
+      );
+
+    if (count > 0) {
+      parts.push(
+        renderArabicScale(
+          count,
+          group.singular,
+          group.dual,
+          group.plural
+        )
+      );
+
+      remaining %=
+        group.value;
+    }
+  }
+
+  if (remaining > 0) {
+    parts.push(
+      numberBelowThousandToArabic(
+        remaining
+      )
+    );
+  }
+
+  return parts
+    .filter(Boolean)
+    .join(" و");
+}
+
+function renderArabicScale(
+  count: number,
+  singular: string,
+  dual: string,
+  plural: string
+) {
+  if (count === 1) {
+    return singular;
+  }
+
+  if (count === 2) {
+    return dual;
+  }
+
+  if (
+    count >= 3 &&
+    count <= 10
+  ) {
+    return `${numberBelowThousandToArabic(
+      count
+    )} ${plural}`;
+  }
+
+  return `${numberBelowThousandToArabic(
+    count
+  )} ${singular}`;
+}
+
+function numberBelowThousandToArabic(
+  value: number
+): string {
+  const number =
+    Math.floor(value);
+
+  if (number === 0) {
+    return "";
+  }
+
+  const units = [
+    "",
+    "واحد",
+    "اثنان",
+    "ثلاثة",
+    "أربعة",
+    "خمسة",
+    "ستة",
+    "سبعة",
+    "ثمانية",
+    "تسعة",
+  ];
+
+  const teens:
+    Record<number, string> = {
+      10: "عشرة",
+      11: "أحد عشر",
+      12: "اثنا عشر",
+      13: "ثلاثة عشر",
+      14: "أربعة عشر",
+      15: "خمسة عشر",
+      16: "ستة عشر",
+      17: "سبعة عشر",
+      18: "ثمانية عشر",
+      19: "تسعة عشر",
+    };
+
+  const tens = [
+    "",
+    "",
+    "عشرون",
+    "ثلاثون",
+    "أربعون",
+    "خمسون",
+    "ستون",
+    "سبعون",
+    "ثمانون",
+    "تسعون",
+  ];
+
+  const hundreds = [
+    "",
+    "مائة",
+    "مائتان",
+    "ثلاثمائة",
+    "أربعمائة",
+    "خمسمائة",
+    "ستمائة",
+    "سبعمائة",
+    "ثمانمائة",
+    "تسعمائة",
+  ];
+
+  const parts: string[] = [];
+
+  const hundred =
+    Math.floor(number / 100);
+
+  const remainder =
+    number % 100;
+
+  if (hundred > 0) {
+    parts.push(
+      hundreds[hundred]
+    );
+  }
+
+  if (remainder > 0) {
+    if (remainder < 10) {
+      parts.push(
+        units[remainder]
+      );
+    } else if (
+      remainder < 20
+    ) {
+      parts.push(
+        teens[remainder]
+      );
+    } else {
+      const ten =
+        Math.floor(
+          remainder / 10
+        );
+
+      const unit =
+        remainder % 10;
+
+      if (unit > 0) {
+        parts.push(
+          `${units[unit]} و${tens[ten]}`
+        );
+      } else {
+        parts.push(
+          tens[ten]
+        );
+      }
+    }
+  }
+
+  return parts.join(" و");
+}
+
 const page: CSSProperties = {
   minHeight: "100dvh",
   padding: 20,
   color: "#111827",
+
   fontFamily:
     "var(--font-almarai), sans-serif",
 
@@ -2074,7 +2648,8 @@ const loadingMessage: CSSProperties = {
   margin: "20px auto",
   padding: 18,
   borderRadius: 14,
-  border: "1px solid #bfdbfe",
+  border:
+    "1px solid #bfdbfe",
   background: "#eff6ff",
   color: "#1d4ed8",
   textAlign: "center",
@@ -2087,7 +2662,8 @@ const errorMessage: CSSProperties = {
   margin: "20px auto",
   padding: 16,
   borderRadius: 14,
-  border: "1px solid #fecaca",
+  border:
+    "1px solid #fecaca",
   background: "#fff7f7",
   color: "#991b1b",
   display: "flex",
@@ -2116,21 +2692,19 @@ const retryButton: CSSProperties = {
     "var(--font-almarai), sans-serif",
 };
 
-const printArea: CSSProperties = {
-  width: "194mm",
-  height: "281mm",
-  minHeight: "281mm",
-  maxHeight: "281mm",
+const contractPrintArea: CSSProperties = {
+  width: "210mm",
+  height: "297mm",
+  minHeight: "297mm",
+  maxHeight: "297mm",
 
   margin: "0 auto",
-  padding: "6mm",
+  padding: "8mm 10mm",
 
   overflow: "hidden",
 
   background: "#ffffff",
   color: "#111827",
-
-  borderRadius: 0,
 
   lineHeight: 1.45,
 
@@ -2142,13 +2716,32 @@ const printArea: CSSProperties = {
     "0 14px 35px rgba(15,23,42,0.10)",
 };
 
-const secondPrintArea: CSSProperties = {
-  ...printArea,
+const notePrintArea: CSSProperties = {
+  width: "210mm",
+  height: "297mm",
+  minHeight: "297mm",
+  maxHeight: "297mm",
 
-  marginTop: 20,
+  margin: "20px auto 0",
+  padding: "8mm 10mm",
+
+  overflow: "hidden",
+
+  background: "#ffffff",
+  color: "#111827",
+
+  display: "flex",
+  flexDirection: "column",
+
+  boxSizing: "border-box",
+
+  pageBreakInside: "avoid",
+
+  boxShadow:
+    "0 14px 35px rgba(15,23,42,0.10)",
 };
 
-const header: CSSProperties = {
+const contractHeader: CSSProperties = {
   display: "grid",
 
   gridTemplateColumns:
@@ -2166,200 +2759,508 @@ const header: CSSProperties = {
   paddingBottom: 8,
 };
 
-const headerRight: CSSProperties = {
-  fontSize: 11,
-  lineHeight: 1.65,
-  fontWeight: 900,
+const contractHeaderRight:
+  CSSProperties = {
+    fontSize: 11,
+    lineHeight: 1.65,
+    fontWeight: 900,
+  };
+
+const contractHeaderLeft:
+  CSSProperties = {
+    fontSize: 11,
+    lineHeight: 1.65,
+    textAlign: "left",
+    fontWeight: 900,
+  };
+
+const contractDocumentTitle:
+  CSSProperties = {
+    marginTop: 13,
+
+    textAlign: "center",
+
+    color: "#111827",
+
+    fontSize: 21,
+
+    fontWeight: 900,
+
+    whiteSpace: "nowrap",
+
+    fontFamily:
+      "var(--font-almarai), sans-serif",
+  };
+
+const contractContentBox:
+  CSSProperties = {
+    marginTop: 10,
+  };
+
+const contractParagraph:
+  CSSProperties = {
+    margin: "6px 0",
+
+    fontSize: 12.3,
+
+    lineHeight: 1.58,
+
+    textAlign: "justify",
+  };
+
+const contractSignatures:
+  CSSProperties = {
+    display: "grid",
+
+    gridTemplateColumns:
+      "1fr 1fr",
+
+    gap: 16,
+
+    marginTop: 17,
+  };
+
+const contractSignatureBox:
+  CSSProperties = {
+    minHeight: 84,
+
+    paddingTop: 8,
+
+    borderTop:
+      "1.5px solid #111827",
+
+    lineHeight: 1.65,
+
+    fontSize: 12.2,
+  };
+
+const contractGuarantorBox:
+  CSSProperties = {
+    marginTop: 14,
+
+    paddingTop: 8,
+
+    borderTop:
+      "1.5px solid #111827",
+
+    lineHeight: 1.65,
+
+    fontSize: 12.2,
+  };
+
+const contractGuarantorGrid:
+  CSSProperties = {
+    display: "grid",
+
+    gridTemplateColumns:
+      "1fr 1fr",
+
+    gap: "2px 14px",
+
+    marginTop: 4,
+  };
+
+const noteDocumentHeader:
+  CSSProperties = {
+    flex: "0 0 auto",
+  };
+
+const noteTopRow: CSSProperties = {
+  display: "flex",
+  alignItems: "flex-start",
+  justifyContent:
+    "space-between",
+  gap: "8mm",
+
+  borderBottom:
+    "0.3mm solid #cbd5e1",
+
+  paddingBottom: "2.5mm",
 };
 
-const headerLeft: CSSProperties = {
-  fontSize: 11,
-  lineHeight: 1.65,
-  textAlign: "left",
-  fontWeight: 900,
-};
+const noteCountryBlock:
+  CSSProperties = {
+    display: "grid",
+    gap: "1mm",
 
-const documentTitle: CSSProperties = {
-  marginTop: 13,
+    color: "#111827",
 
-  textAlign: "center",
+    fontSize: "10.5pt",
+    lineHeight: 1.5,
+  };
 
-  color: "#111827",
+const noteTopMeta:
+  CSSProperties = {
+    display: "grid",
+    gap: "1mm",
 
-  fontSize: 21,
+    textAlign: "left",
 
-  fontWeight: 900,
+    fontSize: "10.5pt",
+    lineHeight: 1.5,
+  };
 
-  whiteSpace: "nowrap",
+const noteDocumentTitle:
+  CSSProperties = {
+    margin: "5mm 0 3mm",
 
-  fontFamily:
-    "var(--font-almarai), sans-serif",
-};
+    textAlign: "center",
 
-const contentBox: CSSProperties = {
-  marginTop: 10,
-};
+    color: "#0f172a",
 
-const paragraph: CSSProperties = {
-  margin: "6px 0",
+    fontSize: "25pt",
 
-  fontSize: 12.3,
+    lineHeight: 1.2,
 
-  lineHeight: 1.58,
+    fontWeight: 900,
 
-  textAlign: "justify",
-};
+    fontFamily:
+      "var(--font-almarai), sans-serif",
+  };
 
-const infoBox: CSSProperties = {
-  marginTop: 10,
+const noteDocumentAmountBox:
+  CSSProperties = {
+    display: "flex",
 
-  padding: 9,
+    alignItems: "center",
 
-  border: "1px solid #d1d5db",
+    justifyContent: "center",
 
-  borderRadius: 8,
+    gap: "4mm",
 
-  lineHeight: 1.65,
+    padding: "3mm 5mm",
 
-  fontSize: 12.2,
-};
+    border:
+      "0.4mm solid #1e3a8a",
 
-const signatures: CSSProperties = {
-  display: "grid",
+    borderRadius: "2.5mm",
 
-  gridTemplateColumns: "1fr 1fr",
+    background: "#eff6ff",
+  };
 
-  gap: 16,
+const noteDocumentAmountLabel:
+  CSSProperties = {
+    color: "#475569",
 
-  marginTop: 17,
-};
+    fontSize: "10pt",
 
-const signatureBox: CSSProperties = {
-  minHeight: 84,
+    fontWeight: 800,
+  };
 
-  paddingTop: 8,
+const noteDocumentAmountValue:
+  CSSProperties = {
+    color: "#1e3a8a",
 
-  borderTop:
-    "1.5px solid #111827",
+    fontSize: "14pt",
 
-  lineHeight: 1.65,
+    fontWeight: 900,
+  };
 
-  fontSize: 12.2,
-};
+const noteLegalBodySection:
+  CSSProperties = {
+    marginTop: "4mm",
+    flex: "0 0 auto",
+  };
 
-const guarantorBox: CSSProperties = {
-  marginTop: 14,
+const noteLegalParagraph:
+  CSSProperties = {
+    margin: "1.4mm 0",
 
-  paddingTop: 8,
+    color: "#111827",
 
-  borderTop:
-    "1.5px solid #111827",
+    fontSize: "10.4pt",
 
-  lineHeight: 1.65,
+    lineHeight: 1.75,
 
-  fontSize: 12.2,
-};
+    textAlign: "justify",
+  };
 
-const guarantorGrid: CSSProperties = {
-  display: "grid",
+const notePartyGrid:
+  CSSProperties = {
+    display: "grid",
 
-  gridTemplateColumns: "1fr 1fr",
+    gridTemplateColumns:
+      "repeat(2,minmax(0,1fr))",
 
-  gap: "2px 14px",
+    gap: "4mm",
 
-  marginTop: 4,
-};
+    marginTop: "3.5mm",
 
-const legalBoxes: CSSProperties = {
-  display: "grid",
+    flex: "0 0 auto",
+  };
 
-  gridTemplateColumns: "1fr 1fr",
+const notePartyBox:
+  CSSProperties = {
+    border:
+      "0.3mm solid #cbd5e1",
 
-  gap: 12,
+    borderRadius: "2.5mm",
 
-  marginTop: 20,
-};
+    padding: "3mm 4mm",
 
-const legalBox: CSSProperties = {
-  padding: 9,
+    minWidth: 0,
+  };
 
-  border: "1.5px solid #111827",
+const notePartyBoxTitle:
+  CSSProperties = {
+    margin: "0 0 2mm",
 
-  borderRadius: 12,
+    paddingBottom: "1.5mm",
 
-  fontSize: 10.5,
+    borderBottom:
+      "0.25mm solid #e2e8f0",
 
-  lineHeight: 1.65,
+    color: "#0f2b55",
 
-  textAlign: "center",
+    fontSize: "11pt",
 
-  fontWeight: 900,
-};
+    fontWeight: 900,
+  };
 
-const actionButtons: CSSProperties = {
-  width: "100%",
+const noteDataRow:
+  CSSProperties = {
+    display: "flex",
 
-  maxWidth: 850,
+    alignItems: "baseline",
 
-  margin: "20px auto 0",
+    gap: "1.5mm",
 
-  display: "grid",
+    margin: "1.1mm 0",
 
-  gap: 12,
-};
+    minWidth: 0,
 
-const printButton: CSSProperties = {
-  width: "100%",
+    fontSize: "9.5pt",
 
-  minHeight: 52,
+    lineHeight: 1.45,
+  };
 
-  padding: 16,
+const noteDataLabel:
+  CSSProperties = {
+    color: "#475569",
 
-  border: "none",
+    fontWeight: 800,
 
-  borderRadius: 14,
+    whiteSpace: "nowrap",
+  };
 
-  background:
-    "linear-gradient(135deg,#0d47a1,#1565c0 55%,#0284c7)",
+const noteDataValue:
+  CSSProperties = {
+    color: "#111827",
 
-  color: "#ffffff",
+    fontWeight: 900,
 
-  fontSize: 17,
+    overflowWrap: "anywhere",
+  };
 
-  fontWeight: 900,
+const noteNotesBox:
+  CSSProperties = {
+    display: "flex",
 
-  fontFamily:
-    "var(--font-almarai), sans-serif",
+    gap: "2mm",
 
-  boxShadow:
-    "0 8px 20px rgba(13,71,161,0.20)",
-};
+    marginTop: "3mm",
 
-const backButton: CSSProperties = {
-  width: "100%",
+    padding: "2.5mm 3mm",
 
-  minHeight: 48,
+    border:
+      "0.3mm solid #dbeafe",
 
-  padding: "13px 16px",
+    borderRadius: "2mm",
 
-  border: "none",
+    background: "#f8fbff",
 
-  borderRadius: 14,
+    color: "#334155",
 
-  background:
-    "linear-gradient(135deg,#22c55e,#15803d)",
+    fontSize: "9.5pt",
 
-  color: "#ffffff",
+    lineHeight: 1.6,
 
-  fontSize: 15,
+    flex: "0 0 auto",
+  };
 
-  fontWeight: 900,
+const noteNotesTitle:
+  CSSProperties = {
+    color: "#0f2b55",
 
-  cursor: "pointer",
+    whiteSpace: "nowrap",
+  };
 
-  fontFamily:
-    "var(--font-almarai), sans-serif",
+const noteSignatureGrid:
+  CSSProperties = {
+    display: "grid",
 
-  boxShadow:
-    "0 7px 18px rgba(22,163,74,0.20)",
-};
+    gap: "8mm",
+
+    marginTop: "5mm",
+
+    flex: "0 0 auto",
+  };
+
+const noteSignatureBox:
+  CSSProperties = {
+    minHeight: "24mm",
+
+    borderTop:
+      "0.4mm solid #111827",
+
+    paddingTop: "2mm",
+  };
+
+const noteSignatureTitle:
+  CSSProperties = {
+    margin: "0 0 2mm",
+
+    color: "#111827",
+
+    fontSize: "11pt",
+
+    fontWeight: 900,
+  };
+
+const noteSignatureName:
+  CSSProperties = {
+    fontSize: "9.5pt",
+
+    marginBottom: "5mm",
+  };
+
+const noteSignatureLine:
+  CSSProperties = {
+    fontSize: "9.5pt",
+
+    paddingTop: "3mm",
+  };
+
+const noteGuarantorDetailsBox:
+  CSSProperties = {
+    marginTop: "3mm",
+
+    border:
+      "0.3mm solid #cbd5e1",
+
+    borderRadius: "2mm",
+
+    padding: "2.5mm 3mm",
+
+    flex: "0 0 auto",
+  };
+
+const noteGuarantorTitle:
+  CSSProperties = {
+    margin: "0 0 1.5mm",
+
+    color: "#0f2b55",
+
+    fontSize: "10.5pt",
+
+    fontWeight: 900,
+  };
+
+const noteGuarantorDetailsGrid:
+  CSSProperties = {
+    display: "grid",
+
+    gridTemplateColumns:
+      "repeat(2,minmax(0,1fr))",
+
+    columnGap: "5mm",
+  };
+
+const noteLegalFooterBox:
+  CSSProperties = {
+    marginTop: "auto",
+
+    padding: "3mm 4mm",
+
+    border:
+      "0.4mm solid #475569",
+
+    borderRadius: "2mm",
+
+    background: "#f8fafc",
+
+    color: "#111827",
+
+    fontSize: "8.6pt",
+
+    lineHeight: 1.75,
+
+    fontWeight: 800,
+
+    textAlign: "center",
+
+    whiteSpace: "pre-line",
+
+    flex: "0 0 auto",
+  };
+
+const actionButtons:
+  CSSProperties = {
+    width: "100%",
+
+    maxWidth: 850,
+
+    margin: "20px auto 0",
+
+    display: "grid",
+
+    gap: 12,
+  };
+
+const printButton:
+  CSSProperties = {
+    width: "100%",
+
+    minHeight: 52,
+
+    padding: 16,
+
+    border: "none",
+
+    borderRadius: 14,
+
+    background:
+      "linear-gradient(135deg,#0d47a1,#1565c0 55%,#0284c7)",
+
+    color: "#ffffff",
+
+    fontSize: 17,
+
+    fontWeight: 900,
+
+    fontFamily:
+      "var(--font-almarai), sans-serif",
+
+    boxShadow:
+      "0 8px 20px rgba(13,71,161,0.20)",
+  };
+
+const backButton:
+  CSSProperties = {
+    width: "100%",
+
+    minHeight: 48,
+
+    padding: "13px 16px",
+
+    border: "none",
+
+    borderRadius: 14,
+
+    background:
+      "linear-gradient(135deg,#22c55e,#15803d)",
+
+    color: "#ffffff",
+
+    fontSize: 15,
+
+    fontWeight: 900,
+
+    cursor: "pointer",
+
+    fontFamily:
+      "var(--font-almarai), sans-serif",
+
+    boxShadow:
+      "0 7px 18px rgba(22,163,74,0.20)",
+  };
