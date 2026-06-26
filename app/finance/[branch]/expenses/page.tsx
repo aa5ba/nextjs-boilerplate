@@ -27,6 +27,7 @@ const EXPENSE_PERMISSIONS = {
   EDIT_ALL: "expenses_edit_all",
   DELETE_OWN: "expenses_delete_own",
   DELETE_ALL: "expenses_delete_all",
+  PROCESS: "expenses_process",
   REPORTS: "expenses_reports",
   PAYMENT_SOURCES_MANAGE: "expenses_payment_sources_manage",
 } as const;
@@ -43,6 +44,8 @@ const MANAGER_ROLES = [
 ];
 
 type ScreenType = "mobile" | "tablet" | "desktop";
+type ProcessingStatus = "pending" | "processed";
+type StatusFilter = "all" | ProcessingStatus;
 
 type ExpenseInvoice = {
   id: string;
@@ -56,6 +59,10 @@ type ExpenseInvoice = {
   created_by_name: string | null;
   created_at: string | null;
   updated_at: string | null;
+  processing_status: ProcessingStatus;
+  processed_at: string | null;
+  processed_by_user_id: string | null;
+  processed_by_name: string | null;
 };
 
 type FinanceSessionUser = {
@@ -80,6 +87,89 @@ type SessionValidationResult = {
   branch_id?: string;
 };
 
+type MonthlyStats = {
+  count: number;
+  totalAmount: number;
+  processedCount: number;
+  pendingCount: number;
+};
+
+function padNumber(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+function getCurrentMonthValue() {
+  const now = new Date();
+
+  return `${now.getFullYear()}-${padNumber(
+    now.getMonth() + 1
+  )}`;
+}
+
+function getMonthRange(monthValue: string) {
+  const [yearText, monthText] = monthValue.split("-");
+  const year = Number(yearText);
+  const monthIndex = Number(monthText) - 1;
+
+  const start = `${year}-${padNumber(monthIndex + 1)}-01`;
+
+  const nextMonth = new Date(year, monthIndex + 1, 1);
+
+  const end = `${nextMonth.getFullYear()}-${padNumber(
+    nextMonth.getMonth() + 1
+  )}-01`;
+
+  return { start, end };
+}
+
+function getMonthLabel(monthValue: string) {
+  if (monthValue === "all") {
+    return "كل الفترات";
+  }
+
+  const [yearText, monthText] = monthValue.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+
+  const date = new Date(year, month - 1, 1);
+
+  return date.toLocaleDateString("ar-SA", {
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function getMonthOptions() {
+  const options: Array<{
+    value: string;
+    label: string;
+  }> = [];
+
+  const now = new Date();
+
+  for (let index = 0; index < 36; index += 1) {
+    const date = new Date(
+      now.getFullYear(),
+      now.getMonth() - index,
+      1
+    );
+
+    const value = `${date.getFullYear()}-${padNumber(
+      date.getMonth() + 1
+    )}`;
+
+    options.push({
+      value,
+      label: date.toLocaleDateString("ar-SA", {
+        month: "long",
+        year: "numeric",
+      }),
+    });
+  }
+
+  return options;
+}
+
 export default function ExpensesPage() {
   const params = useParams();
   const router = useRouter();
@@ -87,6 +177,8 @@ export default function ExpensesPage() {
   const branch = String(params.branch ?? "")
     .trim()
     .toLowerCase();
+
+  const monthOptions = useMemo(() => getMonthOptions(), []);
 
   const [screen, setScreen] =
     useState<ScreenType>("desktop");
@@ -127,8 +219,13 @@ export default function ExpensesPage() {
   const [totalCount, setTotalCount] =
     useState(0);
 
-  const [totalAmount, setTotalAmount] =
-    useState(0);
+  const [monthlyStats, setMonthlyStats] =
+    useState<MonthlyStats>({
+      count: 0,
+      totalAmount: 0,
+      processedCount: 0,
+      pendingCount: 0,
+    });
 
   const [searchTerm, setSearchTerm] =
     useState("");
@@ -139,13 +236,16 @@ export default function ExpensesPage() {
   const [paymentMethodFilter, setPaymentMethodFilter] =
     useState("");
 
-  const [dateFrom, setDateFrom] =
-    useState("");
+  const [statusFilter, setStatusFilter] =
+    useState<StatusFilter>("all");
 
-  const [dateTo, setDateTo] =
-    useState("");
+  const [selectedMonth, setSelectedMonth] =
+    useState(getCurrentMonthValue());
 
   const [deleteLoadingId, setDeleteLoadingId] =
+    useState<string | null>(null);
+
+  const [processLoadingId, setProcessLoadingId] =
     useState<string | null>(null);
 
   const isMobile = screen === "mobile";
@@ -180,6 +280,9 @@ export default function ExpensesPage() {
     1,
     Math.ceil(totalCount / ITEMS_PER_PAGE)
   );
+
+  const selectedPeriodLabel =
+    getMonthLabel(selectedMonth);
 
   useEffect(() => {
     function updateScreen() {
@@ -242,10 +345,11 @@ export default function ExpensesPage() {
           result.branch_id ||
           null;
 
-        const sessionBranchSlug =
-          String(sessionUser.branch_slug || "")
-            .trim()
-            .toLowerCase();
+        const sessionBranchSlug = String(
+          sessionUser.branch_slug || ""
+        )
+          .trim()
+          .toLowerCase();
 
         if (!sessionBranchId) {
           router.replace("/login");
@@ -271,8 +375,9 @@ export default function ExpensesPage() {
           sessionUser.username ||
           "الموظف";
 
-        const userRole =
-          String(sessionUser.role || "").trim();
+        const userRole = String(
+          sessionUser.role || ""
+        ).trim();
 
         const userPermissions =
           Array.isArray(sessionUser.permissions)
@@ -317,6 +422,9 @@ export default function ExpensesPage() {
             EXPENSE_PERMISSIONS.DELETE_ALL
           ) ||
           userPermissions.includes(
+            EXPENSE_PERMISSIONS.PROCESS
+          ) ||
+          userPermissions.includes(
             EXPENSE_PERMISSIONS.REPORTS
           );
 
@@ -334,7 +442,7 @@ export default function ExpensesPage() {
 
           await renew();
         } catch {
-          // لا يتم تسجيل الخروج عند فشل التجديد الشبكي.
+          // لا يتم إنهاء الجلسة بسبب خطأ اتصال مؤقت.
         }
 
         try {
@@ -349,17 +457,13 @@ export default function ExpensesPage() {
             cleanupTracker = trackerResult;
           }
         } catch {
-          // المتتبع تحسين إضافي ولا يمنع فتح الصفحة.
+          // المتتبع لا يمنع فتح الصفحة.
         }
 
         setAuthChecked(true);
       } catch {
         if (cancelled) return;
 
-        /*
-         * خطأ الشبكة لا يعني أن الجلسة غير صالحة.
-         * لا نمسح الجلسة هنا.
-         */
         setLoadError(
           "تعذر التحقق من الجلسة مؤقتًا. تحقق من الاتصال ثم أعد المحاولة."
         );
@@ -382,7 +486,12 @@ export default function ExpensesPage() {
     if (!branchId || !canViewExpenses) {
       setInvoices([]);
       setTotalCount(0);
-      setTotalAmount(0);
+      setMonthlyStats({
+        count: 0,
+        totalAmount: 0,
+        processedCount: 0,
+        pendingCount: 0,
+      });
       return;
     }
 
@@ -409,16 +518,38 @@ export default function ExpensesPage() {
           created_by_user_id,
           created_by_name,
           created_at,
-          updated_at
+          updated_at,
+          processing_status,
+          processed_at,
+          processed_by_user_id,
+          processed_by_name
         `,
         { count: "exact" }
       )
       .eq("branch_id", branchId);
 
-    let totalQuery = supabase
+    let statsQuery = supabase
       .from("finance_expense_invoices")
-      .select("invoice_amount")
+      .select(
+        `
+          invoice_amount,
+          processing_status
+        `
+      )
       .eq("branch_id", branchId);
+
+    if (selectedMonth !== "all") {
+      const monthRange =
+        getMonthRange(selectedMonth);
+
+      listQuery = listQuery
+        .gte("invoice_date", monthRange.start)
+        .lt("invoice_date", monthRange.end);
+
+      statsQuery = statsQuery
+        .gte("invoice_date", monthRange.start)
+        .lt("invoice_date", monthRange.end);
+    }
 
     const cleanSearch =
       appliedSearch.trim();
@@ -428,11 +559,7 @@ export default function ExpensesPage() {
         cleanSearch.replace(/[%_,()]/g, " ");
 
       listQuery = listQuery.or(
-        `invoice_title.ilike.%${escapedSearch}%,invoice_details.ilike.%${escapedSearch}%,created_by_name.ilike.%${escapedSearch}%,payment_method.ilike.%${escapedSearch}%`
-      );
-
-      totalQuery = totalQuery.or(
-        `invoice_title.ilike.%${escapedSearch}%,invoice_details.ilike.%${escapedSearch}%,created_by_name.ilike.%${escapedSearch}%,payment_method.ilike.%${escapedSearch}%`
+        `invoice_title.ilike.%${escapedSearch}%,invoice_details.ilike.%${escapedSearch}%,created_by_name.ilike.%${escapedSearch}%,payment_method.ilike.%${escapedSearch}%,processed_by_name.ilike.%${escapedSearch}%`
       );
     }
 
@@ -441,38 +568,16 @@ export default function ExpensesPage() {
         "payment_method",
         `%${paymentMethodFilter}%`
       );
+    }
 
-      totalQuery = totalQuery.ilike(
-        "payment_method",
-        `%${paymentMethodFilter}%`
+    if (statusFilter !== "all") {
+      listQuery = listQuery.eq(
+        "processing_status",
+        statusFilter
       );
     }
 
-    if (dateFrom) {
-      listQuery = listQuery.gte(
-        "invoice_date",
-        dateFrom
-      );
-
-      totalQuery = totalQuery.gte(
-        "invoice_date",
-        dateFrom
-      );
-    }
-
-    if (dateTo) {
-      listQuery = listQuery.lte(
-        "invoice_date",
-        dateTo
-      );
-
-      totalQuery = totalQuery.lte(
-        "invoice_date",
-        dateTo
-      );
-    }
-
-    const [listResult, totalResult] =
+    const [listResult, statsResult] =
       await Promise.all([
         listQuery
           .order("invoice_date", {
@@ -482,7 +587,7 @@ export default function ExpensesPage() {
             ascending: false,
           })
           .range(from, to),
-        totalQuery,
+        statsQuery,
       ]);
 
     if (listResult.error) {
@@ -499,15 +604,43 @@ export default function ExpensesPage() {
     setInvoices(rows);
     setTotalCount(listResult.count || 0);
 
-    if (!totalResult.error) {
-      const sum = (totalResult.data || []).reduce(
-        (currentTotal, row) =>
-          currentTotal +
-          Number(row.invoice_amount || 0),
-        0
+    if (statsResult.error) {
+      setLoadError(
+        `تم تحميل الفواتير، لكن تعذر تحميل الإحصائيات: ${statsResult.error.message}`
       );
+    } else {
+      const statsRows =
+        statsResult.data || [];
 
-      setTotalAmount(sum);
+      const nextStats =
+        statsRows.reduce<MonthlyStats>(
+          (stats, row) => {
+            stats.count += 1;
+
+            stats.totalAmount += Number(
+              row.invoice_amount || 0
+            );
+
+            if (
+              row.processing_status ===
+              "processed"
+            ) {
+              stats.processedCount += 1;
+            } else {
+              stats.pendingCount += 1;
+            }
+
+            return stats;
+          },
+          {
+            count: 0,
+            totalAmount: 0,
+            processedCount: 0,
+            pendingCount: 0,
+          }
+        );
+
+      setMonthlyStats(nextStats);
     }
 
     setLoading(false);
@@ -517,8 +650,8 @@ export default function ExpensesPage() {
     currentPage,
     appliedSearch,
     paymentMethodFilter,
-    dateFrom,
-    dateTo,
+    statusFilter,
+    selectedMonth,
   ]);
 
   useEffect(() => {
@@ -546,15 +679,55 @@ export default function ExpensesPage() {
     setSearchTerm("");
     setAppliedSearch("");
     setPaymentMethodFilter("");
-    setDateFrom("");
-    setDateTo("");
+    setStatusFilter("all");
+    setSelectedMonth(getCurrentMonthValue());
     setCurrentPage(1);
+  }
+
+  function isInvoiceOwner(
+    invoice: ExpenseInvoice
+  ) {
+    return (
+      Boolean(currentUserId) &&
+      invoice.created_by_user_id ===
+        currentUserId
+    );
+  }
+
+  function canEditInvoice(
+    invoice: ExpenseInvoice
+  ) {
+    if (
+      !branchId ||
+      invoice.branch_id !== branchId
+    ) {
+      return false;
+    }
+
+    if (
+      isManager ||
+      hasPermission(
+        EXPENSE_PERMISSIONS.EDIT_ALL
+      )
+    ) {
+      return true;
+    }
+
+    return (
+      isInvoiceOwner(invoice) &&
+      hasPermission(
+        EXPENSE_PERMISSIONS.EDIT_OWN
+      )
+    );
   }
 
   function canDeleteInvoice(
     invoice: ExpenseInvoice
   ) {
-    if (invoice.branch_id !== branchId) {
+    if (
+      !branchId ||
+      invoice.branch_id !== branchId
+    ) {
       return false;
     }
 
@@ -567,17 +740,127 @@ export default function ExpensesPage() {
       return true;
     }
 
-    const isOwner =
-      Boolean(currentUserId) &&
-      invoice.created_by_user_id ===
-        currentUserId;
-
     return (
-      isOwner &&
+      isInvoiceOwner(invoice) &&
       hasPermission(
         EXPENSE_PERMISSIONS.DELETE_OWN
       )
     );
+  }
+
+  function canProcessInvoice(
+    invoice: ExpenseInvoice
+  ) {
+    if (
+      !branchId ||
+      invoice.branch_id !== branchId
+    ) {
+      return false;
+    }
+
+    return (
+      isManager ||
+      hasPermission(
+        EXPENSE_PERMISSIONS.PROCESS
+      )
+    );
+  }
+
+  function openEditInvoice(
+    invoice: ExpenseInvoice
+  ) {
+    if (!canEditInvoice(invoice)) {
+      alert(
+        "ليست لديك صلاحية تعديل هذه الفاتورة."
+      );
+      return;
+    }
+
+    router.push(
+      `/finance/${branch}/expenses/${invoice.id}/edit`
+    );
+  }
+
+  async function processInvoice(
+    invoice: ExpenseInvoice
+  ) {
+    if (!branchId || !currentUserId) {
+      alert(
+        "تعذر تحديد الفرع أو حساب الموظف."
+      );
+      return;
+    }
+
+    if (!canProcessInvoice(invoice)) {
+      alert(
+        "ليست لديك صلاحية معالجة هذه الفاتورة."
+      );
+      return;
+    }
+
+    if (
+      invoice.processing_status ===
+      "processed"
+    ) {
+      alert(
+        "تمت معالجة هذه الفاتورة مسبقًا."
+      );
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `هل تؤكد أن فاتورة "${invoice.invoice_title}" تمت معالجتها وسدادها؟`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setProcessLoadingId(invoice.id);
+
+      const processedAt =
+        new Date().toISOString();
+
+      const { data, error } = await supabase
+        .from("finance_expense_invoices")
+        .update({
+          processing_status: "processed",
+          processed_at: processedAt,
+          processed_by_user_id: currentUserId,
+          processed_by_name: employeeName,
+          updated_at: processedAt,
+        })
+        .eq("id", invoice.id)
+        .eq("branch_id", branchId)
+        .eq("processing_status", "pending")
+        .select(
+          `
+            id,
+            processing_status,
+            processed_at,
+            processed_by_user_id,
+            processed_by_name
+          `
+        );
+
+      if (error) throw error;
+
+      if (!data || data.length === 0) {
+        throw new Error(
+          "لم تتم معالجة الفاتورة. ربما تمت معالجتها مسبقًا أو أنها تابعة لفرع آخر."
+        );
+      }
+
+      await loadInvoices();
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "حدث خطأ أثناء معالجة الفاتورة.";
+
+      alert(message);
+    } finally {
+      setProcessLoadingId(null);
+    }
   }
 
   async function deleteInvoice(
@@ -635,8 +918,6 @@ export default function ExpensesPage() {
           "لم يتم حذف الفاتورة. قد تكون الفاتورة من فرع آخر أو ليست لديك صلاحية حذفها."
         );
       }
-
-      alert("تم حذف الفاتورة بنجاح.");
 
       if (
         invoices.length === 1 &&
@@ -714,10 +995,32 @@ export default function ExpensesPage() {
     return date.toLocaleDateString("ar-SA");
   }
 
+  function formatDateTime(
+    value: string | null
+  ) {
+    if (!value) return "—";
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+      return value;
+    }
+
+    return date.toLocaleString("ar-SA", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  }
+
   if (!authChecked) {
     return (
-      <main dir="rtl" style={getPageStyle(isMobile)}>
-        <div style={getContainerStyle(isCompact)}>
+      <main
+        dir="rtl"
+        style={getPageStyle(isMobile)}
+      >
+        <div
+          style={getContainerStyle(isCompact)}
+        >
           <div style={centerStatusCard}>
             جاري التحقق من الجلسة...
           </div>
@@ -728,10 +1031,17 @@ export default function ExpensesPage() {
 
   if (accessDenied) {
     return (
-      <main dir="rtl" style={getPageStyle(isMobile)}>
-        <div style={getContainerStyle(isCompact)}>
+      <main
+        dir="rtl"
+        style={getPageStyle(isMobile)}
+      >
+        <div
+          style={getContainerStyle(isCompact)}
+        >
           <div style={accessDeniedCard}>
-            <div style={accessDeniedIcon}>⛔</div>
+            <div style={accessDeniedIcon}>
+              ⛔
+            </div>
 
             <h1 style={accessDeniedTitle}>
               لا توجد صلاحية
@@ -743,6 +1053,7 @@ export default function ExpensesPage() {
             </p>
 
             <button
+              type="button"
               style={backButton}
               onClick={() =>
                 router.push(
@@ -759,17 +1070,32 @@ export default function ExpensesPage() {
   }
 
   return (
-    <main dir="rtl" style={getPageStyle(isMobile)}>
-      <div style={getContainerStyle(isCompact)}>
+    <main
+      dir="rtl"
+      style={getPageStyle(isMobile)}
+    >
+      <div
+        style={getContainerStyle(isCompact)}
+      >
         <header style={getHeroStyle(isMobile)}>
           <div style={heroCircleOne} />
           <div style={heroCircleTwo} />
           <div style={heroCircleThree} />
           <div style={heroDots} />
 
-          <div style={getHeroContentStyle(screen)}>
-            <div style={getHeroUserCardStyle(screen)}>
-              <div style={getEmployeeTopRowStyle(screen)}>
+          <div
+            style={getHeroContentStyle(screen)}
+          >
+            <div
+              style={getHeroUserCardStyle(
+                screen
+              )}
+            >
+              <div
+                style={getEmployeeTopRowStyle(
+                  screen
+                )}
+              >
                 <div style={employeeIcon}>
                   <UserIcon />
                 </div>
@@ -784,7 +1110,9 @@ export default function ExpensesPage() {
 
                 {!isMobile && (
                   <div
-                    style={employeeDividerSmall}
+                    style={
+                      employeeDividerSmall
+                    }
                   />
                 )}
 
@@ -794,7 +1122,9 @@ export default function ExpensesPage() {
                   onClick={handleLogout}
                 >
                   <LogoutIcon />
-                  <span>تسجيل الخروج</span>
+                  <span>
+                    تسجيل الخروج
+                  </span>
                 </button>
               </div>
 
@@ -821,7 +1151,9 @@ export default function ExpensesPage() {
                 screen
               )}
             >
-              <h1 style={getTitleStyle(screen)}>
+              <h1
+                style={getTitleStyle(screen)}
+              >
                 المصروفات والمشتريات
               </h1>
             </div>
@@ -848,13 +1180,53 @@ export default function ExpensesPage() {
           </div>
         )}
 
+        <section style={periodCard}>
+          <div style={periodTitleBox}>
+            <span style={periodIcon}>📆</span>
+
+            <div>
+              <span style={periodSmallTitle}>
+                الفترة المعروضة
+              </span>
+
+              <strong style={periodTitle}>
+                {selectedPeriodLabel}
+              </strong>
+            </div>
+          </div>
+
+          <select
+            style={periodSelect}
+            value={selectedMonth}
+            onChange={(event) => {
+              setSelectedMonth(
+                event.target.value
+              );
+              setCurrentPage(1);
+            }}
+          >
+            {monthOptions.map((option) => (
+              <option
+                key={option.value}
+                value={option.value}
+              >
+                {option.label}
+              </option>
+            ))}
+
+            <option value="all">
+              كل الفترات
+            </option>
+          </select>
+        </section>
+
         <section style={statsGrid}>
           <div style={statCard}>
             <span style={statIcon}>🧾</span>
 
             <div>
               <span style={statValue}>
-                {totalCount.toLocaleString(
+                {monthlyStats.count.toLocaleString(
                   "ar-SA"
                 )}
               </span>
@@ -870,11 +1242,49 @@ export default function ExpensesPage() {
 
             <div>
               <span style={statValue}>
-                {formatMoney(totalAmount)}
+                {formatMoney(
+                  monthlyStats.totalAmount
+                )}
               </span>
 
               <span style={statTitle}>
                 إجمالي المصروفات
+              </span>
+            </div>
+          </div>
+
+          <div style={statCard}>
+            <span style={processedStatIcon}>
+              ✅
+            </span>
+
+            <div>
+              <span style={processedStatValue}>
+                {monthlyStats.processedCount.toLocaleString(
+                  "ar-SA"
+                )}
+              </span>
+
+              <span style={statTitle}>
+                تمت معالجتها
+              </span>
+            </div>
+          </div>
+
+          <div style={statCard}>
+            <span style={pendingStatIcon}>
+              ⏳
+            </span>
+
+            <div>
+              <span style={pendingStatValue}>
+                {monthlyStats.pendingCount.toLocaleString(
+                  "ar-SA"
+                )}
+              </span>
+
+              <span style={statTitle}>
+                قيد الانتظار
               </span>
             </div>
           </div>
@@ -892,7 +1302,9 @@ export default function ExpensesPage() {
               }
             >
               <span>＋</span>
-              <span>إنشاء فاتورة جديدة</span>
+              <span>
+                إنشاء فاتورة جديدة
+              </span>
             </button>
           </section>
         )}
@@ -931,7 +1343,6 @@ export default function ExpensesPage() {
                     applyFilters();
                   }
                 }}
-                placeholder="العنوان، التفاصيل، الموظف أو طريقة السداد"
               />
             </div>
 
@@ -953,21 +1364,27 @@ export default function ExpensesPage() {
                 <option value="">
                   جميع الطرق
                 </option>
+
                 <option value="نقدًا">
                   نقدًا
                 </option>
+
                 <option value="تحويل بنكي">
                   تحويل بنكي
                 </option>
+
                 <option value="شبكة">
                   شبكة / مدى
                 </option>
+
                 <option value="الصندوق">
                   من الصندوق
                 </option>
+
                 <option value="حساب بنكي">
                   من حساب بنكي
                 </option>
+
                 <option value="أخرى">
                   أخرى
                 </option>
@@ -976,38 +1393,32 @@ export default function ExpensesPage() {
 
             <div style={fieldBox}>
               <label style={labelStyle}>
-                من تاريخ
+                حالة الفاتورة
               </label>
 
-              <input
+              <select
                 style={input}
-                type="date"
-                value={dateFrom}
+                value={statusFilter}
                 onChange={(event) => {
-                  setDateFrom(
-                    event.target.value
+                  setStatusFilter(
+                    event.target
+                      .value as StatusFilter
                   );
                   setCurrentPage(1);
                 }}
-              />
-            </div>
+              >
+                <option value="all">
+                  جميع الحالات
+                </option>
 
-            <div style={fieldBox}>
-              <label style={labelStyle}>
-                إلى تاريخ
-              </label>
+                <option value="pending">
+                  قيد الانتظار
+                </option>
 
-              <input
-                style={input}
-                type="date"
-                value={dateTo}
-                onChange={(event) => {
-                  setDateTo(
-                    event.target.value
-                  );
-                  setCurrentPage(1);
-                }}
-              />
+                <option value="processed">
+                  تمت المعالجة
+                </option>
+              </select>
             </div>
           </div>
 
@@ -1022,9 +1433,15 @@ export default function ExpensesPage() {
 
         <section style={card}>
           <div style={sectionHeader}>
-            <h2 style={sectionTitle}>
-              الفواتير
-            </h2>
+            <div>
+              <h2 style={sectionTitle}>
+                الفواتير
+              </h2>
+
+              <span style={sectionPeriod}>
+                {selectedPeriodLabel}
+              </span>
+            </div>
 
             <span style={resultsCount}>
               {totalCount.toLocaleString(
@@ -1049,86 +1466,303 @@ export default function ExpensesPage() {
             </div>
           ) : (
             <>
-              <div style={invoiceGrid}>
+              <div style={invoiceList}>
                 {invoices.map((invoice) => {
+                  const showEdit =
+                    canEditInvoice(invoice);
+
+                  const showProcess =
+                    canProcessInvoice(invoice);
+
                   const showDelete =
                     canDeleteInvoice(invoice);
+
+                  const isProcessed =
+                    invoice.processing_status ===
+                    "processed";
+
+                  const isProcessing =
+                    processLoadingId ===
+                    invoice.id;
+
+                  const isDeleting =
+                    deleteLoadingId ===
+                    invoice.id;
 
                   return (
                     <article
                       key={invoice.id}
-                      style={invoiceCard}
+                      style={
+                        isProcessed
+                          ? processedInvoiceCard
+                          : invoiceCard
+                      }
                     >
-                      <div style={invoiceTop}>
-                        <span style={invoiceBadge}>
-                          {invoice.payment_method ||
-                            "غير محدد"}
-                        </span>
-
-                        <strong style={amount}>
-                          {formatMoney(
-                            invoice.invoice_amount
-                          )}{" "}
-                          ريال
-                        </strong>
-                      </div>
-
-                      <h3 style={invoiceTitle}>
-                        {invoice.invoice_title}
-                      </h3>
-
-                      <p style={details}>
-                        {invoice.invoice_details ||
-                          "لا توجد تفاصيل"}
-                      </p>
-
-                      <div style={meta}>
-                        <span>
-                          📅 تاريخ الفاتورة:{" "}
-                          {formatDate(
-                            invoice.invoice_date
-                          )}
-                        </span>
-
-                        <span>
-                          👤 أنشأها:{" "}
-                          {invoice.created_by_name ||
-                            "مستخدم"}
-                        </span>
-                      </div>
-
-                      {showDelete && (
-                        <div style={invoiceActions}>
-                          <button
-                            type="button"
-                            style={{
-                              ...deleteButton,
-                              opacity:
-                                deleteLoadingId ===
-                                invoice.id
-                                  ? 0.65
-                                  : 1,
-                              cursor:
-                                deleteLoadingId ===
-                                invoice.id
-                                  ? "not-allowed"
-                                  : "pointer",
-                            }}
-                            disabled={
-                              deleteLoadingId ===
-                              invoice.id
-                            }
-                            onClick={() =>
-                              deleteInvoice(invoice)
+                      <div
+                        style={getInvoiceMainRowStyle(
+                          isCompact
+                        )}
+                      >
+                        <div style={invoiceInfo}>
+                          <div
+                            style={
+                              invoiceTitleRow
                             }
                           >
-                            {deleteLoadingId ===
-                            invoice.id
-                              ? "جاري الحذف..."
-                              : "حذف الفاتورة"}
-                          </button>
+                            <div
+                              style={
+                                invoiceTitleBox
+                              }
+                            >
+                              <h3
+                                style={
+                                  invoiceTitle
+                                }
+                              >
+                                {
+                                  invoice.invoice_title
+                                }
+                              </h3>
+
+                              <span
+                                style={
+                                  isProcessed
+                                    ? processedBadge
+                                    : pendingBadge
+                                }
+                              >
+                                {isProcessed
+                                  ? "✓ تمت المعالجة"
+                                  : "قيد الانتظار"}
+                              </span>
+                            </div>
+
+                            <strong
+                              style={amount}
+                            >
+                              {formatMoney(
+                                invoice.invoice_amount
+                              )}{" "}
+                              ريال
+                            </strong>
+                          </div>
+
+                          <div
+                            style={
+                              invoiceMetaGrid
+                            }
+                          >
+                            <div
+                              style={metaItem}
+                            >
+                              <span
+                                style={
+                                  metaLabel
+                                }
+                              >
+                                تاريخ الفاتورة
+                              </span>
+
+                              <strong
+                                style={
+                                  metaValue
+                                }
+                              >
+                                {formatDate(
+                                  invoice.invoice_date
+                                )}
+                              </strong>
+                            </div>
+
+                            <div
+                              style={metaItem}
+                            >
+                              <span
+                                style={
+                                  metaLabel
+                                }
+                              >
+                                طريقة السداد
+                              </span>
+
+                              <strong
+                                style={
+                                  metaValue
+                                }
+                              >
+                                {invoice.payment_method ||
+                                  "غير محدد"}
+                              </strong>
+                            </div>
+
+                            <div
+                              style={metaItem}
+                            >
+                              <span
+                                style={
+                                  metaLabel
+                                }
+                              >
+                                أنشأها
+                              </span>
+
+                              <strong
+                                style={
+                                  metaValue
+                                }
+                              >
+                                {invoice.created_by_name ||
+                                  "مستخدم"}
+                              </strong>
+                            </div>
+                          </div>
+
+                          {invoice.invoice_details && (
+                            <div
+                              style={
+                                detailsBox
+                              }
+                            >
+                              <span
+                                style={
+                                  detailsLabel
+                                }
+                              >
+                                التفاصيل
+                              </span>
+
+                              <p
+                                style={
+                                  details
+                                }
+                              >
+                                {
+                                  invoice.invoice_details
+                                }
+                              </p>
+                            </div>
+                          )}
+
+                          {isProcessed && (
+                            <div
+                              style={
+                                processedDetails
+                              }
+                            >
+                              <span>
+                                ✓ تمت معالجة
+                                الفاتورة
+                              </span>
+
+                              <span>
+                                بواسطة:{" "}
+                                <strong>
+                                  {invoice.processed_by_name ||
+                                    "مستخدم"}
+                                </strong>
+                              </span>
+
+                              <span>
+                                التاريخ:{" "}
+                                <strong>
+                                  {formatDateTime(
+                                    invoice.processed_at
+                                  )}
+                                </strong>
+                              </span>
+                            </div>
+                          )}
                         </div>
-                      )}
+
+                        {(showEdit ||
+                          showProcess ||
+                          showDelete) && (
+                          <div
+                            style={getInvoiceActionsStyle(
+                              isCompact
+                            )}
+                          >
+                            {showEdit && (
+                              <button
+                                type="button"
+                                style={
+                                  editButton
+                                }
+                                onClick={() =>
+                                  openEditInvoice(
+                                    invoice
+                                  )
+                                }
+                              >
+                                تعديل
+                              </button>
+                            )}
+
+                            {showProcess && (
+                              <button
+                                type="button"
+                                style={{
+                                  ...processButton,
+                                  opacity:
+                                    isProcessed ||
+                                    isProcessing
+                                      ? 0.58
+                                      : 1,
+                                  cursor:
+                                    isProcessed ||
+                                    isProcessing
+                                      ? "not-allowed"
+                                      : "pointer",
+                                }}
+                                disabled={
+                                  isProcessed ||
+                                  isProcessing
+                                }
+                                onClick={() =>
+                                  processInvoice(
+                                    invoice
+                                  )
+                                }
+                              >
+                                {isProcessing
+                                  ? "جاري المعالجة..."
+                                  : isProcessed
+                                    ? "تمت المعالجة"
+                                    : "تمت المعالجة"}
+                              </button>
+                            )}
+
+                            {showDelete && (
+                              <button
+                                type="button"
+                                style={{
+                                  ...deleteButton,
+                                  opacity:
+                                    isDeleting
+                                      ? 0.62
+                                      : 1,
+                                  cursor:
+                                    isDeleting
+                                      ? "not-allowed"
+                                      : "pointer",
+                                }}
+                                disabled={
+                                  isDeleting
+                                }
+                                onClick={() =>
+                                  deleteInvoice(
+                                    invoice
+                                  )
+                                }
+                              >
+                                {isDeleting
+                                  ? "جاري الحذف..."
+                                  : "حذف"}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </article>
                   );
                 })}
@@ -1225,6 +1859,7 @@ function UserIcon() {
         stroke="currentColor"
         strokeWidth="1.8"
       />
+
       <path
         d="M4.8 20.2c.8-3.5 3.6-5.4 7.2-5.4s6.4 1.9 7.2 5.4"
         stroke="currentColor"
@@ -1250,12 +1885,14 @@ function LogoutIcon() {
         strokeWidth="2"
         strokeLinecap="round"
       />
+
       <path
         d="M4.8 12h9.5"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
       />
+
       <path
         d="M7.8 8.8 4.6 12l3.2 3.2"
         stroke="currentColor"
@@ -1283,12 +1920,14 @@ function HomeIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+
       <path
         d="M6.2 10.4v9.1h11.6v-9.1"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinejoin="round"
       />
+
       <path
         d="M10 19.5v-5.2h4v5.2"
         stroke="currentColor"
@@ -1545,6 +2184,48 @@ function getHeroActionBoxStyle(
       };
 }
 
+function getInvoiceMainRowStyle(
+  isCompact: boolean
+): CSSProperties {
+  return {
+    display: "flex",
+    flexDirection: isCompact
+      ? "column"
+      : "row",
+    alignItems: isCompact
+      ? "stretch"
+      : "center",
+    justifyContent: "space-between",
+    gap: 18,
+  };
+}
+
+function getInvoiceActionsStyle(
+  isCompact: boolean
+): CSSProperties {
+  return {
+    display: "flex",
+    flexDirection: isCompact
+      ? "row"
+      : "column",
+    alignItems: "stretch",
+    justifyContent: "center",
+    gap: 8,
+    width: isCompact ? "100%" : 145,
+    flex: isCompact
+      ? "1 1 100%"
+      : "0 0 145px",
+    paddingTop: isCompact ? 14 : 0,
+    borderTop: isCompact
+      ? "1px solid #e2e8f0"
+      : "none",
+    borderRight: isCompact
+      ? "none"
+      : "1px solid #e2e8f0",
+    paddingRight: isCompact ? 0 : 18,
+  };
+}
+
 const employeeIcon: CSSProperties = {
   width: 38,
   height: 38,
@@ -1630,10 +2311,71 @@ const heroDots: CSSProperties = {
   zIndex: 2,
 };
 
+const periodCard: CSSProperties = {
+  background: "#ffffff",
+  border: "1px solid #dbeafe",
+  borderRadius: 18,
+  padding: 15,
+  marginBottom: 14,
+  boxShadow:
+    "0 8px 22px rgba(15,23,42,0.04)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 14,
+  flexWrap: "wrap",
+};
+
+const periodTitleBox: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+};
+
+const periodIcon: CSSProperties = {
+  width: 45,
+  height: 45,
+  borderRadius: 14,
+  background: "#eff6ff",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: 21,
+};
+
+const periodSmallTitle: CSSProperties = {
+  display: "block",
+  color: "#64748b",
+  fontSize: 12,
+  fontWeight: 800,
+  marginBottom: 4,
+};
+
+const periodTitle: CSSProperties = {
+  display: "block",
+  color: "#1d4ed8",
+  fontSize: 17,
+  fontWeight: 900,
+};
+
+const periodSelect: CSSProperties = {
+  minWidth: 210,
+  height: 46,
+  padding: "0 13px",
+  borderRadius: 13,
+  border: "1px solid #bfdbfe",
+  background: "#f8fafc",
+  color: "#0f172a",
+  fontSize: 14,
+  fontWeight: 800,
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
 const statsGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns:
-    "repeat(auto-fit,minmax(230px,1fr))",
+    "repeat(auto-fit,minmax(210px,1fr))",
   gap: 12,
   marginBottom: 14,
 };
@@ -1661,11 +2403,31 @@ const statIcon: CSSProperties = {
   fontSize: 23,
 };
 
+const processedStatIcon: CSSProperties = {
+  ...statIcon,
+  background: "#ecfdf5",
+};
+
+const pendingStatIcon: CSSProperties = {
+  ...statIcon,
+  background: "#fff7ed",
+};
+
 const statValue: CSSProperties = {
   display: "block",
   color: "#2563eb",
   fontSize: 25,
   fontWeight: 900,
+};
+
+const processedStatValue: CSSProperties = {
+  ...statValue,
+  color: "#15803d",
+};
+
+const pendingStatValue: CSSProperties = {
+  ...statValue,
+  color: "#c2410c",
 };
 
 const statTitle: CSSProperties = {
@@ -1725,7 +2487,7 @@ const filterHeader: CSSProperties = {
 const filterGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns:
-    "repeat(auto-fit,minmax(190px,1fr))",
+    "repeat(auto-fit,minmax(210px,1fr))",
   gap: 12,
 };
 
@@ -1811,6 +2573,14 @@ const sectionTitle: CSSProperties = {
     "var(--font-almarai), sans-serif",
 };
 
+const sectionPeriod: CSSProperties = {
+  display: "block",
+  marginTop: 5,
+  color: "#64748b",
+  fontSize: 13,
+  fontWeight: 800,
+};
+
 const resultsCount: CSSProperties = {
   background: "#eff6ff",
   color: "#1d4ed8",
@@ -1830,80 +2600,197 @@ const emptyBox: CSSProperties = {
   fontWeight: 700,
 };
 
-const invoiceGrid: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns:
-    "repeat(auto-fit,minmax(280px,1fr))",
+const invoiceList: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
   gap: 12,
 };
 
 const invoiceCard: CSSProperties = {
+  width: "100%",
   border: "1px solid #e2e8f0",
-  borderRadius: 18,
-  padding: 16,
+  borderRight: "4px solid #f59e0b",
+  borderRadius: 17,
+  padding: 17,
   background: "#ffffff",
   boxShadow:
-    "0 6px 16px rgba(15,23,42,0.04)",
-  display: "flex",
-  flexDirection: "column",
+    "0 5px 16px rgba(15,23,42,0.045)",
+  boxSizing: "border-box",
 };
 
-const invoiceTop: CSSProperties = {
+const processedInvoiceCard: CSSProperties = {
+  ...invoiceCard,
+  border: "1px solid #bbf7d0",
+  borderRight: "4px solid #22c55e",
+  background:
+    "linear-gradient(135deg,#ffffff,#f0fdf4)",
+};
+
+const invoiceInfo: CSSProperties = {
+  flex: "1 1 auto",
+  minWidth: 0,
+};
+
+const invoiceTitleRow: CSSProperties = {
   display: "flex",
-  justifyContent: "space-between",
   alignItems: "center",
-  gap: 8,
+  justifyContent: "space-between",
+  gap: 12,
+  flexWrap: "wrap",
+  marginBottom: 14,
+};
+
+const invoiceTitleBox: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
   flexWrap: "wrap",
 };
 
-const invoiceBadge: CSSProperties = {
-  background: "#eff6ff",
-  color: "#1d4ed8",
+const invoiceTitle: CSSProperties = {
+  margin: 0,
+  color: "#0f172a",
+  fontSize: 18,
+  fontWeight: 900,
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const processedBadge: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  minHeight: 30,
+  padding: "0 11px",
   borderRadius: 999,
-  padding: "6px 10px",
-  fontSize: 13,
-  fontWeight: 800,
+  background: "#dcfce7",
+  color: "#166534",
+  border: "1px solid #86efac",
+  fontSize: 12,
+  fontWeight: 900,
+};
+
+const pendingBadge: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  minHeight: 30,
+  padding: "0 11px",
+  borderRadius: 999,
+  background: "#fff7ed",
+  color: "#c2410c",
+  border: "1px solid #fed7aa",
+  fontSize: 12,
+  fontWeight: 900,
 };
 
 const amount: CSSProperties = {
   color: "#166534",
-  fontSize: 16,
-  fontWeight: 900,
-};
-
-const invoiceTitle: CSSProperties = {
-  margin: "14px 0 8px",
-  color: "#0f172a",
   fontSize: 18,
   fontWeight: 900,
+  whiteSpace: "nowrap",
+};
+
+const invoiceMetaGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns:
+    "repeat(auto-fit,minmax(170px,1fr))",
+  gap: 10,
+};
+
+const metaItem: CSSProperties = {
+  minWidth: 0,
+  padding: "10px 12px",
+  borderRadius: 12,
+  background: "#f8fafc",
+  border: "1px solid #eef2f7",
+};
+
+const metaLabel: CSSProperties = {
+  display: "block",
+  color: "#64748b",
+  fontSize: 11,
+  fontWeight: 800,
+  marginBottom: 5,
+};
+
+const metaValue: CSSProperties = {
+  display: "block",
+  color: "#334155",
+  fontSize: 13,
+  fontWeight: 900,
+  overflowWrap: "anywhere",
+};
+
+const detailsBox: CSSProperties = {
+  marginTop: 12,
+  padding: "11px 13px",
+  borderRadius: 12,
+  background: "#f8fafc",
+  border: "1px solid #eef2f7",
+};
+
+const detailsLabel: CSSProperties = {
+  display: "block",
+  color: "#64748b",
+  fontSize: 11,
+  fontWeight: 800,
+  marginBottom: 5,
 };
 
 const details: CSSProperties = {
+  margin: 0,
   color: "#475569",
   lineHeight: 1.75,
   whiteSpace: "pre-wrap",
   overflowWrap: "anywhere",
-  flex: 1,
-};
-
-const meta: CSSProperties = {
-  display: "grid",
-  gap: 6,
-  color: "#64748b",
   fontSize: 13,
-  marginTop: 12,
 };
 
-const invoiceActions: CSSProperties = {
+const processedDetails: CSSProperties = {
+  marginTop: 12,
+  padding: "11px 13px",
+  borderRadius: 12,
+  background: "#dcfce7",
+  border: "1px solid #86efac",
+  color: "#166534",
   display: "flex",
-  justifyContent: "flex-end",
-  marginTop: 14,
-  paddingTop: 12,
-  borderTop: "1px solid #eef2f7",
+  alignItems: "center",
+  gap: 12,
+  flexWrap: "wrap",
+  fontSize: 12,
+  fontWeight: 800,
+};
+
+const editButton: CSSProperties = {
+  minHeight: 40,
+  padding: "0 13px",
+  border: "none",
+  borderRadius: 11,
+  background:
+    "linear-gradient(135deg,#0ea5e9,#2563eb)",
+  color: "#ffffff",
+  fontWeight: 900,
+  cursor: "pointer",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const processButton: CSSProperties = {
+  minHeight: 40,
+  padding: "0 13px",
+  border: "none",
+  borderRadius: 11,
+  background:
+    "linear-gradient(135deg,#22c55e,#15803d)",
+  color: "#ffffff",
+  fontWeight: 900,
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const deleteButton: CSSProperties = {
-  minHeight: 38,
+  minHeight: 40,
   padding: "0 13px",
   border: "none",
   borderRadius: 11,
