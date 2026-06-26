@@ -1103,34 +1103,52 @@ export default function PrintContractPage() {
       return "-";
     }
 
+    const trimmedValue =
+      String(value).trim();
+
     const directMatch =
-      /^(\d{4})-(\d{2})-(\d{2})$/.exec(
-        value
+      /^(\d{4})-(\d{2})-(\d{2})(?:[T\s].*)?$/.exec(
+        trimmedValue
       );
 
     if (directMatch) {
-      return `${directMatch[3]}/${directMatch[2]}/${directMatch[1]}`;
+      const year =
+        directMatch[1];
+
+      const month =
+        directMatch[2];
+
+      const day =
+        directMatch[3];
+
+      return `${day}-${month}-${year}`;
     }
 
     const parsedDate =
-      new Date(value);
+      new Date(trimmedValue);
 
     if (
       Number.isNaN(
         parsedDate.getTime()
       )
     ) {
-      return String(value);
+      return trimmedValue;
     }
 
-    return new Intl.DateTimeFormat(
-      "en-GB-u-ca-gregory",
-      {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-      }
-    ).format(parsedDate);
+    const day =
+      String(
+        parsedDate.getDate()
+      ).padStart(2, "0");
+
+    const month =
+      String(
+        parsedDate.getMonth() + 1
+      ).padStart(2, "0");
+
+    const year =
+      parsedDate.getFullYear();
+
+    return `${day}-${month}-${year}`;
   }
 
   function handlePrint() {
@@ -1280,11 +1298,6 @@ export default function PrintContractPage() {
         contract?.contract_date_gregorian
     );
 
-  const contractIssueDateHijri =
-    contract?.contract_issue_date_hijri ||
-    contract?.contract_date_hijri ||
-    "";
-
   const paymentDueDate =
     formatDateOnly(
       contract?.payment_due_date
@@ -1338,6 +1351,11 @@ export default function PrintContractPage() {
     guarantorCustomer?.work ||
     contract?.guarantor_work_name ||
     "";
+
+  const legalCity =
+    String(
+      contract?.legal_city || ""
+    ).trim();
 
   return (
     <main
@@ -1595,13 +1613,7 @@ export default function PrintContractPage() {
                   {contract.product_quantity ||
                     "-"}
                 </strong>
-                ، بمبلغ دين وقدره /{" "}
-                <strong>
-                  {formatMoney(
-                    contract.debt_amount
-                  )}
-                </strong>{" "}
-                ريال سعودي.
+                .
               </p>
 
               <p style={paragraph}>
@@ -1609,8 +1621,7 @@ export default function PrintContractPage() {
                 بسداد مبلغ وقدره /{" "}
                 <strong>
                   {formatMoney(
-                    contract.payment_amount ??
-                      contract.debt_amount
+                    contract.payment_amount
                   )}
                 </strong>{" "}
                 ريال سعودي
@@ -1648,14 +1659,15 @@ export default function PrintContractPage() {
                 )}
               </p>
 
-              <p style={paragraph}>
-                وتكون مدينة التقاضي /{" "}
-                <strong>
-                  {contract.legal_city ||
-                    "-"}
-                </strong>
-                .
-              </p>
+              {legalCity && (
+                <p style={paragraph}>
+                  وتكون مدينة التقاضي /{" "}
+                  <strong>
+                    {legalCity}
+                  </strong>
+                  .
+                </p>
+              )}
 
               {Number(
                 contract.judicial_amount ||
@@ -1795,28 +1807,6 @@ export default function PrintContractPage() {
                 </div>
               </div>
             )}
-
-            <div style={documentFooter}>
-              <span>
-                رقم العقد:{" "}
-                {contract.contract_number ||
-                  "-"}
-              </span>
-
-              <span>
-                تاريخ التحرير:{" "}
-                {contractIssueDate}
-              </span>
-
-              {contractIssueDateHijri && (
-                <span>
-                  التاريخ الهجري:{" "}
-                  {
-                    contractIssueDateHijri
-                  }
-                </span>
-              )}
-            </div>
           </section>
         )}
 
@@ -2623,20 +2613,6 @@ const guarantorGrid: CSSProperties = {
   gap: "2px 14px",
   marginTop: 4,
   marginBottom: 4,
-};
-
-const documentFooter: CSSProperties = {
-  marginTop: 18,
-  paddingTop: 8,
-  borderTop:
-    "1px solid #d1d5db",
-  display: "flex",
-  justifyContent:
-    "space-between",
-  gap: 10,
-  flexWrap: "wrap",
-  fontSize: 9.8,
-  color: "#64748b",
 };
 
 const buttonsArea: CSSProperties = {
