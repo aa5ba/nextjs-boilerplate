@@ -4,21 +4,17 @@ import { Suspense, useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-
-type FinanceUserSession = {
-  id: string;
-  full_name: string;
-  username: string;
-  role: string;
-  branch_id: string;
-  branch_slug: string;
-  branch_name: string;
-  organization_name: string;
-  permissions: string[];
-  investor_id: string | null;
-  is_active: boolean;
-  last_login_at: string | null;
-};
+import {
+  clearFinanceSession,
+  getSavedFinanceReturnPath,
+  isSafeFinanceReturnPath,
+  normalizeFinanceReturnPath,
+  readFinanceSession,
+  removeFinanceReturnPath,
+  saveFinanceSession,
+  validateFinanceSession,
+} from "@/lib/financeSession";
+import type { FinanceSessionUser } from "@/lib/financeSession";
 
 type CustomerSession = {
   id: string;
@@ -49,28 +45,6 @@ type CustomerLoginResult = {
   work_sector: string | null;
 };
 
-const SESSION_DURATION_MS = 3 * 60 * 60 * 1000;
-
-const FINANCE_SESSION_KEYS = [
-  "finance_user",
-  "finance_branch_user",
-  "finance_user_id",
-  "finance_user_name",
-  "finance_username",
-  "finance_role",
-  "finance_branch_id",
-  "finance_branch_slug",
-  "finance_branch_name",
-  "finance_organization_name",
-  "finance_permissions",
-  "finance_investor_id",
-  "finance_is_active",
-  "finance_last_login_at",
-  "finance_session_expires_at",
-  "finance_last_activity_at",
-  "finance_return_to",
-] as const;
-
 const CUSTOMER_SESSION_KEYS = [
   "customer_user",
   "customer_id",
@@ -99,16 +73,16 @@ function LoginPageContent() {
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
     let cancelled = false;
 
-    function redirectExistingSession() {
-      const storedFinanceUser = readStoredFinanceUser();
+    function checkExistingFinanceSession() {
+      if (typeof window === "undefined") {
+        return;
+      }
 
-      if (!storedFinanceUser) {
+      const storedSession = readFinanceSession();
+
+      if (!storedSession) {
         if (!cancelled) {
           setCheckingExistingSession(false);
         }
@@ -116,25 +90,11 @@ function LoginPageContent() {
         return;
       }
 
-      const employeeId = String(storedFinanceUser.id || "").trim();
-      const branchId = String(storedFinanceUser.branch_id || "").trim();
-      const branchSlug = String(
-        storedFinanceUser.branch_slug || ""
-      ).trim();
-
-      const sessionExpiresAt = Number(
-        localStorage.getItem("finance_session_expires_at") || "0"
+      const validation = validateFinanceSession(
+        storedSession.branch_slug
       );
 
-      const sessionIsValid =
-        Boolean(employeeId) &&
-        Boolean(branchId) &&
-        Boolean(branchSlug) &&
-        storedFinanceUser.is_active !== false &&
-        Number.isFinite(sessionExpiresAt) &&
-        sessionExpiresAt > Date.now();
-
-      if (!sessionIsValid) {
+      if (!validation.valid || !validation.user) {
         clearFinanceSession({
           preserveReturnPath: true,
         });
@@ -146,41 +106,36 @@ function LoginPageContent() {
         return;
       }
 
-      const returnPath = getFinanceReturnPath(branchSlug);
+      const branchSlug = validation.user.branch_slug.trim();
 
-      if (returnPath) {
-        localStorage.removeItem("finance_return_to");
-        router.replace(returnPath);
+      if (!branchSlug) {
+        clearFinanceSession({
+          preserveReturnPath: true,
+        });
+
+        if (!cancelled) {
+          setCheckingExistingSession(false);
+        }
+
         return;
       }
 
-      router.replace(`/finance/${branchSlug}`);
+      const destination =
+        getRequestedFinanceReturnPath(branchSlug) ||
+        `/finance/${branchSlug}`;
+
+      removeFinanceReturnPath();
+
+      router.prefetch(destination);
+      router.replace(destination);
     }
 
-    redirectExistingSession();
+    checkExistingFinanceSession();
 
     return () => {
       cancelled = true;
     };
   }, [router, searchParams]);
-
-  function clearFinanceSession({
-    preserveReturnPath = false,
-  }: {
-    preserveReturnPath?: boolean;
-  } = {}) {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    FINANCE_SESSION_KEYS.forEach((key) => {
-      if (preserveReturnPath && key === "finance_return_to") {
-        return;
-      }
-
-      localStorage.removeItem(key);
-    });
-  }
 
   function clearCustomerSession() {
     if (typeof window === "undefined") {
@@ -190,177 +145,6 @@ function LoginPageContent() {
     CUSTOMER_SESSION_KEYS.forEach((key) => {
       localStorage.removeItem(key);
     });
-  }
-
-  function readStoredFinanceUser(): FinanceUserSession | null {
-    if (typeof window === "undefined") {
-      return null;
-    }
-
-    const rawSession =
-      localStorage.getItem("finance_branch_user") ||
-      localStorage.getItem("finance_user");
-
-    if (!rawSession) {
-      return null;
-    }
-
-    try {
-      const parsed = JSON.parse(rawSession) as Partial<FinanceUserSession>;
-
-      if (
-        !parsed ||
-        typeof parsed !== "object" ||
-        Array.isArray(parsed)
-      ) {
-        return null;
-      }
-
-      const permissions = Array.isArray(parsed.permissions)
-        ? parsed.permissions.filter(
-            (permission): permission is string =>
-              typeof permission === "string" &&
-              permission.trim().length > 0
-          )
-        : [];
-
-      return {
-        id:
-          String(
-            parsed.id ||
-              localStorage.getItem("finance_user_id") ||
-              ""
-          ).trim(),
-
-        full_name:
-          String(
-            parsed.full_name ||
-              localStorage.getItem("finance_user_name") ||
-              ""
-          ).trim(),
-
-        username:
-          String(
-            parsed.username ||
-              localStorage.getItem("finance_username") ||
-              ""
-          ).trim(),
-
-        role:
-          String(
-            parsed.role ||
-              localStorage.getItem("finance_role") ||
-              ""
-          ).trim(),
-
-        branch_id:
-          String(
-            parsed.branch_id ||
-              localStorage.getItem("finance_branch_id") ||
-              ""
-          ).trim(),
-
-        branch_slug:
-          String(
-            parsed.branch_slug ||
-              localStorage.getItem("finance_branch_slug") ||
-              ""
-          ).trim(),
-
-        branch_name:
-          String(
-            parsed.branch_name ||
-              localStorage.getItem("finance_branch_name") ||
-              ""
-          ).trim(),
-
-        organization_name:
-          String(
-            parsed.organization_name ||
-              localStorage.getItem("finance_organization_name") ||
-              ""
-          ).trim(),
-
-        permissions,
-
-        investor_id:
-          parsed.investor_id ||
-          localStorage.getItem("finance_investor_id") ||
-          null,
-
-        is_active:
-          parsed.is_active !== false &&
-          localStorage.getItem("finance_is_active") !== "false",
-
-        last_login_at:
-          parsed.last_login_at ||
-          localStorage.getItem("finance_last_login_at") ||
-          null,
-      };
-    } catch {
-      return null;
-    }
-  }
-
-  function saveFinanceSession(financeUser: FinanceUserSession) {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    const now = Date.now();
-    const expiresAt = now + SESSION_DURATION_MS;
-    const serializedUser = JSON.stringify(financeUser);
-
-    localStorage.setItem("finance_user", serializedUser);
-    localStorage.setItem("finance_branch_user", serializedUser);
-    localStorage.setItem("finance_user_id", financeUser.id);
-    localStorage.setItem("finance_user_name", financeUser.full_name);
-    localStorage.setItem("finance_username", financeUser.username);
-    localStorage.setItem("finance_role", financeUser.role);
-    localStorage.setItem("finance_branch_id", financeUser.branch_id);
-    localStorage.setItem(
-      "finance_branch_slug",
-      financeUser.branch_slug
-    );
-    localStorage.setItem(
-      "finance_branch_name",
-      financeUser.branch_name
-    );
-
-    localStorage.setItem(
-      "finance_organization_name",
-      financeUser.organization_name
-    );
-
-    localStorage.setItem(
-      "finance_permissions",
-      JSON.stringify(financeUser.permissions)
-    );
-
-    localStorage.setItem(
-      "finance_investor_id",
-      financeUser.investor_id || ""
-    );
-
-    localStorage.setItem(
-      "finance_is_active",
-      financeUser.is_active ? "true" : "false"
-    );
-
-    localStorage.setItem(
-      "finance_last_login_at",
-      financeUser.last_login_at || ""
-    );
-
-    localStorage.setItem(
-      "finance_last_activity_at",
-      String(now)
-    );
-
-    localStorage.setItem(
-      "finance_session_expires_at",
-      String(expiresAt)
-    );
   }
 
   function saveCustomerSession(customerUser: CustomerSession) {
@@ -387,11 +171,13 @@ function LoginPageContent() {
       return [];
     }
 
-    return value.filter(
-      (permission): permission is string =>
-        typeof permission === "string" &&
-        permission.trim().length > 0
-    );
+    return value
+      .filter(
+        (permission): permission is string =>
+          typeof permission === "string"
+      )
+      .map((permission) => permission.trim())
+      .filter(Boolean);
   }
 
   function getFinanceLoginResult(
@@ -426,72 +212,23 @@ function LoginPageContent() {
     return result as CustomerLoginResult;
   }
 
-  function normalizeReturnPath(value: string | null) {
-    if (!value) {
-      return "";
-    }
-
-    const trimmedValue = value.trim();
-
-    if (!trimmedValue) {
-      return "";
-    }
-
-    try {
-      return decodeURIComponent(trimmedValue);
-    } catch {
-      return trimmedValue;
-    }
-  }
-
-  function isSafeFinanceReturnPath(
-    value: string,
-    branchSlug: string
-  ) {
-    if (!value || !branchSlug) {
-      return false;
-    }
-
-    if (
-      !value.startsWith("/") ||
-      value.startsWith("//") ||
-      value.includes("://") ||
-      value.includes("\\")
-    ) {
-      return false;
-    }
-
-    const branchBasePath = `/finance/${branchSlug}`;
-
-    return (
-      value === branchBasePath ||
-      value.startsWith(`${branchBasePath}/`) ||
-      value.startsWith(`${branchBasePath}?`)
-    );
-  }
-
-  function getFinanceReturnPath(branchSlug: string) {
+  function getRequestedFinanceReturnPath(branchSlug: string) {
     if (typeof window === "undefined") {
       return "";
     }
 
-    const queryReturnTo = normalizeReturnPath(
+    const queryReturnTo = normalizeFinanceReturnPath(
       searchParams.get("returnTo")
     );
 
-    const storedReturnTo = normalizeReturnPath(
-      localStorage.getItem("finance_return_to")
-    );
-
-    if (isSafeFinanceReturnPath(queryReturnTo, branchSlug)) {
+    if (
+      queryReturnTo &&
+      isSafeFinanceReturnPath(queryReturnTo, branchSlug)
+    ) {
       return queryReturnTo;
     }
 
-    if (isSafeFinanceReturnPath(storedReturnTo, branchSlug)) {
-      return storedReturnTo;
-    }
-
-    return "";
+    return getSavedFinanceReturnPath(branchSlug);
   }
 
   async function handleBranchLogin(
@@ -523,7 +260,9 @@ function LoginPageContent() {
       return;
     }
 
-    if (!result.branch_slug) {
+    const branchSlug = String(result.branch_slug || "").trim();
+
+    if (!branchSlug) {
       setMessage("مسار الفرع غير مكتمل");
       return;
     }
@@ -535,29 +274,34 @@ function LoginPageContent() {
       return;
     }
 
-    const financeUser: FinanceUserSession = {
-      id: String(result.id),
-      full_name: result.full_name || "",
-      username: result.username || normalizedUsername,
-      role: result.role || "",
-      branch_id: String(result.branch_id),
-      branch_slug: String(result.branch_slug),
-      branch_name: result.branch_name || "",
-      organization_name: result.organization_name || "",
+    const financeUser: FinanceSessionUser = {
+      id: String(result.id).trim(),
+      full_name: String(result.full_name || "").trim(),
+      username: String(
+        result.username || normalizedUsername
+      ).trim(),
+      role: String(result.role || "").trim(),
+      branch_id: String(result.branch_id).trim(),
+      branch_slug: branchSlug,
+      branch_name: String(result.branch_name || "").trim(),
+      organization_name: String(
+        result.organization_name || ""
+      ).trim(),
       permissions: normalizePermissions(result.permissions),
-
       investor_id: result.investor_id
-        ? String(result.investor_id)
+        ? String(result.investor_id).trim()
         : null,
-
-      is_active: isActive,
-
+      is_active: true,
       last_login_at: result.last_login_at
         ? String(result.last_login_at)
         : null,
     };
 
-    const returnPath = getFinanceReturnPath(
+    /*
+      نقرأ رابط العودة قبل مسح الجلسة القديمة،
+      لأن finance_return_to قد يكون محفوظًا منها.
+    */
+    const returnPath = getRequestedFinanceReturnPath(
       financeUser.branch_slug
     );
 
@@ -566,12 +310,19 @@ function LoginPageContent() {
     });
 
     clearCustomerSession();
-    saveFinanceSession(financeUser);
+
+    /*
+      saveFinanceSession ينشئ جلسة جديدة مدتها 3 ساعات
+      وفق الإعداد الموجود في lib/financeSession.ts.
+    */
+    saveFinanceSession(financeUser, {
+      preserveReturnPath: true,
+    });
 
     const destination =
       returnPath || `/finance/${financeUser.branch_slug}`;
 
-    localStorage.removeItem("finance_return_to");
+    removeFinanceReturnPath();
 
     router.prefetch(destination);
     router.replace(destination);
@@ -775,38 +526,28 @@ function LoginPageLoading() {
 
 const page: CSSProperties = {
   minHeight: "100vh",
-
   backgroundImage:
     "linear-gradient(rgba(255,255,255,0.82), rgba(255,255,255,0.82)), url('/backgrounds/v13-finance-bg-2.png')",
-
   backgroundSize: "cover",
   backgroundPosition: "center",
   backgroundRepeat: "no-repeat",
   backgroundAttachment: "fixed",
-
   display: "flex",
   justifyContent: "center",
   alignItems: "center",
-
   padding: 20,
   boxSizing: "border-box",
-
   fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const card: CSSProperties = {
   width: "100%",
   maxWidth: 430,
-
   background: "rgba(255,255,255,0.96)",
-
   borderRadius: 24,
   padding: 24,
-
   boxSizing: "border-box",
-
   boxShadow: "0 20px 50px rgba(15,23,42,0.22)",
-
   border: "1px solid rgba(255,255,255,0.7)",
 };
 
@@ -818,127 +559,91 @@ const logoBox: CSSProperties = {
 const logoCircle: CSSProperties = {
   width: 58,
   height: 58,
-
   borderRadius: "50%",
-
   margin: "0 auto 12px",
-
   background: "#0f172a",
   color: "#ffffff",
-
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-
   fontSize: 28,
   fontWeight: 900,
-
   fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const title: CSSProperties = {
   margin: 0,
-
   fontSize: 28,
   color: "#0f172a",
   fontWeight: 900,
-
   fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const subtitle: CSSProperties = {
   margin: "8px 0 22px",
-
   color: "#64748b",
   fontSize: 15,
-
   fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const inputStyle: CSSProperties = {
   width: "100%",
   height: 50,
-
   marginBottom: 14,
-
   borderRadius: 12,
   border: "1px solid #dbe3ef",
-
   padding: "0 15px",
-
   fontSize: 16,
   outline: "none",
-
   boxSizing: "border-box",
-
   background: "#ffffff",
   color: "#0f172a",
-
   fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const buttonStyle: CSSProperties = {
   width: "100%",
   height: 50,
-
   border: "none",
   borderRadius: 14,
-
   background: "#0f172a",
   color: "#ffffff",
-
   fontSize: 18,
   fontWeight: 900,
-
   fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const messageStyle: CSSProperties = {
   textAlign: "center",
-
   margin: "18px 0 0",
-
   color: "#d00000",
   fontWeight: 900,
   lineHeight: 1.7,
-
   fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const loadingPage: CSSProperties = {
   minHeight: "100vh",
-
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-
   padding: 20,
   boxSizing: "border-box",
-
   backgroundColor: "#f6f9ff",
-
   backgroundImage:
     "linear-gradient(rgba(255,255,255,0.82), rgba(255,255,255,0.82)), url('/backgrounds/v13-finance-bg-2.png')",
-
   backgroundSize: "cover",
   backgroundPosition: "center",
-
   fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const loadingCard: CSSProperties = {
   padding: "22px 28px",
-
   borderRadius: 18,
-
   background: "#ffffff",
-
   border: "1px solid #dbeafe",
-
   color: "#1e3a8a",
-
   fontSize: 15,
   fontWeight: 900,
-
   boxShadow: "0 12px 30px rgba(15,23,42,0.08)",
 };
