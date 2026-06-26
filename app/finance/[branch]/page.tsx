@@ -838,14 +838,9 @@ export default function FinancePage() {
           role:
             session.role || "",
 
-          roles:
-            Array.isArray(
-              session.roles
-            )
-              ? session.roles
-              : session.role
-                ? [session.role]
-                : [],
+         roles: session.role
+  ? [session.role]
+  : [],
 
           permissions:
             Array.isArray(
