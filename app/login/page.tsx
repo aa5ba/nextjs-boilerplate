@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
@@ -49,7 +49,7 @@ type CustomerLoginResult = {
   work_sector: string | null;
 };
 
-const SESSION_DURATION_MS = 60 * 60 * 1000;
+const SESSION_DURATION_MS = 3 * 60 * 60 * 1000;
 
 const FINANCE_SESSION_KEYS = [
   "finance_user",
@@ -94,7 +94,75 @@ function LoginPageContent() {
   const [loginIdentifier, setLoginIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [checkingExistingSession, setCheckingExistingSession] =
+    useState(true);
   const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    let cancelled = false;
+
+    function redirectExistingSession() {
+      const storedFinanceUser = readStoredFinanceUser();
+
+      if (!storedFinanceUser) {
+        if (!cancelled) {
+          setCheckingExistingSession(false);
+        }
+
+        return;
+      }
+
+      const employeeId = String(storedFinanceUser.id || "").trim();
+      const branchId = String(storedFinanceUser.branch_id || "").trim();
+      const branchSlug = String(
+        storedFinanceUser.branch_slug || ""
+      ).trim();
+
+      const sessionExpiresAt = Number(
+        localStorage.getItem("finance_session_expires_at") || "0"
+      );
+
+      const sessionIsValid =
+        Boolean(employeeId) &&
+        Boolean(branchId) &&
+        Boolean(branchSlug) &&
+        storedFinanceUser.is_active !== false &&
+        Number.isFinite(sessionExpiresAt) &&
+        sessionExpiresAt > Date.now();
+
+      if (!sessionIsValid) {
+        clearFinanceSession({
+          preserveReturnPath: true,
+        });
+
+        if (!cancelled) {
+          setCheckingExistingSession(false);
+        }
+
+        return;
+      }
+
+      const returnPath = getFinanceReturnPath(branchSlug);
+
+      if (returnPath) {
+        localStorage.removeItem("finance_return_to");
+        router.replace(returnPath);
+        return;
+      }
+
+      router.replace(`/finance/${branchSlug}`);
+    }
+
+    redirectExistingSession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router, searchParams]);
 
   function clearFinanceSession({
     preserveReturnPath = false,
@@ -124,11 +192,123 @@ function LoginPageContent() {
     });
   }
 
+  function readStoredFinanceUser(): FinanceUserSession | null {
+    if (typeof window === "undefined") {
+      return null;
+    }
+
+    const rawSession =
+      localStorage.getItem("finance_branch_user") ||
+      localStorage.getItem("finance_user");
+
+    if (!rawSession) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(rawSession) as Partial<FinanceUserSession>;
+
+      if (
+        !parsed ||
+        typeof parsed !== "object" ||
+        Array.isArray(parsed)
+      ) {
+        return null;
+      }
+
+      const permissions = Array.isArray(parsed.permissions)
+        ? parsed.permissions.filter(
+            (permission): permission is string =>
+              typeof permission === "string" &&
+              permission.trim().length > 0
+          )
+        : [];
+
+      return {
+        id:
+          String(
+            parsed.id ||
+              localStorage.getItem("finance_user_id") ||
+              ""
+          ).trim(),
+
+        full_name:
+          String(
+            parsed.full_name ||
+              localStorage.getItem("finance_user_name") ||
+              ""
+          ).trim(),
+
+        username:
+          String(
+            parsed.username ||
+              localStorage.getItem("finance_username") ||
+              ""
+          ).trim(),
+
+        role:
+          String(
+            parsed.role ||
+              localStorage.getItem("finance_role") ||
+              ""
+          ).trim(),
+
+        branch_id:
+          String(
+            parsed.branch_id ||
+              localStorage.getItem("finance_branch_id") ||
+              ""
+          ).trim(),
+
+        branch_slug:
+          String(
+            parsed.branch_slug ||
+              localStorage.getItem("finance_branch_slug") ||
+              ""
+          ).trim(),
+
+        branch_name:
+          String(
+            parsed.branch_name ||
+              localStorage.getItem("finance_branch_name") ||
+              ""
+          ).trim(),
+
+        organization_name:
+          String(
+            parsed.organization_name ||
+              localStorage.getItem("finance_organization_name") ||
+              ""
+          ).trim(),
+
+        permissions,
+
+        investor_id:
+          parsed.investor_id ||
+          localStorage.getItem("finance_investor_id") ||
+          null,
+
+        is_active:
+          parsed.is_active !== false &&
+          localStorage.getItem("finance_is_active") !== "false",
+
+        last_login_at:
+          parsed.last_login_at ||
+          localStorage.getItem("finance_last_login_at") ||
+          null,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   function saveFinanceSession(financeUser: FinanceUserSession) {
     if (typeof window === "undefined") {
       return;
     }
 
+    const now = Date.now();
+    const expiresAt = now + SESSION_DURATION_MS;
     const serializedUser = JSON.stringify(financeUser);
 
     localStorage.setItem("finance_user", serializedUser);
@@ -138,8 +318,14 @@ function LoginPageContent() {
     localStorage.setItem("finance_username", financeUser.username);
     localStorage.setItem("finance_role", financeUser.role);
     localStorage.setItem("finance_branch_id", financeUser.branch_id);
-    localStorage.setItem("finance_branch_slug", financeUser.branch_slug);
-    localStorage.setItem("finance_branch_name", financeUser.branch_name);
+    localStorage.setItem(
+      "finance_branch_slug",
+      financeUser.branch_slug
+    );
+    localStorage.setItem(
+      "finance_branch_name",
+      financeUser.branch_name
+    );
 
     localStorage.setItem(
       "finance_organization_name",
@@ -166,13 +352,14 @@ function LoginPageContent() {
       financeUser.last_login_at || ""
     );
 
-    const now = Date.now();
-
-    localStorage.setItem("finance_last_activity_at", String(now));
+    localStorage.setItem(
+      "finance_last_activity_at",
+      String(now)
+    );
 
     localStorage.setItem(
       "finance_session_expires_at",
-      String(now + SESSION_DURATION_MS)
+      String(expiresAt)
     );
   }
 
@@ -181,11 +368,18 @@ function LoginPageContent() {
       return;
     }
 
-    localStorage.setItem("customer_user", JSON.stringify(customerUser));
+    localStorage.setItem(
+      "customer_user",
+      JSON.stringify(customerUser)
+    );
+
     localStorage.setItem("customer_id", customerUser.id);
     localStorage.setItem("customer_name", customerUser.full_name);
     localStorage.setItem("customer_phone", customerUser.phone);
-    localStorage.setItem("customer_sector", customerUser.work_sector);
+    localStorage.setItem(
+      "customer_sector",
+      customerUser.work_sector
+    );
   }
 
   function normalizePermissions(value: unknown): string[] {
@@ -351,10 +545,13 @@ function LoginPageContent() {
       branch_name: result.branch_name || "",
       organization_name: result.organization_name || "",
       permissions: normalizePermissions(result.permissions),
+
       investor_id: result.investor_id
         ? String(result.investor_id)
         : null,
+
       is_active: isActive,
+
       last_login_at: result.last_login_at
         ? String(result.last_login_at)
         : null,
@@ -364,18 +561,20 @@ function LoginPageContent() {
       financeUser.branch_slug
     );
 
-    clearFinanceSession();
+    clearFinanceSession({
+      preserveReturnPath: true,
+    });
+
     clearCustomerSession();
     saveFinanceSession(financeUser);
 
+    const destination =
+      returnPath || `/finance/${financeUser.branch_slug}`;
+
     localStorage.removeItem("finance_return_to");
 
-    if (returnPath) {
-      router.replace(returnPath);
-      return;
-    }
-
-    router.replace(`/finance/${financeUser.branch_slug}`);
+    router.prefetch(destination);
+    router.replace(destination);
   }
 
   async function handleCustomerLogin(
@@ -418,11 +617,13 @@ function LoginPageContent() {
     };
 
     saveCustomerSession(customerUser);
+
+    router.prefetch("/customer");
     router.replace("/customer");
   }
 
   async function handleLogin() {
-    if (loading) {
+    if (loading || checkingExistingSession) {
       return;
     }
 
@@ -486,6 +687,10 @@ function LoginPageContent() {
     } finally {
       setLoading(false);
     }
+  }
+
+  if (checkingExistingSession) {
+    return <LoginPageLoading />;
   }
 
   return (
@@ -570,28 +775,38 @@ function LoginPageLoading() {
 
 const page: CSSProperties = {
   minHeight: "100vh",
+
   backgroundImage:
     "linear-gradient(rgba(255,255,255,0.82), rgba(255,255,255,0.82)), url('/backgrounds/v13-finance-bg-2.png')",
+
   backgroundSize: "cover",
   backgroundPosition: "center",
   backgroundRepeat: "no-repeat",
   backgroundAttachment: "fixed",
+
   display: "flex",
   justifyContent: "center",
   alignItems: "center",
+
   padding: 20,
   boxSizing: "border-box",
+
   fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const card: CSSProperties = {
   width: "100%",
   maxWidth: 430,
+
   background: "rgba(255,255,255,0.96)",
+
   borderRadius: 24,
   padding: 24,
+
   boxSizing: "border-box",
+
   boxShadow: "0 20px 50px rgba(15,23,42,0.22)",
+
   border: "1px solid rgba(255,255,255,0.7)",
 };
 
@@ -603,91 +818,127 @@ const logoBox: CSSProperties = {
 const logoCircle: CSSProperties = {
   width: 58,
   height: 58,
+
   borderRadius: "50%",
+
   margin: "0 auto 12px",
+
   background: "#0f172a",
   color: "#ffffff",
+
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
+
   fontSize: 28,
   fontWeight: 900,
+
   fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const title: CSSProperties = {
   margin: 0,
+
   fontSize: 28,
   color: "#0f172a",
   fontWeight: 900,
+
   fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const subtitle: CSSProperties = {
   margin: "8px 0 22px",
+
   color: "#64748b",
   fontSize: 15,
+
   fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const inputStyle: CSSProperties = {
   width: "100%",
   height: 50,
+
   marginBottom: 14,
+
   borderRadius: 12,
   border: "1px solid #dbe3ef",
+
   padding: "0 15px",
+
   fontSize: 16,
   outline: "none",
+
   boxSizing: "border-box",
+
   background: "#ffffff",
   color: "#0f172a",
+
   fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const buttonStyle: CSSProperties = {
   width: "100%",
   height: 50,
+
   border: "none",
   borderRadius: 14,
+
   background: "#0f172a",
   color: "#ffffff",
+
   fontSize: 18,
   fontWeight: 900,
+
   fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const messageStyle: CSSProperties = {
   textAlign: "center",
+
   margin: "18px 0 0",
+
   color: "#d00000",
   fontWeight: 900,
   lineHeight: 1.7,
+
   fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const loadingPage: CSSProperties = {
   minHeight: "100vh",
+
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
+
   padding: 20,
   boxSizing: "border-box",
+
   backgroundColor: "#f6f9ff",
+
   backgroundImage:
     "linear-gradient(rgba(255,255,255,0.82), rgba(255,255,255,0.82)), url('/backgrounds/v13-finance-bg-2.png')",
+
   backgroundSize: "cover",
   backgroundPosition: "center",
+
   fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const loadingCard: CSSProperties = {
   padding: "22px 28px",
+
   borderRadius: 18,
+
   background: "#ffffff",
+
   border: "1px solid #dbeafe",
+
   color: "#1e3a8a",
+
   fontSize: 15,
   fontWeight: 900,
+
   boxShadow: "0 12px 30px rgba(15,23,42,0.08)",
 };
