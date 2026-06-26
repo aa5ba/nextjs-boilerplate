@@ -1604,7 +1604,7 @@ export default function NewFinanceContractPage() {
       );
 
       router.push(
-        `/finance/${branch}/contracts/${result.contract_id}`
+        `/finance/${branch}/contracts/print/${result.contract_id}`
       );
     } catch (error: unknown) {
       alert(
@@ -2464,7 +2464,7 @@ export default function NewFinanceContractPage() {
 
               <span>
                 إنشاء العقد ثم الانتقال
-                إلى تفاصيله
+                مباشرة إلى صفحة الطباعة
               </span>
             </button>
 
@@ -3311,6 +3311,19 @@ function parseDateValue(
 function formatDisplayDate(
   value: string
 ) {
+  const directMatch =
+    /^(\d{4})-(\d{2})-(\d{2})$/.exec(
+      value
+    );
+
+  if (directMatch) {
+    const year = directMatch[1];
+    const month = directMatch[2];
+    const day = directMatch[3];
+
+    return `${day}-${month}-${year}`;
+  }
+
   const date =
     parseDateValue(value);
 
@@ -3318,14 +3331,18 @@ function formatDisplayDate(
     return value;
   }
 
-  return new Intl.DateTimeFormat(
-    "ar-SA-u-ca-gregory",
-    {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    }
-  ).format(date);
+  const day = String(
+    date.getDate()
+  ).padStart(2, "0");
+
+  const month = String(
+    date.getMonth() + 1
+  ).padStart(2, "0");
+
+  const year =
+    date.getFullYear();
+
+  return `${day}-${month}-${year}`;
 }
 
 function normalizeDigits(
