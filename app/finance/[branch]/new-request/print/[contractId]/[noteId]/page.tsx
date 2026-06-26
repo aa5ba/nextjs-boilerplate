@@ -1,19 +1,208 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import {
+  useParams,
+  usePathname,
+  useRouter,
+} from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { getBranchId } from "@/lib/getBranchId";
+
+type CustomerRelation = {
+  id?: string | null;
+  full_name?: string | null;
+  national_id?: string | null;
+  phone?: string | null;
+  birth_hijri?: string | null;
+  work?: string | null;
+  work_name?: string | null;
+  address?: string | null;
+};
+
+type FinanceSession = {
+  id?: string | null;
+  user_id?: string | null;
+  full_name?: string | null;
+  username?: string | null;
+  branch_id?: string | null;
+  branch_slug?: string | null;
+  is_active?: boolean | null;
+};
+
+type BranchRecord = {
+  id: string;
+  branch_slug?: string | null;
+  branch_name?: string | null;
+  organization_name?: string | null;
+  phone?: string | null;
+  city?: string | null;
+  commercial_record?: string | null;
+  is_active?: boolean | null;
+};
+
+type ContractRecord = {
+  id: string;
+  branch_id?: string | null;
+  customer_id?: string | null;
+  guarantor_customer_id?: string | null;
+
+  contract_number?: string | number | null;
+  customer_name?: string | null;
+  customer_national_id?: string | null;
+  customer_phone?: string | null;
+  customer_birth_hijri?: string | null;
+
+  investor_name?: string | null;
+  investor_national_id?: string | null;
+
+  product_name?: string | null;
+  product_quantity?: number | string | null;
+
+  print_party_type?: string | null;
+  print_party_name?: string | null;
+  print_party_identifier?: string | null;
+
+  first_party_type?: string | null;
+  first_party_name?: string | null;
+  first_party_identifier?: string | null;
+
+  debt_amount?: number | string | null;
+  payment_amount?: number | string | null;
+
+  payment_due_date?: string | null;
+  legal_city?: string | null;
+  judicial_amount?: number | string | null;
+
+  contract_issue_date_gregorian?: string | null;
+  contract_date_gregorian?: string | null;
+
+  has_deferred_payments?: boolean | null;
+  installment_amount?: number | string | null;
+  deferred_payments_count?: number | string | null;
+
+  has_guarantor?: boolean | null;
+  guarantor_name?: string | null;
+  guarantor_national_id?: string | null;
+  guarantor_phone?: string | null;
+  guarantor_birth_hijri?: string | null;
+
+  notes?: string | null;
+
+  customer?:
+    | CustomerRelation
+    | CustomerRelation[]
+    | null;
+
+  guarantor_customer?:
+    | CustomerRelation
+    | CustomerRelation[]
+    | null;
+};
+
+type PromissoryNoteRecord = {
+  id: string;
+  branch_id?: string | null;
+  contract_id?: string | null;
+
+  note_number?: string | number | null;
+  amount?: number | string | null;
+  due_date?: string | null;
+
+  debtor_name?: string | null;
+  debtor_national_id?: string | null;
+  debtor_phone?: string | null;
+
+  note_issue_date_gregorian?: string | null;
+  note_date_gregorian?: string | null;
+
+  city?: string | null;
+  notes?: string | null;
+
+  has_guarantor?: boolean | null;
+  guarantor_name?: string | null;
+  guarantor_national_id?: string | null;
+  guarantor_phone?: string | null;
+  guarantor_birth_hijri?: string | null;
+};
+
+type OrganizationSettings = {
+  name: string;
+  phone: string;
+  city: string;
+  commercialRecord: string;
+};
+
+const SESSION_DURATION_MS =
+  60 * 60 * 1000;
+
+const ACTIVITY_REFRESH_INTERVAL_MS =
+  60 * 1000;
+
+const SESSION_KEYS = [
+  "finance_user",
+  "finance_branch_user",
+  "finance_user_id",
+  "finance_user_name",
+  "finance_username",
+  "finance_role",
+  "finance_branch_id",
+  "finance_branch_slug",
+  "finance_branch_name",
+  "finance_organization_name",
+  "finance_permissions",
+  "finance_investor_id",
+  "finance_is_active",
+  "finance_last_login_at",
+  "finance_session_expires_at",
+  "finance_last_activity_at",
+  "finance_return_to",
+] as const;
 
 export default function PrintNewRequestPage() {
   const params = useParams();
+  const pathname = usePathname();
+  const router = useRouter();
 
-  const branch = params.branch as string;
-  const contractId = params.contractId as string;
-  const noteId = params.noteId as string;
+  const branch = String(
+    params.branch ?? ""
+  ).trim();
 
-  const [contract, setContract] = useState<any>(null);
-  const [note, setNote] = useState<any>(null);
-  const [organizationSettings, setOrganizationSettings] = useState({
+  const contractId = String(
+    params.contractId ?? ""
+  ).trim();
+
+  const noteId = String(
+    params.noteId ?? ""
+  ).trim();
+
+  const [pageReady, setPageReady] =
+    useState(false);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [pageError, setPageError] =
+    useState("");
+
+  const [branchId, setBranchId] =
+    useState<string | null>(null);
+
+  const [contract, setContract] =
+    useState<ContractRecord | null>(
+      null
+    );
+
+  const [note, setNote] =
+    useState<PromissoryNoteRecord | null>(
+      null
+    );
+
+  const [
+    organizationSettings,
+    setOrganizationSettings,
+  ] = useState<OrganizationSettings>({
     name: "احتساب",
     phone: "",
     city: "",
@@ -21,36 +210,110 @@ export default function PrintNewRequestPage() {
   });
 
   useEffect(() => {
-    loadData();
-
-    const style = document.createElement("style");
+    const style =
+      document.createElement("style");
 
     style.innerHTML = `
       @media print {
-        button {
-          display: none !important;
-        }
-
+        html,
         body {
-          background: white !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #ffffff !important;
           -webkit-print-color-adjust: exact !important;
           print-color-adjust: exact !important;
         }
 
-        main {
-          padding: 0 !important;
-          background: white !important;
+        body {
+          overflow: visible !important;
         }
 
-        section {
-          break-inside: avoid !important;
+        .print-page-main {
+          min-height: auto !important;
+          padding: 0 !important;
+          margin: 0 !important;
+          background: #ffffff !important;
+        }
+
+        .print-action-buttons,
+        .print-loading-message,
+        .print-error-message {
+          display: none !important;
+        }
+
+        .contract-print-area,
+        .note-print-area {
+          width: 194mm !important;
+          height: 281mm !important;
+          min-height: 281mm !important;
+          max-height: 281mm !important;
+          margin: 0 auto !important;
+          padding: 7mm !important;
+          border: none !important;
+          box-shadow: none !important;
+          overflow: hidden !important;
           page-break-inside: avoid !important;
+          break-inside: avoid-page !important;
+        }
+
+        .contract-print-area {
+          page-break-after: always !important;
+          break-after: page !important;
+        }
+
+        .note-print-area {
+          page-break-before: always !important;
+          break-before: page !important;
+        }
+
+        section,
+        div,
+        p {
+          page-break-inside: avoid;
+          break-inside: avoid;
         }
       }
 
       @page {
-        size: A4;
+        size: A4 portrait;
         margin: 8mm;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        overflow-x: hidden;
+      }
+
+      button {
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      @media (max-width: 850px) {
+        .contract-print-area,
+        .note-print-area {
+          width: 100% !important;
+          height: auto !important;
+          min-height: 0 !important;
+          padding: 18px !important;
+        }
+
+        .print-document-header {
+          grid-template-columns: 1fr !important;
+          text-align: center !important;
+        }
+
+        .print-header-left {
+          text-align: center !important;
+        }
+
+        .print-signatures,
+        .print-legal-boxes,
+        .print-guarantor-grid {
+          grid-template-columns: 1fr !important;
+        }
       }
     `;
 
@@ -61,56 +324,771 @@ export default function PrintNewRequestPage() {
     };
   }, []);
 
-  async function loadData() {
-    const { data: branchData } = await supabase
-      .from("finance_branches")
-      .select("*")
-      .eq("branch_slug", branch)
-      .single();
+  useEffect(() => {
+    let cancelled = false;
 
-    const { data: contractData } = await supabase
-      .from("finance_contracts")
-      .select("*, finance_customers(full_name, national_id, phone, birth_hijri)")
-      .eq("id", contractId)
-      .single();
+    async function initializePage() {
+      if (
+        typeof window === "undefined"
+      ) {
+        return;
+      }
 
-    const { data: noteData } = await supabase
-      .from("finance_promissory_notes")
-      .select("*")
-      .eq("id", noteId)
-      .single();
+      setPageError("");
+      setLoading(true);
 
-    setOrganizationSettings({
-      name: branchData?.organization_name || "احتساب",
-      phone: branchData?.phone || "",
-      city: branchData?.city || branchData?.branch_name || "",
-      commercialRecord: branchData?.commercial_record || "",
+      const session =
+        readStoredSession();
+
+      if (!isValidSession(session)) {
+        redirectToLogin(true);
+        return;
+      }
+
+      const sessionBranchSlug =
+        String(
+          session?.branch_slug || ""
+        ).trim();
+
+      if (
+        sessionBranchSlug &&
+        sessionBranchSlug !== branch
+      ) {
+        router.replace(
+          `/finance/${sessionBranchSlug}`
+        );
+
+        return;
+      }
+
+      renewFinanceSession();
+      setPageReady(true);
+
+      const storedBranchId =
+        String(
+          session?.branch_id ||
+            localStorage.getItem(
+              "finance_branch_id"
+            ) ||
+            ""
+        ).trim();
+
+      let resolvedBranchId =
+        storedBranchId;
+
+      if (!resolvedBranchId) {
+        try {
+          const fetchedBranchId =
+            await getBranchId(branch);
+
+          if (cancelled) {
+            return;
+          }
+
+          if (!fetchedBranchId) {
+            setPageError(
+              "تعذر تحديد الفرع"
+            );
+
+            setLoading(false);
+            return;
+          }
+
+          resolvedBranchId =
+            String(fetchedBranchId);
+
+          localStorage.setItem(
+            "finance_branch_id",
+            resolvedBranchId
+          );
+
+          localStorage.setItem(
+            "finance_branch_slug",
+            branch
+          );
+        } catch (error) {
+          if (cancelled) {
+            return;
+          }
+
+          setPageError(
+            getErrorMessage(
+              error,
+              "تعذر تحديد الفرع"
+            )
+          );
+
+          setLoading(false);
+          return;
+        }
+      }
+
+      setBranchId(
+        resolvedBranchId
+      );
+
+      await loadData(
+        resolvedBranchId,
+        () => cancelled
+      );
+    }
+
+    void initializePage();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    branch,
+    contractId,
+    noteId,
+    router,
+  ]);
+
+  useEffect(() => {
+    if (
+      !pageReady ||
+      typeof window === "undefined"
+    ) {
+      return;
+    }
+
+    let lastRefresh = 0;
+
+    function handleActivity() {
+      const now = Date.now();
+
+      if (
+        now - lastRefresh <
+        ACTIVITY_REFRESH_INTERVAL_MS
+      ) {
+        return;
+      }
+
+      lastRefresh = now;
+      renewFinanceSession();
+    }
+
+    const events:
+      Array<keyof WindowEventMap> = [
+      "pointerdown",
+      "keydown",
+      "scroll",
+      "touchstart",
+    ];
+
+    events.forEach((eventName) => {
+      window.addEventListener(
+        eventName,
+        handleActivity,
+        { passive: true }
+      );
     });
 
-    setContract(contractData);
-    setNote(noteData);
+    const timer =
+      window.setInterval(() => {
+        const expiresAt = Number(
+          localStorage.getItem(
+            "finance_session_expires_at"
+          ) || 0
+        );
+
+        if (
+          expiresAt > 0 &&
+          Date.now() >= expiresAt
+        ) {
+          redirectToLogin(true);
+        }
+      }, 30 * 1000);
+
+    return () => {
+      events.forEach((eventName) => {
+        window.removeEventListener(
+          eventName,
+          handleActivity
+        );
+      });
+
+      window.clearInterval(timer);
+    };
+  }, [pageReady, pathname]);
+
+  const loadData = useCallback(
+    async (
+      currentBranchId: string,
+      isCancelled: () => boolean =
+        () => false
+    ) => {
+      if (
+        !currentBranchId ||
+        !contractId ||
+        !noteId
+      ) {
+        setPageError(
+          "بيانات العقد أو السند غير مكتملة"
+        );
+
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      setPageError("");
+
+      try {
+        const [
+          branchResult,
+          contractResult,
+          noteResult,
+        ] = await Promise.all([
+          supabase
+            .from("finance_branches")
+            .select(
+              "id, branch_slug, branch_name, organization_name, phone, city, commercial_record, is_active"
+            )
+            .eq(
+              "id",
+              currentBranchId
+            )
+            .eq(
+              "branch_slug",
+              branch
+            )
+            .maybeSingle(),
+
+          supabase
+            .from("finance_contracts")
+            .select(
+              `
+              *,
+              customer:finance_customers!finance_contracts_customer_id_fkey(
+                id,
+                full_name,
+                national_id,
+                phone,
+                birth_hijri,
+                work,
+                work_name,
+                address
+              ),
+              guarantor_customer:finance_customers!finance_contracts_guarantor_customer_id_fkey(
+                id,
+                full_name,
+                national_id,
+                phone,
+                birth_hijri,
+                work,
+                work_name,
+                address
+              )
+            `
+            )
+            .eq("id", contractId)
+            .eq(
+              "branch_id",
+              currentBranchId
+            )
+            .maybeSingle(),
+
+          supabase
+            .from(
+              "finance_promissory_notes"
+            )
+            .select("*")
+            .eq("id", noteId)
+            .eq(
+              "contract_id",
+              contractId
+            )
+            .eq(
+              "branch_id",
+              currentBranchId
+            )
+            .maybeSingle(),
+        ]);
+
+        if (isCancelled()) {
+          return;
+        }
+
+        if (branchResult.error) {
+          throw new Error(
+            branchResult.error.message
+          );
+        }
+
+        if (
+          !branchResult.data ||
+          branchResult.data.is_active ===
+            false
+        ) {
+          throw new Error(
+            "الفرع غير موجود أو غير نشط"
+          );
+        }
+
+        if (contractResult.error) {
+          throw new Error(
+            contractResult.error.message
+          );
+        }
+
+        if (!contractResult.data) {
+          throw new Error(
+            "العقد غير موجود أو لا يتبع هذا الفرع"
+          );
+        }
+
+        if (noteResult.error) {
+          throw new Error(
+            noteResult.error.message
+          );
+        }
+
+        if (!noteResult.data) {
+          throw new Error(
+            "السند غير موجود أو لا يتبع هذا العقد"
+          );
+        }
+
+        const branchData =
+          branchResult.data as BranchRecord;
+
+        setOrganizationSettings({
+          name:
+            branchData.organization_name ||
+            localStorage.getItem(
+              "finance_organization_name"
+            ) ||
+            "احتساب",
+
+          phone:
+            branchData.phone || "",
+
+          city:
+            branchData.city ||
+            branchData.branch_name ||
+            "",
+
+          commercialRecord:
+            branchData.commercial_record ||
+            "",
+        });
+
+        setContract(
+          contractResult.data as ContractRecord
+        );
+
+        setNote(
+          noteResult.data as PromissoryNoteRecord
+        );
+
+        if (
+          branchData.organization_name
+        ) {
+          localStorage.setItem(
+            "finance_organization_name",
+            branchData.organization_name
+          );
+        }
+      } catch (error) {
+        if (isCancelled()) {
+          return;
+        }
+
+        console.error(
+          "Print request loading error:",
+          error
+        );
+
+        setContract(null);
+        setNote(null);
+
+        setPageError(
+          getErrorMessage(
+            error,
+            "تعذر تحميل بيانات العقد والسند"
+          )
+        );
+      } finally {
+        if (!isCancelled()) {
+          setLoading(false);
+        }
+      }
+    },
+    [
+      branch,
+      contractId,
+      noteId,
+    ]
+  );
+
+  function readStoredSession():
+    | FinanceSession
+    | null {
+    if (
+      typeof window === "undefined"
+    ) {
+      return null;
+    }
+
+    const rawSession =
+      localStorage.getItem(
+        "finance_branch_user"
+      ) ||
+      localStorage.getItem(
+        "finance_user"
+      );
+
+    if (!rawSession) {
+      return null;
+    }
+
+    try {
+      const parsed =
+        JSON.parse(
+          rawSession
+        ) as FinanceSession;
+
+      if (
+        !parsed ||
+        typeof parsed !== "object" ||
+        Array.isArray(parsed)
+      ) {
+        return null;
+      }
+
+      return {
+        ...parsed,
+
+        id:
+          parsed.id ||
+          parsed.user_id ||
+          localStorage.getItem(
+            "finance_user_id"
+          ),
+
+        branch_id:
+          parsed.branch_id ||
+          localStorage.getItem(
+            "finance_branch_id"
+          ),
+
+        branch_slug:
+          parsed.branch_slug ||
+          localStorage.getItem(
+            "finance_branch_slug"
+          ),
+      };
+    } catch {
+      return null;
+    }
   }
 
+  function isValidSession(
+    session: FinanceSession | null
+  ) {
+    if (!session) {
+      return false;
+    }
+
+    const userId = String(
+      session.id ||
+        session.user_id ||
+        ""
+    ).trim();
+
+    const sessionBranchSlug =
+      String(
+        session.branch_slug || ""
+      ).trim();
+
+    if (
+      !userId ||
+      !sessionBranchSlug
+    ) {
+      return false;
+    }
+
+    if (
+      session.is_active === false
+    ) {
+      return false;
+    }
+
+    const expiresAt = Number(
+      localStorage.getItem(
+        "finance_session_expires_at"
+      ) || 0
+    );
+
+    if (
+      expiresAt > 0 &&
+      Date.now() >= expiresAt
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
+  function renewFinanceSession() {
+    if (
+      typeof window === "undefined"
+    ) {
+      return;
+    }
+
+    const now = Date.now();
+
+    localStorage.setItem(
+      "finance_last_activity_at",
+      String(now)
+    );
+
+    localStorage.setItem(
+      "finance_session_expires_at",
+      String(
+        now + SESSION_DURATION_MS
+      )
+    );
+  }
+
+  function getCurrentReturnPath() {
+    if (
+      typeof window === "undefined"
+    ) {
+      return (
+        pathname ||
+        `/finance/${branch}`
+      );
+    }
+
+    return `${window.location.pathname}${window.location.search}`;
+  }
+
+  function isSafeReturnPath(
+    value: string
+  ) {
+    if (
+      !value.startsWith(
+        `/finance/${branch}`
+      )
+    ) {
+      return false;
+    }
+
+    if (
+      value.startsWith("//") ||
+      value.includes("://")
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
+  function clearSession({
+    preserveReturnPath = false,
+  }: {
+    preserveReturnPath?: boolean;
+  } = {}) {
+    if (
+      typeof window === "undefined"
+    ) {
+      return;
+    }
+
+    SESSION_KEYS.forEach((key) => {
+      if (
+        preserveReturnPath &&
+        key === "finance_return_to"
+      ) {
+        return;
+      }
+
+      localStorage.removeItem(key);
+    });
+  }
+
+  function redirectToLogin(
+    preserveReturnPath = true
+  ) {
+    if (
+      typeof window === "undefined"
+    ) {
+      router.replace("/login");
+      return;
+    }
+
+    const returnTo =
+      getCurrentReturnPath();
+
+    if (
+      preserveReturnPath &&
+      isSafeReturnPath(returnTo)
+    ) {
+      localStorage.setItem(
+        "finance_return_to",
+        returnTo
+      );
+    }
+
+    clearSession({
+      preserveReturnPath,
+    });
+
+    if (
+      preserveReturnPath &&
+      isSafeReturnPath(returnTo)
+    ) {
+      localStorage.setItem(
+        "finance_return_to",
+        returnTo
+      );
+
+      router.replace(
+        `/login?returnTo=${encodeURIComponent(
+          returnTo
+        )}`
+      );
+
+      return;
+    }
+
+    router.replace("/login");
+  }
+
+  function retryLoading() {
+    if (!branchId) {
+      setPageError(
+        "تعذر تحديد الفرع"
+      );
+
+      return;
+    }
+
+    void loadData(branchId);
+  }
+
+  function getSingleRelation(
+    relation:
+      | CustomerRelation
+      | CustomerRelation[]
+      | null
+      | undefined
+  ) {
+    if (Array.isArray(relation)) {
+      return relation[0] || null;
+    }
+
+    return relation || null;
+  }
+
+  function formatMoney(
+    value: unknown
+  ) {
+    const number =
+      Number(value || 0);
+
+    return number.toLocaleString(
+      "en-US",
+      {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }
+    );
+  }
+
+  function formatDateOnly(
+    value?: string | null
+  ) {
+    if (!value) {
+      return "-";
+    }
+
+    const directMatch =
+      /^(\d{4})-(\d{2})-(\d{2})$/.exec(
+        value
+      );
+
+    if (directMatch) {
+      return `${directMatch[3]}/${directMatch[2]}/${directMatch[1]}`;
+    }
+
+    const parsedDate =
+      new Date(value);
+
+    if (
+      Number.isNaN(
+        parsedDate.getTime()
+      )
+    ) {
+      return String(value);
+    }
+
+    return new Intl.DateTimeFormat(
+      "en-GB-u-ca-gregory",
+      {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      }
+    ).format(parsedDate);
+  }
+
+  function printDocuments() {
+    if (
+      loading ||
+      pageError ||
+      !contract ||
+      !note
+    ) {
+      alert(
+        "انتظر حتى يكتمل تحميل العقد والسند"
+      );
+
+      return;
+    }
+
+    renewFinanceSession();
+    window.print();
+  }
+
+  if (!pageReady) {
+    return null;
+  }
+
+  const customer =
+    getSingleRelation(
+      contract?.customer
+    );
+
+  const guarantorCustomer =
+    getSingleRelation(
+      contract?.guarantor_customer
+    );
+
   const customerName =
-    contract?.finance_customers?.full_name ||
+    customer?.full_name ||
     contract?.customer_name ||
     note?.debtor_name ||
     "................";
 
   const nationalId =
-    contract?.finance_customers?.national_id ||
+    customer?.national_id ||
     contract?.customer_national_id ||
     note?.debtor_national_id ||
     "................";
 
   const phone =
-    contract?.finance_customers?.phone ||
+    customer?.phone ||
     contract?.customer_phone ||
     note?.debtor_phone ||
     "................";
 
   const birthHijri =
-    contract?.finance_customers?.birth_hijri ||
+    customer?.birth_hijri ||
     contract?.customer_birth_hijri ||
     "................";
 
@@ -119,364 +1097,872 @@ export default function PrintNewRequestPage() {
     contract?.first_party_type ||
     "organization";
 
-  const isInvestorParty = firstPartyType === "investor";
+  const isInvestorParty =
+    firstPartyType === "investor";
 
-  const firstPartyName = isInvestorParty
-    ? contract?.print_party_name ||
-      contract?.first_party_name ||
-      contract?.investor_name ||
-      "................"
-    : contract?.print_party_name ||
-      contract?.first_party_name ||
-      organizationSettings.name ||
-      "................";
+  const firstPartyName =
+    isInvestorParty
+      ? contract?.print_party_name ||
+        contract?.first_party_name ||
+        contract?.investor_name ||
+        "................"
+      : contract?.print_party_name ||
+        contract?.first_party_name ||
+        organizationSettings.name ||
+        "................";
 
-  const firstPartyIdentifier = isInvestorParty
-    ? contract?.print_party_identifier ||
-      contract?.first_party_identifier ||
-      contract?.investor_national_id ||
-      ""
-    : contract?.print_party_identifier ||
-      contract?.first_party_identifier ||
-      organizationSettings.commercialRecord ||
-      "";
+  const firstPartyIdentifier =
+    isInvestorParty
+      ? contract?.print_party_identifier ||
+        contract?.first_party_identifier ||
+        contract?.investor_national_id ||
+        ""
+      : contract?.print_party_identifier ||
+        contract?.first_party_identifier ||
+        organizationSettings.commercialRecord ||
+        "";
 
-  const firstPartyIdentifierLabel = isInvestorParty
-    ? "رقم الهوية"
-    : "سجل تجاري رقم";
+  const firstPartyIdentifierLabel =
+    isInvestorParty
+      ? "رقم الهوية"
+      : "سجل تجاري رقم";
 
   const contractIssueDate =
-    contract?.contract_issue_date_gregorian ||
-    contract?.contract_date_gregorian ||
-    "-";
+    formatDateOnly(
+      contract?.contract_issue_date_gregorian ||
+        contract?.contract_date_gregorian
+    );
 
   const noteIssueDate =
-    note?.note_issue_date_gregorian ||
-    note?.note_date_gregorian ||
-    contractIssueDate ||
-    "-";
+    formatDateOnly(
+      note?.note_issue_date_gregorian ||
+        note?.note_date_gregorian ||
+        contract?.contract_issue_date_gregorian ||
+        contract?.contract_date_gregorian
+    );
 
   const dueDate =
-    contract?.payment_due_date ||
-    note?.due_date ||
-    "................";
+    formatDateOnly(
+      contract?.payment_due_date ||
+        note?.due_date
+    );
 
   const hasDeferredPayments =
-    Boolean(contract?.has_deferred_payments) ||
-    Number(contract?.installment_amount || 0) > 0;
+    Boolean(
+      contract?.has_deferred_payments
+    ) ||
+    Number(
+      contract?.installment_amount ||
+        0
+    ) > 0;
 
   const hasGuarantor =
-    Boolean(contract?.has_guarantor) || Boolean(note?.has_guarantor);
+    Boolean(
+      contract?.has_guarantor
+    ) ||
+    Boolean(
+      contract?.guarantor_customer_id
+    ) ||
+    Boolean(
+      contract?.guarantor_name
+    ) ||
+    Boolean(note?.has_guarantor) ||
+    Boolean(note?.guarantor_name);
 
   const guarantorName =
-    contract?.guarantor_name || note?.guarantor_name || "................";
+    guarantorCustomer?.full_name ||
+    contract?.guarantor_name ||
+    note?.guarantor_name ||
+    "................";
 
   const guarantorNationalId =
+    guarantorCustomer?.national_id ||
     contract?.guarantor_national_id ||
     note?.guarantor_national_id ||
     "................";
 
   const guarantorPhone =
-    contract?.guarantor_phone || note?.guarantor_phone || "................";
+    guarantorCustomer?.phone ||
+    contract?.guarantor_phone ||
+    note?.guarantor_phone ||
+    "................";
 
   const guarantorBirthHijri =
+    guarantorCustomer?.birth_hijri ||
     contract?.guarantor_birth_hijri ||
     note?.guarantor_birth_hijri ||
     "................";
 
   return (
-    <main dir="rtl" style={page}>
-      <section style={printArea}>
-        <PrintHeader
-          title="عقد اتفاق بيع"
-          rightInfo={organizationSettings}
-          leftItems={[
-            `رقم العقد: ${contract?.contract_number || "-"}`,
-            `تاريخ تحرير العقد: ${contractIssueDate}`,
-          ]}
-        />
+    <main
+      dir="rtl"
+      className="print-page-main"
+      style={page}
+    >
+      {loading && (
+        <div
+          className="print-loading-message"
+          style={loadingMessage}
+        >
+          جاري تحميل بيانات العقد
+          والسند...
+        </div>
+      )}
 
-        <div style={contentBox}>
-          <p style={paragraph}>الحمد لله والصلاة والسلام على من لا نبي بعده، وبعد:</p>
+      {pageError && (
+        <div
+          className="print-error-message"
+          style={errorMessage}
+        >
+          <span>{pageError}</span>
 
-          <p style={paragraph}>
-            أقر أنا الموقع أدناه الطرف الثاني / <strong>{customerName}</strong>،
-            رقم الهوية / <strong>{nationalId}</strong>، تاريخ الميلاد /
-            <strong> {birthHijri}</strong>، رقم الجوال /
-            <strong> {phone}</strong>، بأني اشتريت من الطرف الأول /
-            <strong> {firstPartyName}</strong>
-            {firstPartyIdentifier ? (
-              <>
-                ، {firstPartyIdentifierLabel} /{" "}
-                <strong>{firstPartyIdentifier}</strong>
-              </>
-            ) : null}
-            .
-          </p>
+          <button
+            type="button"
+            style={retryButton}
+            onClick={retryLoading}
+          >
+            إعادة المحاولة
+          </button>
+        </div>
+      )}
 
-          <p style={paragraph}>
-            وذلك مقابل /{" "}
-            <strong>{contract?.product_name || "................"}</strong>،
-            وعددها / <strong>{contract?.product_quantity || "-"}</strong>، بمبلغ
-            دين وقدره / <strong>{contract?.debt_amount || 0}</strong> ريال سعودي.
-          </p>
+      {contract && note && (
+        <>
+          <section
+            className="contract-print-area"
+            style={printArea}
+          >
+            <PrintHeader
+              title="عقد اتفاق بيع"
+              rightInfo={
+                organizationSettings
+              }
+              leftItems={[
+                `رقم العقد: ${
+                  contract.contract_number ||
+                  "-"
+                }`,
+                `تاريخ تحرير العقد: ${contractIssueDate}`,
+              ]}
+            />
 
-          <p style={paragraph}>
-            ويلتزم الطرف الثاني بسداد مبلغ وقدره /
-            <strong> {contract?.payment_amount || 0}</strong> ريال سعودي
-            {hasDeferredPayments ? (
-              <>
-                ، على دفعات آجلة قيمة كل دفعة /
-                <strong> {contract?.installment_amount || 0}</strong> ريال سعودي،
-                وعددها /{" "}
-                <strong>{contract?.deferred_payments_count || 0}</strong> دفعات،
-                ويكون تاريخ الاستحقاق بتاريخ / <strong>{dueDate}</strong>.
-              </>
-            ) : (
-              <>
-                ، ويكون تاريخ الاستحقاق بتاريخ / <strong>{dueDate}</strong>.
-              </>
+            <div style={contentBox}>
+              <p style={paragraph}>
+                الحمد لله والصلاة
+                والسلام على من لا نبي
+                بعده، وبعد:
+              </p>
+
+              <p style={paragraph}>
+                أقر أنا الموقع أدناه
+                الطرف الثاني /{" "}
+                <strong>
+                  {customerName}
+                </strong>
+                ، رقم الهوية /{" "}
+                <strong>
+                  {nationalId}
+                </strong>
+                ، تاريخ الميلاد /{" "}
+                <strong>
+                  {birthHijri}
+                </strong>
+                ، رقم الجوال /{" "}
+                <strong>{phone}</strong>
+                ، بأني اشتريت من الطرف
+                الأول /{" "}
+                <strong>
+                  {firstPartyName}
+                </strong>
+
+                {firstPartyIdentifier ? (
+                  <>
+                    ،{" "}
+                    {
+                      firstPartyIdentifierLabel
+                    }{" "}
+                    /{" "}
+                    <strong>
+                      {
+                        firstPartyIdentifier
+                      }
+                    </strong>
+                  </>
+                ) : null}
+                .
+              </p>
+
+              <p style={paragraph}>
+                وذلك مقابل /{" "}
+                <strong>
+                  {contract.product_name ||
+                    "................"}
+                </strong>
+                ، وعددها /{" "}
+                <strong>
+                  {contract.product_quantity ||
+                    "-"}
+                </strong>
+                ، بمبلغ دين وقدره /{" "}
+                <strong>
+                  {formatMoney(
+                    contract.debt_amount
+                  )}
+                </strong>{" "}
+                ريال سعودي.
+              </p>
+
+              <p style={paragraph}>
+                ويلتزم الطرف الثاني
+                بسداد مبلغ وقدره /{" "}
+                <strong>
+                  {formatMoney(
+                    contract.payment_amount
+                  )}
+                </strong>{" "}
+                ريال سعودي
+
+                {hasDeferredPayments ? (
+                  <>
+                    ، على دفعات آجلة
+                    قيمة كل دفعة /{" "}
+                    <strong>
+                      {formatMoney(
+                        contract.installment_amount
+                      )}
+                    </strong>{" "}
+                    ريال سعودي، وعددها /{" "}
+                    <strong>
+                      {contract.deferred_payments_count ||
+                        0}
+                    </strong>{" "}
+                    دفعات، ويكون تاريخ
+                    الاستحقاق بتاريخ /{" "}
+                    <strong>
+                      {dueDate}
+                    </strong>
+                    .
+                  </>
+                ) : (
+                  <>
+                    ، ويكون تاريخ
+                    الاستحقاق بتاريخ /{" "}
+                    <strong>
+                      {dueDate}
+                    </strong>
+                    .
+                  </>
+                )}
+              </p>
+
+              <p style={paragraph}>
+                وتكون مدينة التقاضي /{" "}
+                <strong>
+                  {contract.legal_city ||
+                    "-"}
+                </strong>
+                .
+              </p>
+
+              {Number(
+                contract.judicial_amount ||
+                  0
+              ) > 0 && (
+                <p style={paragraph}>
+                  ويكون المبلغ القضائي
+                  المتفق عليه /{" "}
+                  <strong>
+                    {formatMoney(
+                      contract.judicial_amount
+                    )}
+                  </strong>{" "}
+                  ريال سعودي.
+                </p>
+              )}
+
+              <p style={paragraph}>
+                كما يقر الطرف الثاني
+                بأنه اطلع على كامل بنود
+                هذا العقد، وأنه ملتزم
+                بالسداد في المواعيد
+                المتفق عليها، وفي حال
+                التأخر يحق للطرف الأول
+                اتخاذ الإجراءات النظامية
+                اللازمة للمطالبة بكامل
+                المبلغ المتبقي.
+              </p>
+
+              {contract.notes && (
+                <p style={paragraph}>
+                  ملاحظات:{" "}
+                  <strong>
+                    {contract.notes}
+                  </strong>
+                </p>
+              )}
+            </div>
+
+            <div
+              className="print-signatures"
+              style={signatures}
+            >
+              <div
+                style={signatureBox}
+              >
+                <strong>
+                  الطرف الأول البائع
+                </strong>
+
+                <div>
+                  الاسم /{" "}
+                  {firstPartyName}
+                </div>
+
+                <div>
+                  {
+                    firstPartyIdentifierLabel
+                  }{" "}
+                  /{" "}
+                  {firstPartyIdentifier ||
+                    "................"}
+                </div>
+
+                <div>
+                  التوقيع /
+                  ................
+                </div>
+              </div>
+
+              <div
+                style={signatureBox}
+              >
+                <strong>
+                  الطرف الثاني المشتري
+                </strong>
+
+                <div>
+                  الاسم / {customerName}
+                </div>
+
+                <div>
+                  رقم الهوية /{" "}
+                  {nationalId}
+                </div>
+
+                <div>
+                  الجوال / {phone}
+                </div>
+
+                <div>
+                  التوقيع /
+                  ................
+                </div>
+              </div>
+            </div>
+
+            {hasGuarantor && (
+              <div
+                style={guarantorBox}
+              >
+                <strong>
+                  الكفيل الغارم
+                </strong>
+
+                <div
+                  className="print-guarantor-grid"
+                  style={guarantorGrid}
+                >
+                  <div>
+                    الاسم /{" "}
+                    {guarantorName}
+                  </div>
+
+                  <div>
+                    رقم الهوية /{" "}
+                    {guarantorNationalId}
+                  </div>
+
+                  <div>
+                    الجوال /{" "}
+                    {guarantorPhone}
+                  </div>
+
+                  <div>
+                    تاريخ الميلاد /{" "}
+                    {
+                      guarantorBirthHijri
+                    }
+                  </div>
+                </div>
+
+                <div>
+                  التوقيع /
+                  ................
+                </div>
+              </div>
             )}
-          </p>
+          </section>
 
-          <p style={paragraph}>
-            وتكون مدينة التقاضي / <strong>{contract?.legal_city || "-"}</strong>.
-          </p>
+          <section
+            className="note-print-area"
+            style={secondPrintArea}
+          >
+            <PrintHeader
+              title="سند لأمر"
+              rightInfo={
+                organizationSettings
+              }
+              leftItems={[
+                `رقم السند: ${
+                  note.note_number ||
+                  "-"
+                }`,
+                `تاريخ تحرير السند: ${noteIssueDate}`,
+              ]}
+            />
 
-          <p style={paragraph}>
-            كما يقر الطرف الثاني بأنه اطلع على كامل بنود هذا العقد، وأنه ملتزم
-            بالسداد في المواعيد المتفق عليها، وفي حال التأخر يحق للطرف الأول
-            اتخاذ الإجراءات النظامية اللازمة للمطالبة بكامل المبلغ المتبقي.
-          </p>
+            <div style={contentBox}>
+              <p style={paragraph}>
+                بموجب هذا السند أتعهد
+                أنا الموقع أدناه بأن
+                أدفع لأمر الطرف المستفيد
+                /{" "}
+                <strong>
+                  {firstPartyName}
+                </strong>
 
-          {contract?.notes && (
-            <p style={paragraph}>
-              ملاحظات: <strong>{contract.notes}</strong>
-            </p>
-          )}
-        </div>
+                {firstPartyIdentifier ? (
+                  <>
+                    ،{" "}
+                    {
+                      firstPartyIdentifierLabel
+                    }{" "}
+                    /{" "}
+                    <strong>
+                      {
+                        firstPartyIdentifier
+                      }
+                    </strong>
+                  </>
+                ) : null}{" "}
+                مبلغًا وقدره{" "}
+                <strong>
+                  {formatMoney(
+                    note.amount
+                  )}
+                </strong>{" "}
+                ريال سعودي.
+              </p>
 
-        <div style={signatures}>
-          <div style={signatureBox}>
-            <strong>الطرف الأول البائع</strong>
-            <div>الاسم / {firstPartyName}</div>
-            <div>
-              {firstPartyIdentifierLabel} / {firstPartyIdentifier || "................"}
+              <p style={paragraph}>
+                ويستحق هذا المبلغ في
+                تاريخ{" "}
+                <strong>
+                  {formatDateOnly(
+                    note.due_date
+                  ) || dueDate}
+                </strong>
+                ، دون مماطلة أو تأخير،
+                ويعد هذا السند التزامًا
+                واجب الوفاء حسب الأنظمة
+                المعمول بها.
+              </p>
+
+              <div style={infoBox}>
+                <div>
+                  اسم المدين /{" "}
+                  {note.debtor_name ||
+                    customerName}
+                </div>
+
+                <div>
+                  رقم الهوية /{" "}
+                  {note.debtor_national_id ||
+                    nationalId}
+                </div>
+
+                <div>
+                  رقم الجوال /{" "}
+                  {note.debtor_phone ||
+                    phone}
+                </div>
+
+                <div>
+                  العنوان /{" "}
+                  {note.city ||
+                    contract.legal_city ||
+                    "................"}
+                </div>
+              </div>
+
+              {note.notes && (
+                <p style={paragraph}>
+                  ملاحظات:{" "}
+                  <strong>
+                    {note.notes}
+                  </strong>
+                </p>
+              )}
             </div>
-            <div>التوقيع / ................</div>
-          </div>
 
-          <div style={signatureBox}>
-            <strong>الطرف الثاني المشتري</strong>
-            <div>الاسم / {customerName}</div>
-            <div>رقم الهوية / {nationalId}</div>
-            <div>الجوال / {phone}</div>
-            <div>التوقيع / ................</div>
-          </div>
-        </div>
+            <div
+              className="print-signatures"
+              style={signatures}
+            >
+              <div
+                style={signatureBox}
+              >
+                <strong>المدين</strong>
 
-        {hasGuarantor && (
-          <div style={guarantorBox}>
-            <strong>الكفيل الغارم</strong>
-            <div style={guarantorGrid}>
-              <div>الاسم / {guarantorName}</div>
-              <div>رقم الهوية / {guarantorNationalId}</div>
-              <div>الجوال / {guarantorPhone}</div>
-              <div>تاريخ الميلاد / {guarantorBirthHijri}</div>
+                <div>
+                  الاسم /{" "}
+                  {note.debtor_name ||
+                    customerName}
+                </div>
+
+                <div>
+                  رقم الهوية /{" "}
+                  {note.debtor_national_id ||
+                    nationalId}
+                </div>
+
+                <div>
+                  الجوال /{" "}
+                  {note.debtor_phone ||
+                    phone}
+                </div>
+
+                <div>
+                  التوقيع /
+                  ................
+                </div>
+
+                <div>
+                  البصمة /
+                  ................
+                </div>
+              </div>
+
+              {hasGuarantor && (
+                <div
+                  style={signatureBox}
+                >
+                  <strong>
+                    الكفيل
+                  </strong>
+
+                  <div>
+                    الاسم /{" "}
+                    {guarantorName}
+                  </div>
+
+                  <div>
+                    رقم الهوية /{" "}
+                    {
+                      guarantorNationalId
+                    }
+                  </div>
+
+                  <div>
+                    الجوال /{" "}
+                    {guarantorPhone}
+                  </div>
+
+                  <div>
+                    تاريخ الميلاد /{" "}
+                    {
+                      guarantorBirthHijri
+                    }
+                  </div>
+
+                  <div>
+                    التوقيع /
+                    ................
+                  </div>
+
+                  <div>
+                    البصمة /
+                    ................
+                  </div>
+                </div>
+              )}
             </div>
-            <div>التوقيع / ................</div>
-          </div>
-        )}
-      </section>
 
-      <section style={secondPrintArea}>
-        <PrintHeader
-          title="سند لأمر"
-          rightInfo={organizationSettings}
-          leftItems={[
-            `رقم السند: ${note?.note_number || "-"}`,
-            `تاريخ تحرير السند: ${noteIssueDate}`,
-          ]}
-        />
+            <div
+              className="print-legal-boxes"
+              style={legalBoxes}
+            >
+              <div style={legalBox}>
+                هذا السند واجب الدفع
+                بدون تعامل بموجب قرار
+                مجلس الوزراء الموقر رقم
+                692 بتاريخ 1383/9/26 هـ
+                والمتوج بالمرسوم الملكي
+                الكريم رقم 37 بتاريخ
+                1383/10/11 هـ نظام
+                الأوراق التجارية.
+              </div>
 
-        <div style={contentBox}>
-          <p style={paragraph}>
-            بموجب هذا السند أتعهد أنا الموقع أدناه بأن أدفع لأمر الطرف المستفيد /
-            <strong> {firstPartyName}</strong>
-            {firstPartyIdentifier ? (
-              <>
-                ، {firstPartyIdentifierLabel} /{" "}
-                <strong>{firstPartyIdentifier}</strong>
-              </>
-            ) : null}{" "}
-            مبلغًا وقدره <strong>{note?.amount || 0}</strong> ريال سعودي.
-          </p>
-
-          <p style={paragraph}>
-            ويستحق هذا المبلغ في تاريخ{" "}
-            <strong>{note?.due_date || dueDate}</strong>، دون مماطلة أو تأخير،
-            ويعد هذا السند التزامًا واجب الوفاء حسب الأنظمة المعمول بها.
-          </p>
-
-          <div style={infoBox}>
-            <div>اسم المدين / {note?.debtor_name || customerName}</div>
-            <div>رقم الهوية / {note?.debtor_national_id || nationalId}</div>
-            <div>رقم الجوال / {note?.debtor_phone || phone}</div>
-            <div>العنوان / {note?.city || contract?.legal_city || "................"}</div>
-          </div>
-
-          {note?.notes && (
-            <p style={paragraph}>
-              ملاحظات: <strong>{note.notes}</strong>
-            </p>
-          )}
-        </div>
-
-        <div style={signatures}>
-          <div style={signatureBox}>
-            <strong>المدين</strong>
-            <div>الاسم / {note?.debtor_name || customerName}</div>
-            <div>رقم الهوية / {note?.debtor_national_id || nationalId}</div>
-            <div>الجوال / {note?.debtor_phone || phone}</div>
-            <div>التوقيع / ................</div>
-            <div>البصمة / ................</div>
-          </div>
-
-          {hasGuarantor && (
-            <div style={signatureBox}>
-              <strong>الكفيل</strong>
-              <div>الاسم / {guarantorName}</div>
-              <div>رقم الهوية / {guarantorNationalId}</div>
-              <div>الجوال / {guarantorPhone}</div>
-              <div>تاريخ الميلاد / {guarantorBirthHijri}</div>
-              <div>التوقيع / ................</div>
-              <div>البصمة / ................</div>
+              <div style={legalBox}>
+                بموجب هذا السند يحق
+                لطالب الدين والكفيل
+                الغارم حقوق التقدم
+                والمطالبة والاحتجاج
+                والإخطار بالامتناع عن
+                الوفاء والمتعلقة بهذا
+                السند، كما يجوز لمدعي
+                موجب هذا السند الرجوع
+                للمدين أو الكفيل الغارم
+                منفردين أو مجتمعين ودون
+                مراعاة أو ترتيب.
+              </div>
             </div>
-          )}
-        </div>
+          </section>
+        </>
+      )}
 
-        <div style={legalBoxes}>
-          <div style={legalBox}>
-            هذا السند واجب الدفع بدون تعامل بموجب قرار مجلس الوزراء الموقر رقم
-            692 بتاريخ 1383/9/26 هـ والمتوج بالمرسوم الملكي الكريم رقم 37
-            بتاريخ 1383/10/11 هـ نظام الأوراق التجارية.
-          </div>
-
-          <div style={legalBox}>
-            بموجب هذا السند يحق لطالب الدين والكفيل الغارم حقوق التقدم
-            والمطالبة والاحتجاج والإخطار بالامتناع عن الوفاء والمتعلقة بهذا
-            السند، كما يجوز لمدعي موجب هذا السند الرجوع للمدين أو الكفيل الغارم
-            منفردين أو مجتمعين ودون مراعاة أو ترتيب.
-          </div>
-        </div>
-      </section>
-
-      <button style={printButton} onClick={() => window.print()}>
-        🖨️ طباعة العقد والسند
-      </button>
-
-      <button
-        style={backButton}
-        onClick={() =>
-          (window.location.href = `/finance/${branch}/contracts/${contractId}`)
-        }
+      <div
+        className="print-action-buttons"
+        style={actionButtons}
       >
-        الرجوع للعقد
-      </button>
+        <button
+          type="button"
+          style={{
+            ...printButton,
+            opacity:
+              loading ||
+              Boolean(pageError) ||
+              !contract ||
+              !note
+                ? 0.6
+                : 1,
+          }}
+          disabled={
+            loading ||
+            Boolean(pageError) ||
+            !contract ||
+            !note
+          }
+          onClick={printDocuments}
+        >
+          🖨️ طباعة العقد والسند
+        </button>
+
+        <button
+          type="button"
+          style={backButton}
+          onClick={() =>
+            router.push(
+              `/finance/${branch}/contracts/${contractId}`
+            )
+          }
+        >
+          الرجوع للعقد
+        </button>
+      </div>
     </main>
   );
 }
 
-function PrintHeader({ title, rightInfo, leftItems }: any) {
+function PrintHeader({
+  title,
+  rightInfo,
+  leftItems,
+}: {
+  title: string;
+  rightInfo: OrganizationSettings;
+  leftItems: string[];
+}) {
   return (
-    <div style={header}>
+    <div
+      className="print-document-header"
+      style={header}
+    >
       <div style={headerRight}>
-        <div>المملكة العربية السعودية</div>
-        <div>{rightInfo.city || "................"}</div>
-        <div>{rightInfo.name || "................"}</div>
-        <div>سجل تجاري رقم / {rightInfo.commercialRecord || "................"}</div>
+        <div>
+          المملكة العربية السعودية
+        </div>
+
+        <div>
+          {rightInfo.city ||
+            "................"}
+        </div>
+
+        <div>
+          {rightInfo.name ||
+            "................"}
+        </div>
+
+        <div>
+          سجل تجاري رقم /{" "}
+          {rightInfo.commercialRecord ||
+            "................"}
+        </div>
       </div>
 
-      <div style={documentTitle}>{title}</div>
+      <div style={documentTitle}>
+        {title}
+      </div>
 
-      <div style={headerLeft}>
-        {leftItems.map((item: string, index: number) => (
-          <div key={index}>{item}</div>
-        ))}
+      <div
+        className="print-header-left"
+        style={headerLeft}
+      >
+        {leftItems.map(
+          (item, index) => (
+            <div
+              key={`${item}-${index}`}
+            >
+              {item}
+            </div>
+          )
+        )}
       </div>
     </div>
   );
 }
 
-const page = {
+function getErrorMessage(
+  error: unknown,
+  fallback: string
+) {
+  if (error instanceof Error) {
+    return (
+      error.message || fallback
+    );
+  }
+
+  if (
+    typeof error === "string"
+  ) {
+    return error || fallback;
+  }
+
+  return fallback;
+}
+
+const page: CSSProperties = {
   minHeight: "100vh",
   background: "#eef5ff",
   padding: 20,
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+  color: "#111827",
 };
 
-const printArea = {
-  background: "white",
+const loadingMessage: CSSProperties = {
+  width: "100%",
+  maxWidth: 850,
+  margin: "20px auto",
+  padding: 18,
+  borderRadius: 14,
+  border: "1px solid #bfdbfe",
+  background: "#eff6ff",
+  color: "#1d4ed8",
+  textAlign: "center",
+  fontWeight: 900,
+};
+
+const errorMessage: CSSProperties = {
+  width: "100%",
+  maxWidth: 850,
+  margin: "20px auto",
+  padding: 16,
+  borderRadius: 14,
+  border: "1px solid #fecaca",
+  background: "#fff7f7",
+  color: "#991b1b",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 12,
+  flexWrap: "wrap",
+  fontWeight: 900,
+};
+
+const retryButton: CSSProperties = {
+  minHeight: 40,
+  padding: "9px 15px",
+  border: "none",
+  borderRadius: 10,
+  background:
+    "linear-gradient(135deg,#22c55e,#15803d)",
+  color: "#ffffff",
+  cursor: "pointer",
+  fontWeight: 900,
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const printArea: CSSProperties = {
+  background: "#ffffff",
   width: "190mm",
   height: "257mm",
   margin: "0 auto",
-  overflow: "hidden" as const,
+  overflow: "hidden",
   padding: "7mm",
   borderRadius: 0,
   lineHeight: 1.45,
   color: "#111827",
-  boxSizing: "border-box" as const,
-  pageBreakInside: "avoid" as const,
+  boxSizing: "border-box",
+  pageBreakInside: "avoid",
+  boxShadow:
+    "0 14px 35px rgba(15,23,42,0.08)",
 };
 
-const secondPrintArea = {
+const secondPrintArea: CSSProperties = {
   ...printArea,
-  pageBreakBefore: "always" as const,
+  marginTop: 20,
+  pageBreakBefore: "always",
 };
 
-const header = {
+const header: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1.25fr 1fr 1.25fr",
+  gridTemplateColumns:
+    "1.25fr 1fr 1.25fr",
   alignItems: "start",
   gap: 10,
   marginBottom: 12,
-  borderBottom: "1.5px solid #111827",
+  borderBottom:
+    "1.5px solid #111827",
   paddingBottom: 8,
 };
 
-const headerRight = {
+const headerRight: CSSProperties = {
   fontSize: 11,
   lineHeight: 1.65,
-  fontWeight: "bold",
+  fontWeight: 900,
 };
 
-const headerLeft = {
+const headerLeft: CSSProperties = {
   fontSize: 11,
   lineHeight: 1.65,
-  textAlign: "left" as const,
-  fontWeight: "bold",
+  textAlign: "left",
+  fontWeight: 900,
 };
 
-const documentTitle = {
-  textAlign: "center" as const,
+const documentTitle: CSSProperties = {
+  textAlign: "center",
   color: "#111827",
   fontSize: 21,
-  fontWeight: "bold",
+  fontWeight: 900,
   marginTop: 13,
-  whiteSpace: "nowrap" as const,
+  whiteSpace: "nowrap",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
-const contentBox = {
+const contentBox: CSSProperties = {
   marginTop: 10,
 };
 
-const paragraph = {
+const paragraph: CSSProperties = {
   fontSize: 12.3,
   margin: "6px 0",
-  textAlign: "justify" as const,
+  textAlign: "justify",
 };
 
-const infoBox = {
+const infoBox: CSSProperties = {
   border: "1px solid #d1d5db",
   borderRadius: 8,
   padding: 9,
@@ -485,76 +1971,93 @@ const infoBox = {
   fontSize: 12.2,
 };
 
-const signatures = {
+const signatures: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "1fr 1fr",
   gap: 16,
   marginTop: 17,
 };
 
-const signatureBox = {
-  borderTop: "1.5px solid #111827",
+const signatureBox: CSSProperties = {
+  borderTop:
+    "1.5px solid #111827",
   paddingTop: 8,
   lineHeight: 1.65,
   fontSize: 12.2,
   minHeight: 84,
 };
 
-const guarantorBox = {
+const guarantorBox: CSSProperties = {
   marginTop: 14,
-  borderTop: "1.5px solid #111827",
+  borderTop:
+    "1.5px solid #111827",
   paddingTop: 8,
   lineHeight: 1.65,
   fontSize: 12.2,
 };
 
-const guarantorGrid = {
+const guarantorGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "1fr 1fr",
   gap: "2px 14px",
   marginTop: 4,
 };
 
-const legalBoxes = {
+const legalBoxes: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "1fr 1fr",
   gap: 12,
   marginTop: 20,
 };
 
-const legalBox = {
+const legalBox: CSSProperties = {
   border: "1.5px solid #111827",
   borderRadius: 12,
   padding: 9,
   fontSize: 10.5,
   lineHeight: 1.65,
-  textAlign: "center" as const,
-  fontWeight: "bold",
+  textAlign: "center",
+  fontWeight: 900,
 };
 
-const printButton = {
+const actionButtons: CSSProperties = {
   width: "100%",
   maxWidth: 850,
-  display: "block",
   margin: "20px auto 0",
-  padding: 16,
-  background: "#0d47a1",
-  color: "white",
-  border: "none",
-  borderRadius: 14,
-  fontSize: 17,
+  display: "grid",
+  gap: 12,
 };
 
-const backButton = {
+const printButton: CSSProperties = {
   width: "100%",
-  maxWidth: 850,
-  display: "block",
-  margin: "12px auto 0",
   padding: 16,
-  background: "#16a34a",
-  color: "white",
+  background:
+    "linear-gradient(135deg,#0d47a1,#1565c0 55%,#0284c7)",
+  color: "#ffffff",
   border: "none",
   borderRadius: 14,
   fontSize: 17,
-  fontWeight: "bold",
+  fontWeight: 900,
+  cursor: "pointer",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+  boxShadow:
+    "0 8px 20px rgba(13,71,161,0.20)",
+};
+
+const backButton: CSSProperties = {
+  width: "100%",
+  padding: 16,
+  background:
+    "linear-gradient(135deg,#22c55e,#15803d)",
+  color: "#ffffff",
+  border: "none",
+  borderRadius: 14,
+  fontSize: 17,
+  fontWeight: 900,
+  cursor: "pointer",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+  boxShadow:
+    "0 7px 18px rgba(22,163,74,0.20)",
 };
