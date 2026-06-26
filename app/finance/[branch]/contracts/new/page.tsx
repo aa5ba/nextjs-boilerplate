@@ -47,15 +47,16 @@ type ProductRecord = {
 };
 
 type BranchSession = {
-  id?: string;
-  branch_id?: string;
-  branch_slug?: string;
-  full_name?: string;
-  username?: string;
-  name?: string;
-  role?: string;
-  roles?: string[];
-  permissions?: string[];
+  id?: string | null;
+  branch_id?: string | null;
+  branch_slug?: string | null;
+  full_name?: string | null;
+  username?: string | null;
+  name?: string | null;
+  role?: string | null;
+  roles?: unknown;
+  permissions?: unknown;
+  is_active?: boolean | null;
 };
 
 type SelectOption = {
@@ -92,11 +93,28 @@ const NOTE_PERMISSION_KEYS = [
   "notes_create",
 ];
 
+const FINANCE_SESSION_KEYS = [
+  "finance_user",
+  "finance_branch_user",
+  "finance_user_id",
+  "finance_user_name",
+  "finance_username",
+  "finance_role",
+  "finance_branch_id",
+  "finance_branch_slug",
+  "finance_branch_name",
+  "finance_organization_name",
+  "finance_permissions",
+  "finance_investor_id",
+  "finance_is_active",
+  "finance_last_login_at",
+] as const;
+
 export default function NewFinanceContractPage() {
   const params = useParams();
   const router = useRouter();
 
-  const branch = String(params.branch || "");
+  const branch = String(params.branch || "").trim();
 
   const [screen, setScreen] =
     useState<ScreenType>("desktop");
@@ -119,17 +137,23 @@ export default function NewFinanceContractPage() {
   const [employeeRole, setEmployeeRole] =
     useState("");
 
-  const [employeePermissions, setEmployeePermissions] =
-    useState<string[]>([]);
+  const [
+    employeePermissions,
+    setEmployeePermissions,
+  ] = useState<string[]>([]);
 
   const [branchId, setBranchId] =
     useState<string | null>(null);
 
-  const [organizationName, setOrganizationName] =
-    useState("");
+  const [
+    organizationName,
+    setOrganizationName,
+  ] = useState("");
 
-  const [organizationIdentifier, setOrganizationIdentifier] =
-    useState("");
+  const [
+    organizationIdentifier,
+    setOrganizationIdentifier,
+  ] = useState("");
 
   const [investors, setInvestors] =
     useState<InvestorRecord[]>([]);
@@ -140,59 +164,93 @@ export default function NewFinanceContractPage() {
   const [customerId, setCustomerId] =
     useState<string | null>(null);
 
-  const [customerNationalId, setCustomerNationalId] =
-    useState("");
+  const [
+    customerNationalId,
+    setCustomerNationalId,
+  ] = useState("");
 
-  const [customerFullName, setCustomerFullName] =
-    useState("");
+  const [
+    customerFullName,
+    setCustomerFullName,
+  ] = useState("");
 
-  const [customerBirthHijri, setCustomerBirthHijri] =
-    useState("");
+  const [
+    customerBirthHijri,
+    setCustomerBirthHijri,
+  ] = useState("");
 
-  const [customerPhone, setCustomerPhone] =
-    useState("");
+  const [
+    customerPhone,
+    setCustomerPhone,
+  ] = useState("");
 
-  const [customerWorkName, setCustomerWorkName] =
-    useState("");
+  const [
+    customerWorkName,
+    setCustomerWorkName,
+  ] = useState("");
 
-  const [customerAddress, setCustomerAddress] =
-    useState("");
+  const [
+    customerAddress,
+    setCustomerAddress,
+  ] = useState("");
 
-  const [customerLookupLoading, setCustomerLookupLoading] =
-    useState(false);
+  const [
+    customerLookupLoading,
+    setCustomerLookupLoading,
+  ] = useState(false);
 
-  const [customerWasFound, setCustomerWasFound] =
-    useState(false);
+  const [
+    customerWasFound,
+    setCustomerWasFound,
+  ] = useState(false);
 
-  const [hasGuarantor, setHasGuarantor] =
-    useState(false);
+  const [
+    hasGuarantor,
+    setHasGuarantor,
+  ] = useState(false);
 
   const [guarantorId, setGuarantorId] =
     useState<string | null>(null);
 
-  const [guarantorNationalId, setGuarantorNationalId] =
-    useState("");
+  const [
+    guarantorNationalId,
+    setGuarantorNationalId,
+  ] = useState("");
 
-  const [guarantorFullName, setGuarantorFullName] =
-    useState("");
+  const [
+    guarantorFullName,
+    setGuarantorFullName,
+  ] = useState("");
 
-  const [guarantorBirthHijri, setGuarantorBirthHijri] =
-    useState("");
+  const [
+    guarantorBirthHijri,
+    setGuarantorBirthHijri,
+  ] = useState("");
 
-  const [guarantorPhone, setGuarantorPhone] =
-    useState("");
+  const [
+    guarantorPhone,
+    setGuarantorPhone,
+  ] = useState("");
 
-  const [guarantorWorkName, setGuarantorWorkName] =
-    useState("");
+  const [
+    guarantorWorkName,
+    setGuarantorWorkName,
+  ] = useState("");
 
-  const [guarantorAddress, setGuarantorAddress] =
-    useState("");
+  const [
+    guarantorAddress,
+    setGuarantorAddress,
+  ] = useState("");
 
-  const [guarantorLookupLoading, setGuarantorLookupLoading] =
-    useState(false);
+  const [
+    guarantorLookupLoading,
+    setGuarantorLookupLoading,
+  ] = useState(false);
 
-  const [guarantorWasFound, setGuarantorWasFound] =
-    useState(false);
+  const [
+    guarantorWasFound,
+    setGuarantorWasFound,
+  ] = useState(false);
 
   const [financeType, setFinanceType] =
     useState("");
@@ -203,60 +261,92 @@ export default function NewFinanceContractPage() {
   const [productId, setProductId] =
     useState("");
 
-  const [productQuantity, setProductQuantity] =
-    useState("");
+  const [
+    productQuantity,
+    setProductQuantity,
+  ] = useState("");
 
-  const [availableStock, setAvailableStock] =
-    useState<number | null>(null);
+  const [
+    availableStock,
+    setAvailableStock,
+  ] = useState<number | null>(null);
 
-  const [printPartyType, setPrintPartyType] =
-    useState<"organization" | "investor">(
-      "organization"
-    );
+  const [
+    printPartyType,
+    setPrintPartyType,
+  ] = useState<
+    "organization" | "investor"
+  >("organization");
 
   const [debtAmount, setDebtAmount] =
     useState("");
 
-  const [paymentAmount, setPaymentAmount] =
-    useState("");
+  const [
+    paymentAmount,
+    setPaymentAmount,
+  ] = useState("");
 
-  const [paymentType, setPaymentType] =
-    useState("موعد محدد");
+  const [
+    paymentType,
+    setPaymentType,
+  ] = useState("موعد محدد");
 
-  const [paymentDueDate, setPaymentDueDate] =
-    useState("");
+  const [
+    paymentDueDate,
+    setPaymentDueDate,
+  ] = useState("");
 
-  const [contractIssueDate, setContractIssueDate] =
-    useState(getTodayDate());
+  const [
+    contractIssueDate,
+    setContractIssueDate,
+  ] = useState(getTodayDate());
 
   const [legalCity, setLegalCity] =
     useState("");
 
-  const [judicialAmount, setJudicialAmount] =
-    useState("");
+  const [
+    judicialAmount,
+    setJudicialAmount,
+  ] = useState("");
 
   const [notes, setNotes] =
     useState("");
 
-  const [creationMode, setCreationMode] =
-    useState<CreationMode>("contract_only");
+  const [
+    creationMode,
+    setCreationMode,
+  ] = useState<CreationMode>(
+    "contract_only"
+  );
 
   const [saving, setSaving] =
     useState(false);
 
   const isMobile = screen === "mobile";
   const isTablet = screen === "tablet";
-  const isCompact = isMobile || isTablet;
+  const isCompact =
+    isMobile || isTablet;
 
-  const canCreatePromissoryNote = useMemo(() => {
-    if (MANAGER_ROLES.includes(employeeRole)) {
-      return true;
-    }
+  const canCreatePromissoryNote =
+    useMemo(() => {
+      if (
+        MANAGER_ROLES.includes(
+          employeeRole
+        )
+      ) {
+        return true;
+      }
 
-    return employeePermissions.some((permission) =>
-      NOTE_PERMISSION_KEYS.includes(permission)
-    );
-  }, [employeePermissions, employeeRole]);
+      return employeePermissions.some(
+        (permission) =>
+          NOTE_PERMISSION_KEYS.includes(
+            permission
+          )
+      );
+    }, [
+      employeePermissions,
+      employeeRole,
+    ]);
 
   useEffect(() => {
     function updateScreen() {
@@ -273,10 +363,16 @@ export default function NewFinanceContractPage() {
 
     updateScreen();
 
-    window.addEventListener("resize", updateScreen);
+    window.addEventListener(
+      "resize",
+      updateScreen
+    );
 
     return () => {
-      window.removeEventListener("resize", updateScreen);
+      window.removeEventListener(
+        "resize",
+        updateScreen
+      );
     };
   }, []);
 
@@ -285,16 +381,24 @@ export default function NewFinanceContractPage() {
 
     async function initializePage() {
       try {
+        setAuthChecked(false);
         setPageLoading(true);
         setLoadError("");
 
-        if (typeof window === "undefined") {
+        if (
+          typeof window ===
+          "undefined"
+        ) {
           return;
         }
 
         const rawSession =
-          localStorage.getItem("finance_branch_user") ||
-          localStorage.getItem("finance_user");
+          localStorage.getItem(
+            "finance_user"
+          ) ||
+          localStorage.getItem(
+            "finance_branch_user"
+          );
 
         if (!rawSession) {
           router.replace("/login");
@@ -305,17 +409,84 @@ export default function NewFinanceContractPage() {
 
         try {
           parsedSession =
-            JSON.parse(rawSession) as BranchSession;
+            JSON.parse(
+              rawSession
+            ) as BranchSession;
         } catch {
           clearFinanceSession();
           router.replace("/login");
           return;
         }
 
+        if (
+          !parsedSession ||
+          typeof parsedSession !==
+            "object" ||
+          Array.isArray(parsedSession)
+        ) {
+          clearFinanceSession();
+          router.replace("/login");
+          return;
+        }
+
+        if (
+          parsedSession.is_active ===
+          false
+        ) {
+          clearFinanceSession();
+          router.replace("/login");
+          return;
+        }
+
+        const storedEmployeeId =
+          String(
+            parsedSession.id ||
+              localStorage.getItem(
+                "finance_user_id"
+              ) ||
+              ""
+          ).trim();
+
+        const storedBranchId =
+          String(
+            parsedSession.branch_id ||
+              localStorage.getItem(
+                "finance_branch_id"
+              ) ||
+              ""
+          ).trim();
+
+        const storedBranchSlug =
+          String(
+            parsedSession.branch_slug ||
+              localStorage.getItem(
+                "finance_branch_slug"
+              ) ||
+              ""
+          ).trim();
+
+        if (!storedEmployeeId) {
+          clearFinanceSession();
+          router.replace("/login");
+          return;
+        }
+
+        if (
+          storedBranchSlug &&
+          storedBranchSlug !== branch
+        ) {
+          router.replace(
+            `/finance/${storedBranchSlug}`
+          );
+          return;
+        }
+
         const currentBranchId =
           await getBranchId(branch);
 
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
 
         if (!currentBranchId) {
           clearFinanceSession();
@@ -324,26 +495,10 @@ export default function NewFinanceContractPage() {
         }
 
         if (
-          parsedSession.branch_id &&
-          String(parsedSession.branch_id) !==
+          storedBranchId &&
+          storedBranchId !==
             String(currentBranchId)
         ) {
-          clearFinanceSession();
-          router.replace("/login");
-          return;
-        }
-
-        if (
-          parsedSession.branch_slug &&
-          parsedSession.branch_slug !== branch
-        ) {
-          router.replace(
-            `/finance/${parsedSession.branch_slug}`
-          );
-          return;
-        }
-
-        if (!parsedSession.id) {
           clearFinanceSession();
           router.replace("/login");
           return;
@@ -356,12 +511,20 @@ export default function NewFinanceContractPage() {
           productsResult,
         ] = await Promise.all([
           supabase
-            .from("finance_branch_users")
+            .from(
+              "finance_branch_users"
+            )
             .select(
               "id, branch_id, full_name, username, role, permissions, is_active"
             )
-            .eq("id", parsedSession.id)
-            .eq("branch_id", currentBranchId)
+            .eq(
+              "id",
+              storedEmployeeId
+            )
+            .eq(
+              "branch_id",
+              currentBranchId
+            )
             .maybeSingle(),
 
           supabase
@@ -369,35 +532,60 @@ export default function NewFinanceContractPage() {
             .select(
               "id, branch_slug, organization_name, commercial_record, is_active"
             )
-            .eq("id", currentBranchId)
-            .eq("branch_slug", branch)
+            .eq(
+              "id",
+              currentBranchId
+            )
+            .eq(
+              "branch_slug",
+              branch
+            )
             .maybeSingle(),
 
           supabase
-            .from("finance_investors")
+            .from(
+              "finance_investors"
+            )
             .select(
               "id, investor_name, national_id"
             )
-            .eq("branch_id", currentBranchId)
+            .eq(
+              "branch_id",
+              currentBranchId
+            )
             .eq("is_active", true)
             .order("created_at", {
               ascending: false,
             }),
 
           supabase
-            .from("finance_products")
-            .select("id, product_name")
-            .eq("branch_id", currentBranchId)
+            .from(
+              "finance_products"
+            )
+            .select(
+              "id, product_name"
+            )
+            .eq(
+              "branch_id",
+              currentBranchId
+            )
             .eq("is_active", true)
             .order("created_at", {
               ascending: false,
             }),
         ]);
 
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
+
+        if (userResult.error) {
+          throw new Error(
+            `تعذر التحقق من الموظف: ${userResult.error.message}`
+          );
+        }
 
         if (
-          userResult.error ||
           !userResult.data ||
           !userResult.data.is_active
         ) {
@@ -406,8 +594,13 @@ export default function NewFinanceContractPage() {
           return;
         }
 
+        if (branchResult.error) {
+          throw new Error(
+            `تعذر التحقق من الفرع: ${branchResult.error.message}`
+          );
+        }
+
         if (
-          branchResult.error ||
           !branchResult.data ||
           !branchResult.data.is_active
         ) {
@@ -416,42 +609,81 @@ export default function NewFinanceContractPage() {
           return;
         }
 
-        if (investorsResult.error) {
+        if (
+          investorsResult.error
+        ) {
           throw new Error(
             investorsResult.error.message
           );
         }
 
-        if (productsResult.error) {
+        if (
+          productsResult.error
+        ) {
           throw new Error(
             productsResult.error.message
           );
         }
+
+        const storedName =
+          localStorage.getItem(
+            "finance_user_name"
+          );
 
         const currentEmployeeName =
           userResult.data.full_name ||
           userResult.data.username ||
           parsedSession.full_name ||
           parsedSession.username ||
+          parsedSession.name ||
+          storedName ||
           "الموظف";
 
-        setEmployeeId(String(userResult.data.id));
-        setEmployeeName(currentEmployeeName);
-        setEmployeeRole(userResult.data.role || "");
-        setEmployeePermissions(
-          Array.isArray(userResult.data.permissions)
-            ? userResult.data.permissions
-            : []
+        const currentPermissions =
+          Array.isArray(
+            userResult.data.permissions
+          )
+            ? userResult.data.permissions.filter(
+                (
+                  permission
+                ): permission is string =>
+                  typeof permission ===
+                    "string" &&
+                  permission.trim()
+                    .length > 0
+              )
+            : [];
+
+        setEmployeeId(
+          String(
+            userResult.data.id
+          )
         );
 
-        setBranchId(String(currentBranchId));
+        setEmployeeName(
+          currentEmployeeName
+        );
+
+        setEmployeeRole(
+          userResult.data.role || ""
+        );
+
+        setEmployeePermissions(
+          currentPermissions
+        );
+
+        setBranchId(
+          String(currentBranchId)
+        );
 
         setOrganizationName(
-          branchResult.data.organization_name || ""
+          branchResult.data
+            .organization_name || ""
         );
 
         setOrganizationIdentifier(
-          branchResult.data.commercial_record || ""
+          branchResult.data
+            .commercial_record || ""
         );
 
         setInvestors(
@@ -465,13 +697,52 @@ export default function NewFinanceContractPage() {
         );
 
         localStorage.setItem(
+          "finance_user_id",
+          String(
+            userResult.data.id
+          )
+        );
+
+        localStorage.setItem(
           "finance_user_name",
           currentEmployeeName
         );
 
-        setAuthChecked(true);
+        localStorage.setItem(
+          "finance_branch_id",
+          String(currentBranchId)
+        );
+
+        localStorage.setItem(
+          "finance_branch_slug",
+          branch
+        );
+
+        localStorage.setItem(
+          "finance_role",
+          userResult.data.role ||
+            ""
+        );
+
+        localStorage.setItem(
+          "finance_permissions",
+          JSON.stringify(
+            currentPermissions
+          )
+        );
+
+        if (!cancelled) {
+          setAuthChecked(true);
+        }
       } catch (error: unknown) {
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
+
+        console.error(
+          "New contract initialization error:",
+          error
+        );
 
         setLoadError(
           getErrorMessage(
@@ -498,105 +769,174 @@ export default function NewFinanceContractPage() {
   useEffect(() => {
     let cancelled = false;
 
-    const timer = window.setTimeout(async () => {
-      if (
-        !branchId ||
-        customerNationalId.length !== 10
-      ) {
-        return;
-      }
+    const timer =
+      window.setTimeout(
+        async () => {
+          if (
+            !branchId ||
+            customerNationalId.length !==
+              10
+          ) {
+            return;
+          }
 
-      try {
-        setCustomerLookupLoading(true);
+          try {
+            setCustomerLookupLoading(
+              true
+            );
 
-        const { data, error } = await supabase
-          .from("finance_customers")
-          .select(
-            "id, full_name, national_id, birth_hijri, phone, work_name, address"
-          )
-          .eq("branch_id", branchId)
-          .eq("national_id", customerNationalId)
-          .maybeSingle();
+            const {
+              data,
+              error,
+            } = await supabase
+              .from(
+                "finance_customers"
+              )
+              .select(
+                "id, full_name, national_id, birth_hijri, phone, work_name, address"
+              )
+              .eq(
+                "branch_id",
+                branchId
+              )
+              .eq(
+                "national_id",
+                customerNationalId
+              )
+              .maybeSingle();
 
-        if (cancelled) return;
+            if (cancelled) {
+              return;
+            }
 
-        if (error) {
-          throw new Error(error.message);
-        }
+            if (error) {
+              throw new Error(
+                error.message
+              );
+            }
 
-        if (data) {
-          applyCustomerData(data as CustomerRecord);
-          setCustomerWasFound(true);
-        } else {
-          setCustomerId(null);
-          setCustomerWasFound(false);
-        }
-      } catch {
-        if (!cancelled) {
-          setCustomerId(null);
-          setCustomerWasFound(false);
-        }
-      } finally {
-        if (!cancelled) {
-          setCustomerLookupLoading(false);
-        }
-      }
-    }, 400);
+            if (data) {
+              applyCustomerData(
+                data as CustomerRecord
+              );
+
+              setCustomerWasFound(
+                true
+              );
+            } else {
+              setCustomerId(null);
+              setCustomerWasFound(
+                false
+              );
+            }
+          } catch {
+            if (!cancelled) {
+              setCustomerId(null);
+              setCustomerWasFound(
+                false
+              );
+            }
+          } finally {
+            if (!cancelled) {
+              setCustomerLookupLoading(
+                false
+              );
+            }
+          }
+        },
+        400
+      );
 
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [branchId, customerNationalId]);
+  }, [
+    branchId,
+    customerNationalId,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
 
-    const timer = window.setTimeout(async () => {
-      if (
-        !hasGuarantor ||
-        !branchId ||
-        guarantorNationalId.length !== 10
-      ) {
-        return;
-      }
+    const timer =
+      window.setTimeout(
+        async () => {
+          if (
+            !hasGuarantor ||
+            !branchId ||
+            guarantorNationalId.length !==
+              10
+          ) {
+            return;
+          }
 
-      try {
-        setGuarantorLookupLoading(true);
+          try {
+            setGuarantorLookupLoading(
+              true
+            );
 
-        const { data, error } = await supabase
-          .from("finance_customers")
-          .select(
-            "id, full_name, national_id, birth_hijri, phone, work_name, address"
-          )
-          .eq("branch_id", branchId)
-          .eq("national_id", guarantorNationalId)
-          .maybeSingle();
+            const {
+              data,
+              error,
+            } = await supabase
+              .from(
+                "finance_customers"
+              )
+              .select(
+                "id, full_name, national_id, birth_hijri, phone, work_name, address"
+              )
+              .eq(
+                "branch_id",
+                branchId
+              )
+              .eq(
+                "national_id",
+                guarantorNationalId
+              )
+              .maybeSingle();
 
-        if (cancelled) return;
+            if (cancelled) {
+              return;
+            }
 
-        if (error) {
-          throw new Error(error.message);
-        }
+            if (error) {
+              throw new Error(
+                error.message
+              );
+            }
 
-        if (data) {
-          applyGuarantorData(data as CustomerRecord);
-          setGuarantorWasFound(true);
-        } else {
-          setGuarantorId(null);
-          setGuarantorWasFound(false);
-        }
-      } catch {
-        if (!cancelled) {
-          setGuarantorId(null);
-          setGuarantorWasFound(false);
-        }
-      } finally {
-        if (!cancelled) {
-          setGuarantorLookupLoading(false);
-        }
-      }
-    }, 400);
+            if (data) {
+              applyGuarantorData(
+                data as CustomerRecord
+              );
+
+              setGuarantorWasFound(
+                true
+              );
+            } else {
+              setGuarantorId(null);
+              setGuarantorWasFound(
+                false
+              );
+            }
+          } catch {
+            if (!cancelled) {
+              setGuarantorId(null);
+              setGuarantorWasFound(
+                false
+              );
+            }
+          } finally {
+            if (!cancelled) {
+              setGuarantorLookupLoading(
+                false
+              );
+            }
+          }
+        },
+        400
+      );
 
     return () => {
       cancelled = true;
@@ -621,15 +961,26 @@ export default function NewFinanceContractPage() {
         return;
       }
 
-      const { data, error } = await supabase
+      const {
+        data,
+        error,
+      } = await supabase
         .from("finance_inventory")
         .select("quantity")
         .eq("branch_id", branchId)
-        .eq("investor_id", investorId)
-        .eq("product_id", productId)
+        .eq(
+          "investor_id",
+          investorId
+        )
+        .eq(
+          "product_id",
+          productId
+        )
         .maybeSingle();
 
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
 
       if (error) {
         setAvailableStock(0);
@@ -637,7 +988,11 @@ export default function NewFinanceContractPage() {
       }
 
       setAvailableStock(
-        data ? Number(data.quantity || 0) : 0
+        data
+          ? Number(
+              data.quantity || 0
+            )
+          : 0
       );
     }
 
@@ -646,26 +1001,40 @@ export default function NewFinanceContractPage() {
     return () => {
       cancelled = true;
     };
-  }, [branchId, investorId, productId]);
+  }, [
+    branchId,
+    investorId,
+    productId,
+  ]);
 
   useEffect(() => {
     if (
-      creationMode === "contract_and_note" &&
+      creationMode ===
+        "contract_and_note" &&
       !canCreatePromissoryNote
     ) {
-      setCreationMode("contract_only");
+      setCreationMode(
+        "contract_only"
+      );
     }
-  }, [canCreatePromissoryNote, creationMode]);
+  }, [
+    canCreatePromissoryNote,
+    creationMode,
+  ]);
 
   function clearFinanceSession() {
-    if (typeof window === "undefined") {
+    if (
+      typeof window ===
+      "undefined"
+    ) {
       return;
     }
 
-    localStorage.removeItem("finance_user");
-    localStorage.removeItem("finance_user_name");
-    localStorage.removeItem("finance_branch_user");
-    localStorage.removeItem("finance_role");
+    FINANCE_SESSION_KEYS.forEach(
+      (key) => {
+        localStorage.removeItem(key);
+      }
+    );
   }
 
   function logout() {
@@ -673,54 +1042,116 @@ export default function NewFinanceContractPage() {
     router.replace("/login");
   }
 
-  function applyCustomerData(customer: CustomerRecord) {
+  function applyCustomerData(
+    customer: CustomerRecord
+  ) {
     setCustomerId(customer.id);
-    setCustomerFullName(customer.full_name || "");
-    setCustomerBirthHijri(customer.birth_hijri || "");
-    setCustomerPhone(customer.phone || "");
-    setCustomerWorkName(customer.work_name || "");
-    setCustomerAddress(customer.address || "");
+
+    setCustomerFullName(
+      customer.full_name || ""
+    );
+
+    setCustomerBirthHijri(
+      customer.birth_hijri || ""
+    );
+
+    setCustomerPhone(
+      customer.phone || ""
+    );
+
+    setCustomerWorkName(
+      customer.work_name || ""
+    );
+
+    setCustomerAddress(
+      customer.address || ""
+    );
   }
 
-  function applyGuarantorData(customer: CustomerRecord) {
+  function applyGuarantorData(
+    customer: CustomerRecord
+  ) {
     setGuarantorId(customer.id);
-    setGuarantorFullName(customer.full_name || "");
-    setGuarantorBirthHijri(customer.birth_hijri || "");
-    setGuarantorPhone(customer.phone || "");
-    setGuarantorWorkName(customer.work_name || "");
-    setGuarantorAddress(customer.address || "");
+
+    setGuarantorFullName(
+      customer.full_name || ""
+    );
+
+    setGuarantorBirthHijri(
+      customer.birth_hijri || ""
+    );
+
+    setGuarantorPhone(
+      customer.phone || ""
+    );
+
+    setGuarantorWorkName(
+      customer.work_name || ""
+    );
+
+    setGuarantorAddress(
+      customer.address || ""
+    );
   }
 
-  function handleCustomerNationalIdChange(value: string) {
+  function handleCustomerNationalIdChange(
+    value: string
+  ) {
     const normalized =
-      normalizeDigits(value).slice(0, 10);
+      normalizeDigits(
+        value
+      ).slice(0, 10);
 
-    if (normalized !== customerNationalId) {
+    if (
+      normalized !==
+      customerNationalId
+    ) {
       setCustomerId(null);
-      setCustomerWasFound(false);
 
-      if (normalized.length < 10) {
+      setCustomerWasFound(
+        false
+      );
+
+      if (
+        normalized.length < 10
+      ) {
         clearCustomerFields();
       }
     }
 
-    setCustomerNationalId(normalized);
+    setCustomerNationalId(
+      normalized
+    );
   }
 
-  function handleGuarantorNationalIdChange(value: string) {
+  function handleGuarantorNationalIdChange(
+    value: string
+  ) {
     const normalized =
-      normalizeDigits(value).slice(0, 10);
+      normalizeDigits(
+        value
+      ).slice(0, 10);
 
-    if (normalized !== guarantorNationalId) {
+    if (
+      normalized !==
+      guarantorNationalId
+    ) {
       setGuarantorId(null);
-      setGuarantorWasFound(false);
 
-      if (normalized.length < 10) {
+      setGuarantorWasFound(
+        false
+      );
+
+      if (
+        normalized.length < 10
+      ) {
         clearGuarantorDataFields();
       }
     }
 
-    setGuarantorNationalId(normalized);
+    setGuarantorNationalId(
+      normalized
+    );
   }
 
   function clearCustomerFields() {
@@ -739,16 +1170,26 @@ export default function NewFinanceContractPage() {
     setGuarantorAddress("");
   }
 
-  function handleHasGuarantorChange(value: string) {
-    const nextValue = value === "yes";
+  function handleHasGuarantorChange(
+    value: string
+  ) {
+    const nextValue =
+      value === "yes";
 
     setHasGuarantor(nextValue);
 
     if (!nextValue) {
       setGuarantorId(null);
-      setGuarantorNationalId("");
+
+      setGuarantorNationalId(
+        ""
+      );
+
       clearGuarantorDataFields();
-      setGuarantorWasFound(false);
+
+      setGuarantorWasFound(
+        false
+      );
     }
   }
 
@@ -761,19 +1202,30 @@ export default function NewFinanceContractPage() {
       return "تعذر تحديد الموظف المسجل";
     }
 
-    if (customerNationalId.length !== 10) {
+    if (
+      customerNationalId.length !==
+      10
+    ) {
       return "رقم هوية العميل يجب أن يكون 10 أرقام";
     }
 
-    if (!customerFullName.trim()) {
+    if (
+      !customerFullName.trim()
+    ) {
       return "أدخل اسم العميل";
     }
 
-    if (!customerBirthHijri.trim()) {
+    if (
+      !customerBirthHijri.trim()
+    ) {
       return "أدخل تاريخ ميلاد العميل بالهجري";
     }
 
-    if (!/^05\d{8}$/.test(customerPhone)) {
+    if (
+      !/^05\d{8}$/.test(
+        customerPhone
+      )
+    ) {
       return "رقم جوال العميل يجب أن يكون 10 أرقام ويبدأ بـ 05";
     }
 
@@ -785,17 +1237,23 @@ export default function NewFinanceContractPage() {
       return "اختر المنتج";
     }
 
-    const quantity = toNumber(productQuantity);
+    const quantity =
+      toNumber(productQuantity);
 
     if (quantity <= 0) {
       return "أدخل كمية صحيحة";
     }
 
-    if (toNumber(debtAmount) <= 0) {
+    if (
+      toNumber(debtAmount) <= 0
+    ) {
       return "أدخل مبلغ الدين";
     }
 
-    if (toNumber(paymentAmount) <= 0) {
+    if (
+      toNumber(paymentAmount) <=
+      0
+    ) {
       return "أدخل مبلغ السداد";
     }
 
@@ -808,35 +1266,42 @@ export default function NewFinanceContractPage() {
     }
 
     if (
-      paymentType === "موعد محدد" &&
+      paymentType ===
+        "موعد محدد" &&
       !paymentDueDate
     ) {
       return "اختر موعد السداد";
     }
 
     if (
-      creationMode === "contract_and_note" &&
+      creationMode ===
+        "contract_and_note" &&
       !canCreatePromissoryNote
     ) {
       return "لا تملك صلاحية إنشاء سند";
     }
 
     if (
-      creationMode === "contract_and_note" &&
+      creationMode ===
+        "contract_and_note" &&
       !paymentDueDate
     ) {
       return "اختر تاريخ استحقاق السند";
     }
 
     if (
-      creationMode === "contract_and_note" &&
+      creationMode ===
+        "contract_and_note" &&
       !legalCity.trim()
     ) {
       return "أدخل مدينة التقاضي";
     }
 
     if (hasGuarantor) {
-      if (guarantorNationalId.length !== 10) {
+      if (
+        guarantorNationalId.length !==
+        10
+      ) {
         return "رقم هوية الكفيل يجب أن يكون 10 أرقام";
       }
 
@@ -847,15 +1312,23 @@ export default function NewFinanceContractPage() {
         return "لا يمكن أن يكون العميل كفيلًا لنفسه";
       }
 
-      if (!guarantorFullName.trim()) {
+      if (
+        !guarantorFullName.trim()
+      ) {
         return "أدخل اسم الكفيل";
       }
 
-      if (!guarantorBirthHijri.trim()) {
+      if (
+        !guarantorBirthHijri.trim()
+      ) {
         return "أدخل تاريخ ميلاد الكفيل بالهجري";
       }
 
-      if (!/^05\d{8}$/.test(guarantorPhone)) {
+      if (
+        !/^05\d{8}$/.test(
+          guarantorPhone
+        )
+      ) {
         return "رقم جوال الكفيل يجب أن يكون 10 أرقام ويبدأ بـ 05";
       }
     }
@@ -864,46 +1337,63 @@ export default function NewFinanceContractPage() {
   }
 
   async function createContract() {
-    if (saving) return;
+    if (saving) {
+      return;
+    }
 
-    const validationMessage = validateForm();
+    const validationMessage =
+      validateForm();
 
     if (validationMessage) {
       alert(validationMessage);
       return;
     }
 
-    if (!branchId || !employeeId) return;
+    if (
+      !branchId ||
+      !employeeId
+    ) {
+      return;
+    }
 
     const selectedInvestor =
       investors.find(
-        (investor) => investor.id === investorId
+        (investor) =>
+          investor.id ===
+          investorId
       );
 
     const selectedProduct =
       products.find(
-        (product) => product.id === productId
+        (product) =>
+          product.id === productId
       );
 
     if (!selectedInvestor) {
-      alert("تعذر تحديد المستثمر");
+      alert(
+        "تعذر تحديد المستثمر"
+      );
       return;
     }
 
     if (!selectedProduct) {
-      alert("تعذر تحديد المنتج");
+      alert(
+        "تعذر تحديد المنتج"
+      );
       return;
     }
 
-    const quantity = toNumber(productQuantity);
+    const quantity =
+      toNumber(productQuantity);
 
     if (
       availableStock !== null &&
       quantity > availableStock
     ) {
-      const shouldContinue = window.confirm(
-        `الكمية المطلوبة (${quantity}) أكبر من المتوفر في المخزون (${availableStock}). هل تريد الاستمرار والسماح بوصول المخزون إلى السالب؟`
-      );
+      const shouldContinue =
+        window.confirm(
+          `الكمية المطلوبة (${quantity}) أكبر من المتوفر في المخزون (${availableStock}). هل تريد الاستمرار والسماح بوصول المخزون إلى السالب؟`
+        );
 
       if (!shouldContinue) {
         return;
@@ -911,24 +1401,35 @@ export default function NewFinanceContractPage() {
     }
 
     const printPartyName =
-      printPartyType === "organization"
+      printPartyType ===
+      "organization"
         ? organizationName
         : selectedInvestor.investor_name;
 
     const printPartyIdentifier =
-      printPartyType === "organization"
+      printPartyType ===
+      "organization"
         ? organizationIdentifier
-        : selectedInvestor.national_id || "";
+        : selectedInvestor.national_id ||
+          "";
 
     try {
       setSaving(true);
 
-      const { data, error } = await supabase.rpc(
+      const {
+        data,
+        error,
+      } = await supabase.rpc(
         "create_finance_contract_complete_atomic",
         {
-          p_branch_id: branchId,
-          p_employee_id: employeeId,
-          p_employee_name: employeeName,
+          p_branch_id:
+            branchId,
+
+          p_employee_id:
+            employeeId,
+
+          p_employee_name:
+            employeeName,
 
           p_customer_full_name:
             customerFullName.trim(),
@@ -973,13 +1474,16 @@ export default function NewFinanceContractPage() {
             printPartyName || "",
 
           p_print_party_identifier:
-            printPartyIdentifier || "",
+            printPartyIdentifier ||
+            "",
 
           p_debt_amount:
             toNumber(debtAmount),
 
           p_payment_amount:
-            toNumber(paymentAmount),
+            toNumber(
+              paymentAmount
+            ),
 
           p_payment_type:
             paymentType,
@@ -994,7 +1498,9 @@ export default function NewFinanceContractPage() {
             legalCity.trim(),
 
           p_judicial_amount:
-            toNumber(judicialAmount),
+            toNumber(
+              judicialAmount
+            ),
 
           p_notes:
             notes.trim(),
@@ -1033,17 +1539,21 @@ export default function NewFinanceContractPage() {
               : "",
 
           p_create_promissory_note:
-            creationMode === "contract_and_note",
+            creationMode ===
+            "contract_and_note",
         }
       );
 
       if (error) {
         throw new Error(
-          getRpcErrorMessage(error.message)
+          getRpcErrorMessage(
+            error.message
+          )
         );
       }
 
-      const result = extractCreationResult(data);
+      const result =
+        extractCreationResult(data);
 
       if (!result.contract_id) {
         throw new Error(
@@ -1052,7 +1562,8 @@ export default function NewFinanceContractPage() {
       }
 
       if (
-        creationMode === "contract_and_note" &&
+        creationMode ===
+          "contract_and_note" &&
         !result.note_id
       ) {
         throw new Error(
@@ -1061,7 +1572,8 @@ export default function NewFinanceContractPage() {
       }
 
       if (
-        creationMode === "contract_and_note" &&
+        creationMode ===
+          "contract_and_note" &&
         result.note_id
       ) {
         alert(
@@ -1094,26 +1606,37 @@ export default function NewFinanceContractPage() {
     }
   }
 
-  const investorOptions: SelectOption[] =
-    investors.map((investor) => ({
-      value: investor.id,
-      label: investor.investor_name,
-    }));
+  const investorOptions:
+    SelectOption[] =
+    investors.map(
+      (investor) => ({
+        value: investor.id,
+        label:
+          investor.investor_name,
+      })
+    );
 
-  const productOptions: SelectOption[] =
+  const productOptions:
+    SelectOption[] =
     products.map((product) => ({
       value: product.id,
       label: product.product_name,
     }));
 
-  if (!authChecked || pageLoading) {
+  if (
+    !authChecked ||
+    pageLoading
+  ) {
     return (
       <main
         dir="rtl"
-        style={getPageStyle(isMobile)}
+        style={getPageStyle(
+          isMobile
+        )}
       >
         <div style={loadingCard}>
-          جاري تحميل صفحة إنشاء العقد...
+          جاري تحميل صفحة إنشاء
+          العقد...
         </div>
       </main>
     );
@@ -1123,15 +1646,21 @@ export default function NewFinanceContractPage() {
     return (
       <main
         dir="rtl"
-        style={getPageStyle(isMobile)}
+        style={getPageStyle(
+          isMobile
+        )}
       >
         <div style={errorCard}>
           <strong>{loadError}</strong>
 
           <button
             type="button"
-            style={secondaryButton}
-            onClick={() => router.back()}
+            style={
+              secondaryButton
+            }
+            onClick={() =>
+              router.back()
+            }
           >
             ← رجوع
           </button>
@@ -1143,37 +1672,83 @@ export default function NewFinanceContractPage() {
   return (
     <main
       dir="rtl"
-      style={getPageStyle(isMobile)}
+      style={getPageStyle(
+        isMobile
+      )}
     >
-      <div style={getContainerStyle(isCompact)}>
-        <header style={getHeroStyle(isMobile)}>
-          <div style={heroCircleOne} />
-          <div style={heroCircleTwo} />
-          <div style={heroCircleThree} />
+      <div
+        style={getContainerStyle(
+          isCompact
+        )}
+      >
+        <header
+          style={getHeroStyle(
+            isMobile
+          )}
+        >
+          <div
+            style={heroCircleOne}
+          />
+
+          <div
+            style={heroCircleTwo}
+          />
+
+          <div
+            style={heroCircleThree}
+          />
+
           <div style={heroDots} />
 
-          <div style={getHeroContentStyle(screen)}>
-            <div style={getHeroUserCardStyle(screen)}>
-              <div style={getEmployeeTopRowStyle(screen)}>
-                <div style={employeeIcon}>
+          <div
+            style={getHeroContentStyle(
+              screen
+            )}
+          >
+            <div
+              style={getHeroUserCardStyle(
+                screen
+              )}
+            >
+              <div
+                style={getEmployeeTopRowStyle(
+                  screen
+                )}
+              >
+                <div
+                  style={employeeIcon}
+                >
                   <UserIcon />
                 </div>
 
-                <div style={getEmployeeNameStyle(isMobile)}>
+                <div
+                  style={getEmployeeNameStyle(
+                    isMobile
+                  )}
+                >
                   {employeeName}
                 </div>
 
                 {!isMobile && (
-                  <div style={employeeDividerSmall} />
+                  <div
+                    style={
+                      employeeDividerSmall
+                    }
+                  />
                 )}
 
                 <button
                   type="button"
-                  style={logoutInlineButton}
+                  style={
+                    logoutInlineButton
+                  }
                   onClick={logout}
                 >
                   <LogoutIcon />
-                  <span>تسجيل الخروج</span>
+
+                  <span>
+                    تسجيل الخروج
+                  </span>
                 </button>
               </div>
 
@@ -1183,74 +1758,119 @@ export default function NewFinanceContractPage() {
                   isMobile
                 )}
                 onClick={() =>
-                  router.push(`/finance/${branch}`)
+                  router.push(
+                    `/finance/${branch}`
+                  )
                 }
               >
                 <HomeIcon />
-                <span>محطة العمل الرئيسية</span>
+
+                <span>
+                  محطة العمل الرئيسية
+                </span>
               </button>
             </div>
 
-            <div style={getHeroTitleBoxStyle(screen)}>
-              <h1 style={getTitleStyle(screen)}>
+            <div
+              style={getHeroTitleBoxStyle(
+                screen
+              )}
+            >
+              <h1
+                style={getTitleStyle(
+                  screen
+                )}
+              >
                 إنشاء عقد جديد
               </h1>
             </div>
 
             <div
-              style={getHeroActionBoxStyle(screen)}
+              style={getHeroActionBoxStyle(
+                screen
+              )}
             />
           </div>
         </header>
 
         <section style={card}>
           <h2 style={sectionTitle}>
-            بيانات العميل (الطرف الثاني)
+            بيانات العميل (الطرف
+            الثاني)
           </h2>
 
-          <div style={getFieldsGridStyle(screen)}>
+          <div
+            style={getFieldsGridStyle(
+              screen
+            )}
+          >
             <Field
               label="هوية العميل"
               required
               fullWidth
             >
-              <div style={lookupInputWrapper}>
+              <div
+                style={
+                  lookupInputWrapper
+                }
+              >
                 <input
                   style={fieldInput}
                   inputMode="numeric"
                   autoComplete="off"
                   maxLength={10}
                   placeholder="أدخل رقم الهوية"
-                  value={customerNationalId}
-                  onChange={(event) =>
+                  value={
+                    customerNationalId
+                  }
+                  onChange={(
+                    event
+                  ) =>
                     handleCustomerNationalIdChange(
-                      event.target.value
+                      event.target
+                        .value
                     )
                   }
                 />
 
                 {customerLookupLoading && (
-                  <span style={lookupStatus}>
+                  <span
+                    style={
+                      lookupStatus
+                    }
+                  >
                     جاري التحقق...
                   </span>
                 )}
 
                 {!customerLookupLoading &&
                   customerWasFound && (
-                    <span style={foundStatusBadge}>
+                    <span
+                      style={
+                        foundStatusBadge
+                      }
+                    >
                       تم تحميل البيانات
                     </span>
                   )}
               </div>
             </Field>
 
-            <Field label="اسم العميل" required>
+            <Field
+              label="اسم العميل"
+              required
+            >
               <input
                 style={fieldInput}
-                value={customerFullName}
-                onChange={(event) =>
+                value={
+                  customerFullName
+                }
+                onChange={(
+                  event
+                ) =>
                   setCustomerFullName(
-                    event.target.value
+                    event.target
+                      .value
                   )
                 }
                 placeholder="الاسم الكامل"
@@ -1263,11 +1883,16 @@ export default function NewFinanceContractPage() {
             >
               <input
                 style={fieldInput}
-                value={customerBirthHijri}
-                onChange={(event) =>
+                value={
+                  customerBirthHijri
+                }
+                onChange={(
+                  event
+                ) =>
                   setCustomerBirthHijri(
                     normalizeHijriDate(
-                      event.target.value
+                      event.target
+                        .value
                     )
                   )
                 }
@@ -1276,14 +1901,20 @@ export default function NewFinanceContractPage() {
               />
             </Field>
 
-            <Field label="رقم الجوال" required>
+            <Field
+              label="رقم الجوال"
+              required
+            >
               <input
                 style={fieldInput}
                 value={customerPhone}
-                onChange={(event) =>
+                onChange={(
+                  event
+                ) =>
                   setCustomerPhone(
                     normalizeDigits(
-                      event.target.value
+                      event.target
+                        .value
                     ).slice(0, 10)
                   )
                 }
@@ -1296,23 +1927,36 @@ export default function NewFinanceContractPage() {
             <Field label="العمل">
               <input
                 style={fieldInput}
-                value={customerWorkName}
-                onChange={(event) =>
+                value={
+                  customerWorkName
+                }
+                onChange={(
+                  event
+                ) =>
                   setCustomerWorkName(
-                    event.target.value
+                    event.target
+                      .value
                   )
                 }
                 placeholder="اسم جهة العمل"
               />
             </Field>
 
-            <Field label="العنوان" fullWidth>
+            <Field
+              label="العنوان"
+              fullWidth
+            >
               <input
                 style={fieldInput}
-                value={customerAddress}
-                onChange={(event) =>
+                value={
+                  customerAddress
+                }
+                onChange={(
+                  event
+                ) =>
                   setCustomerAddress(
-                    event.target.value
+                    event.target
+                      .value
                   )
                 }
                 placeholder="عنوان العميل"
@@ -1332,7 +1976,11 @@ export default function NewFinanceContractPage() {
             المخزون والطرف الأول
           </h2>
 
-          <div style={getFieldsGridStyle(screen)}>
+          <div
+            style={getFieldsGridStyle(
+              screen
+            )}
+          >
             <Field
               label="المستثمر المرتبط بالمخزون"
               required
@@ -1340,21 +1988,38 @@ export default function NewFinanceContractPage() {
               <CustomSelect
                 value={investorId}
                 placeholder="اختر المستثمر"
-                options={investorOptions}
-                onChange={(value) => {
-                  setInvestorId(value);
+                options={
+                  investorOptions
+                }
+                onChange={(
+                  value
+                ) => {
+                  setInvestorId(
+                    value
+                  );
+
                   setProductId("");
-                  setAvailableStock(null);
+
+                  setAvailableStock(
+                    null
+                  );
                 }}
               />
             </Field>
 
-            <Field label="اختر المنتج" required>
+            <Field
+              label="اختر المنتج"
+              required
+            >
               <CustomSelect
                 value={productId}
                 placeholder="اختر المنتج"
-                options={productOptions}
-                onChange={setProductId}
+                options={
+                  productOptions
+                }
+                onChange={
+                  setProductId
+                }
               />
             </Field>
 
@@ -1366,11 +2031,16 @@ export default function NewFinanceContractPage() {
                 style={fieldInput}
                 inputMode="decimal"
                 placeholder="أدخل الكمية"
-                value={productQuantity}
-                onChange={(event) =>
+                value={
+                  productQuantity
+                }
+                onChange={(
+                  event
+                ) =>
                   setProductQuantity(
                     normalizeNumber(
-                      event.target.value
+                      event.target
+                        .value
                     )
                   )
                 }
@@ -1380,14 +2050,18 @@ export default function NewFinanceContractPage() {
             <Field label="الكمية المتوفرة">
               <div
                 style={
-                  availableStock !== null &&
-                  toNumber(productQuantity) >
+                  availableStock !==
+                    null &&
+                  toNumber(
+                    productQuantity
+                  ) >
                     availableStock
                     ? stockDanger
                     : stockInfo
                 }
               >
-                {availableStock === null
+                {availableStock ===
+                null
                   ? "اختر المستثمر والمنتج"
                   : availableStock}
               </div>
@@ -1398,20 +2072,27 @@ export default function NewFinanceContractPage() {
               fullWidth
             >
               <CustomSelect
-                value={printPartyType}
+                value={
+                  printPartyType
+                }
                 placeholder="اختر الطرف الأول"
                 options={[
                   {
-                    value: "organization",
+                    value:
+                      "organization",
                     label:
                       "المستثمر الرئيسي - المؤسسة",
                   },
                   {
-                    value: "investor",
-                    label: "المستثمر",
+                    value:
+                      "investor",
+                    label:
+                      "المستثمر",
                   },
                 ]}
-                onChange={(value) =>
+                onChange={(
+                  value
+                ) =>
                   setPrintPartyType(
                     value as
                       | "organization"
@@ -1428,7 +2109,11 @@ export default function NewFinanceContractPage() {
             بيانات العقد
           </h2>
 
-          <div style={getFieldsGridStyle(screen)}>
+          <div
+            style={getFieldsGridStyle(
+              screen
+            )}
+          >
             <Field
               label="نوع التمويل"
               hint="اختياري"
@@ -1438,61 +2123,87 @@ export default function NewFinanceContractPage() {
                 style={fieldInput}
                 placeholder="مثال: تمويل منتج"
                 value={financeType}
-                onChange={(event) =>
+                onChange={(
+                  event
+                ) =>
                   setFinanceType(
-                    event.target.value
+                    event.target
+                      .value
                   )
                 }
               />
             </Field>
 
-            <Field label="مبلغ الدين" required>
+            <Field
+              label="مبلغ الدين"
+              required
+            >
               <input
                 style={fieldInput}
                 inputMode="decimal"
                 placeholder="0.00"
                 value={debtAmount}
-                onChange={(event) =>
+                onChange={(
+                  event
+                ) =>
                   setDebtAmount(
                     normalizeNumber(
-                      event.target.value
+                      event.target
+                        .value
                     )
                   )
                 }
               />
             </Field>
 
-            <Field label="مبلغ السداد" required>
+            <Field
+              label="مبلغ السداد"
+              required
+            >
               <input
                 style={fieldInput}
                 inputMode="decimal"
                 placeholder="0.00"
-                value={paymentAmount}
-                onChange={(event) =>
+                value={
+                  paymentAmount
+                }
+                onChange={(
+                  event
+                ) =>
                   setPaymentAmount(
                     normalizeNumber(
-                      event.target.value
+                      event.target
+                        .value
                     )
                   )
                 }
               />
             </Field>
 
-            <Field label="نوع السداد" required>
+            <Field
+              label="نوع السداد"
+              required
+            >
               <CustomSelect
                 value={paymentType}
                 placeholder="اختر نوع السداد"
                 options={[
                   {
-                    value: "موعد محدد",
-                    label: "موعد محدد",
+                    value:
+                      "موعد محدد",
+                    label:
+                      "موعد محدد",
                   },
                   {
-                    value: "شهري مجدول",
-                    label: "شهري مجدول",
+                    value:
+                      "شهري مجدول",
+                    label:
+                      "شهري مجدول",
                   },
                 ]}
-                onChange={setPaymentType}
+                onChange={
+                  setPaymentType
+                }
               />
             </Field>
 
@@ -1501,8 +2212,12 @@ export default function NewFinanceContractPage() {
               required
             >
               <ProfessionalDatePicker
-                value={contractIssueDate}
-                onChange={setContractIssueDate}
+                value={
+                  contractIssueDate
+                }
+                onChange={
+                  setContractIssueDate
+                }
                 placeholder="اختر تاريخ تحرير العقد"
               />
             </Field>
@@ -1510,15 +2225,20 @@ export default function NewFinanceContractPage() {
             <Field
               label="موعد السداد / استحقاق السند"
               required={
-                paymentType === "موعد محدد" ||
+                paymentType ===
+                  "موعد محدد" ||
                 creationMode ===
                   "contract_and_note"
               }
               fullWidth
             >
               <ProfessionalDatePicker
-                value={paymentDueDate}
-                onChange={setPaymentDueDate}
+                value={
+                  paymentDueDate
+                }
+                onChange={
+                  setPaymentDueDate
+                }
                 placeholder="اختر موعد السداد"
               />
             </Field>
@@ -1528,9 +2248,12 @@ export default function NewFinanceContractPage() {
                 style={fieldInput}
                 placeholder="اسم المدينة"
                 value={legalCity}
-                onChange={(event) =>
+                onChange={(
+                  event
+                ) =>
                   setLegalCity(
-                    event.target.value
+                    event.target
+                      .value
                   )
                 }
               />
@@ -1544,11 +2267,16 @@ export default function NewFinanceContractPage() {
                 style={fieldInput}
                 inputMode="decimal"
                 placeholder="0.00"
-                value={judicialAmount}
-                onChange={(event) =>
+                value={
+                  judicialAmount
+                }
+                onChange={(
+                  event
+                ) =>
                   setJudicialAmount(
                     normalizeNumber(
-                      event.target.value
+                      event.target
+                        .value
                     )
                   )
                 }
@@ -1568,27 +2296,35 @@ export default function NewFinanceContractPage() {
           >
             <CustomSelect
               value={
-                hasGuarantor ? "yes" : "no"
+                hasGuarantor
+                  ? "yes"
+                  : "no"
               }
               placeholder="اختر"
               options={[
                 {
                   value: "no",
-                  label: "بدون كفيل",
+                  label:
+                    "بدون كفيل",
                 },
                 {
                   value: "yes",
-                  label: "يوجد كفيل",
+                  label:
+                    "يوجد كفيل",
                 },
               ]}
-              onChange={handleHasGuarantorChange}
+              onChange={
+                handleHasGuarantorChange
+              }
             />
           </Field>
 
           {hasGuarantor && (
             <div
               style={{
-                ...getFieldsGridStyle(screen),
+                ...getFieldsGridStyle(
+                  screen
+                ),
                 marginTop: 18,
               }}
             >
@@ -1597,43 +2333,68 @@ export default function NewFinanceContractPage() {
                 required
                 fullWidth
               >
-                <div style={lookupInputWrapper}>
+                <div
+                  style={
+                    lookupInputWrapper
+                  }
+                >
                   <input
                     style={fieldInput}
                     inputMode="numeric"
                     autoComplete="off"
                     maxLength={10}
                     placeholder="أدخل رقم هوية الكفيل"
-                    value={guarantorNationalId}
-                    onChange={(event) =>
+                    value={
+                      guarantorNationalId
+                    }
+                    onChange={(
+                      event
+                    ) =>
                       handleGuarantorNationalIdChange(
-                        event.target.value
+                        event.target
+                          .value
                       )
                     }
                   />
 
                   {guarantorLookupLoading && (
-                    <span style={lookupStatus}>
+                    <span
+                      style={
+                        lookupStatus
+                      }
+                    >
                       جاري التحقق...
                     </span>
                   )}
 
                   {!guarantorLookupLoading &&
                     guarantorWasFound && (
-                      <span style={foundStatusBadge}>
+                      <span
+                        style={
+                          foundStatusBadge
+                        }
+                      >
                         تم تحميل البيانات
                       </span>
                     )}
                 </div>
               </Field>
 
-              <Field label="اسم الكفيل" required>
+              <Field
+                label="اسم الكفيل"
+                required
+              >
                 <input
                   style={fieldInput}
-                  value={guarantorFullName}
-                  onChange={(event) =>
+                  value={
+                    guarantorFullName
+                  }
+                  onChange={(
+                    event
+                  ) =>
                     setGuarantorFullName(
-                      event.target.value
+                      event.target
+                        .value
                     )
                   }
                   placeholder="الاسم الكامل"
@@ -1646,11 +2407,16 @@ export default function NewFinanceContractPage() {
               >
                 <input
                   style={fieldInput}
-                  value={guarantorBirthHijri}
-                  onChange={(event) =>
+                  value={
+                    guarantorBirthHijri
+                  }
+                  onChange={(
+                    event
+                  ) =>
                     setGuarantorBirthHijri(
                       normalizeHijriDate(
-                        event.target.value
+                        event.target
+                          .value
                       )
                     )
                   }
@@ -1659,14 +2425,22 @@ export default function NewFinanceContractPage() {
                 />
               </Field>
 
-              <Field label="رقم الجوال" required>
+              <Field
+                label="رقم الجوال"
+                required
+              >
                 <input
                   style={fieldInput}
-                  value={guarantorPhone}
-                  onChange={(event) =>
+                  value={
+                    guarantorPhone
+                  }
+                  onChange={(
+                    event
+                  ) =>
                     setGuarantorPhone(
                       normalizeDigits(
-                        event.target.value
+                        event.target
+                          .value
                       ).slice(0, 10)
                     )
                   }
@@ -1679,23 +2453,36 @@ export default function NewFinanceContractPage() {
               <Field label="العمل">
                 <input
                   style={fieldInput}
-                  value={guarantorWorkName}
-                  onChange={(event) =>
+                  value={
+                    guarantorWorkName
+                  }
+                  onChange={(
+                    event
+                  ) =>
                     setGuarantorWorkName(
-                      event.target.value
+                      event.target
+                        .value
                     )
                   }
                   placeholder="اسم جهة العمل"
                 />
               </Field>
 
-              <Field label="العنوان" fullWidth>
+              <Field
+                label="العنوان"
+                fullWidth
+              >
                 <input
                   style={fieldInput}
-                  value={guarantorAddress}
-                  onChange={(event) =>
+                  value={
+                    guarantorAddress
+                  }
+                  onChange={(
+                    event
+                  ) =>
                     setGuarantorAddress(
-                      event.target.value
+                      event.target
+                        .value
                     )
                   }
                   placeholder="عنوان الكفيل"
@@ -1704,7 +2491,9 @@ export default function NewFinanceContractPage() {
 
               <input
                 type="hidden"
-                value={guarantorId || ""}
+                value={
+                  guarantorId || ""
+                }
                 readOnly
               />
             </div>
@@ -1716,7 +2505,11 @@ export default function NewFinanceContractPage() {
             طريقة الإنشاء
           </h2>
 
-          <div style={creationModeGrid}>
+          <div
+            style={
+              creationModeGrid
+            }
+          >
             <button
               type="button"
               style={{
@@ -1727,18 +2520,26 @@ export default function NewFinanceContractPage() {
                   : {}),
               }}
               onClick={() =>
-                setCreationMode("contract_only")
+                setCreationMode(
+                  "contract_only"
+                )
               }
             >
-              <strong>إنشاء العقد فقط</strong>
+              <strong>
+                إنشاء العقد فقط
+              </strong>
+
               <span>
-                إنشاء العقد ثم الانتقال إلى تفاصيله
+                إنشاء العقد ثم الانتقال
+                إلى تفاصيله
               </span>
             </button>
 
             <button
               type="button"
-              disabled={!canCreatePromissoryNote}
+              disabled={
+                !canCreatePromissoryNote
+              }
               style={{
                 ...creationModeButton,
                 ...(creationMode ===
@@ -1750,7 +2551,9 @@ export default function NewFinanceContractPage() {
                   : {}),
               }}
               onClick={() => {
-                if (canCreatePromissoryNote) {
+                if (
+                  canCreatePromissoryNote
+                ) {
                   setCreationMode(
                     "contract_and_note"
                   );
@@ -1758,16 +2561,23 @@ export default function NewFinanceContractPage() {
               }}
             >
               <strong>
-                إنشاء العقد مع سند تلقائيًا
+                إنشاء العقد مع سند
+                تلقائيًا
               </strong>
 
               <span>
-                إنشاء العقد والسند معًا ثم فتح صفحة الطباعة
+                إنشاء العقد والسند معًا ثم
+                فتح صفحة الطباعة
               </span>
 
               {!canCreatePromissoryNote && (
-                <small style={permissionText}>
-                  لا تملك صلاحية إنشاء سند
+                <small
+                  style={
+                    permissionText
+                  }
+                >
+                  لا تملك صلاحية إنشاء
+                  سند
                 </small>
               )}
             </button>
@@ -1788,7 +2598,9 @@ export default function NewFinanceContractPage() {
               placeholder="أدخل أي ملاحظات إضافية"
               value={notes}
               onChange={(event) =>
-                setNotes(event.target.value)
+                setNotes(
+                  event.target.value
+                )
               }
             />
           </Field>
@@ -1797,12 +2609,16 @@ export default function NewFinanceContractPage() {
             type="button"
             style={{
               ...primaryButton,
-              opacity: saving ? 0.68 : 1,
+              opacity: saving
+                ? 0.68
+                : 1,
               cursor: saving
                 ? "not-allowed"
                 : "pointer",
             }}
-            onClick={createContract}
+            onClick={
+              createContract
+            }
             disabled={saving}
           >
             {saving
@@ -1818,7 +2634,9 @@ export default function NewFinanceContractPage() {
           <button
             type="button"
             style={backButton}
-            onClick={() => router.back()}
+            onClick={() =>
+              router.back()
+            }
           >
             ← رجوع
           </button>
@@ -1854,7 +2672,11 @@ function Field({
         <span>{label}</span>
 
         {required && (
-          <span style={requiredMark}>*</span>
+          <span
+            style={requiredMark}
+          >
+            *
+          </span>
         )}
 
         {hint && (
@@ -1878,21 +2700,35 @@ function CustomSelect({
   value: string;
   placeholder: string;
   options: SelectOption[];
-  onChange: (value: string) => void;
+  onChange: (
+    value: string
+  ) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const [menuRect, setMenuRect] =
-    useState<DropdownRect | null>(null);
+  const [open, setOpen] =
+    useState(false);
 
-  const wrapperRef =
-    useRef<HTMLDivElement | null>(null);
-
-  const selectedOption = options.find(
-    (option) => option.value === value
+  const [
+    menuRect,
+    setMenuRect,
+  ] = useState<DropdownRect | null>(
+    null
   );
 
+  const wrapperRef =
+    useRef<HTMLDivElement | null>(
+      null
+    );
+
+  const selectedOption =
+    options.find(
+      (option) =>
+        option.value === value
+    );
+
   function updateMenuPosition() {
-    if (!wrapperRef.current) return;
+    if (!wrapperRef.current) {
+      return;
+    }
 
     const rect =
       wrapperRef.current.getBoundingClientRect();
@@ -1910,18 +2746,23 @@ function CustomSelect({
   }
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      return;
+    }
 
     updateMenuPosition();
 
     function handleOutsidePointer(
       event: PointerEvent
     ) {
-      const target = event.target as Node;
+      const target =
+        event.target as Node;
 
       if (
         wrapperRef.current &&
-        wrapperRef.current.contains(target)
+        wrapperRef.current.contains(
+          target
+        )
       ) {
         return;
       }
@@ -1981,12 +2822,17 @@ function CustomSelect({
   }, [open]);
 
   return (
-    <div ref={wrapperRef} style={selectWrapper}>
+    <div
+      ref={wrapperRef}
+      style={selectWrapper}
+    >
       <button
         type="button"
         style={{
           ...selectButton,
-          ...(open ? selectButtonOpen : {}),
+          ...(open
+            ? selectButtonOpen
+            : {}),
         }}
         onClick={() => {
           if (open) {
@@ -2005,7 +2851,8 @@ function CustomSelect({
               : selectPlaceholder
           }
         >
-          {selectedOption?.label || placeholder}
+          {selectedOption?.label ||
+            placeholder}
         </span>
 
         <span
@@ -2022,7 +2869,8 @@ function CustomSelect({
 
       {open &&
         menuRect &&
-        typeof document !== "undefined" &&
+        typeof document !==
+          "undefined" &&
         createPortal(
           <div
             id="finance-custom-select-menu"
@@ -2034,37 +2882,56 @@ function CustomSelect({
             }}
           >
             {options.length === 0 ? (
-              <div style={emptyOption}>
+              <div
+                style={emptyOption}
+              >
                 لا توجد خيارات متاحة
               </div>
             ) : (
-              options.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  disabled={option.disabled}
-                  style={{
-                    ...selectOptionButton,
-                    ...(option.value === value
-                      ? selectedOptionButton
-                      : {}),
-                    ...(option.disabled
-                      ? disabledOptionButton
-                      : {}),
-                  }}
-                  onPointerDown={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
+              options.map(
+                (option) => (
+                  <button
+                    key={
+                      option.value
+                    }
+                    type="button"
+                    disabled={
+                      option.disabled
+                    }
+                    style={{
+                      ...selectOptionButton,
+                      ...(option.value ===
+                      value
+                        ? selectedOptionButton
+                        : {}),
+                      ...(option.disabled
+                        ? disabledOptionButton
+                        : {}),
+                    }}
+                    onPointerDown={(
+                      event
+                    ) => {
+                      event.preventDefault();
 
-                    if (option.disabled) return;
+                      event.stopPropagation();
 
-                    onChange(option.value);
-                    closeMenu();
-                  }}
-                >
-                  {option.label}
-                </button>
-              ))
+                      if (
+                        option.disabled
+                      ) {
+                        return;
+                      }
+
+                      onChange(
+                        option.value
+                      );
+
+                      closeMenu();
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                )
+              )
             )}
           </div>,
           document.body
@@ -2079,20 +2946,31 @@ function ProfessionalDatePicker({
   placeholder,
 }: {
   value: string;
-  onChange: (value: string) => void;
+  onChange: (
+    value: string
+  ) => void;
   placeholder: string;
 }) {
   const initialDate =
-    parseDateValue(value) || new Date();
+    parseDateValue(value) ||
+    new Date();
 
   const [open, setOpen] =
     useState(false);
 
-  const [visibleYear, setVisibleYear] =
-    useState(initialDate.getFullYear());
+  const [
+    visibleYear,
+    setVisibleYear,
+  ] = useState(
+    initialDate.getFullYear()
+  );
 
-  const [visibleMonth, setVisibleMonth] =
-    useState(initialDate.getMonth());
+  const [
+    visibleMonth,
+    setVisibleMonth,
+  ] = useState(
+    initialDate.getMonth()
+  );
 
   useEffect(() => {
     const selectedDate =
@@ -2109,32 +2987,42 @@ function ProfessionalDatePicker({
     }
   }, [value]);
 
-  const days = getCalendarDays(
-    visibleYear,
-    visibleMonth
-  );
+  const days =
+    getCalendarDays(
+      visibleYear,
+      visibleMonth
+    );
 
   function selectDate(
     year: number,
     month: number,
     day: number
   ) {
-    const date =
-      new Date(year, month, day);
+    const date = new Date(
+      year,
+      month,
+      day
+    );
 
-    onChange(formatLocalDate(date));
+    onChange(
+      formatLocalDate(date)
+    );
+
     setOpen(false);
   }
 
   function goToPreviousMonth() {
     if (visibleMonth === 0) {
       setVisibleMonth(11);
+
       setVisibleYear(
-        (current) => current - 1
+        (current) =>
+          current - 1
       );
     } else {
       setVisibleMonth(
-        (current) => current - 1
+        (current) =>
+          current - 1
       );
     }
   }
@@ -2142,12 +3030,15 @@ function ProfessionalDatePicker({
   function goToNextMonth() {
     if (visibleMonth === 11) {
       setVisibleMonth(0);
+
       setVisibleYear(
-        (current) => current + 1
+        (current) =>
+          current + 1
       );
     } else {
       setVisibleMonth(
-        (current) => current + 1
+        (current) =>
+          current + 1
       );
     }
   }
@@ -2156,8 +3047,12 @@ function ProfessionalDatePicker({
     <>
       <button
         type="button"
-        style={datePickerButton}
-        onClick={() => setOpen(true)}
+        style={
+          datePickerButton
+        }
+        onClick={() =>
+          setOpen(true)
+        }
       >
         <span
           style={
@@ -2167,7 +3062,9 @@ function ProfessionalDatePicker({
           }
         >
           {value
-            ? formatDisplayDate(value)
+            ? formatDisplayDate(
+                value
+              )
             : placeholder}
         </span>
 
@@ -2175,7 +3072,8 @@ function ProfessionalDatePicker({
       </button>
 
       {open &&
-        typeof document !== "undefined" &&
+        typeof document !==
+          "undefined" &&
         createPortal(
           <div
             style={calendarOverlay}
@@ -2185,20 +3083,34 @@ function ProfessionalDatePicker({
           >
             <div
               style={calendarModal}
-              onPointerDown={(event) =>
+              onPointerDown={(
+                event
+              ) =>
                 event.stopPropagation()
               }
             >
-              <div style={calendarHeader}>
+              <div
+                style={
+                  calendarHeader
+                }
+              >
                 <button
                   type="button"
-                  style={calendarNavigationButton}
-                  onClick={goToPreviousMonth}
+                  style={
+                    calendarNavigationButton
+                  }
+                  onClick={
+                    goToPreviousMonth
+                  }
                 >
                   ‹
                 </button>
 
-                <strong style={calendarMonthTitle}>
+                <strong
+                  style={
+                    calendarMonthTitle
+                  }
+                >
                   {
                     ARABIC_MONTHS[
                       visibleMonth
@@ -2209,19 +3121,29 @@ function ProfessionalDatePicker({
 
                 <button
                   type="button"
-                  style={calendarNavigationButton}
-                  onClick={goToNextMonth}
+                  style={
+                    calendarNavigationButton
+                  }
+                  onClick={
+                    goToNextMonth
+                  }
                 >
                   ›
                 </button>
               </div>
 
-              <div style={calendarWeekGrid}>
+              <div
+                style={
+                  calendarWeekGrid
+                }
+              >
                 {ARABIC_WEEK_DAYS.map(
                   (day) => (
                     <div
                       key={day}
-                      style={calendarWeekDay}
+                      style={
+                        calendarWeekDay
+                      }
                     >
                       {day}
                     </div>
@@ -2229,63 +3151,86 @@ function ProfessionalDatePicker({
                 )}
               </div>
 
-              <div style={calendarDaysGrid}>
-                {days.map((item, index) => {
-                  if (!item) {
+              <div
+                style={
+                  calendarDaysGrid
+                }
+              >
+                {days.map(
+                  (item, index) => {
+                    if (!item) {
+                      return (
+                        <div
+                          key={`empty-${index}`}
+                        />
+                      );
+                    }
+
+                    const currentValue =
+                      `${visibleYear}-${String(
+                        visibleMonth +
+                          1
+                      ).padStart(
+                        2,
+                        "0"
+                      )}-${String(
+                        item
+                      ).padStart(
+                        2,
+                        "0"
+                      )}`;
+
+                    const isSelected =
+                      currentValue ===
+                      value;
+
+                    const isToday =
+                      currentValue ===
+                      getTodayDate();
+
                     return (
-                      <div
-                        key={`empty-${index}`}
-                      />
+                      <button
+                        key={
+                          currentValue
+                        }
+                        type="button"
+                        style={{
+                          ...calendarDayButton,
+                          ...(isToday
+                            ? calendarTodayButton
+                            : {}),
+                          ...(isSelected
+                            ? calendarSelectedButton
+                            : {}),
+                        }}
+                        onClick={() =>
+                          selectDate(
+                            visibleYear,
+                            visibleMonth,
+                            item
+                          )
+                        }
+                      >
+                        {item}
+                      </button>
                     );
                   }
-
-                  const currentValue =
-                    `${visibleYear}-${String(
-                      visibleMonth + 1
-                    ).padStart(2, "0")}-${String(
-                      item
-                    ).padStart(2, "0")}`;
-
-                  const isSelected =
-                    currentValue === value;
-
-                  const isToday =
-                    currentValue ===
-                    getTodayDate();
-
-                  return (
-                    <button
-                      key={currentValue}
-                      type="button"
-                      style={{
-                        ...calendarDayButton,
-                        ...(isToday
-                          ? calendarTodayButton
-                          : {}),
-                        ...(isSelected
-                          ? calendarSelectedButton
-                          : {}),
-                      }}
-                      onClick={() =>
-                        selectDate(
-                          visibleYear,
-                          visibleMonth,
-                          item
-                        )
-                      }
-                    >
-                      {item}
-                    </button>
-                  );
-                })}
+                )}
               </div>
 
-              <div style={calendarFooter}>
+              <div
+                style={
+                  calendarFooter
+                }
+              >
                 <button
                   type="button"
-                  style={calendarTodayAction}
+                  style={
+                    calendarTodayAction
+                  }
                   onClick={() => {
-                    const today = new Date();
+                    const today =
+                      new Date();
 
                     setVisibleYear(
                       today.getFullYear()
@@ -2296,7 +3241,9 @@ function ProfessionalDatePicker({
                     );
 
                     onChange(
-                      formatLocalDate(today)
+                      formatLocalDate(
+                        today
+                      )
                     );
 
                     setOpen(false);
@@ -2307,7 +3254,9 @@ function ProfessionalDatePicker({
 
                 <button
                   type="button"
-                  style={calendarCancelAction}
+                  style={
+                    calendarCancelAction
+                  }
                   onClick={() =>
                     setOpen(false)
                   }
@@ -2353,7 +3302,11 @@ function getCalendarDays(
   month: number
 ) {
   const firstDay =
-    new Date(year, month, 1).getDay();
+    new Date(
+      year,
+      month,
+      1
+    ).getDay();
 
   const daysInMonth =
     new Date(
@@ -2362,7 +3315,8 @@ function getCalendarDays(
       0
     ).getDate();
 
-  const values: Array<number | null> = [];
+  const values:
+    Array<number | null> = [];
 
   for (
     let index = 0;
@@ -2380,7 +3334,9 @@ function getCalendarDays(
     values.push(day);
   }
 
-  while (values.length % 7 !== 0) {
+  while (
+    values.length % 7 !== 0
+  ) {
     values.push(null);
   }
 
@@ -2388,11 +3344,16 @@ function getCalendarDays(
 }
 
 function getTodayDate() {
-  return formatLocalDate(new Date());
+  return formatLocalDate(
+    new Date()
+  );
 }
 
-function formatLocalDate(date: Date) {
-  const year = date.getFullYear();
+function formatLocalDate(
+  date: Date
+) {
+  const year =
+    date.getFullYear();
 
   const month = String(
     date.getMonth() + 1
@@ -2405,20 +3366,33 @@ function formatLocalDate(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
-function parseDateValue(value: string) {
+function parseDateValue(
+  value: string
+) {
   const match =
     /^(\d{4})-(\d{2})-(\d{2})$/.exec(
       value
     );
 
-  if (!match) return null;
+  if (!match) {
+    return null;
+  }
 
-  const year = Number(match[1]);
-  const month = Number(match[2]) - 1;
-  const day = Number(match[3]);
+  const year =
+    Number(match[1]);
+
+  const month =
+    Number(match[2]) - 1;
+
+  const day =
+    Number(match[3]);
 
   const date =
-    new Date(year, month, day);
+    new Date(
+      year,
+      month,
+      day
+    );
 
   if (
     date.getFullYear() !== year ||
@@ -2431,10 +3405,15 @@ function parseDateValue(value: string) {
   return date;
 }
 
-function formatDisplayDate(value: string) {
-  const date = parseDateValue(value);
+function formatDisplayDate(
+  value: string
+) {
+  const date =
+    parseDateValue(value);
 
-  if (!date) return value;
+  if (!date) {
+    return value;
+  }
 
   return new Intl.DateTimeFormat(
     "ar-SA-u-ca-gregory",
@@ -2446,7 +3425,9 @@ function formatDisplayDate(value: string) {
   ).format(date);
 }
 
-function normalizeDigits(value: string) {
+function normalizeDigits(
+  value: string
+) {
   const arabicDigits =
     "٠١٢٣٤٥٦٧٨٩";
 
@@ -2454,31 +3435,45 @@ function normalizeDigits(value: string) {
     "۰۱۲۳۴۵۶۷۸۹";
 
   return value
-    .replace(/[٠-٩]/g, (digit) =>
-      String(
-        arabicDigits.indexOf(digit)
-      )
+    .replace(
+      /[٠-٩]/g,
+      (digit) =>
+        String(
+          arabicDigits.indexOf(
+            digit
+          )
+        )
     )
-    .replace(/[۰-۹]/g, (digit) =>
-      String(
-        persianDigits.indexOf(digit)
-      )
+    .replace(
+      /[۰-۹]/g,
+      (digit) =>
+        String(
+          persianDigits.indexOf(
+            digit
+          )
+        )
     )
     .replace(/\D/g, "");
 }
 
-function normalizeHijriDate(value: string) {
+function normalizeHijriDate(
+  value: string
+) {
   const digits =
     normalizeDigits(value);
 
   const limited =
     digits.slice(0, 8);
 
-  if (limited.length <= 4) {
+  if (
+    limited.length <= 4
+  ) {
     return limited;
   }
 
-  if (limited.length <= 6) {
+  if (
+    limited.length <= 6
+  ) {
     return `${limited.slice(
       0,
       4
@@ -2514,10 +3509,11 @@ function extractCreationResult(
   return {};
 }
 
-function getRpcErrorMessage(message: string) {
-  const mappings: Array<
-    [string, string]
-  > = [
+function getRpcErrorMessage(
+  message: string
+) {
+  const mappings:
+    Array<[string, string]> = [
     [
       "BRANCH_REQUIRED",
       "تعذر تحديد الفرع",
@@ -2604,8 +3600,15 @@ function getRpcErrorMessage(message: string) {
     ],
   ];
 
-  for (const [code, translated] of mappings) {
-    if (message.includes(code)) {
+  for (
+    const [
+      code,
+      translated,
+    ] of mappings
+  ) {
+    if (
+      message.includes(code)
+    ) {
       return translated;
     }
   }
@@ -2617,11 +3620,17 @@ function getErrorMessage(
   error: unknown,
   fallback: string
 ) {
-  if (error instanceof Error) {
-    return error.message || fallback;
+  if (
+    error instanceof Error
+  ) {
+    return (
+      error.message || fallback
+    );
   }
 
-  if (typeof error === "string") {
+  if (
+    typeof error === "string"
+  ) {
     return error || fallback;
   }
 
@@ -2768,7 +3777,9 @@ function getPageStyle(
     backgroundAttachment: isMobile
       ? "scroll"
       : "fixed",
-    padding: isMobile ? 10 : 18,
+    padding: isMobile
+      ? 10
+      : 18,
     fontFamily:
       "var(--font-almarai), sans-serif",
   };
@@ -2779,7 +3790,9 @@ function getContainerStyle(
 ): CSSProperties {
   return {
     width: "100%",
-    maxWidth: isCompact ? 980 : 1180,
+    maxWidth: isCompact
+      ? 980
+      : 1180,
     margin: "auto",
   };
 }
@@ -2789,8 +3802,12 @@ function getHeroStyle(
 ): CSSProperties {
   return {
     position: "relative",
-    minHeight: isMobile ? "auto" : 160,
-    borderRadius: isMobile ? 20 : 24,
+    minHeight: isMobile
+      ? "auto"
+      : 160,
+    borderRadius: isMobile
+      ? 20
+      : 24,
     padding: isMobile
       ? "18px 14px"
       : "22px 26px",
@@ -2808,7 +3825,9 @@ function getHeroStyle(
 function getHeroContentStyle(
   screen: ScreenType
 ): CSSProperties {
-  if (screen === "mobile") {
+  if (
+    screen === "mobile"
+  ) {
     return {
       position: "relative",
       zIndex: 3,
@@ -2820,12 +3839,15 @@ function getHeroContentStyle(
     };
   }
 
-  if (screen === "tablet") {
+  if (
+    screen === "tablet"
+  ) {
     return {
       position: "relative",
       zIndex: 3,
       display: "grid",
-      gridTemplateColumns: "1fr",
+      gridTemplateColumns:
+        "1fr",
       justifyItems: "center",
       gap: 18,
       direction: "rtl",
@@ -2848,7 +3870,9 @@ function getHeroContentStyle(
 function getHeroUserCardStyle(
   screen: ScreenType
 ): CSSProperties {
-  if (screen === "mobile") {
+  if (
+    screen === "mobile"
+  ) {
     return {
       width: "100%",
       display: "grid",
@@ -2859,7 +3883,9 @@ function getHeroUserCardStyle(
     };
   }
 
-  if (screen === "tablet") {
+  if (
+    screen === "tablet"
+  ) {
     return {
       width: "100%",
       maxWidth: 520,
@@ -2896,7 +3922,10 @@ function getEmployeeTopRowStyle(
       screen === "mobile"
         ? "wrap"
         : "nowrap",
-    gap: screen === "mobile" ? 10 : 14,
+    gap:
+      screen === "mobile"
+        ? 10
+        : 14,
     direction:
       screen === "desktop"
         ? "ltr"
@@ -2911,7 +3940,9 @@ function getEmployeeNameStyle(
 ): CSSProperties {
   return {
     color: "#ffffff",
-    fontSize: isMobile ? 15 : 17,
+    fontSize: isMobile
+      ? 15
+      : 17,
     fontWeight: 900,
     whiteSpace: "nowrap",
     direction: "rtl",
@@ -2924,8 +3955,12 @@ function getMainWorkstationButtonStyle(
   isMobile: boolean
 ): CSSProperties {
   return {
-    width: isMobile ? "100%" : 220,
-    maxWidth: isMobile ? 280 : 220,
+    width: isMobile
+      ? "100%"
+      : 220,
+    maxWidth: isMobile
+      ? 280
+      : 220,
     minHeight: 44,
     border: "none",
     background:
@@ -2962,7 +3997,9 @@ function getHeroTitleBoxStyle(
     direction: "rtl",
     pointerEvents: "none",
     order:
-      screen === "desktop" ? 0 : 1,
+      screen === "desktop"
+        ? 0
+        : 1,
   };
 }
 
@@ -3013,12 +4050,15 @@ function getFieldsGridStyle(
         ? "1fr"
         : "repeat(2, minmax(0, 1fr))",
     gap:
-      screen === "mobile" ? 14 : 18,
+      screen === "mobile"
+        ? 14
+        : 18,
     alignItems: "start",
   };
 }
 
-const employeeIcon: CSSProperties = {
+const employeeIcon:
+  CSSProperties = {
   width: 38,
   height: 38,
   borderRadius: "50%",
@@ -3034,7 +4074,8 @@ const employeeIcon: CSSProperties = {
   flex: "0 0 auto",
 };
 
-const employeeDividerSmall: CSSProperties = {
+const employeeDividerSmall:
+  CSSProperties = {
   width: 1,
   height: 34,
   background:
@@ -3042,7 +4083,8 @@ const employeeDividerSmall: CSSProperties = {
   flex: "0 0 auto",
 };
 
-const logoutInlineButton: CSSProperties = {
+const logoutInlineButton:
+  CSSProperties = {
   border: "none",
   background: "transparent",
   color:
@@ -3060,7 +4102,8 @@ const logoutInlineButton: CSSProperties = {
   direction: "rtl",
 };
 
-const heroCircleOne: CSSProperties = {
+const heroCircleOne:
+  CSSProperties = {
   position: "absolute",
   width: 210,
   height: 210,
@@ -3073,7 +4116,8 @@ const heroCircleOne: CSSProperties = {
   zIndex: 1,
 };
 
-const heroCircleTwo: CSSProperties = {
+const heroCircleTwo:
+  CSSProperties = {
   position: "absolute",
   width: 245,
   height: 245,
@@ -3086,7 +4130,8 @@ const heroCircleTwo: CSSProperties = {
   zIndex: 1,
 };
 
-const heroCircleThree: CSSProperties = {
+const heroCircleThree:
+  CSSProperties = {
   position: "absolute",
   width: 150,
   height: 150,
@@ -3099,7 +4144,8 @@ const heroCircleThree: CSSProperties = {
   zIndex: 1,
 };
 
-const heroDots: CSSProperties = {
+const heroDots:
+  CSSProperties = {
   position: "absolute",
   top: 28,
   right: 34,
@@ -3112,7 +4158,8 @@ const heroDots: CSSProperties = {
   zIndex: 2,
 };
 
-const card: CSSProperties = {
+const card:
+  CSSProperties = {
   background:
     "rgba(255,255,255,0.97)",
   border:
@@ -3125,7 +4172,8 @@ const card: CSSProperties = {
   overflow: "visible",
 };
 
-const sectionTitle: CSSProperties = {
+const sectionTitle:
+  CSSProperties = {
   margin: "0 0 20px 0",
   color: "#0d47a1",
   fontSize: 21,
@@ -3135,14 +4183,16 @@ const sectionTitle: CSSProperties = {
     "var(--font-almarai), sans-serif",
 };
 
-const fieldWrapper: CSSProperties = {
+const fieldWrapper:
+  CSSProperties = {
   minWidth: 0,
   display: "flex",
   flexDirection: "column",
   gap: 8,
 };
 
-const fieldLabel: CSSProperties = {
+const fieldLabel:
+  CSSProperties = {
   minHeight: 22,
   display: "flex",
   alignItems: "center",
@@ -3153,19 +4203,22 @@ const fieldLabel: CSSProperties = {
   fontWeight: 900,
 };
 
-const requiredMark: CSSProperties = {
+const requiredMark:
+  CSSProperties = {
   color: "#dc2626",
   fontSize: 16,
   fontWeight: 900,
 };
 
-const fieldHint: CSSProperties = {
+const fieldHint:
+  CSSProperties = {
   color: "#64748b",
   fontSize: 12,
   fontWeight: 700,
 };
 
-const fieldInput: CSSProperties = {
+const fieldInput:
+  CSSProperties = {
   width: "100%",
   minHeight: 56,
   padding: "13px 15px",
@@ -3182,18 +4235,21 @@ const fieldInput: CSSProperties = {
     "var(--font-almarai), sans-serif",
 };
 
-const textarea: CSSProperties = {
+const textarea:
+  CSSProperties = {
   ...fieldInput,
   minHeight: 125,
   resize: "vertical",
 };
 
-const lookupInputWrapper: CSSProperties = {
+const lookupInputWrapper:
+  CSSProperties = {
   position: "relative",
   width: "100%",
 };
 
-const lookupStatus: CSSProperties = {
+const lookupStatus:
+  CSSProperties = {
   position: "absolute",
   left: 14,
   top: "50%",
@@ -3205,7 +4261,8 @@ const lookupStatus: CSSProperties = {
   pointerEvents: "none",
 };
 
-const foundStatusBadge: CSSProperties = {
+const foundStatusBadge:
+  CSSProperties = {
   position: "absolute",
   left: 10,
   top: "50%",
@@ -3222,12 +4279,14 @@ const foundStatusBadge: CSSProperties = {
   pointerEvents: "none",
 };
 
-const selectWrapper: CSSProperties = {
+const selectWrapper:
+  CSSProperties = {
   position: "relative",
   width: "100%",
 };
 
-const selectButton: CSSProperties = {
+const selectButton:
+  CSSProperties = {
   width: "100%",
   minHeight: 56,
   padding: "12px 15px",
@@ -3240,7 +4299,8 @@ const selectButton: CSSProperties = {
   cursor: "pointer",
   display: "flex",
   alignItems: "center",
-  justifyContent: "space-between",
+  justifyContent:
+    "space-between",
   gap: 12,
   textAlign: "right",
   direction: "rtl",
@@ -3250,13 +4310,15 @@ const selectButton: CSSProperties = {
     "0 2px 5px rgba(15,23,42,0.025)",
 };
 
-const selectButtonOpen: CSSProperties = {
+const selectButtonOpen:
+  CSSProperties = {
   borderColor: "#3b82f6",
   boxShadow:
     "0 0 0 4px rgba(59,130,246,0.11)",
 };
 
-const selectValue: CSSProperties = {
+const selectValue:
+  CSSProperties = {
   color: "#0f172a",
   fontSize: 15,
   fontWeight: 800,
@@ -3265,13 +4327,15 @@ const selectValue: CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-const selectPlaceholder: CSSProperties = {
+const selectPlaceholder:
+  CSSProperties = {
   color: "#64748b",
   fontSize: 15,
   fontWeight: 700,
 };
 
-const selectArrow: CSSProperties = {
+const selectArrow:
+  CSSProperties = {
   color: "#2563eb",
   fontSize: 11,
   transition:
@@ -3279,7 +4343,8 @@ const selectArrow: CSSProperties = {
   flex: "0 0 auto",
 };
 
-const selectOptionsMenu: CSSProperties = {
+const selectOptionsMenu:
+  CSSProperties = {
   position: "fixed",
   maxHeight: 280,
   overflowY: "auto",
@@ -3294,7 +4359,8 @@ const selectOptionsMenu: CSSProperties = {
   boxSizing: "border-box",
 };
 
-const selectOptionButton: CSSProperties = {
+const selectOptionButton:
+  CSSProperties = {
   width: "100%",
   minHeight: 46,
   border: "none",
@@ -3311,18 +4377,21 @@ const selectOptionButton: CSSProperties = {
     "var(--font-almarai), sans-serif",
 };
 
-const selectedOptionButton: CSSProperties = {
+const selectedOptionButton:
+  CSSProperties = {
   background:
     "linear-gradient(135deg,#2563eb,#0ea5e9)",
   color: "#ffffff",
 };
 
-const disabledOptionButton: CSSProperties = {
+const disabledOptionButton:
+  CSSProperties = {
   opacity: 0.5,
   cursor: "not-allowed",
 };
 
-const emptyOption: CSSProperties = {
+const emptyOption:
+  CSSProperties = {
   padding: 14,
   color: "#64748b",
   textAlign: "center",
@@ -3330,29 +4399,34 @@ const emptyOption: CSSProperties = {
   fontWeight: 800,
 };
 
-const datePickerButton: CSSProperties = {
+const datePickerButton:
+  CSSProperties = {
   ...fieldInput,
   cursor: "pointer",
   display: "flex",
   alignItems: "center",
-  justifyContent: "space-between",
+  justifyContent:
+    "space-between",
   gap: 12,
   textAlign: "right",
   direction: "rtl",
   color: "#2563eb",
 };
 
-const datePickerValue: CSSProperties = {
+const datePickerValue:
+  CSSProperties = {
   color: "#0f172a",
   fontWeight: 800,
 };
 
-const datePickerPlaceholder: CSSProperties = {
+const datePickerPlaceholder:
+  CSSProperties = {
   color: "#64748b",
   fontWeight: 700,
 };
 
-const calendarOverlay: CSSProperties = {
+const calendarOverlay:
+  CSSProperties = {
   position: "fixed",
   inset: 0,
   zIndex: 200000,
@@ -3365,7 +4439,8 @@ const calendarOverlay: CSSProperties = {
   backdropFilter: "blur(5px)",
 };
 
-const calendarModal: CSSProperties = {
+const calendarModal:
+  CSSProperties = {
   width: "100%",
   maxWidth: 430,
   padding: 20,
@@ -3380,7 +4455,8 @@ const calendarModal: CSSProperties = {
     "var(--font-almarai), sans-serif",
 };
 
-const calendarHeader: CSSProperties = {
+const calendarHeader:
+  CSSProperties = {
   display: "grid",
   gridTemplateColumns:
     "48px 1fr 48px",
@@ -3389,7 +4465,8 @@ const calendarHeader: CSSProperties = {
   marginBottom: 18,
 };
 
-const calendarNavigationButton: CSSProperties = {
+const calendarNavigationButton:
+  CSSProperties = {
   width: 48,
   height: 48,
   border: "none",
@@ -3401,14 +4478,16 @@ const calendarNavigationButton: CSSProperties = {
   fontWeight: 900,
 };
 
-const calendarMonthTitle: CSSProperties = {
+const calendarMonthTitle:
+  CSSProperties = {
   textAlign: "center",
   color: "#0f172a",
   fontSize: 18,
   fontWeight: 900,
 };
 
-const calendarWeekGrid: CSSProperties = {
+const calendarWeekGrid:
+  CSSProperties = {
   display: "grid",
   gridTemplateColumns:
     "repeat(7, 1fr)",
@@ -3416,7 +4495,8 @@ const calendarWeekGrid: CSSProperties = {
   marginBottom: 8,
 };
 
-const calendarWeekDay: CSSProperties = {
+const calendarWeekDay:
+  CSSProperties = {
   textAlign: "center",
   color: "#64748b",
   fontSize: 13,
@@ -3424,14 +4504,16 @@ const calendarWeekDay: CSSProperties = {
   padding: "6px 0",
 };
 
-const calendarDaysGrid: CSSProperties = {
+const calendarDaysGrid:
+  CSSProperties = {
   display: "grid",
   gridTemplateColumns:
     "repeat(7, 1fr)",
   gap: 6,
 };
 
-const calendarDayButton: CSSProperties = {
+const calendarDayButton:
+  CSSProperties = {
   aspectRatio: "1 / 1",
   minHeight: 42,
   border: "none",
@@ -3445,13 +4527,15 @@ const calendarDayButton: CSSProperties = {
     "var(--font-almarai), sans-serif",
 };
 
-const calendarTodayButton: CSSProperties = {
+const calendarTodayButton:
+  CSSProperties = {
   border:
     "1.5px solid #22c55e",
   color: "#15803d",
 };
 
-const calendarSelectedButton: CSSProperties = {
+const calendarSelectedButton:
+  CSSProperties = {
   background:
     "linear-gradient(135deg,#2563eb,#0ea5e9)",
   color: "#ffffff",
@@ -3460,7 +4544,8 @@ const calendarSelectedButton: CSSProperties = {
     "0 6px 14px rgba(37,99,235,0.24)",
 };
 
-const calendarFooter: CSSProperties = {
+const calendarFooter:
+  CSSProperties = {
   display: "grid",
   gridTemplateColumns:
     "1fr 1fr",
@@ -3468,7 +4553,8 @@ const calendarFooter: CSSProperties = {
   marginTop: 18,
 };
 
-const calendarTodayAction: CSSProperties = {
+const calendarTodayAction:
+  CSSProperties = {
   minHeight: 46,
   border: "none",
   borderRadius: 13,
@@ -3482,7 +4568,8 @@ const calendarTodayAction: CSSProperties = {
     "var(--font-almarai), sans-serif",
 };
 
-const calendarCancelAction: CSSProperties = {
+const calendarCancelAction:
+  CSSProperties = {
   minHeight: 46,
   border:
     "1px solid #cbd5e1",
@@ -3496,7 +4583,8 @@ const calendarCancelAction: CSSProperties = {
     "var(--font-almarai), sans-serif",
 };
 
-const stockInfo: CSSProperties = {
+const stockInfo:
+  CSSProperties = {
   width: "100%",
   minHeight: 56,
   boxSizing: "border-box",
@@ -3512,7 +4600,8 @@ const stockInfo: CSSProperties = {
   fontWeight: 900,
 };
 
-const stockDanger: CSSProperties = {
+const stockDanger:
+  CSSProperties = {
   ...stockInfo,
   background: "#fef2f2",
   color: "#991b1b",
@@ -3520,14 +4609,16 @@ const stockDanger: CSSProperties = {
     "1.5px solid #fecaca",
 };
 
-const creationModeGrid: CSSProperties = {
+const creationModeGrid:
+  CSSProperties = {
   display: "grid",
   gridTemplateColumns:
     "repeat(auto-fit,minmax(260px,1fr))",
   gap: 14,
 };
 
-const creationModeButton: CSSProperties = {
+const creationModeButton:
+  CSSProperties = {
   minHeight: 116,
   padding: 18,
   borderRadius: 17,
@@ -3549,7 +4640,8 @@ const creationModeButton: CSSProperties = {
     "var(--font-almarai), sans-serif",
 };
 
-const creationModeButtonActive: CSSProperties = {
+const creationModeButtonActive:
+  CSSProperties = {
   borderColor: "#2563eb",
   background:
     "linear-gradient(135deg,#eff6ff,#e0f2fe)",
@@ -3558,17 +4650,20 @@ const creationModeButtonActive: CSSProperties = {
   color: "#0d47a1",
 };
 
-const creationModeButtonDisabled: CSSProperties = {
+const creationModeButtonDisabled:
+  CSSProperties = {
   opacity: 0.55,
   cursor: "not-allowed",
 };
 
-const permissionText: CSSProperties = {
+const permissionText:
+  CSSProperties = {
   color: "#b91c1c",
   fontWeight: 900,
 };
 
-const primaryButton: CSSProperties = {
+const primaryButton:
+  CSSProperties = {
   width: "100%",
   minHeight: 56,
   marginTop: 18,
@@ -3586,7 +4681,8 @@ const primaryButton: CSSProperties = {
     "var(--font-almarai), sans-serif",
 };
 
-const secondaryButton: CSSProperties = {
+const secondaryButton:
+  CSSProperties = {
   marginTop: 18,
   padding: "11px 18px",
   border: "none",
@@ -3600,14 +4696,16 @@ const secondaryButton: CSSProperties = {
     "var(--font-almarai), sans-serif",
 };
 
-const backWrapper: CSSProperties = {
+const backWrapper:
+  CSSProperties = {
   display: "flex",
   justifyContent: "center",
   marginTop: 18,
   marginBottom: 12,
 };
 
-const backButton: CSSProperties = {
+const backButton:
+  CSSProperties = {
   padding: "11px 20px",
   background:
     "linear-gradient(135deg,#22c55e,#15803d)",
@@ -3623,7 +4721,8 @@ const backButton: CSSProperties = {
     "var(--font-almarai), sans-serif",
 };
 
-const loadingCard: CSSProperties = {
+const loadingCard:
+  CSSProperties = {
   maxWidth: 620,
   margin: "80px auto",
   padding: 28,
@@ -3639,7 +4738,8 @@ const loadingCard: CSSProperties = {
     "0 12px 30px rgba(15,23,42,0.06)",
 };
 
-const errorCard: CSSProperties = {
+const errorCard:
+  CSSProperties = {
   ...loadingCard,
   color: "#991b1b",
   display: "flex",
