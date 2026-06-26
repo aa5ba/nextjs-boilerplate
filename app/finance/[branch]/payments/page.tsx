@@ -1,24 +1,27 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import type { CSSProperties } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { getBranchId } from "@/lib/getBranchId";
+import {
+  getFinanceEmployeeName,
+  installFinanceActivityTracker,
+  logoutFinanceUser,
+  redirectToFinanceLogin,
+  renewFinanceSession,
+  validateFinanceSession,
+} from "@/lib/financeSession";
 
 const ITEMS_PER_PAGE = 25;
 
 type ScreenType = "mobile" | "tablet" | "desktop";
-
-type FinanceSession = {
-  id?: string | null;
-  user_id?: string | null;
-  full_name?: string | null;
-  username?: string | null;
-  role?: string | null;
-  branch_id?: string | null;
-  branch_slug?: string | null;
-  branch_name?: string | null;
-};
 
 type CustomerRelation = {
   full_name?: string | null;
@@ -61,27 +64,17 @@ type CancelPaymentResult = {
   new_contract_status: string;
 };
 
-const SESSION_KEYS = [
-  "finance_user",
-  "finance_branch_user",
-  "finance_user_id",
-  "finance_user_name",
-  "finance_username",
-  "finance_role",
-  "finance_branch_id",
-  "finance_branch_slug",
-  "finance_branch_name",
-  "finance_organization_name",
-];
-
 export default function FinancePaymentsPage() {
   const params = useParams();
   const router = useRouter();
 
-  const branch = String(params.branch ?? "");
+  const branch = String(params.branch ?? "").trim();
 
   const [screen, setScreen] =
     useState<ScreenType>("desktop");
+
+  const [authChecked, setAuthChecked] =
+    useState(false);
 
   const [employeeName, setEmployeeName] =
     useState("الموظف");
@@ -97,6 +90,9 @@ export default function FinancePaymentsPage() {
 
   const [loading, setLoading] =
     useState(true);
+
+  const [pageError, setPageError] =
+    useState("");
 
   const [
     cancellingPaymentId,
@@ -127,421 +123,394 @@ export default function FinancePaymentsPage() {
       updateScreen
     );
 
-    return () =>
+    return () => {
       window.removeEventListener(
         "resize",
         updateScreen
       );
+    };
   }, []);
 
-  useEffect(() => {
-    void initializePage();
-  }, [branch]);
-
-  const totalPages = Math.max(
-    1,
-    Math.ceil(payments.length / ITEMS_PER_PAGE)
-  );
-
-  const paginatedPayments = useMemo(() => {
-    const startIndex =
-      (currentPage - 1) * ITEMS_PER_PAGE;
-
-    return payments.slice(
-      startIndex,
-      startIndex + ITEMS_PER_PAGE
-    );
-  }, [payments, currentPage]);
-
-  function clearSession() {
-    if (typeof window === "undefined") return;
-
-    SESSION_KEYS.forEach((key) => {
-      localStorage.removeItem(key);
-    });
-  }
-
-  function readStoredSession():
-    | FinanceSession
-    | null {
-    if (typeof window === "undefined") {
-      return null;
-    }
-
-    const rawSession =
-      localStorage.getItem(
-        "finance_branch_user"
-      ) ||
-      localStorage.getItem(
-        "finance_user"
-      );
-
-    if (rawSession) {
-      try {
-        const parsed =
-          JSON.parse(
-            rawSession
-          ) as FinanceSession;
-
-        return {
-          ...parsed,
-
-          id:
-            parsed.id ||
-            parsed.user_id ||
-            localStorage.getItem(
-              "finance_user_id"
-            ),
-
-          full_name:
-            parsed.full_name ||
-            localStorage.getItem(
-              "finance_user_name"
-            ) ||
-            null,
-
-          username:
-            parsed.username ||
-            localStorage.getItem(
-              "finance_username"
-            ) ||
-            null,
-
-          role:
-            parsed.role ||
-            localStorage.getItem(
-              "finance_role"
-            ) ||
-            null,
-
-          branch_id:
-            parsed.branch_id ||
-            localStorage.getItem(
-              "finance_branch_id"
-            ) ||
-            null,
-
-          branch_slug:
-            parsed.branch_slug ||
-            localStorage.getItem(
-              "finance_branch_slug"
-            ) ||
-            null,
-
-          branch_name:
-            parsed.branch_name ||
-            localStorage.getItem(
-              "finance_branch_name"
-            ) ||
-            null,
-        };
-      } catch {
-        return null;
-      }
-    }
-
-    const legacyUserId =
-      localStorage.getItem(
-        "finance_user_id"
-      );
-
-    const legacyUsername =
-      localStorage.getItem(
-        "finance_username"
-      );
-
-    if (
-      !legacyUserId &&
-      !legacyUsername
-    ) {
-      return null;
-    }
-
-    return {
-      id: legacyUserId,
-
-      full_name:
-        localStorage.getItem(
-          "finance_user_name"
-        ),
-
-      username: legacyUsername,
-
-      role:
-        localStorage.getItem(
-          "finance_role"
-        ),
-
-      branch_id:
-        localStorage.getItem(
-          "finance_branch_id"
-        ),
-
-      branch_slug:
-        localStorage.getItem(
-          "finance_branch_slug"
-        ),
-
-      branch_name:
-        localStorage.getItem(
-          "finance_branch_name"
-        ),
-    };
-  }
-
-  async function initializePage() {
-    try {
-      setLoading(true);
-
-      if (!branch) {
-        clearSession();
-        router.replace("/login");
-        return;
-      }
-
-      const storedSession =
-        readStoredSession();
-
-      if (!storedSession) {
-        clearSession();
-        router.replace("/login");
-        return;
-      }
-
-      if (
-        storedSession.branch_slug &&
-        storedSession.branch_slug !== branch
-      ) {
-        router.replace(
-          `/finance/${storedSession.branch_slug}`
-        );
-        return;
-      }
-
-      const {
-        data: branchData,
-        error: branchError,
-      } = await supabase
-        .from("finance_branches")
-        .select(
-          "id, branch_slug, branch_name, organization_name, is_active"
-        )
-        .eq("branch_slug", branch)
-        .eq("is_active", true)
-        .maybeSingle();
-
-      if (
-        branchError ||
-        !branchData?.id
-      ) {
-        clearSession();
-        router.replace("/login");
-        return;
-      }
-
-      const safeBranchId =
-        String(branchData.id);
-
-      if (
-        storedSession.branch_id &&
-        storedSession.branch_id !==
-          safeBranchId
-      ) {
-        if (
-          storedSession.branch_slug
-        ) {
-          router.replace(
-            `/finance/${storedSession.branch_slug}`
-          );
-        } else {
-          clearSession();
-          router.replace("/login");
+  const loadPayments = useCallback(
+    async (
+      currentBranchId: string | null,
+      isCancelled: () => boolean = () => false
+    ) => {
+      if (!currentBranchId) {
+        if (!isCancelled()) {
+          setLoading(false);
+          setPageError("تعذر تحديد الفرع");
         }
 
         return;
       }
 
-      let userQuery = supabase
-        .from("finance_branch_users")
-        .select(
-          "id, full_name, username, role, branch_id, is_active"
-        )
-        .eq("branch_id", safeBranchId)
-        .eq("is_active", true);
+      setLoading(true);
+      setPageError("");
 
-      if (storedSession.id) {
-        userQuery = userQuery.eq(
-          "id",
-          storedSession.id
+      try {
+        const { data, error } =
+          await supabase
+            .from("finance_payments")
+            .select(
+              `
+                *,
+                finance_contracts(
+                  id,
+                  customer_id,
+                  contract_number,
+                  customer_name,
+                  customer_phone,
+                  debt_amount,
+                  payment_amount,
+                  paid_amount,
+                  remaining_amount,
+                  payment_due_date,
+                  contract_status,
+                  finance_customers(
+                    full_name,
+                    national_id
+                  )
+                )
+              `
+            )
+            .eq(
+              "branch_id",
+              currentBranchId
+            )
+            .order("created_at", {
+              ascending: false,
+            });
+
+        if (isCancelled()) {
+          return;
+        }
+
+        if (error) {
+          throw new Error(error.message);
+        }
+
+        setPayments(
+          (data as Payment[] | null) || []
         );
-      } else if (
-        storedSession.username
+
+        setCurrentPage(1);
+      } catch (error) {
+        if (isCancelled()) {
+          return;
+        }
+
+        const message =
+          error instanceof Error
+            ? error.message
+            : "تعذر تحميل عمليات السداد";
+
+        console.error(
+          "Load payments error:",
+          error
+        );
+
+        setPayments([]);
+        setPageError(message);
+      } finally {
+        if (!isCancelled()) {
+          setLoading(false);
+        }
+      }
+    },
+    []
+  );
+
+  const verifyEmployeeInBackground =
+    useCallback(
+      async (
+        currentEmployeeId: string,
+        currentBranchId: string,
+        isCancelled: () => boolean
+      ) => {
+        try {
+          const { data, error } =
+            await supabase
+              .from(
+                "finance_branch_users"
+              )
+              .select(
+                `
+                  id,
+                  full_name,
+                  username,
+                  branch_id,
+                  is_active
+                `
+              )
+              .eq(
+                "id",
+                currentEmployeeId
+              )
+              .eq(
+                "branch_id",
+                currentBranchId
+              )
+              .maybeSingle();
+
+          if (isCancelled()) {
+            return;
+          }
+
+          if (error) {
+            console.error(
+              "Background employee verification error:",
+              error
+            );
+
+            return;
+          }
+
+          if (
+            !data?.id ||
+            data.is_active === false
+          ) {
+            redirectToFinanceLogin(
+              router,
+              {
+                branchSlug: branch,
+                preserveReturnPath: true,
+              }
+            );
+
+            return;
+          }
+
+          const refreshedEmployeeName =
+            data.full_name ||
+            data.username ||
+            "الموظف";
+
+          setEmployeeName(
+            refreshedEmployeeName
+          );
+
+          localStorage.setItem(
+            "finance_user_name",
+            refreshedEmployeeName
+          );
+        } catch (error) {
+          console.error(
+            "Background employee verification failed:",
+            error
+          );
+        }
+      },
+      [branch, router]
+    );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function initializePage() {
+      if (
+        typeof window === "undefined"
       ) {
-        userQuery = userQuery.eq(
-          "username",
-          storedSession.username
-        );
-      } else {
-        clearSession();
-        router.replace("/login");
         return;
       }
 
-      const {
-        data: userData,
-        error: userError,
-      } =
-        await userQuery.maybeSingle();
+      setLoading(true);
+      setPageError("");
+
+      if (!branch) {
+        redirectToFinanceLogin(router, {
+          preserveReturnPath: true,
+        });
+
+        return;
+      }
+
+      const validation =
+        validateFinanceSession(branch);
 
       if (
-        userError ||
-        !userData?.id
+        validation.reason ===
+          "BRANCH_MISMATCH" &&
+        validation.user?.branch_slug
       ) {
-        clearSession();
-        router.replace("/login");
+        router.replace(
+          `/finance/${validation.user.branch_slug}`
+        );
+
+        return;
+      }
+
+      if (
+        !validation.valid ||
+        !validation.user
+      ) {
+        redirectToFinanceLogin(router, {
+          branchSlug: branch,
+          preserveReturnPath: true,
+        });
+
+        return;
+      }
+
+      const session = validation.user;
+
+      const resolvedEmployeeId =
+        String(session.id || "").trim();
+
+      if (!resolvedEmployeeId) {
+        redirectToFinanceLogin(router, {
+          branchSlug: branch,
+          preserveReturnPath: true,
+        });
+
         return;
       }
 
       const resolvedEmployeeName =
-        userData.full_name ||
-        userData.username ||
-        storedSession.full_name ||
-        storedSession.username ||
-        "الموظف";
+        getFinanceEmployeeName(session);
+
+      let resolvedBranchId = String(
+        session.branch_id ||
+          localStorage.getItem(
+            "finance_branch_id"
+          ) ||
+          ""
+      ).trim();
+
+      if (!resolvedBranchId) {
+        try {
+          const fetchedBranchId =
+            await getBranchId(branch);
+
+          if (cancelled) {
+            return;
+          }
+
+          resolvedBranchId = String(
+            fetchedBranchId || ""
+          ).trim();
+        } catch (error) {
+          if (cancelled) {
+            return;
+          }
+
+          console.error(
+            "Resolve branch error:",
+            error
+          );
+        }
+      }
+
+      if (!resolvedBranchId) {
+        if (!cancelled) {
+          setAuthChecked(true);
+          setLoading(false);
+          setPageError(
+            "تعذر تحديد الفرع"
+          );
+        }
+
+        return;
+      }
+
+      localStorage.setItem(
+        "finance_branch_id",
+        resolvedBranchId
+      );
+
+      localStorage.setItem(
+        "finance_branch_slug",
+        branch
+      );
+
+      renewFinanceSession(true);
+
+      if (cancelled) {
+        return;
+      }
 
       setEmployeeName(
         resolvedEmployeeName
       );
 
-      setBranchId(safeBranchId);
+      setBranchId(
+        resolvedBranchId
+      );
 
-      if (
-        typeof window !== "undefined"
-      ) {
-        localStorage.setItem(
-          "finance_user_id",
-          String(userData.id)
-        );
-
-        localStorage.setItem(
-          "finance_user_name",
-          resolvedEmployeeName
-        );
-
-        localStorage.setItem(
-          "finance_username",
-          String(
-            userData.username ||
-              storedSession.username ||
-              ""
-          )
-        );
-
-        localStorage.setItem(
-          "finance_role",
-          String(
-            userData.role ||
-              storedSession.role ||
-              ""
-          )
-        );
-
-        localStorage.setItem(
-          "finance_branch_id",
-          safeBranchId
-        );
-
-        localStorage.setItem(
-          "finance_branch_slug",
-          branch
-        );
-
-        localStorage.setItem(
-          "finance_branch_name",
-          String(
-            branchData.branch_name || ""
-          )
-        );
-
-        localStorage.setItem(
-          "finance_organization_name",
-          String(
-            branchData.organization_name ||
-              ""
-          )
-        );
-      }
+      setAuthChecked(true);
 
       await loadPayments(
-        safeBranchId
+        resolvedBranchId,
+        () => cancelled
       );
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "تعذر تحميل عمليات السداد";
 
-      alert(message);
-      setPayments([]);
-    } finally {
-      setLoading(false);
+      void verifyEmployeeInBackground(
+        resolvedEmployeeId,
+        resolvedBranchId,
+        () => cancelled
+      );
     }
-  }
+
+    void initializePage();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    branch,
+    loadPayments,
+    router,
+    verifyEmployeeInBackground,
+  ]);
+
+  useEffect(() => {
+    if (!authChecked) {
+      return;
+    }
+
+    return installFinanceActivityTracker({
+      onExpired: () => {
+        redirectToFinanceLogin(
+          router,
+          {
+            branchSlug: branch,
+            preserveReturnPath: true,
+          }
+        );
+      },
+    });
+  }, [
+    authChecked,
+    branch,
+    router,
+  ]);
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(
+      payments.length /
+        ITEMS_PER_PAGE
+    )
+  );
+
+  const paginatedPayments =
+    useMemo(() => {
+      const startIndex =
+        (currentPage - 1) *
+        ITEMS_PER_PAGE;
+
+      return payments.slice(
+        startIndex,
+        startIndex +
+          ITEMS_PER_PAGE
+      );
+    }, [
+      payments,
+      currentPage,
+    ]);
 
   function logout() {
-    clearSession();
-    router.replace("/login");
-  }
-
-  async function loadPayments(
-    currentBranchId = branchId
-  ) {
-    if (!currentBranchId) return;
-
-    const { data, error } =
-      await supabase
-        .from("finance_payments")
-        .select(
-          `
-          *,
-          finance_contracts(
-            id,
-            customer_id,
-            contract_number,
-            customer_name,
-            customer_phone,
-            debt_amount,
-            payment_amount,
-            paid_amount,
-            remaining_amount,
-            payment_due_date,
-            contract_status,
-            finance_customers(
-              full_name,
-              national_id
-            )
-          )
-        `
-        )
-        .eq(
-          "branch_id",
-          currentBranchId
-        )
-        .order("created_at", {
-          ascending: false,
-        });
-
-    if (error) {
-      throw new Error(
-        error.message
-      );
-    }
-
-    setPayments(
-      (data as Payment[] | null) || []
-    );
-
-    setCurrentPage(1);
+    logoutFinanceUser(router);
   }
 
   function getCancelErrorMessage(
@@ -571,6 +540,14 @@ export default function FinancePaymentsPage() {
       return "تعذر العثور على العقد المرتبط بعملية السداد";
     }
 
+    if (
+      message.includes(
+        "INVALID_EMPLOYEE_SESSION"
+      )
+    ) {
+      return "انتهت جلسة الموظف، سجل الدخول مرة أخرى";
+    }
+
     return (
       message ||
       "تعذر إلغاء عملية السداد"
@@ -591,10 +568,29 @@ export default function FinancePaymentsPage() {
       return;
     }
 
+    const validation =
+      validateFinanceSession(branch);
+
+    if (
+      !validation.valid ||
+      !validation.user
+    ) {
+      redirectToFinanceLogin(
+        router,
+        {
+          branchSlug: branch,
+          preserveReturnPath: true,
+        }
+      );
+
+      return;
+    }
+
     if (payment.is_cancelled) {
       alert(
         "عملية السداد ملغية مسبقًا"
       );
+
       return;
     }
 
@@ -608,6 +604,7 @@ export default function FinancePaymentsPage() {
       alert(
         "تعذر العثور على العقد المرتبط بعملية السداد"
       );
+
       return;
     }
 
@@ -618,18 +615,23 @@ export default function FinancePaymentsPage() {
         )} ر.س؟`
       );
 
-    if (!confirmed) return;
+    if (!confirmed) {
+      return;
+    }
 
     try {
       setCancellingPaymentId(
         payment.id
       );
 
+      renewFinanceSession(true);
+
       const { data, error } =
         await supabase.rpc(
           "cancel_payment_atomic",
           {
-            p_branch_id: branchId,
+            p_branch_id:
+              branchId,
 
             p_contract_id:
               payment.contract_id,
@@ -690,10 +692,31 @@ export default function FinancePaymentsPage() {
     }
   }
 
+  if (!authChecked) {
+    return (
+      <main
+        dir="rtl"
+        style={getPageStyle(
+          isMobile
+        )}
+      >
+        <div
+          style={initialLoadingBox}
+        >
+          جاري فتح صفحة السداد...
+        </div>
+
+        <GlobalResponsiveStyles />
+      </main>
+    );
+  }
+
   return (
     <main
       dir="rtl"
-      style={getPageStyle(isMobile)}
+      style={getPageStyle(
+        isMobile
+      )}
     >
       <div
         style={getContainerStyle(
@@ -702,7 +725,9 @@ export default function FinancePaymentsPage() {
       >
         <PageHero
           screen={screen}
-          employeeName={employeeName}
+          employeeName={
+            employeeName
+          }
           onLogout={logout}
           onHome={() =>
             router.push(
@@ -739,28 +764,61 @@ export default function FinancePaymentsPage() {
               عمليات السداد
             </h2>
 
-            {payments.length > 0 && (
+            {payments.length >
+              0 && (
               <span style={pageInfo}>
-                صفحة {currentPage} من{" "}
+                صفحة{" "}
+                {currentPage} من{" "}
                 {totalPages} - عرض{" "}
                 {
                   paginatedPayments.length
                 }{" "}
-                من {payments.length}
+                من{" "}
+                {payments.length}
               </span>
             )}
           </div>
+
+          {pageError && (
+            <div
+              style={pageErrorBox}
+            >
+              <span>
+                {pageError}
+              </span>
+
+              <button
+                type="button"
+                style={retryButton}
+                onClick={() =>
+                  void loadPayments(
+                    branchId
+                  )
+                }
+              >
+                إعادة المحاولة
+              </button>
+            </div>
+          )}
 
           <div
             className="desktop-table"
             style={tableBox}
           >
-            <div style={tableHeader}>
+            <div
+              style={tableHeader}
+            >
               <span>العميل</span>
-              <span>رقم العقد</span>
+              <span>
+                رقم العقد
+              </span>
               <span>المبلغ</span>
-              <span>طريقة الدفع</span>
-              <span>نوع السداد</span>
+              <span>
+                طريقة الدفع
+              </span>
+              <span>
+                نوع السداد
+              </span>
               <span>الإجراء</span>
             </div>
 
@@ -782,7 +840,8 @@ export default function FinancePaymentsPage() {
                     payment.finance_contracts;
 
                   const customerName =
-                    contract?.customer_name ||
+                    contract
+                      ?.customer_name ||
                     contract
                       ?.finance_customers
                       ?.full_name ||
@@ -794,7 +853,9 @@ export default function FinancePaymentsPage() {
 
                   return (
                     <div
-                      key={payment.id}
+                      key={
+                        payment.id
+                      }
                       style={{
                         ...tableRow,
 
@@ -814,7 +875,9 @@ export default function FinancePaymentsPage() {
                       }}
                     >
                       <span
-                        style={customerLink}
+                        style={
+                          customerLink
+                        }
                         onClick={(
                           event
                         ) => {
@@ -829,7 +892,9 @@ export default function FinancePaymentsPage() {
                           }
                         }}
                       >
-                        {customerName}
+                        {
+                          customerName
+                        }
                       </span>
 
                       <span>
@@ -916,7 +981,8 @@ export default function FinancePaymentsPage() {
                     payment.finance_contracts;
 
                   const customerName =
-                    contract?.customer_name ||
+                    contract
+                      ?.customer_name ||
                     contract
                       ?.finance_customers
                       ?.full_name ||
@@ -928,7 +994,9 @@ export default function FinancePaymentsPage() {
 
                   return (
                     <article
-                      key={payment.id}
+                      key={
+                        payment.id
+                      }
                       style={{
                         ...mobileCard,
 
@@ -944,7 +1012,9 @@ export default function FinancePaymentsPage() {
                         }
                       >
                         <strong>
-                          {customerName}
+                          {
+                            customerName
+                          }
                         </strong>
 
                         {payment.is_cancelled ? (
@@ -1045,7 +1115,9 @@ export default function FinancePaymentsPage() {
 
           {payments.length >
             ITEMS_PER_PAGE && (
-            <div style={paginationBox}>
+            <div
+              style={paginationBox}
+            >
               <button
                 type="button"
                 style={{
@@ -1073,9 +1145,12 @@ export default function FinancePaymentsPage() {
               </button>
 
               <span
-                style={paginationText}
+                style={
+                  paginationText
+                }
               >
-                صفحة {currentPage} من{" "}
+                صفحة{" "}
+                {currentPage} من{" "}
                 {totalPages}
               </span>
 
@@ -1110,7 +1185,9 @@ export default function FinancePaymentsPage() {
           )}
         </section>
 
-        <div style={bottomActions}>
+        <div
+          style={bottomActions}
+        >
           <button
             type="button"
             style={backButton}
@@ -1156,11 +1233,15 @@ function PageHero({
 
   return (
     <header
-      style={getHeroStyle(isMobile)}
+      style={getHeroStyle(
+        isMobile
+      )}
     >
       <div style={heroCircleOne} />
       <div style={heroCircleTwo} />
-      <div style={heroCircleThree} />
+      <div
+        style={heroCircleThree}
+      />
       <div style={heroDots} />
 
       <div
@@ -1178,7 +1259,9 @@ function PageHero({
               screen
             )}
           >
-            <div style={employeeIcon}>
+            <div
+              style={employeeIcon}
+            >
               <UserIcon />
             </div>
 
@@ -1206,6 +1289,7 @@ function PageHero({
               onClick={onLogout}
             >
               <LogoutIcon />
+
               <span>
                 تسجيل الخروج
               </span>
@@ -1220,6 +1304,7 @@ function PageHero({
             onClick={onHome}
           >
             <HomeIcon />
+
             <span>
               محطة العمل الرئيسية
             </span>
@@ -1421,7 +1506,9 @@ function getPageStyle(
         : "fixed",
 
     padding:
-      isMobile ? 10 : 18,
+      isMobile
+        ? 10
+        : 18,
 
     fontFamily:
       "var(--font-almarai), sans-serif",
@@ -1776,7 +1863,9 @@ function getTitleStyle(
 function getHeroActionBoxStyle(
   screen: ScreenType
 ): CSSProperties {
-  if (screen !== "desktop") {
+  if (
+    screen !== "desktop"
+  ) {
     return {
       display: "none",
     };
@@ -1789,6 +1878,37 @@ function getHeroActionBoxStyle(
     alignItems: "flex-end",
   };
 }
+
+const initialLoadingBox: CSSProperties = {
+  width: "calc(100% - 32px)",
+
+  maxWidth: 520,
+
+  margin: "120px auto",
+
+  padding: "22px 26px",
+
+  borderRadius: 18,
+
+  background:
+    "rgba(255,255,255,0.96)",
+
+  border:
+    "1px solid #dbeafe",
+
+  color: "#1e3a8a",
+
+  textAlign: "center",
+
+  fontSize: 15,
+  fontWeight: 900,
+
+  boxShadow:
+    "0 12px 30px rgba(15,23,42,0.08)",
+
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
 
 const employeeIcon: CSSProperties = {
   width: 38,
@@ -2030,6 +2150,58 @@ const pageInfo: CSSProperties = {
   fontSize: 14,
 
   fontWeight: 900,
+};
+
+const pageErrorBox: CSSProperties = {
+  display: "flex",
+
+  alignItems: "center",
+
+  justifyContent:
+    "space-between",
+
+  gap: 12,
+
+  flexWrap: "wrap",
+
+  marginBottom: 14,
+
+  padding: "12px 14px",
+
+  borderRadius: 12,
+
+  border:
+    "1px solid #fecaca",
+
+  background: "#fff7f7",
+
+  color: "#991b1b",
+
+  fontSize: 13,
+  fontWeight: 900,
+};
+
+const retryButton: CSSProperties = {
+  minHeight: 38,
+
+  padding: "8px 14px",
+
+  border: "none",
+
+  borderRadius: 10,
+
+  background:
+    "linear-gradient(135deg,#22c55e,#15803d)",
+
+  color: "#ffffff",
+
+  fontSize: 13,
+  fontWeight: 900,
+
+  cursor: "pointer",
+
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const tableBox: CSSProperties = {
