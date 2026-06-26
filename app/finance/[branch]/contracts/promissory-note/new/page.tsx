@@ -1,5 +1,5 @@
 "use client";
- 
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -15,6 +15,7 @@ type BirthDateType = "hijri" | "gregorian";
 type FinanceSessionUser = {
   id?: string;
   branch_id?: string;
+  branch_slug?: string;
   full_name?: string;
   username?: string;
   role?: string;
@@ -129,6 +130,26 @@ const MANAGER_ROLES = new Set([
   "مدير فرع",
 ]);
 
+const FINANCE_SESSION_KEYS = [
+  "finance_user",
+  "finance_branch_user",
+  "finance_user_id",
+  "finance_user_name",
+  "finance_username",
+  "finance_role",
+  "finance_branch_id",
+  "finance_branch_slug",
+  "finance_branch_name",
+  "finance_organization_name",
+  "finance_permissions",
+  "finance_investor_id",
+  "finance_is_active",
+  "finance_last_login_at",
+  "finance_session_expires_at",
+  "finance_last_activity_at",
+  "finance_return_to",
+] as const;
+
 export default function NewPromissoryNotePage() {
   const params = useParams();
   const router = useRouter();
@@ -141,8 +162,10 @@ export default function NewPromissoryNotePage() {
 
   const [branchId, setBranchId] = useState("");
   const [branchData, setBranchData] = useState<BranchData | null>(null);
+
   const [currentUser, setCurrentUser] =
     useState<FinanceSessionUser | null>(null);
+
   const [employeeName, setEmployeeName] = useState("الموظف");
 
   const [canCreate, setCanCreate] = useState(false);
@@ -152,23 +175,31 @@ export default function NewPromissoryNotePage() {
   const [noteMode, setNoteMode] = useState<NoteMode>("independent");
 
   const [contractSearch, setContractSearch] = useState("");
+
   const [contractResults, setContractResults] = useState<
     ContractSearchResult[]
   >([]);
+
   const [selectedContract, setSelectedContract] =
     useState<ContractSearchResult | null>(null);
+
   const [searchingContracts, setSearchingContracts] = useState(false);
   const [showContractResults, setShowContractResults] = useState(false);
 
   const [beneficiaryType, setBeneficiaryType] =
     useState<BeneficiaryType>("organization");
+
   const [beneficiaryInvestorId, setBeneficiaryInvestorId] = useState("");
   const [investors, setInvestors] = useState<Investor[]>([]);
 
-  const [debtor, setDebtor] = useState<PartyForm>({ ...EMPTY_PARTY });
+  const [debtor, setDebtor] = useState<PartyForm>({
+    ...EMPTY_PARTY,
+  });
+
   const [beneficiary, setBeneficiary] = useState<PartyForm>({
     ...EMPTY_PARTY,
   });
+
   const [guarantor, setGuarantor] = useState<PartyForm>({
     ...EMPTY_PARTY,
   });
@@ -182,6 +213,7 @@ export default function NewPromissoryNotePage() {
 
   const [customerLookupTarget, setCustomerLookupTarget] =
     useState<CustomerLookupTarget | null>(null);
+
   const [customerLookupMessage, setCustomerLookupMessage] = useState<
     Record<CustomerLookupTarget, string>
   >({
@@ -195,6 +227,8 @@ export default function NewPromissoryNotePage() {
   const contractSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
+
+  const skipNextContractSearch = useRef(false);
   const lookupRequestCounter = useRef(0);
 
   const isMobile = screen === "mobile";
@@ -204,13 +238,17 @@ export default function NewPromissoryNotePage() {
   const noteAmount = useMemo(() => toNumber(amount), [amount]);
 
   const amountWords = useMemo(() => {
-    if (!Number.isFinite(noteAmount) || noteAmount <= 0) return "";
+    if (!Number.isFinite(noteAmount) || noteAmount <= 0) {
+      return "";
+    }
 
     return amountToArabicWords(noteAmount);
   }, [noteAmount]);
 
   const selectedInvestor = useMemo(
-    () => investors.find((item) => item.id === beneficiaryInvestorId) || null,
+    () =>
+      investors.find((item) => item.id === beneficiaryInvestorId) ||
+      null,
     [investors, beneficiaryInvestorId]
   );
 
@@ -228,16 +266,21 @@ export default function NewPromissoryNotePage() {
     }
 
     updateScreen();
+
     window.addEventListener("resize", updateScreen);
 
-    return () => window.removeEventListener("resize", updateScreen);
+    return () => {
+      window.removeEventListener("resize", updateScreen);
+    };
   }, []);
 
   useEffect(() => {
     let cancelled = false;
 
     async function initializePage() {
-      if (typeof window === "undefined") return;
+      if (typeof window === "undefined") {
+        return;
+      }
 
       setLoadingPage(true);
 
@@ -245,6 +288,41 @@ export default function NewPromissoryNotePage() {
 
       if (!storedUser?.id) {
         redirectToLogin();
+        return;
+      }
+
+      const sessionExpiresAt = Number(
+        localStorage.getItem("finance_session_expires_at") || "0"
+      );
+
+      if (
+        !Number.isFinite(sessionExpiresAt) ||
+        sessionExpiresAt <= 0 ||
+        Date.now() >= sessionExpiresAt
+      ) {
+        clearFinanceSession({
+          preserveReturnPath: true,
+        });
+
+        redirectToLogin();
+        return;
+      }
+
+      if (storedUser.is_active === false) {
+        clearFinanceSession({
+          preserveReturnPath: true,
+        });
+
+        redirectToLogin();
+        return;
+      }
+
+      if (
+        storedUser.branch_slug &&
+        storedUser.branch_slug.trim() &&
+        storedUser.branch_slug.trim() !== branch
+      ) {
+        router.replace(`/finance/${storedUser.branch_slug.trim()}`);
         return;
       }
 
@@ -264,6 +342,7 @@ export default function NewPromissoryNotePage() {
           alert("تعذر تحديد الفرع");
           router.replace("/login");
         }
+
         return;
       }
 
@@ -274,6 +353,7 @@ export default function NewPromissoryNotePage() {
         "الموظف";
 
       const normalizedRole = normalizeRole(storedUser.role);
+
       const permissions = Array.isArray(storedUser.permissions)
         ? storedUser.permissions
         : [];
@@ -287,7 +367,8 @@ export default function NewPromissoryNotePage() {
         manager || permissions.includes("promissory_note_link_contract");
 
       const guarantorPermission =
-        manager || permissions.includes("promissory_note_manage_guarantor");
+        manager ||
+        permissions.includes("promissory_note_manage_guarantor");
 
       if (!cancelled) {
         setCurrentUser(storedUser);
@@ -299,47 +380,60 @@ export default function NewPromissoryNotePage() {
         setAuthChecked(true);
       }
 
-      const [{ data: fetchedBranch, error: branchError }, investorsResult] =
-        await Promise.all([
-          supabase
-            .from("finance_branches")
-            .select(
-              `
-                id,
-                organization_name,
-                commercial_record,
-                organization_phone,
-                phone,
-                organization_address,
-                city
-              `
-            )
-            .eq("id", resolvedBranchId)
-            .maybeSingle(),
+      const [
+        { data: fetchedBranch, error: branchError },
+        investorsResult,
+      ] = await Promise.all([
+        supabase
+          .from("finance_branches")
+          .select(
+            `
+              id,
+              organization_name,
+              commercial_record,
+              organization_phone,
+              phone,
+              organization_address,
+              city
+            `
+          )
+          .eq("id", resolvedBranchId)
+          .maybeSingle(),
 
-          supabase
-            .from("finance_investors")
-            .select("id, investor_name, national_id, phone, notes")
-            .eq("branch_id", resolvedBranchId)
-            .eq("is_active", true)
-            .order("is_primary", { ascending: false })
-            .order("investor_name", { ascending: true }),
-        ]);
+        supabase
+          .from("finance_investors")
+          .select("id, investor_name, national_id, phone, notes")
+          .eq("branch_id", resolvedBranchId)
+          .eq("is_active", true)
+          .order("is_primary", {
+            ascending: false,
+          })
+          .order("investor_name", {
+            ascending: true,
+          }),
+      ]);
 
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
 
       if (branchError) {
         alert(branchError.message || "تعذر تحميل بيانات الفرع");
       } else {
-        setBranchData((fetchedBranch as BranchData | null) || null);
+        const normalizedBranchData =
+          (fetchedBranch as BranchData | null) || null;
 
-        if (!city && fetchedBranch?.city) {
-          setCity(String(fetchedBranch.city));
+        setBranchData(normalizedBranchData);
+
+        if (!city && normalizedBranchData?.city) {
+          setCity(String(normalizedBranchData.city));
         }
       }
 
       if (investorsResult.error) {
-        alert(investorsResult.error.message || "تعذر تحميل المستثمرين");
+        alert(
+          investorsResult.error.message || "تعذر تحميل المستثمرين"
+        );
       } else {
         setInvestors((investorsResult.data as Investor[]) || []);
       }
@@ -347,7 +441,7 @@ export default function NewPromissoryNotePage() {
       setLoadingPage(false);
     }
 
-    initializePage();
+    void initializePage();
 
     return () => {
       cancelled = true;
@@ -372,6 +466,13 @@ export default function NewPromissoryNotePage() {
 
     const query = contractSearch.trim();
 
+    if (skipNextContractSearch.current) {
+      skipNextContractSearch.current = false;
+      setContractResults([]);
+      setShowContractResults(false);
+      return;
+    }
+
     if (contractSearchTimer.current) {
       clearTimeout(contractSearchTimer.current);
     }
@@ -383,7 +484,7 @@ export default function NewPromissoryNotePage() {
     }
 
     contractSearchTimer.current = setTimeout(() => {
-      searchContracts(query);
+      void searchContracts(query);
     }, 350);
 
     return () => {
@@ -399,10 +500,31 @@ export default function NewPromissoryNotePage() {
     canLinkContract,
   ]);
 
-  function redirectToLogin() {
-    if (typeof window === "undefined") return;
+  function clearFinanceSession({
+    preserveReturnPath = false,
+  }: {
+    preserveReturnPath?: boolean;
+  } = {}) {
+    if (typeof window === "undefined") {
+      return;
+    }
 
-    const returnTo = window.location.pathname + window.location.search;
+    FINANCE_SESSION_KEYS.forEach((key) => {
+      if (preserveReturnPath && key === "finance_return_to") {
+        return;
+      }
+
+      localStorage.removeItem(key);
+    });
+  }
+
+  function redirectToLogin() {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const returnTo =
+      window.location.pathname + window.location.search;
 
     localStorage.setItem("finance_return_to", returnTo);
 
@@ -410,28 +532,8 @@ export default function NewPromissoryNotePage() {
   }
 
   function logout() {
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("finance_user");
-      localStorage.removeItem("finance_user_name");
-      localStorage.removeItem("finance_branch_user");
-      localStorage.removeItem("finance_role");
-      localStorage.removeItem("finance_branch_id");
-      localStorage.removeItem("finance_session_expires_at");
-    }
-
+    clearFinanceSession();
     router.replace("/login");
-  }
-
-  function hasCurrentPermission(permissionKey: string) {
-    if (!currentUser) return false;
-
-    const role = normalizeRole(currentUser.role);
-
-    if (MANAGER_ROLES.has(role)) return true;
-
-    return Array.isArray(currentUser.permissions)
-      ? currentUser.permissions.includes(permissionKey)
-      : false;
   }
 
   function changeNoteMode(mode: NoteMode) {
@@ -439,6 +541,8 @@ export default function NewPromissoryNotePage() {
       alert("ليس لديك صلاحية ربط السند بعقد");
       return;
     }
+
+    skipNextContractSearch.current = false;
 
     setNoteMode(mode);
     setSelectedContract(null);
@@ -452,9 +556,18 @@ export default function NewPromissoryNotePage() {
   }
 
   function resetFormForIndependentNote() {
-    setDebtor({ ...EMPTY_PARTY });
-    setBeneficiary({ ...EMPTY_PARTY });
-    setGuarantor({ ...EMPTY_PARTY });
+    setDebtor({
+      ...EMPTY_PARTY,
+    });
+
+    setBeneficiary({
+      ...EMPTY_PARTY,
+    });
+
+    setGuarantor({
+      ...EMPTY_PARTY,
+    });
+
     setBeneficiaryType("organization");
     setBeneficiaryInvestorId("");
     setHasGuarantor(false);
@@ -462,11 +575,14 @@ export default function NewPromissoryNotePage() {
     setCity(branchData?.city || "");
     setIssueDate(getTodayIsoDate());
     setNotes("");
+
     clearAllLookupMessages();
   }
 
   async function searchContracts(query: string) {
-    if (!branchId || !canLinkContract) return;
+    if (!branchId || !canLinkContract) {
+      return;
+    }
 
     try {
       setSearchingContracts(true);
@@ -474,7 +590,9 @@ export default function NewPromissoryNotePage() {
 
       const normalized = normalizeNumber(query);
       const escaped = escapePostgrestSearch(query);
-      const escapedNormalized = escapePostgrestSearch(normalized);
+
+      const escapedNormalized =
+        escapePostgrestSearch(normalized);
 
       const filters = [
         `customer_name.ilike.%${escaped}%`,
@@ -519,7 +637,9 @@ export default function NewPromissoryNotePage() {
         )
         .eq("branch_id", branchId)
         .or(filters.join(","))
-        .order("created_at", { ascending: false })
+        .order("created_at", {
+          ascending: false,
+        })
         .limit(12);
 
       if (error) {
@@ -547,7 +667,10 @@ export default function NewPromissoryNotePage() {
       let customersMap = new Map<string, CustomerData>();
 
       if (customerIds.length > 0) {
-        const { data: customerRows, error: customerError } = await supabase
+        const {
+          data: customerRows,
+          error: customerError,
+        } = await supabase
           .from("finance_customers")
           .select(
             `
@@ -583,9 +706,11 @@ export default function NewPromissoryNotePage() {
 
       const enrichedRows = rows.map((item) => ({
         ...item,
+
         customer: item.customer_id
           ? customersMap.get(item.customer_id) || null
           : null,
+
         guarantor_customer: item.guarantor_customer_id
           ? customersMap.get(item.guarantor_customer_id) || null
           : null,
@@ -594,19 +719,24 @@ export default function NewPromissoryNotePage() {
       setContractResults(enrichedRows);
     } catch (error) {
       setContractResults([]);
+
       alert(getErrorMessage(error, "تعذر البحث عن العقود"));
     } finally {
       setSearchingContracts(false);
     }
   }
 
-  async function selectContract(contract: ContractSearchResult) {
+  function selectContract(contract: ContractSearchResult) {
+    skipNextContractSearch.current = true;
+
     setSelectedContract(contract);
+
     setContractSearch(
       `عقد رقم ${contract.contract_number} - ${
         contract.customer_name || "بدون اسم"
       }`
     );
+
     setShowContractResults(false);
     setContractResults([]);
 
@@ -643,12 +773,19 @@ export default function NewPromissoryNotePage() {
     if (contractHasGuarantor) {
       if (!canManageGuarantor) {
         setHasGuarantor(false);
-        setGuarantor({ ...EMPTY_PARTY });
+
+        setGuarantor({
+          ...EMPTY_PARTY,
+        });
       } else if (contract.guarantor_customer) {
         setHasGuarantor(true);
-        setGuarantor(customerToParty(contract.guarantor_customer));
+
+        setGuarantor(
+          customerToParty(contract.guarantor_customer)
+        );
       } else {
         setHasGuarantor(true);
+
         setGuarantor({
           ...EMPTY_PARTY,
           customerId: contract.guarantor_customer_id,
@@ -662,13 +799,18 @@ export default function NewPromissoryNotePage() {
       }
     } else {
       setHasGuarantor(false);
-      setGuarantor({ ...EMPTY_PARTY });
+
+      setGuarantor({
+        ...EMPTY_PARTY,
+      });
     }
 
     clearAllLookupMessages();
   }
 
-  function applyContractBeneficiary(contract: ContractSearchResult) {
+  function applyContractBeneficiary(
+    contract: ContractSearchResult
+  ) {
     const partyType = String(
       contract.print_party_type ||
         contract.first_party_type ||
@@ -694,7 +836,10 @@ export default function NewPromissoryNotePage() {
         setBeneficiaryInvestorId(matchingInvestor?.id || "");
       }
 
-      setBeneficiary({ ...EMPTY_PARTY });
+      setBeneficiary({
+        ...EMPTY_PARTY,
+      });
+
       return;
     }
 
@@ -705,19 +850,30 @@ export default function NewPromissoryNotePage() {
     ) {
       setBeneficiaryType("organization");
       setBeneficiaryInvestorId("");
-      setBeneficiary({ ...EMPTY_PARTY });
+
+      setBeneficiary({
+        ...EMPTY_PARTY,
+      });
+
       return;
     }
 
     setBeneficiaryType("organization");
     setBeneficiaryInvestorId("");
-    setBeneficiary({ ...EMPTY_PARTY });
+
+    setBeneficiary({
+      ...EMPTY_PARTY,
+    });
   }
 
   function changeBeneficiaryType(type: BeneficiaryType) {
     setBeneficiaryType(type);
     setBeneficiaryInvestorId("");
-    setBeneficiary({ ...EMPTY_PARTY });
+
+    setBeneficiary({
+      ...EMPTY_PARTY,
+    });
+
     clearLookupMessage("beneficiary");
   }
 
@@ -730,7 +886,10 @@ export default function NewPromissoryNotePage() {
     setHasGuarantor(nextValue);
 
     if (!nextValue) {
-      setGuarantor({ ...EMPTY_PARTY });
+      setGuarantor({
+        ...EMPTY_PARTY,
+      });
+
       clearLookupMessage("guarantor");
     }
   }
@@ -740,31 +899,53 @@ export default function NewPromissoryNotePage() {
     patch: Partial<PartyForm>
   ) {
     if (target === "debtor") {
-      setDebtor((current) => ({ ...current, ...patch }));
+      setDebtor((current) => ({
+        ...current,
+        ...patch,
+      }));
+
       return;
     }
 
     if (target === "beneficiary") {
-      setBeneficiary((current) => ({ ...current, ...patch }));
+      setBeneficiary((current) => ({
+        ...current,
+        ...patch,
+      }));
+
       return;
     }
 
-    setGuarantor((current) => ({ ...current, ...patch }));
+    setGuarantor((current) => ({
+      ...current,
+      ...patch,
+    }));
   }
 
   function getParty(target: CustomerLookupTarget) {
-    if (target === "debtor") return debtor;
-    if (target === "beneficiary") return beneficiary;
+    if (target === "debtor") {
+      return debtor;
+    }
+
+    if (target === "beneficiary") {
+      return beneficiary;
+    }
+
     return guarantor;
   }
 
   async function lookupCustomerByNationalId(
     target: CustomerLookupTarget
   ) {
-    if (!branchId) return;
+    if (!branchId) {
+      return;
+    }
 
     const party = getParty(target);
-    const nationalId = normalizeNumber(party.nationalId).trim();
+
+    const nationalId = normalizeNumber(
+      party.nationalId
+    ).trim();
 
     if (nationalId.length < 5) {
       clearLookupMessage(target);
@@ -775,6 +956,7 @@ export default function NewPromissoryNotePage() {
 
     try {
       setCustomerLookupTarget(target);
+
       setCustomerLookupMessage((current) => ({
         ...current,
         [target]: "جاري البحث عن العميل...",
@@ -803,7 +985,9 @@ export default function NewPromissoryNotePage() {
         .eq("national_id", nationalId)
         .maybeSingle();
 
-      if (requestId !== lookupRequestCounter.current) return;
+      if (requestId !== lookupRequestCounter.current) {
+        return;
+      }
 
       if (error) {
         throw new Error(error.message);
@@ -820,10 +1004,14 @@ export default function NewPromissoryNotePage() {
           [target]:
             "لا يوجد ملف سابق، وسيتم إنشاء ملف عميل عند حفظ السند.",
         }));
+
         return;
       }
 
-      updateParty(target, customerToParty(data as CustomerData));
+      updateParty(
+        target,
+        customerToParty(data as CustomerData)
+      );
 
       setCustomerLookupMessage((current) => ({
         ...current,
@@ -833,7 +1021,10 @@ export default function NewPromissoryNotePage() {
     } catch (error) {
       setCustomerLookupMessage((current) => ({
         ...current,
-        [target]: getErrorMessage(error, "تعذر البحث عن العميل"),
+        [target]: getErrorMessage(
+          error,
+          "تعذر البحث عن العميل"
+        ),
       }));
     } finally {
       if (requestId === lookupRequestCounter.current) {
@@ -907,9 +1098,14 @@ export default function NewPromissoryNotePage() {
 
     const debtorError = validateParty(debtor, "المدين");
 
-    if (debtorError) return debtorError;
+    if (debtorError) {
+      return debtorError;
+    }
 
-    if (beneficiaryType === "investor" && !beneficiaryInvestorId) {
+    if (
+      beneficiaryType === "investor" &&
+      !beneficiaryInvestorId
+    ) {
       return "اختر المستثمر المستفيد";
     }
 
@@ -919,7 +1115,9 @@ export default function NewPromissoryNotePage() {
         "المستفيد"
       );
 
-      if (beneficiaryError) return beneficiaryError;
+      if (beneficiaryError) {
+        return beneficiaryError;
+      }
     }
 
     if (hasGuarantor) {
@@ -927,9 +1125,14 @@ export default function NewPromissoryNotePage() {
         return "ليس لديك صلاحية إضافة أو تعديل الكفيل";
       }
 
-      const guarantorError = validateParty(guarantor, "الكفيل");
+      const guarantorError = validateParty(
+        guarantor,
+        "الكفيل"
+      );
 
-      if (guarantorError) return guarantorError;
+      if (guarantorError) {
+        return guarantorError;
+      }
     }
 
     if (!Number.isFinite(noteAmount) || noteAmount <= 0) {
@@ -952,7 +1155,9 @@ export default function NewPromissoryNotePage() {
   }
 
   async function createNote() {
-    if (saving) return;
+    if (saving) {
+      return;
+    }
 
     const validationError = validateForm();
 
@@ -977,8 +1182,11 @@ export default function NewPromissoryNotePage() {
           p_employee_name: employeeName,
 
           p_note_mode: noteMode,
+
           p_contract_id:
-            noteMode === "contract" ? selectedContract?.id || null : null,
+            noteMode === "contract"
+              ? selectedContract?.id || null
+              : null,
 
           p_amount: noteAmount,
           p_amount_words: amountWords,
@@ -987,6 +1195,7 @@ export default function NewPromissoryNotePage() {
           p_notes: notes.trim() || null,
 
           p_beneficiary_type: beneficiaryType,
+
           p_beneficiary_investor_id:
             beneficiaryType === "investor"
               ? beneficiaryInvestorId
@@ -996,103 +1205,138 @@ export default function NewPromissoryNotePage() {
             beneficiaryType === "other"
               ? beneficiary.fullName.trim()
               : null,
+
           p_beneficiary_national_id:
             beneficiaryType === "other"
               ? normalizeNumber(beneficiary.nationalId)
               : null,
+
           p_beneficiary_phone:
             beneficiaryType === "other"
               ? normalizeNumber(beneficiary.phone)
               : null,
+
           p_beneficiary_birth_date_type:
             beneficiaryType === "other"
               ? beneficiary.birthDateType
               : null,
+
           p_beneficiary_birth_hijri:
             beneficiaryType === "other" &&
             beneficiary.birthDateType === "hijri"
               ? beneficiary.birthHijri.trim()
               : null,
+
           p_beneficiary_birth_gregorian:
             beneficiaryType === "other" &&
             beneficiary.birthDateType === "gregorian"
               ? beneficiary.birthGregorian
               : null,
+
           p_beneficiary_nationality:
             beneficiaryType === "other"
               ? beneficiary.nationality.trim() || null
               : null,
+
           p_beneficiary_address:
             beneficiaryType === "other"
               ? beneficiary.address.trim() || null
               : null,
+
           p_beneficiary_work_name:
             beneficiaryType === "other"
               ? beneficiary.workName.trim() || null
               : null,
+
           p_beneficiary_identity_source:
             beneficiaryType === "other"
               ? beneficiary.identitySource.trim() || null
               : null,
+
           p_beneficiary_notes:
             beneficiaryType === "other"
               ? beneficiary.notes.trim() || null
               : null,
 
           p_debtor_full_name: debtor.fullName.trim(),
-          p_debtor_national_id: normalizeNumber(debtor.nationalId),
+
+          p_debtor_national_id: normalizeNumber(
+            debtor.nationalId
+          ),
+
           p_debtor_phone: normalizeNumber(debtor.phone),
+
           p_debtor_birth_date_type: debtor.birthDateType,
+
           p_debtor_birth_hijri:
             debtor.birthDateType === "hijri"
               ? debtor.birthHijri.trim()
               : null,
+
           p_debtor_birth_gregorian:
             debtor.birthDateType === "gregorian"
               ? debtor.birthGregorian
               : null,
-          p_debtor_nationality: debtor.nationality.trim() || null,
+
+          p_debtor_nationality:
+            debtor.nationality.trim() || null,
+
           p_debtor_address: debtor.address.trim() || null,
-          p_debtor_work_name: debtor.workName.trim() || null,
+
+          p_debtor_work_name:
+            debtor.workName.trim() || null,
+
           p_debtor_identity_source:
             debtor.identitySource.trim() || null,
+
           p_debtor_notes: debtor.notes.trim() || null,
 
           p_has_guarantor: hasGuarantor,
+
           p_guarantor_full_name: hasGuarantor
             ? guarantor.fullName.trim()
             : null,
+
           p_guarantor_national_id: hasGuarantor
             ? normalizeNumber(guarantor.nationalId)
             : null,
+
           p_guarantor_phone: hasGuarantor
             ? normalizeNumber(guarantor.phone)
             : null,
+
           p_guarantor_birth_date_type: hasGuarantor
             ? guarantor.birthDateType
             : null,
+
           p_guarantor_birth_hijri:
             hasGuarantor &&
             guarantor.birthDateType === "hijri"
               ? guarantor.birthHijri.trim()
               : null,
+
           p_guarantor_birth_gregorian:
             hasGuarantor &&
             guarantor.birthDateType === "gregorian"
               ? guarantor.birthGregorian
               : null,
+
           p_guarantor_nationality: hasGuarantor
             ? guarantor.nationality.trim() || null
             : null,
+
           p_guarantor_address: hasGuarantor
             ? guarantor.address.trim() || null
             : null,
+
           p_guarantor_work_name: hasGuarantor
             ? guarantor.workName.trim() || null
             : null,
+
           p_guarantor_identity_source: hasGuarantor
             ? guarantor.identitySource.trim() || null
             : null,
+
           p_guarantor_notes: hasGuarantor
             ? guarantor.notes.trim() || null
             : null,
@@ -1107,7 +1351,9 @@ export default function NewPromissoryNotePage() {
       const noteId = result?.note_id;
 
       if (!noteId) {
-        throw new Error("تم الحفظ ولكن تعذر تحديد رقم السند");
+        throw new Error(
+          "تم الحفظ ولكن تعذر تحديد رقم السند"
+        );
       }
 
       alert("تم إنشاء سند لأمر بنجاح");
@@ -1146,7 +1392,6 @@ export default function NewPromissoryNotePage() {
               <HeroUserArea
                 screen={screen}
                 employeeName={employeeName}
-                branch={branch}
                 onLogout={logout}
                 onHome={() => router.push(`/finance/${branch}`)}
               />
@@ -1161,14 +1406,20 @@ export default function NewPromissoryNotePage() {
 
           <section style={permissionDeniedCard}>
             <div style={permissionDeniedIcon}>!</div>
+
             <h2 style={permissionDeniedTitle}>غير مصرح</h2>
+
             <p style={permissionDeniedText}>
               ليس لديك صلاحية إنشاء سند لأمر.
             </p>
           </section>
 
           <div style={backWrapper}>
-            <button style={backButton} onClick={() => router.back()}>
+            <button
+              type="button"
+              style={backButton}
+              onClick={() => router.back()}
+            >
               ← رجوع
             </button>
           </div>
@@ -1190,7 +1441,6 @@ export default function NewPromissoryNotePage() {
             <HeroUserArea
               screen={screen}
               employeeName={employeeName}
-              branch={branch}
               onLogout={logout}
               onHome={() => router.push(`/finance/${branch}`)}
             />
@@ -1226,7 +1476,8 @@ export default function NewPromissoryNotePage() {
               <SectionTitle>اختيار العقد</SectionTitle>
 
               <div style={searchWrapper}>
-<label style={labelStyle}>البحث عن العقد</label>
+                <label style={labelStyle}>البحث عن العقد</label>
+
                 <input
                   style={input}
                   placeholder="رقم العقد أو اسم العميل أو الهوية أو الجوال"
@@ -1237,6 +1488,7 @@ export default function NewPromissoryNotePage() {
                     }
                   }}
                   onChange={(event) => {
+                    skipNextContractSearch.current = false;
                     setContractSearch(event.target.value);
                     setSelectedContract(null);
                   }}
@@ -1298,7 +1550,9 @@ export default function NewPromissoryNotePage() {
                   </div>
 
                   <div>
-                    <span style={selectedContractLabel}>العميل</span>
+                    <span style={selectedContractLabel}>
+                      العميل
+                    </span>
 
                     <strong style={selectedContractValue}>
                       {selectedContract.customer_name || "—"}
@@ -1328,14 +1582,18 @@ export default function NewPromissoryNotePage() {
             <div style={getThreeColumnGridStyle(isCompact)}>
               <ChoiceButton
                 active={beneficiaryType === "organization"}
-                onClick={() => changeBeneficiaryType("organization")}
+                onClick={() =>
+                  changeBeneficiaryType("organization")
+                }
               >
                 المؤسسة
               </ChoiceButton>
 
               <ChoiceButton
                 active={beneficiaryType === "investor"}
-                onClick={() => changeBeneficiaryType("investor")}
+                onClick={() =>
+                  changeBeneficiaryType("investor")
+                }
               >
                 مستثمر
               </ChoiceButton>
@@ -1352,12 +1610,18 @@ export default function NewPromissoryNotePage() {
               <div style={beneficiaryPreview}>
                 <PreviewItem
                   title="اسم المستفيد"
-                  value={branchData?.organization_name || "غير مسجل"}
+                  value={
+                    branchData?.organization_name || "غير مسجل"
+                  }
                 />
+
                 <PreviewItem
                   title="السجل التجاري"
-                  value={branchData?.commercial_record || "غير مسجل"}
+                  value={
+                    branchData?.commercial_record || "غير مسجل"
+                  }
                 />
+
                 <PreviewItem
                   title="الجوال"
                   value={
@@ -1376,13 +1640,18 @@ export default function NewPromissoryNotePage() {
                     style={input}
                     value={beneficiaryInvestorId}
                     onChange={(event) =>
-                      setBeneficiaryInvestorId(event.target.value)
+                      setBeneficiaryInvestorId(
+                        event.target.value
+                      )
                     }
                   >
                     <option value="">اختر المستثمر</option>
 
                     {investors.map((investor) => (
-                      <option key={investor.id} value={investor.id}>
+                      <option
+                        key={investor.id}
+                        value={investor.id}
+                      >
                         {investor.investor_name}
                       </option>
                     ))}
@@ -1395,13 +1664,20 @@ export default function NewPromissoryNotePage() {
                       title="اسم المستثمر"
                       value={selectedInvestor.investor_name}
                     />
+
                     <PreviewItem
                       title="رقم الهوية"
-                      value={selectedInvestor.national_id || "غير مسجل"}
+                      value={
+                        selectedInvestor.national_id ||
+                        "غير مسجل"
+                      }
                     />
+
                     <PreviewItem
                       title="الجوال"
-                      value={selectedInvestor.phone || "غير مسجل"}
+                      value={
+                        selectedInvestor.phone || "غير مسجل"
+                      }
                     />
                   </div>
                 )}
@@ -1414,13 +1690,17 @@ export default function NewPromissoryNotePage() {
                 party={beneficiary}
                 target="beneficiary"
                 isCompact={isCompact}
-                lookupMessage={customerLookupMessage.beneficiary}
-                isLookingUp={customerLookupTarget === "beneficiary"}
+                lookupMessage={
+                  customerLookupMessage.beneficiary
+                }
+                isLookingUp={
+                  customerLookupTarget === "beneficiary"
+                }
                 onChange={(patch) =>
                   updateParty("beneficiary", patch)
                 }
                 onNationalIdBlur={() =>
-                  lookupCustomerByNationalId("beneficiary")
+                  void lookupCustomerByNationalId("beneficiary")
                 }
               />
             )}
@@ -1434,9 +1714,11 @@ export default function NewPromissoryNotePage() {
               isCompact={isCompact}
               lookupMessage={customerLookupMessage.debtor}
               isLookingUp={customerLookupTarget === "debtor"}
-              onChange={(patch) => updateParty("debtor", patch)}
+              onChange={(patch) =>
+                updateParty("debtor", patch)
+              }
               onNationalIdBlur={() =>
-                lookupCustomerByNationalId("debtor")
+                void lookupCustomerByNationalId("debtor")
               }
             />
           </div>
@@ -1452,7 +1734,9 @@ export default function NewPromissoryNotePage() {
                   placeholder="0"
                   value={amount}
                   onChange={(event) =>
-                    setAmount(normalizeAmountInput(event.target.value))
+                    setAmount(
+                      normalizeAmountInput(event.target.value)
+                    )
                   }
                 />
               </Field>
@@ -1468,12 +1752,17 @@ export default function NewPromissoryNotePage() {
                 />
               </Field>
 
-              <Field label="مدينة التحرير / التقاضي" required>
+              <Field
+                label="مدينة التحرير / التقاضي"
+                required
+              >
                 <input
                   style={input}
                   placeholder="المدينة"
                   value={city}
-                  onChange={(event) => setCity(event.target.value)}
+                  onChange={(event) =>
+                    setCity(event.target.value)
+                  }
                 />
               </Field>
 
@@ -1486,7 +1775,8 @@ export default function NewPromissoryNotePage() {
 
             <Field label="المبلغ كتابةً">
               <div style={amountWordsBox}>
-                {amountWords || "سيظهر المبلغ كتابةً بعد إدخال الرقم"}
+                {amountWords ||
+                  "سيظهر المبلغ كتابةً بعد إدخال الرقم"}
               </div>
             </Field>
 
@@ -1495,7 +1785,9 @@ export default function NewPromissoryNotePage() {
                 style={textarea}
                 placeholder="الملاحظات التي ستظهر في طباعة السند"
                 value={notes}
-                onChange={(event) => setNotes(event.target.value)}
+                onChange={(event) =>
+                  setNotes(event.target.value)
+                }
               />
             </Field>
           </div>
@@ -1530,13 +1822,17 @@ export default function NewPromissoryNotePage() {
                 party={guarantor}
                 target="guarantor"
                 isCompact={isCompact}
-                lookupMessage={customerLookupMessage.guarantor}
-                isLookingUp={customerLookupTarget === "guarantor"}
+                lookupMessage={
+                  customerLookupMessage.guarantor
+                }
+                isLookingUp={
+                  customerLookupTarget === "guarantor"
+                }
                 onChange={(patch) =>
                   updateParty("guarantor", patch)
                 }
                 onNationalIdBlur={() =>
-                  lookupCustomerByNationalId("guarantor")
+                  void lookupCustomerByNationalId("guarantor")
                 }
               />
             )}
@@ -1549,15 +1845,21 @@ export default function NewPromissoryNotePage() {
               opacity: saving ? 0.7 : 1,
               cursor: saving ? "not-allowed" : "pointer",
             }}
-            onClick={createNote}
+            onClick={() => void createNote()}
             disabled={saving}
           >
-            {saving ? "جاري إنشاء السند..." : "إنشاء سند لأمر"}
+            {saving
+              ? "جاري إنشاء السند..."
+              : "إنشاء سند لأمر"}
           </button>
         </section>
 
         <div style={backWrapper}>
-          <button style={backButton} onClick={() => router.back()}>
+          <button
+            type="button"
+            style={backButton}
+            onClick={() => router.back()}
+          >
             ← رجوع
           </button>
         </div>
@@ -1574,7 +1876,6 @@ function HeroUserArea({
 }: {
   screen: ScreenType;
   employeeName: string;
-  branch: string;
   onLogout: () => void;
   onHome: () => void;
 }) {
@@ -1645,7 +1946,9 @@ function PartyFields({
             placeholder="الاسم الرباعي"
             value={party.fullName}
             onChange={(event) =>
-              onChange({ fullName: event.target.value })
+              onChange({
+                fullName: event.target.value,
+              })
             }
           />
         </Field>
@@ -1659,7 +1962,9 @@ function PartyFields({
             onChange={(event) => {
               onChange({
                 customerId: null,
-                nationalId: normalizeNumber(event.target.value),
+                nationalId: normalizeNumber(
+                  event.target.value
+                ),
               });
             }}
             onBlur={onNationalIdBlur}
@@ -1685,15 +1990,17 @@ function PartyFields({
             style={input}
             value={party.birthDateType}
             onChange={(event) => {
-              const birthDateType = event.target
-                .value as BirthDateType;
+              const birthDateType =
+                event.target.value as BirthDateType;
 
               onChange({
                 birthDateType,
+
                 birthHijri:
                   birthDateType === "hijri"
                     ? party.birthHijri
                     : "",
+
                 birthGregorian:
                   birthDateType === "gregorian"
                     ? party.birthGregorian
@@ -1715,7 +2022,9 @@ function PartyFields({
               value={party.birthHijri}
               onChange={(event) =>
                 onChange({
-                  birthHijri: normalizeNumber(event.target.value),
+                  birthHijri: normalizeNumber(
+                    event.target.value
+                  ),
                 })
               }
             />
@@ -1741,7 +2050,9 @@ function PartyFields({
             placeholder="الجنسية"
             value={party.nationality}
             onChange={(event) =>
-              onChange({ nationality: event.target.value })
+              onChange({
+                nationality: event.target.value,
+              })
             }
           />
         </Field>
@@ -1752,7 +2063,9 @@ function PartyFields({
             placeholder="جهة أو مسمى العمل"
             value={party.workName}
             onChange={(event) =>
-              onChange({ workName: event.target.value })
+              onChange({
+                workName: event.target.value,
+              })
             }
           />
         </Field>
@@ -1763,7 +2076,9 @@ function PartyFields({
             placeholder="مصدر إصدار الهوية"
             value={party.identitySource}
             onChange={(event) =>
-              onChange({ identitySource: event.target.value })
+              onChange({
+                identitySource: event.target.value,
+              })
             }
           />
         </Field>
@@ -1775,18 +2090,24 @@ function PartyFields({
           placeholder="العنوان"
           value={party.address}
           onChange={(event) =>
-            onChange({ address: event.target.value })
+            onChange({
+              address: event.target.value,
+            })
           }
         />
       </Field>
 
-      <Field label={`ملاحظات ${getPartyDisplayLabel(target)}`}>
+      <Field
+        label={`ملاحظات ${getPartyDisplayLabel(target)}`}
+      >
         <textarea
           style={smallTextarea}
           placeholder="ملاحظات اختيارية"
           value={party.notes}
           onChange={(event) =>
-            onChange({ notes: event.target.value })
+            onChange({
+              notes: event.target.value,
+            })
           }
         />
       </Field>
@@ -1795,12 +2116,23 @@ function PartyFields({
         <div
           style={{
             ...lookupMessageBox,
-            borderColor: party.customerId ? "#86efac" : "#bfdbfe",
-            background: party.customerId ? "#f0fdf4" : "#eff6ff",
-            color: party.customerId ? "#166534" : "#1e40af",
+
+            borderColor: party.customerId
+              ? "#86efac"
+              : "#bfdbfe",
+
+            background: party.customerId
+              ? "#f0fdf4"
+              : "#eff6ff",
+
+            color: party.customerId
+              ? "#166534"
+              : "#1e40af",
           }}
         >
-          {isLookingUp ? "جاري البحث عن العميل..." : lookupMessage}
+          {isLookingUp
+            ? "جاري البحث عن العميل..."
+            : lookupMessage}
         </div>
       )}
     </div>
@@ -1820,7 +2152,10 @@ function Field({
     <label style={fieldWrapper}>
       <span style={labelStyle}>
         {label}
-        {required && <span style={requiredMark}> *</span>}
+
+        {required && (
+          <span style={requiredMark}> *</span>
+        )}
       </span>
 
       {children}
@@ -1828,7 +2163,11 @@ function Field({
   );
 }
 
-function SectionTitle({ children }: { children: ReactNode }) {
+function SectionTitle({
+  children,
+}: {
+  children: ReactNode;
+}) {
   return <h2 style={sectionTitle}>{children}</h2>;
 }
 
@@ -1912,6 +2251,7 @@ function UserIcon() {
         stroke="currentColor"
         strokeWidth="1.8"
       />
+
       <path
         d="M4.8 20.2c.8-3.5 3.6-5.4 7.2-5.4s6.4 1.9 7.2 5.4"
         stroke="currentColor"
@@ -1937,12 +2277,14 @@ function LogoutIcon() {
         strokeWidth="2"
         strokeLinecap="round"
       />
+
       <path
         d="M4.8 12h9.5"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
       />
+
       <path
         d="M7.8 8.8 4.6 12l3.2 3.2"
         stroke="currentColor"
@@ -1970,12 +2312,14 @@ function HomeIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+
       <path
         d="M6.2 10.4v9.1h11.6v-9.1"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinejoin="round"
       />
+
       <path
         d="M10 19.5v-5.2h4v5.2"
         stroke="currentColor"
@@ -1987,19 +2331,31 @@ function HomeIcon() {
 }
 
 function readStoredFinanceUser(): FinanceSessionUser | null {
-  if (typeof window === "undefined") return null;
+  if (typeof window === "undefined") {
+    return null;
+  }
 
-  const possibleKeys = ["finance_branch_user", "finance_user"];
+  const possibleKeys = [
+    "finance_branch_user",
+    "finance_user",
+  ];
 
   for (const key of possibleKeys) {
     const rawValue = localStorage.getItem(key);
 
-    if (!rawValue) continue;
+    if (!rawValue) {
+      continue;
+    }
 
     try {
-      const parsed = JSON.parse(rawValue) as FinanceSessionUser;
+      const parsed =
+        JSON.parse(rawValue) as FinanceSessionUser;
 
-      if (parsed && typeof parsed === "object") {
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        !Array.isArray(parsed)
+      ) {
         return parsed;
       }
     } catch {
@@ -2014,7 +2370,9 @@ function normalizeRole(role?: string) {
   return String(role || "").trim().toLowerCase();
 }
 
-function customerToParty(customer: CustomerData): PartyForm {
+function customerToParty(
+  customer: CustomerData
+): PartyForm {
   const birthDateType: BirthDateType =
     customer.birth_date_type === "gregorian"
       ? "gregorian"
@@ -2030,7 +2388,8 @@ function customerToParty(customer: CustomerData): PartyForm {
     birthGregorian: customer.birth_gregorian || "",
     nationality: customer.nationality || "",
     address: customer.address || "",
-    workName: customer.work_name || customer.work || "",
+    workName:
+      customer.work_name || customer.work || "",
     identitySource: customer.identity_source || "",
     notes: customer.notes || "",
   };
@@ -2039,7 +2398,10 @@ function customerToParty(customer: CustomerData): PartyForm {
 function getTodayIsoDate() {
   const now = new Date();
   const offset = now.getTimezoneOffset();
-  const localDate = new Date(now.getTime() - offset * 60 * 1000);
+
+  const localDate = new Date(
+    now.getTime() - offset * 60 * 1000
+  );
 
   return localDate.toISOString().slice(0, 10);
 }
@@ -2051,9 +2413,14 @@ function normalizeAmountInput(value: string) {
 
   const parts = normalized.split(".");
 
-  if (parts.length <= 1) return normalized;
+  if (parts.length <= 1) {
+    return normalized;
+  }
 
-  return `${parts[0]}.${parts.slice(1).join("").slice(0, 2)}`;
+  return `${parts[0]}.${parts
+    .slice(1)
+    .join("")
+    .slice(0, 2)}`;
 }
 
 function escapePostgrestSearch(value: string) {
@@ -2067,13 +2434,24 @@ function escapePostgrestSearch(value: string) {
     .trim();
 }
 
-function getPartyDisplayLabel(target: CustomerLookupTarget) {
-  if (target === "debtor") return "المدين";
-  if (target === "beneficiary") return "المستفيد";
+function getPartyDisplayLabel(
+  target: CustomerLookupTarget
+) {
+  if (target === "debtor") {
+    return "المدين";
+  }
+
+  if (target === "beneficiary") {
+    return "المستفيد";
+  }
+
   return "الكفيل";
 }
 
-function getErrorMessage(error: unknown, fallback: string) {
+function getErrorMessage(
+  error: unknown,
+  fallback: string
+) {
   if (error instanceof Error && error.message) {
     return error.message;
   }
@@ -2082,7 +2460,8 @@ function getErrorMessage(error: unknown, fallback: string) {
     typeof error === "object" &&
     error !== null &&
     "message" in error &&
-    typeof (error as { message?: unknown }).message === "string"
+    typeof (error as { message?: unknown }).message ===
+      "string"
   ) {
     return (error as { message: string }).message;
   }
@@ -2102,7 +2481,9 @@ function amountToArabicWords(value: number) {
   const halalas = Math.round((safeValue - riyals) * 100);
 
   const riyalWords =
-    riyals === 0 ? "صفر" : integerToArabicWords(riyals);
+    riyals === 0
+      ? "صفر"
+      : integerToArabicWords(riyals);
 
   let result = `${riyalWords} ريال سعودي`;
 
@@ -2116,7 +2497,9 @@ function amountToArabicWords(value: number) {
 function integerToArabicWords(value: number): string {
   const integer = Math.floor(Math.abs(value));
 
-  if (integer === 0) return "صفر";
+  if (integer === 0) {
+    return "صفر";
+  }
 
   const groups = [
     {
@@ -2140,10 +2523,13 @@ function integerToArabicWords(value: number): string {
   ];
 
   let remaining = integer;
+
   const parts: string[] = [];
 
   for (const group of groups) {
-    const count = Math.floor(remaining / group.value);
+    const count = Math.floor(
+      remaining / group.value
+    );
 
     if (count > 0) {
       parts.push(
@@ -2160,7 +2546,9 @@ function integerToArabicWords(value: number): string {
   }
 
   if (remaining > 0) {
-    parts.push(numberBelowThousandToArabic(remaining));
+    parts.push(
+      numberBelowThousandToArabic(remaining)
+    );
   }
 
   return parts.filter(Boolean).join(" و");
@@ -2172,20 +2560,33 @@ function renderArabicScale(
   dual: string,
   plural: string
 ) {
-  if (count === 1) return singular;
-  if (count === 2) return dual;
-
-  if (count >= 3 && count <= 10) {
-    return `${numberBelowThousandToArabic(count)} ${plural}`;
+  if (count === 1) {
+    return singular;
   }
 
-  return `${numberBelowThousandToArabic(count)} ${singular}`;
+  if (count === 2) {
+    return dual;
+  }
+
+  if (count >= 3 && count <= 10) {
+    return `${numberBelowThousandToArabic(
+      count
+    )} ${plural}`;
+  }
+
+  return `${numberBelowThousandToArabic(
+    count
+  )} ${singular}`;
 }
 
-function numberBelowThousandToArabic(value: number): string {
+function numberBelowThousandToArabic(
+  value: number
+): string {
   const number = Math.floor(value);
 
-  if (number === 0) return "";
+  if (number === 0) {
+    return "";
+  }
 
   const units = [
     "",
@@ -2258,7 +2659,9 @@ function numberBelowThousandToArabic(value: number): string {
       const unit = remainder % 10;
 
       if (unit > 0) {
-        parts.push(`${units[unit]} و${tens[ten]}`);
+        parts.push(
+          `${units[unit]} و${tens[ten]}`
+        );
       } else {
         parts.push(tens[ten]);
       }
@@ -2268,7 +2671,9 @@ function numberBelowThousandToArabic(value: number): string {
   return parts.join(" و");
 }
 
-function getPageStyle(isMobile: boolean): CSSProperties {
+function getPageStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     minHeight: "100vh",
     backgroundColor: "#f6f9ff",
@@ -2287,7 +2692,9 @@ function getPageStyle(isMobile: boolean): CSSProperties {
   };
 }
 
-function getContainerStyle(isCompact: boolean): CSSProperties {
+function getContainerStyle(
+  isCompact: boolean
+): CSSProperties {
   return {
     width: "100%",
     maxWidth: isCompact ? 980 : 1180,
@@ -2295,28 +2702,37 @@ function getContainerStyle(isCompact: boolean): CSSProperties {
   };
 }
 
-function getLoadingBoxStyle(isMobile: boolean): CSSProperties {
+function getLoadingBoxStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     maxWidth: 520,
-    margin: isMobile ? "110px auto" : "170px auto",
+    margin: isMobile
+      ? "110px auto"
+      : "170px auto",
     padding: 28,
     borderRadius: 20,
     textAlign: "center",
     color: "#1e3a8a",
     background: "rgba(255,255,255,0.94)",
     border: "1px solid #dbeafe",
-    boxShadow: "0 18px 45px rgba(15,23,42,0.08)",
+    boxShadow:
+      "0 18px 45px rgba(15,23,42,0.08)",
     fontSize: 16,
     fontWeight: 900,
   };
 }
 
-function getHeroStyle(isMobile: boolean): CSSProperties {
+function getHeroStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     position: "relative",
     minHeight: isMobile ? "auto" : 160,
     borderRadius: isMobile ? 20 : 24,
-    padding: isMobile ? "18px 14px" : "22px 26px",
+    padding: isMobile
+      ? "18px 14px"
+      : "22px 26px",
     marginBottom: 14,
     overflow: "hidden",
     border: "none",
@@ -2328,7 +2744,9 @@ function getHeroStyle(isMobile: boolean): CSSProperties {
   };
 }
 
-function getHeroContentStyle(screen: ScreenType): CSSProperties {
+function getHeroContentStyle(
+  screen: ScreenType
+): CSSProperties {
   if (screen === "mobile") {
     return {
       position: "relative",
@@ -2370,7 +2788,9 @@ function getHeroContentStyle(screen: ScreenType): CSSProperties {
   };
 }
 
-function getHeroUserCardStyle(screen: ScreenType): CSSProperties {
+function getHeroUserCardStyle(
+  screen: ScreenType
+): CSSProperties {
   if (screen === "mobile") {
     return {
       width: "100%",
@@ -2406,7 +2826,9 @@ function getHeroUserCardStyle(screen: ScreenType): CSSProperties {
   };
 }
 
-function getEmployeeTopRowStyle(screen: ScreenType): CSSProperties {
+function getEmployeeTopRowStyle(
+  screen: ScreenType
+): CSSProperties {
   if (screen === "mobile") {
     return {
       minHeight: 42,
@@ -2444,14 +2866,17 @@ function getEmployeeTopRowStyle(screen: ScreenType): CSSProperties {
   };
 }
 
-function getEmployeeNameStyle(isMobile: boolean): CSSProperties {
+function getEmployeeNameStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     color: "#ffffff",
     fontSize: isMobile ? 15 : 17,
     fontWeight: 900,
     whiteSpace: "nowrap",
     direction: "rtl",
-    textShadow: "0 4px 10px rgba(15,23,42,0.18)",
+    textShadow:
+      "0 4px 10px rgba(15,23,42,0.18)",
   };
 }
 
@@ -2471,8 +2896,10 @@ function getMainWorkstationButtonStyle(
     fontSize: 14,
     fontWeight: 900,
     cursor: "pointer",
-    fontFamily: "var(--font-almarai), sans-serif",
-    boxShadow: "0 8px 18px rgba(22,163,74,0.20)",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
+    boxShadow:
+      "0 8px 18px rgba(22,163,74,0.20)",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
@@ -2482,7 +2909,9 @@ function getMainWorkstationButtonStyle(
   };
 }
 
-function getHeroTitleBoxStyle(screen: ScreenType): CSSProperties {
+function getHeroTitleBoxStyle(
+  screen: ScreenType
+): CSSProperties {
   return {
     position: "relative",
     zIndex: 4,
@@ -2497,22 +2926,32 @@ function getHeroTitleBoxStyle(screen: ScreenType): CSSProperties {
   };
 }
 
-function getTitleStyle(screen: ScreenType): CSSProperties {
+function getTitleStyle(
+  screen: ScreenType
+): CSSProperties {
   return {
     margin: 0,
     color: "#ffffff",
     fontSize:
-      screen === "mobile" ? 29 : screen === "tablet" ? 33 : 38,
+      screen === "mobile"
+        ? 29
+        : screen === "tablet"
+          ? 33
+          : 38,
     lineHeight: 1.35,
     fontWeight: 900,
     letterSpacing: "-0.5px",
-    textShadow: "0 5px 14px rgba(15,23,42,0.14)",
+    textShadow:
+      "0 5px 14px rgba(15,23,42,0.14)",
     whiteSpace: "nowrap",
-    fontFamily: "var(--font-almarai), sans-serif",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
   };
 }
 
-function getHeroActionBoxStyle(screen: ScreenType): CSSProperties {
+function getHeroActionBoxStyle(
+  screen: ScreenType
+): CSSProperties {
   if (screen !== "desktop") {
     return {
       display: "none",
@@ -2531,10 +2970,14 @@ function getHeroActionBoxStyle(screen: ScreenType): CSSProperties {
   };
 }
 
-function getModeGridStyle(isMobile: boolean): CSSProperties {
+function getModeGridStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     display: "grid",
-    gridTemplateColumns: isMobile ? "1fr" : "repeat(2,minmax(0,1fr))",
+    gridTemplateColumns: isMobile
+      ? "1fr"
+      : "repeat(2,minmax(0,1fr))",
     gap: 12,
     marginBottom: 18,
   };
@@ -2553,7 +2996,9 @@ function getThreeColumnGridStyle(
   };
 }
 
-function getFormGridStyle(isCompact: boolean): CSSProperties {
+function getFormGridStyle(
+  isCompact: boolean
+): CSSProperties {
   return {
     display: "grid",
     gridTemplateColumns: isCompact
@@ -2567,33 +3012,39 @@ const employeeIcon: CSSProperties = {
   width: 38,
   height: 38,
   borderRadius: "50%",
-  border: "1.5px solid rgba(255,255,255,0.34)",
-  background: "rgba(255,255,255,0.06)",
+  border:
+    "1.5px solid rgba(255,255,255,0.34)",
+  background:
+    "rgba(255,255,255,0.06)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  color: "rgba(255,255,255,0.96)",
+  color:
+    "rgba(255,255,255,0.96)",
   flex: "0 0 auto",
 };
 
 const employeeDividerSmall: CSSProperties = {
   width: 1,
   height: 34,
-  background: "rgba(255,255,255,0.30)",
+  background:
+    "rgba(255,255,255,0.30)",
   flex: "0 0 auto",
 };
 
 const logoutInlineButton: CSSProperties = {
   border: "none",
   background: "transparent",
-  color: "rgba(255,255,255,0.90)",
+  color:
+    "rgba(255,255,255,0.90)",
   fontSize: 15,
   fontWeight: 800,
   display: "flex",
   alignItems: "center",
   gap: 9,
   cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
   padding: 0,
   whiteSpace: "nowrap",
   direction: "rtl",
@@ -2606,7 +3057,8 @@ const heroCircleOne: CSSProperties = {
   right: -78,
   top: -85,
   borderRadius: "50%",
-  background: "rgba(255,255,255,0.075)",
+  background:
+    "rgba(255,255,255,0.075)",
   pointerEvents: "none",
   zIndex: 1,
 };
@@ -2618,7 +3070,8 @@ const heroCircleTwo: CSSProperties = {
   right: 145,
   bottom: -178,
   borderRadius: "50%",
-  background: "rgba(255,255,255,0.045)",
+  background:
+    "rgba(255,255,255,0.045)",
   pointerEvents: "none",
   zIndex: 1,
 };
@@ -2630,7 +3083,8 @@ const heroCircleThree: CSSProperties = {
   left: 380,
   top: -96,
   borderRadius: "50%",
-  background: "rgba(255,255,255,0.035)",
+  background:
+    "rgba(255,255,255,0.035)",
   pointerEvents: "none",
   zIndex: 1,
 };
@@ -2649,16 +3103,20 @@ const heroDots: CSSProperties = {
 };
 
 const card: CSSProperties = {
-  background: "rgba(255,255,255,0.97)",
-  border: "1px solid #d9e3f5",
+  background:
+    "rgba(255,255,255,0.97)",
+  border:
+    "1px solid #d9e3f5",
   borderRadius: 20,
   padding: 20,
   marginBottom: 16,
-  boxShadow: "0 10px 26px rgba(15,23,42,0.055)",
+  boxShadow:
+    "0 10px 26px rgba(15,23,42,0.055)",
 };
 
 const sectionBlock: CSSProperties = {
-  borderTop: "1px solid #e2e8f0",
+  borderTop:
+    "1px solid #e2e8f0",
   paddingTop: 22,
   marginTop: 22,
 };
@@ -2668,7 +3126,8 @@ const sectionTitle: CSSProperties = {
   color: "#0f2b55",
   fontSize: 19,
   fontWeight: 900,
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const fieldWrapper: CSSProperties = {
@@ -2694,13 +3153,15 @@ const input: CSSProperties = {
   minHeight: 50,
   padding: "12px 14px",
   borderRadius: 13,
-  border: "1px solid #cbd7ea",
+  border:
+    "1px solid #cbd7ea",
   fontSize: 15,
   boxSizing: "border-box",
   background: "#ffffff",
   color: "#0f172a",
   outline: "none",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const textarea: CSSProperties = {
@@ -2708,12 +3169,14 @@ const textarea: CSSProperties = {
   minHeight: 110,
   padding: 14,
   borderRadius: 13,
-  border: "1px solid #cbd7ea",
+  border:
+    "1px solid #cbd7ea",
   fontSize: 15,
   boxSizing: "border-box",
   background: "#ffffff",
   color: "#0f172a",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
   resize: "vertical",
 };
 
@@ -2726,36 +3189,45 @@ const modeButton: CSSProperties = {
   minHeight: 54,
   padding: "13px 18px",
   borderRadius: 15,
-  border: "1px solid #cbd5e1",
+  border:
+    "1px solid #cbd5e1",
   background: "#f8fafc",
   color: "#334155",
   fontSize: 15,
   fontWeight: 900,
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const activeModeButton: CSSProperties = {
-  border: "1px solid #2563eb",
+  border:
+    "1px solid #2563eb",
   color: "#ffffff",
-  background: "linear-gradient(135deg,#0f4db8,#2563eb,#38bdf8)",
-  boxShadow: "0 8px 18px rgba(37,99,235,0.18)",
+  background:
+    "linear-gradient(135deg,#0f4db8,#2563eb,#38bdf8)",
+  boxShadow:
+    "0 8px 18px rgba(37,99,235,0.18)",
 };
 
 const choiceButton: CSSProperties = {
   minHeight: 48,
   borderRadius: 13,
-  border: "1px solid #cbd5e1",
+  border:
+    "1px solid #cbd5e1",
   background: "#f8fafc",
   color: "#334155",
   fontSize: 14,
   fontWeight: 900,
   cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const activeChoiceButton: CSSProperties = {
-  border: "1px solid #16a34a",
-  background: "linear-gradient(135deg,#dcfce7,#bbf7d0)",
+  border:
+    "1px solid #16a34a",
+  background:
+    "linear-gradient(135deg,#dcfce7,#bbf7d0)",
   color: "#166534",
 };
 
@@ -2772,16 +3244,19 @@ const searchResultsBox: CSSProperties = {
   maxHeight: 360,
   overflowY: "auto",
   borderRadius: 15,
-  border: "1px solid #bfdbfe",
+  border:
+    "1px solid #bfdbfe",
   background: "#ffffff",
-  boxShadow: "0 18px 42px rgba(15,23,42,0.16)",
+  boxShadow:
+    "0 18px 42px rgba(15,23,42,0.16)",
   padding: 7,
 };
 
 const contractResultButton: CSSProperties = {
   width: "100%",
   border: "none",
-  borderBottom: "1px solid #e2e8f0",
+  borderBottom:
+    "1px solid #e2e8f0",
   background: "#ffffff",
   textAlign: "right",
   padding: "12px 13px",
@@ -2789,7 +3264,8 @@ const contractResultButton: CSSProperties = {
   display: "grid",
   gap: 5,
   color: "#0f172a",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const contractResultNumber: CSSProperties = {
@@ -2819,12 +3295,14 @@ const searchStateText: CSSProperties = {
 
 const selectedContractBox: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))",
+  gridTemplateColumns:
+    "repeat(auto-fit,minmax(170px,1fr))",
   gap: 10,
   padding: 15,
   marginTop: 6,
   borderRadius: 14,
-  border: "1px solid #bbf7d0",
+  border:
+    "1px solid #bbf7d0",
   background: "#f0fdf4",
 };
 
@@ -2844,11 +3322,13 @@ const selectedContractValue: CSSProperties = {
 
 const beneficiaryPreview: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))",
+  gridTemplateColumns:
+    "repeat(auto-fit,minmax(180px,1fr))",
   gap: 10,
   padding: 15,
   borderRadius: 14,
-  border: "1px solid #dbeafe",
+  border:
+    "1px solid #dbeafe",
   background: "#f8fbff",
 };
 
@@ -2876,7 +3356,8 @@ const fixedValueBox: CSSProperties = {
   minHeight: 50,
   padding: "12px 14px",
   borderRadius: 13,
-  border: "1px solid #cbd7ea",
+  border:
+    "1px solid #cbd7ea",
   background: "#f8fafc",
   color: "#334155",
   fontSize: 15,
@@ -2890,7 +3371,8 @@ const amountWordsBox: CSSProperties = {
   minHeight: 58,
   padding: "14px 16px",
   borderRadius: 13,
-  border: "1px solid #bfdbfe",
+  border:
+    "1px solid #bfdbfe",
   background: "#eff6ff",
   color: "#1e3a8a",
   fontSize: 15,
@@ -2912,7 +3394,8 @@ const lookupMessageBox: CSSProperties = {
 const guarantorHeader: CSSProperties = {
   display: "flex",
   alignItems: "center",
-  justifyContent: "space-between",
+  justifyContent:
+    "space-between",
   flexWrap: "wrap",
   gap: 12,
 };
@@ -2930,7 +3413,8 @@ const toggleLabel: CSSProperties = {
 const permissionHint: CSSProperties = {
   padding: "11px 13px",
   borderRadius: 12,
-  border: "1px solid #fde68a",
+  border:
+    "1px solid #fde68a",
   background: "#fffbeb",
   color: "#92400e",
   fontSize: 13,
@@ -2942,33 +3426,42 @@ const primaryButton: CSSProperties = {
   minHeight: 56,
   padding: 16,
   marginTop: 22,
-  background: "linear-gradient(135deg,#0b3d91,#0d65d9,#22a9e5)",
+  background:
+    "linear-gradient(135deg,#0b3d91,#0d65d9,#22a9e5)",
   color: "#ffffff",
   border: "none",
   borderRadius: 15,
   fontSize: 16,
   fontWeight: 900,
-  boxShadow: "0 10px 22px rgba(13,101,217,0.22)",
-  fontFamily: "var(--font-almarai), sans-serif",
+  boxShadow:
+    "0 10px 22px rgba(13,101,217,0.22)",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const permissionDeniedCard: CSSProperties = {
-  background: "rgba(255,255,255,0.96)",
-  border: "1px solid #fecaca",
+  background:
+    "rgba(255,255,255,0.96)",
+  border:
+    "1px solid #fecaca",
   borderRadius: 20,
-  padding: "38px 20px",
+  padding:
+    "38px 20px",
   textAlign: "center",
-  boxShadow: "0 12px 30px rgba(15,23,42,0.06)",
+  boxShadow:
+    "0 12px 30px rgba(15,23,42,0.06)",
 };
 
 const permissionDeniedIcon: CSSProperties = {
   width: 58,
   height: 58,
   borderRadius: "50%",
-  margin: "0 auto 14px",
+  margin:
+    "0 auto 14px",
   display: "flex",
   alignItems: "center",
-  justifyContent: "center",
+  justifyContent:
+    "center",
   background: "#fee2e2",
   color: "#b91c1c",
   fontSize: 30,
@@ -2999,13 +3492,16 @@ const backWrapper: CSSProperties = {
 const backButton: CSSProperties = {
   minWidth: 116,
   padding: "11px 18px",
-  background: "linear-gradient(135deg,#22c55e,#15803d)",
+  background:
+    "linear-gradient(135deg,#22c55e,#15803d)",
   color: "#ffffff",
   border: "none",
   borderRadius: 12,
   fontSize: 14,
   fontWeight: 900,
   cursor: "pointer",
-  boxShadow: "0 5px 14px rgba(22,163,74,0.22)",
-  fontFamily: "var(--font-almarai), sans-serif",
+  boxShadow:
+    "0 5px 14px rgba(22,163,74,0.22)",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
