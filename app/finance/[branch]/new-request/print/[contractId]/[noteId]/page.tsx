@@ -1,7 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
+import type { CSSProperties } from "react";
 import {
   useParams,
   usePathname,
@@ -134,11 +138,8 @@ type OrganizationSettings = {
   commercialRecord: string;
 };
 
-const SESSION_DURATION_MS =
-  60 * 60 * 1000;
-
-const ACTIVITY_REFRESH_INTERVAL_MS =
-  60 * 1000;
+const SESSION_DURATION_MS = 60 * 60 * 1000;
+const ACTIVITY_REFRESH_INTERVAL_MS = 60 * 1000;
 
 const SESSION_KEYS = [
   "finance_user",
@@ -190,9 +191,7 @@ export default function PrintNewRequestPage() {
     useState<string | null>(null);
 
   const [contract, setContract] =
-    useState<ContractRecord | null>(
-      null
-    );
+    useState<ContractRecord | null>(null);
 
   const [note, setNote] =
     useState<PromissoryNoteRecord | null>(
@@ -208,520 +207,6 @@ export default function PrintNewRequestPage() {
     city: "",
     commercialRecord: "",
   });
-
-  useEffect(() => {
-    const style =
-      document.createElement("style");
-
-    style.innerHTML = `
-      @media print {
-        html,
-        body {
-          margin: 0 !important;
-          padding: 0 !important;
-          background: #ffffff !important;
-          -webkit-print-color-adjust: exact !important;
-          print-color-adjust: exact !important;
-        }
-
-        body {
-          overflow: visible !important;
-        }
-
-        .print-page-main {
-          min-height: auto !important;
-          padding: 0 !important;
-          margin: 0 !important;
-          background: #ffffff !important;
-        }
-
-        .print-action-buttons,
-        .print-loading-message,
-        .print-error-message {
-          display: none !important;
-        }
-
-        .contract-print-area,
-        .note-print-area {
-          width: 194mm !important;
-          height: 281mm !important;
-          min-height: 281mm !important;
-          max-height: 281mm !important;
-          margin: 0 auto !important;
-          padding: 7mm !important;
-          border: none !important;
-          box-shadow: none !important;
-          overflow: hidden !important;
-          page-break-inside: avoid !important;
-          break-inside: avoid-page !important;
-        }
-
-        .contract-print-area {
-          page-break-after: always !important;
-          break-after: page !important;
-        }
-
-        .note-print-area {
-          page-break-before: always !important;
-          break-before: page !important;
-        }
-
-        section,
-        div,
-        p {
-          page-break-inside: avoid;
-          break-inside: avoid;
-        }
-      }
-
-      @page {
-        size: A4 portrait;
-        margin: 8mm;
-      }
-
-      * {
-        box-sizing: border-box;
-      }
-
-      body {
-        overflow-x: hidden;
-      }
-
-      button {
-        -webkit-tap-highlight-color: transparent;
-      }
-
-      @media (max-width: 850px) {
-        .contract-print-area,
-        .note-print-area {
-          width: 100% !important;
-          height: auto !important;
-          min-height: 0 !important;
-          padding: 18px !important;
-        }
-
-        .print-document-header {
-          grid-template-columns: 1fr !important;
-          text-align: center !important;
-        }
-
-        .print-header-left {
-          text-align: center !important;
-        }
-
-        .print-signatures,
-        .print-legal-boxes,
-        .print-guarantor-grid {
-          grid-template-columns: 1fr !important;
-        }
-      }
-    `;
-
-    document.head.appendChild(style);
-
-    return () => {
-      document.head.removeChild(style);
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function initializePage() {
-      if (
-        typeof window === "undefined"
-      ) {
-        return;
-      }
-
-      setPageError("");
-      setLoading(true);
-
-      const session =
-        readStoredSession();
-
-      if (!isValidSession(session)) {
-        redirectToLogin(true);
-        return;
-      }
-
-      const sessionBranchSlug =
-        String(
-          session?.branch_slug || ""
-        ).trim();
-
-      if (
-        sessionBranchSlug &&
-        sessionBranchSlug !== branch
-      ) {
-        router.replace(
-          `/finance/${sessionBranchSlug}`
-        );
-
-        return;
-      }
-
-      renewFinanceSession();
-      setPageReady(true);
-
-      const storedBranchId =
-        String(
-          session?.branch_id ||
-            localStorage.getItem(
-              "finance_branch_id"
-            ) ||
-            ""
-        ).trim();
-
-      let resolvedBranchId =
-        storedBranchId;
-
-      if (!resolvedBranchId) {
-        try {
-          const fetchedBranchId =
-            await getBranchId(branch);
-
-          if (cancelled) {
-            return;
-          }
-
-          if (!fetchedBranchId) {
-            setPageError(
-              "تعذر تحديد الفرع"
-            );
-
-            setLoading(false);
-            return;
-          }
-
-          resolvedBranchId =
-            String(fetchedBranchId);
-
-          localStorage.setItem(
-            "finance_branch_id",
-            resolvedBranchId
-          );
-
-          localStorage.setItem(
-            "finance_branch_slug",
-            branch
-          );
-        } catch (error) {
-          if (cancelled) {
-            return;
-          }
-
-          setPageError(
-            getErrorMessage(
-              error,
-              "تعذر تحديد الفرع"
-            )
-          );
-
-          setLoading(false);
-          return;
-        }
-      }
-
-      setBranchId(
-        resolvedBranchId
-      );
-
-      await loadData(
-        resolvedBranchId,
-        () => cancelled
-      );
-    }
-
-    void initializePage();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    branch,
-    contractId,
-    noteId,
-    router,
-  ]);
-
-  useEffect(() => {
-    if (
-      !pageReady ||
-      typeof window === "undefined"
-    ) {
-      return;
-    }
-
-    let lastRefresh = 0;
-
-    function handleActivity() {
-      const now = Date.now();
-
-      if (
-        now - lastRefresh <
-        ACTIVITY_REFRESH_INTERVAL_MS
-      ) {
-        return;
-      }
-
-      lastRefresh = now;
-      renewFinanceSession();
-    }
-
-    const events:
-      Array<keyof WindowEventMap> = [
-      "pointerdown",
-      "keydown",
-      "scroll",
-      "touchstart",
-    ];
-
-    events.forEach((eventName) => {
-      window.addEventListener(
-        eventName,
-        handleActivity,
-        { passive: true }
-      );
-    });
-
-    const timer =
-      window.setInterval(() => {
-        const expiresAt = Number(
-          localStorage.getItem(
-            "finance_session_expires_at"
-          ) || 0
-        );
-
-        if (
-          expiresAt > 0 &&
-          Date.now() >= expiresAt
-        ) {
-          redirectToLogin(true);
-        }
-      }, 30 * 1000);
-
-    return () => {
-      events.forEach((eventName) => {
-        window.removeEventListener(
-          eventName,
-          handleActivity
-        );
-      });
-
-      window.clearInterval(timer);
-    };
-  }, [pageReady, pathname]);
-
-  const loadData = useCallback(
-    async (
-      currentBranchId: string,
-      isCancelled: () => boolean =
-        () => false
-    ) => {
-      if (
-        !currentBranchId ||
-        !contractId ||
-        !noteId
-      ) {
-        setPageError(
-          "بيانات العقد أو السند غير مكتملة"
-        );
-
-        setLoading(false);
-        return;
-      }
-
-      setLoading(true);
-      setPageError("");
-
-      try {
-        const [
-          branchResult,
-          contractResult,
-          noteResult,
-        ] = await Promise.all([
-          supabase
-            .from("finance_branches")
-            .select(
-              "id, branch_slug, branch_name, organization_name, phone, city, commercial_record, is_active"
-            )
-            .eq(
-              "id",
-              currentBranchId
-            )
-            .eq(
-              "branch_slug",
-              branch
-            )
-            .maybeSingle(),
-
-          supabase
-            .from("finance_contracts")
-            .select(
-              `
-              *,
-              customer:finance_customers!finance_contracts_customer_id_fkey(
-                id,
-                full_name,
-                national_id,
-                phone,
-                birth_hijri,
-                work,
-                work_name,
-                address
-              ),
-              guarantor_customer:finance_customers!finance_contracts_guarantor_customer_id_fkey(
-                id,
-                full_name,
-                national_id,
-                phone,
-                birth_hijri,
-                work,
-                work_name,
-                address
-              )
-            `
-            )
-            .eq("id", contractId)
-            .eq(
-              "branch_id",
-              currentBranchId
-            )
-            .maybeSingle(),
-
-          supabase
-            .from(
-              "finance_promissory_notes"
-            )
-            .select("*")
-            .eq("id", noteId)
-            .eq(
-              "contract_id",
-              contractId
-            )
-            .eq(
-              "branch_id",
-              currentBranchId
-            )
-            .maybeSingle(),
-        ]);
-
-        if (isCancelled()) {
-          return;
-        }
-
-        if (branchResult.error) {
-          throw new Error(
-            branchResult.error.message
-          );
-        }
-
-        if (
-          !branchResult.data ||
-          branchResult.data.is_active ===
-            false
-        ) {
-          throw new Error(
-            "الفرع غير موجود أو غير نشط"
-          );
-        }
-
-        if (contractResult.error) {
-          throw new Error(
-            contractResult.error.message
-          );
-        }
-
-        if (!contractResult.data) {
-          throw new Error(
-            "العقد غير موجود أو لا يتبع هذا الفرع"
-          );
-        }
-
-        if (noteResult.error) {
-          throw new Error(
-            noteResult.error.message
-          );
-        }
-
-        if (!noteResult.data) {
-          throw new Error(
-            "السند غير موجود أو لا يتبع هذا العقد"
-          );
-        }
-
-        const branchData =
-          branchResult.data as BranchRecord;
-
-        setOrganizationSettings({
-          name:
-            branchData.organization_name ||
-            localStorage.getItem(
-              "finance_organization_name"
-            ) ||
-            "احتساب",
-
-          phone:
-            branchData.phone || "",
-
-          city:
-            branchData.city ||
-            branchData.branch_name ||
-            "",
-
-          commercialRecord:
-            branchData.commercial_record ||
-            "",
-        });
-
-        setContract(
-          contractResult.data as ContractRecord
-        );
-
-        setNote(
-          noteResult.data as PromissoryNoteRecord
-        );
-
-        if (
-          branchData.organization_name
-        ) {
-          localStorage.setItem(
-            "finance_organization_name",
-            branchData.organization_name
-          );
-        }
-      } catch (error) {
-        if (isCancelled()) {
-          return;
-        }
-
-        console.error(
-          "Print request loading error:",
-          error
-        );
-
-        setContract(null);
-        setNote(null);
-
-        setPageError(
-          getErrorMessage(
-            error,
-            "تعذر تحميل بيانات العقد والسند"
-          )
-        );
-      } finally {
-        if (!isCancelled()) {
-          setLoading(false);
-        }
-      }
-    },
-    [
-      branch,
-      contractId,
-      noteId,
-    ]
-  );
 
   function readStoredSession():
     | FinanceSession
@@ -745,10 +230,9 @@ export default function PrintNewRequestPage() {
     }
 
     try {
-      const parsed =
-        JSON.parse(
-          rawSession
-        ) as FinanceSession;
+      const parsed = JSON.parse(
+        rawSession
+      ) as FinanceSession;
 
       if (
         !parsed ||
@@ -798,10 +282,9 @@ export default function PrintNewRequestPage() {
         ""
     ).trim();
 
-    const sessionBranchSlug =
-      String(
-        session.branch_slug || ""
-      ).trim();
+    const sessionBranchSlug = String(
+      session.branch_slug || ""
+    ).trim();
 
     if (
       !userId ||
@@ -959,6 +442,593 @@ export default function PrintNewRequestPage() {
     router.replace("/login");
   }
 
+  const loadData = useCallback(
+    async (
+      currentBranchId: string,
+      isCancelled: () => boolean =
+        () => false
+    ) => {
+      if (
+        !currentBranchId ||
+        !contractId ||
+        !noteId
+      ) {
+        if (!isCancelled()) {
+          setPageError(
+            "بيانات العقد أو السند غير مكتملة"
+          );
+
+          setLoading(false);
+        }
+
+        return;
+      }
+
+      setLoading(true);
+      setPageError("");
+
+      try {
+        const [
+          branchResult,
+          contractResult,
+          noteResult,
+        ] = await Promise.all([
+          supabase
+            .from("finance_branches")
+            .select(
+              `
+                id,
+                branch_slug,
+                branch_name,
+                organization_name,
+                phone,
+                city,
+                commercial_record,
+                is_active
+              `
+            )
+            .eq(
+              "id",
+              currentBranchId
+            )
+            .eq(
+              "branch_slug",
+              branch
+            )
+            .maybeSingle(),
+
+          supabase
+            .from("finance_contracts")
+            .select(
+              `
+                *,
+                customer:finance_customers!finance_contracts_customer_id_fkey(
+                  id,
+                  full_name,
+                  national_id,
+                  phone,
+                  birth_hijri,
+                  work,
+                  work_name,
+                  address
+                ),
+                guarantor_customer:finance_customers!finance_contracts_guarantor_customer_id_fkey(
+                  id,
+                  full_name,
+                  national_id,
+                  phone,
+                  birth_hijri,
+                  work,
+                  work_name,
+                  address
+                )
+              `
+            )
+            .eq(
+              "id",
+              contractId
+            )
+            .eq(
+              "branch_id",
+              currentBranchId
+            )
+            .maybeSingle(),
+
+          supabase
+            .from(
+              "finance_promissory_notes"
+            )
+            .select("*")
+            .eq("id", noteId)
+            .eq(
+              "contract_id",
+              contractId
+            )
+            .eq(
+              "branch_id",
+              currentBranchId
+            )
+            .maybeSingle(),
+        ]);
+
+        if (isCancelled()) {
+          return;
+        }
+
+        if (branchResult.error) {
+          throw new Error(
+            branchResult.error.message
+          );
+        }
+
+        if (
+          !branchResult.data ||
+          branchResult.data.is_active ===
+            false
+        ) {
+          throw new Error(
+            "الفرع غير موجود أو غير نشط"
+          );
+        }
+
+        if (contractResult.error) {
+          throw new Error(
+            contractResult.error.message
+          );
+        }
+
+        if (!contractResult.data) {
+          throw new Error(
+            "العقد غير موجود أو لا يتبع هذا الفرع"
+          );
+        }
+
+        if (noteResult.error) {
+          throw new Error(
+            noteResult.error.message
+          );
+        }
+
+        if (!noteResult.data) {
+          throw new Error(
+            "السند غير موجود أو لا يتبع هذا العقد"
+          );
+        }
+
+        const branchData =
+          branchResult.data as BranchRecord;
+
+        const organizationName =
+          branchData.organization_name ||
+          localStorage.getItem(
+            "finance_organization_name"
+          ) ||
+          "احتساب";
+
+        setOrganizationSettings({
+          name: organizationName,
+
+          phone:
+            branchData.phone || "",
+
+          city:
+            branchData.city ||
+            branchData.branch_name ||
+            "",
+
+          commercialRecord:
+            branchData.commercial_record ||
+            "",
+        });
+
+        setContract(
+          contractResult.data as ContractRecord
+        );
+
+        setNote(
+          noteResult.data as PromissoryNoteRecord
+        );
+
+        localStorage.setItem(
+          "finance_branch_id",
+          currentBranchId
+        );
+
+        localStorage.setItem(
+          "finance_branch_slug",
+          branch
+        );
+
+        if (organizationName) {
+          localStorage.setItem(
+            "finance_organization_name",
+            organizationName
+          );
+        }
+      } catch (error) {
+        if (isCancelled()) {
+          return;
+        }
+
+        console.error(
+          "Print request loading error:",
+          error
+        );
+
+        setContract(null);
+        setNote(null);
+
+        setPageError(
+          getErrorMessage(
+            error,
+            "تعذر تحميل بيانات العقد والسند"
+          )
+        );
+      } finally {
+        if (!isCancelled()) {
+          setLoading(false);
+        }
+      }
+    },
+    [
+      branch,
+      contractId,
+      noteId,
+    ]
+  );
+
+  useEffect(() => {
+    const style =
+      document.createElement("style");
+
+    style.innerHTML = `
+      @page {
+        size: A4 portrait;
+        margin: 8mm;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        overflow-x: hidden;
+      }
+
+      button {
+        font-family:
+          var(--font-almarai),
+          sans-serif;
+        -webkit-tap-highlight-color:
+          transparent;
+      }
+
+      @media print {
+        html,
+        body {
+          width: 210mm !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #ffffff !important;
+          overflow: visible !important;
+          -webkit-print-color-adjust:
+            exact !important;
+          print-color-adjust:
+            exact !important;
+        }
+
+        .print-page-main {
+          width: 100% !important;
+          min-height: auto !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #ffffff !important;
+          background-image:
+            none !important;
+        }
+
+        .print-action-buttons,
+        .print-loading-message,
+        .print-error-message {
+          display: none !important;
+        }
+
+        .contract-print-area,
+        .note-print-area {
+          width: 194mm !important;
+          height: 281mm !important;
+          min-height: 281mm !important;
+          max-height: 281mm !important;
+          margin: 0 auto !important;
+          padding: 6mm !important;
+          border: none !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
+          overflow: hidden !important;
+          box-sizing: border-box !important;
+          page-break-inside:
+            avoid !important;
+          break-inside:
+            avoid-page !important;
+        }
+
+        .contract-print-area {
+          page-break-after:
+            always !important;
+          break-after:
+            page !important;
+        }
+
+        .note-print-area {
+          page-break-before:
+            auto !important;
+          break-before:
+            auto !important;
+        }
+
+        .print-document-header,
+        .print-content-box,
+        .print-signatures,
+        .print-guarantor-box,
+        .print-legal-boxes,
+        .print-info-box,
+        .print-paragraph {
+          page-break-inside:
+            avoid !important;
+          break-inside:
+            avoid-page !important;
+        }
+      }
+
+      @media screen and (max-width: 850px) {
+        .contract-print-area,
+        .note-print-area {
+          width: 100% !important;
+          height: auto !important;
+          min-height: 0 !important;
+          max-height: none !important;
+          padding: 18px !important;
+        }
+
+        .print-document-header {
+          grid-template-columns:
+            1fr !important;
+          text-align: center !important;
+        }
+
+        .print-header-left,
+        .print-header-right {
+          text-align:
+            center !important;
+        }
+
+        .print-signatures,
+        .print-legal-boxes,
+        .print-guarantor-grid {
+          grid-template-columns:
+            1fr !important;
+        }
+      }
+    `;
+
+    document.head.appendChild(style);
+
+    return () => {
+      document.head.removeChild(style);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function initializePage() {
+      if (
+        typeof window === "undefined"
+      ) {
+        return;
+      }
+
+      setPageError("");
+      setLoading(true);
+
+      if (
+        !branch ||
+        !contractId ||
+        !noteId
+      ) {
+        setPageReady(true);
+        setPageError(
+          "رابط العقد أو السند غير مكتمل"
+        );
+        setLoading(false);
+        return;
+      }
+
+      const session =
+        readStoredSession();
+
+      if (!isValidSession(session)) {
+        redirectToLogin(true);
+        return;
+      }
+
+      const sessionBranchSlug =
+        String(
+          session?.branch_slug || ""
+        ).trim();
+
+      if (
+        sessionBranchSlug !== branch
+      ) {
+        router.replace(
+          `/finance/${sessionBranchSlug}`
+        );
+
+        return;
+      }
+
+      renewFinanceSession();
+      setPageReady(true);
+
+      const storedBranchId = String(
+        session?.branch_id ||
+          localStorage.getItem(
+            "finance_branch_id"
+          ) ||
+          ""
+      ).trim();
+
+      let resolvedBranchId =
+        storedBranchId;
+
+      if (!resolvedBranchId) {
+        try {
+          const fetchedBranchId =
+            await getBranchId(branch);
+
+          if (cancelled) {
+            return;
+          }
+
+          if (!fetchedBranchId) {
+            setPageError(
+              "تعذر تحديد الفرع"
+            );
+
+            setLoading(false);
+            return;
+          }
+
+          resolvedBranchId =
+            String(fetchedBranchId);
+        } catch (error) {
+          if (cancelled) {
+            return;
+          }
+
+          setPageError(
+            getErrorMessage(
+              error,
+              "تعذر تحديد الفرع"
+            )
+          );
+
+          setLoading(false);
+          return;
+        }
+      }
+
+      if (cancelled) {
+        return;
+      }
+
+      localStorage.setItem(
+        "finance_branch_id",
+        resolvedBranchId
+      );
+
+      localStorage.setItem(
+        "finance_branch_slug",
+        branch
+      );
+
+      setBranchId(
+        resolvedBranchId
+      );
+
+      await loadData(
+        resolvedBranchId,
+        () => cancelled
+      );
+    }
+
+    void initializePage();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    branch,
+    contractId,
+    noteId,
+    loadData,
+    router,
+  ]);
+
+  useEffect(() => {
+    if (
+      !pageReady ||
+      typeof window === "undefined"
+    ) {
+      return;
+    }
+
+    let lastRefresh = 0;
+
+    function handleActivity() {
+      const now = Date.now();
+
+      if (
+        now - lastRefresh <
+        ACTIVITY_REFRESH_INTERVAL_MS
+      ) {
+        return;
+      }
+
+      lastRefresh = now;
+      renewFinanceSession();
+    }
+
+    const events:
+      Array<keyof WindowEventMap> = [
+      "pointerdown",
+      "keydown",
+      "scroll",
+      "touchstart",
+    ];
+
+    events.forEach((eventName) => {
+      window.addEventListener(
+        eventName,
+        handleActivity,
+        { passive: true }
+      );
+    });
+
+    const timer =
+      window.setInterval(() => {
+        const expiresAt = Number(
+          localStorage.getItem(
+            "finance_session_expires_at"
+          ) || 0
+        );
+
+        if (
+          expiresAt > 0 &&
+          Date.now() >= expiresAt
+        ) {
+          redirectToLogin(true);
+        }
+      }, 30 * 1000);
+
+    return () => {
+      events.forEach((eventName) => {
+        window.removeEventListener(
+          eventName,
+          handleActivity
+        );
+      });
+
+      window.clearInterval(timer);
+    };
+  }, [
+    pageReady,
+    pathname,
+  ]);
+
   function retryLoading() {
     if (!branchId) {
       setPageError(
@@ -988,8 +1058,13 @@ export default function PrintNewRequestPage() {
   function formatMoney(
     value: unknown
   ) {
-    const number =
-      Number(value || 0);
+    const number = Number(
+      value || 0
+    );
+
+    if (!Number.isFinite(number)) {
+      return "0.00";
+    }
 
     return number.toLocaleString(
       "en-US",
@@ -1035,6 +1110,31 @@ export default function PrintNewRequestPage() {
         year: "numeric",
       }
     ).format(parsedDate);
+  }
+
+  function isWithoutGuarantor(
+    value?: string | null
+  ) {
+    const normalized = String(
+      value || ""
+    )
+      .trim()
+      .toLowerCase();
+
+    if (!normalized) {
+      return false;
+    }
+
+    return [
+      "بدون كفيل",
+      "لا يوجد كفيل",
+      "لايوجد كفيل",
+      "لا يوجد",
+      "لايوجد",
+      "بدون",
+      "none",
+      "no guarantor",
+    ].includes(normalized);
   }
 
   function printDocuments() {
@@ -1092,10 +1192,13 @@ export default function PrintNewRequestPage() {
     contract?.customer_birth_hijri ||
     "................";
 
-  const firstPartyType =
+  const firstPartyType = String(
     contract?.print_party_type ||
-    contract?.first_party_type ||
-    "organization";
+      contract?.first_party_type ||
+      "organization"
+  )
+    .trim()
+    .toLowerCase();
 
   const isInvestorParty =
     firstPartyType === "investor";
@@ -1141,38 +1244,59 @@ export default function PrintNewRequestPage() {
         contract?.contract_date_gregorian
     );
 
+  const rawDueDate =
+    contract?.payment_due_date ||
+    note?.due_date ||
+    null;
+
   const dueDate =
+    formatDateOnly(rawDueDate);
+
+  const noteDueDate =
     formatDateOnly(
-      contract?.payment_due_date ||
-        note?.due_date
+      note?.due_date ||
+        contract?.payment_due_date
     );
 
-  const hasDeferredPayments =
-    Boolean(
-      contract?.has_deferred_payments
-    ) ||
+  const installmentAmount =
     Number(
       contract?.installment_amount ||
         0
-    ) > 0;
+    );
 
-  const hasGuarantor =
-    Boolean(
-      contract?.has_guarantor
-    ) ||
-    Boolean(
-      contract?.guarantor_customer_id
-    ) ||
-    Boolean(
-      contract?.guarantor_name
-    ) ||
-    Boolean(note?.has_guarantor) ||
-    Boolean(note?.guarantor_name);
+  const deferredPaymentsCount =
+    Number(
+      contract?.deferred_payments_count ||
+        0
+    );
 
-  const guarantorName =
+  const hasDeferredPayments =
+    contract?.has_deferred_payments ===
+      true ||
+    installmentAmount > 0;
+
+  const rawGuarantorName =
     guarantorCustomer?.full_name ||
     contract?.guarantor_name ||
     note?.guarantor_name ||
+    "";
+
+  const hasGuarantorData =
+    Boolean(
+      contract?.guarantor_customer_id
+    ) ||
+    Boolean(rawGuarantorName) ||
+    contract?.has_guarantor === true ||
+    note?.has_guarantor === true;
+
+  const hasGuarantor =
+    hasGuarantorData &&
+    !isWithoutGuarantor(
+      rawGuarantorName
+    );
+
+  const guarantorName =
+    rawGuarantorName ||
     "................";
 
   const guarantorNationalId =
@@ -1246,14 +1370,23 @@ export default function PrintNewRequestPage() {
               ]}
             />
 
-            <div style={contentBox}>
-              <p style={paragraph}>
+            <div
+              className="print-content-box"
+              style={contentBox}
+            >
+              <p
+                className="print-paragraph"
+                style={paragraph}
+              >
                 الحمد لله والصلاة
                 والسلام على من لا نبي
                 بعده، وبعد:
               </p>
 
-              <p style={paragraph}>
+              <p
+                className="print-paragraph"
+                style={paragraph}
+              >
                 أقر أنا الموقع أدناه
                 الطرف الثاني /{" "}
                 <strong>
@@ -1292,7 +1425,10 @@ export default function PrintNewRequestPage() {
                 .
               </p>
 
-              <p style={paragraph}>
+              <p
+                className="print-paragraph"
+                style={paragraph}
+              >
                 وذلك مقابل /{" "}
                 <strong>
                   {contract.product_name ||
@@ -1312,7 +1448,10 @@ export default function PrintNewRequestPage() {
                 ريال سعودي.
               </p>
 
-              <p style={paragraph}>
+              <p
+                className="print-paragraph"
+                style={paragraph}
+              >
                 ويلتزم الطرف الثاني
                 بسداد مبلغ وقدره /{" "}
                 <strong>
@@ -1328,15 +1467,25 @@ export default function PrintNewRequestPage() {
                     قيمة كل دفعة /{" "}
                     <strong>
                       {formatMoney(
-                        contract.installment_amount
+                        installmentAmount
                       )}
                     </strong>{" "}
-                    ريال سعودي، وعددها /{" "}
-                    <strong>
-                      {contract.deferred_payments_count ||
-                        0}
-                    </strong>{" "}
-                    دفعات، ويكون تاريخ
+                    ريال سعودي
+
+                    {deferredPaymentsCount >
+                      0 && (
+                      <>
+                        ، وعددها /{" "}
+                        <strong>
+                          {
+                            deferredPaymentsCount
+                          }
+                        </strong>{" "}
+                        دفعات
+                      </>
+                    )}
+
+                    ، ويكون تاريخ
                     الاستحقاق بتاريخ /{" "}
                     <strong>
                       {dueDate}
@@ -1355,7 +1504,10 @@ export default function PrintNewRequestPage() {
                 )}
               </p>
 
-              <p style={paragraph}>
+              <p
+                className="print-paragraph"
+                style={paragraph}
+              >
                 وتكون مدينة التقاضي /{" "}
                 <strong>
                   {contract.legal_city ||
@@ -1368,7 +1520,10 @@ export default function PrintNewRequestPage() {
                 contract.judicial_amount ||
                   0
               ) > 0 && (
-                <p style={paragraph}>
+                <p
+                  className="print-paragraph"
+                  style={paragraph}
+                >
                   ويكون المبلغ القضائي
                   المتفق عليه /{" "}
                   <strong>
@@ -1380,7 +1535,10 @@ export default function PrintNewRequestPage() {
                 </p>
               )}
 
-              <p style={paragraph}>
+              <p
+                className="print-paragraph"
+                style={paragraph}
+              >
                 كما يقر الطرف الثاني
                 بأنه اطلع على كامل بنود
                 هذا العقد، وأنه ملتزم
@@ -1393,7 +1551,10 @@ export default function PrintNewRequestPage() {
               </p>
 
               {contract.notes && (
-                <p style={paragraph}>
+                <p
+                  className="print-paragraph"
+                  style={paragraph}
+                >
                   ملاحظات:{" "}
                   <strong>
                     {contract.notes}
@@ -1406,9 +1567,7 @@ export default function PrintNewRequestPage() {
               className="print-signatures"
               style={signatures}
             >
-              <div
-                style={signatureBox}
-              >
+              <div style={signatureBox}>
                 <strong>
                   الطرف الأول البائع
                 </strong>
@@ -1433,9 +1592,7 @@ export default function PrintNewRequestPage() {
                 </div>
               </div>
 
-              <div
-                style={signatureBox}
-              >
+              <div style={signatureBox}>
                 <strong>
                   الطرف الثاني المشتري
                 </strong>
@@ -1462,6 +1619,7 @@ export default function PrintNewRequestPage() {
 
             {hasGuarantor && (
               <div
+                className="print-guarantor-box"
                 style={guarantorBox}
               >
                 <strong>
@@ -1521,8 +1679,14 @@ export default function PrintNewRequestPage() {
               ]}
             />
 
-            <div style={contentBox}>
-              <p style={paragraph}>
+            <div
+              className="print-content-box"
+              style={contentBox}
+            >
+              <p
+                className="print-paragraph"
+                style={paragraph}
+              >
                 بموجب هذا السند أتعهد
                 أنا الموقع أدناه بأن
                 أدفع لأمر الطرف المستفيد
@@ -1548,19 +1712,22 @@ export default function PrintNewRequestPage() {
                 مبلغًا وقدره{" "}
                 <strong>
                   {formatMoney(
-                    note.amount
+                    note.amount ||
+                      contract.payment_amount ||
+                      contract.debt_amount
                   )}
                 </strong>{" "}
                 ريال سعودي.
               </p>
 
-              <p style={paragraph}>
+              <p
+                className="print-paragraph"
+                style={paragraph}
+              >
                 ويستحق هذا المبلغ في
                 تاريخ{" "}
                 <strong>
-                  {formatDateOnly(
-                    note.due_date
-                  ) || dueDate}
+                  {noteDueDate}
                 </strong>
                 ، دون مماطلة أو تأخير،
                 ويعد هذا السند التزامًا
@@ -1568,7 +1735,10 @@ export default function PrintNewRequestPage() {
                 المعمول بها.
               </p>
 
-              <div style={infoBox}>
+              <div
+                className="print-info-box"
+                style={infoBox}
+              >
                 <div>
                   اسم المدين /{" "}
                   {note.debtor_name ||
@@ -1591,12 +1761,16 @@ export default function PrintNewRequestPage() {
                   العنوان /{" "}
                   {note.city ||
                     contract.legal_city ||
+                    customer?.address ||
                     "................"}
                 </div>
               </div>
 
               {note.notes && (
-                <p style={paragraph}>
+                <p
+                  className="print-paragraph"
+                  style={paragraph}
+                >
                   ملاحظات:{" "}
                   <strong>
                     {note.notes}
@@ -1609,9 +1783,7 @@ export default function PrintNewRequestPage() {
               className="print-signatures"
               style={signatures}
             >
-              <div
-                style={signatureBox}
-              >
+              <div style={signatureBox}>
                 <strong>المدين</strong>
 
                 <div>
@@ -1644,9 +1816,7 @@ export default function PrintNewRequestPage() {
               </div>
 
               {hasGuarantor && (
-                <div
-                  style={signatureBox}
-                >
+                <div style={signatureBox}>
                   <strong>
                     الكفيل
                   </strong>
@@ -1729,6 +1899,7 @@ export default function PrintNewRequestPage() {
           type="button"
           style={{
             ...printButton,
+
             opacity:
               loading ||
               Boolean(pageError) ||
@@ -1736,6 +1907,14 @@ export default function PrintNewRequestPage() {
               !note
                 ? 0.6
                 : 1,
+
+            cursor:
+              loading ||
+              Boolean(pageError) ||
+              !contract ||
+              !note
+                ? "not-allowed"
+                : "pointer",
           }}
           disabled={
             loading ||
@@ -1752,12 +1931,10 @@ export default function PrintNewRequestPage() {
           type="button"
           style={backButton}
           onClick={() =>
-            router.push(
-              `/finance/${branch}/contracts/${contractId}`
-            )
+            router.back()
           }
         >
-          الرجوع للعقد
+          ← رجوع
         </button>
       </div>
     </main>
@@ -1778,7 +1955,10 @@ function PrintHeader({
       className="print-document-header"
       style={header}
     >
-      <div style={headerRight}>
+      <div
+        className="print-header-right"
+        style={headerRight}
+      >
         <div>
           المملكة العربية السعودية
         </div>
@@ -1793,11 +1973,21 @@ function PrintHeader({
             "................"}
         </div>
 
-        <div>
-          سجل تجاري رقم /{" "}
-          {rightInfo.commercialRecord ||
-            "................"}
-        </div>
+        {rightInfo.commercialRecord && (
+          <div>
+            سجل تجاري رقم /{" "}
+            {
+              rightInfo.commercialRecord
+            }
+          </div>
+        )}
+
+        {rightInfo.phone && (
+          <div>
+            رقم التواصل /{" "}
+            {rightInfo.phone}
+          </div>
+        )}
       </div>
 
       <div style={documentTitle}>
@@ -1842,12 +2032,40 @@ function getErrorMessage(
 }
 
 const page: CSSProperties = {
-  minHeight: "100vh",
-  background: "#eef5ff",
+  minHeight: "100dvh",
   padding: 20,
+  color: "#111827",
   fontFamily:
     "var(--font-almarai), sans-serif",
-  color: "#111827",
+
+  backgroundColor: "#edf4fb",
+
+  backgroundImage: `
+    radial-gradient(
+      circle at 13% 15%,
+      rgba(14,165,233,0.15),
+      transparent 31%
+    ),
+    radial-gradient(
+      circle at 87% 80%,
+      rgba(37,99,235,0.13),
+      transparent 34%
+    ),
+    linear-gradient(
+      rgba(241,247,253,0.88),
+      rgba(234,243,251,0.92)
+    ),
+    url("/backgrounds/v13-finance-bg-1.png")
+  `,
+
+  backgroundSize:
+    "auto, auto, auto, cover",
+
+  backgroundPosition: "center",
+
+  backgroundRepeat: "no-repeat",
+
+  backgroundAttachment: "fixed",
 };
 
 const loadingMessage: CSSProperties = {
@@ -1874,7 +2092,8 @@ const errorMessage: CSSProperties = {
   color: "#991b1b",
   display: "flex",
   alignItems: "center",
-  justifyContent: "space-between",
+  justifyContent:
+    "space-between",
   gap: 12,
   flexWrap: "wrap",
   fontWeight: 900,
@@ -1885,46 +2104,65 @@ const retryButton: CSSProperties = {
   padding: "9px 15px",
   border: "none",
   borderRadius: 10,
+
   background:
     "linear-gradient(135deg,#22c55e,#15803d)",
+
   color: "#ffffff",
   cursor: "pointer",
   fontWeight: 900,
+
   fontFamily:
     "var(--font-almarai), sans-serif",
 };
 
 const printArea: CSSProperties = {
-  background: "#ffffff",
-  width: "190mm",
-  height: "257mm",
+  width: "194mm",
+  height: "281mm",
+  minHeight: "281mm",
+  maxHeight: "281mm",
+
   margin: "0 auto",
+  padding: "6mm",
+
   overflow: "hidden",
-  padding: "7mm",
-  borderRadius: 0,
-  lineHeight: 1.45,
+
+  background: "#ffffff",
   color: "#111827",
+
+  borderRadius: 0,
+
+  lineHeight: 1.45,
+
   boxSizing: "border-box",
+
   pageBreakInside: "avoid",
+
   boxShadow:
-    "0 14px 35px rgba(15,23,42,0.08)",
+    "0 14px 35px rgba(15,23,42,0.10)",
 };
 
 const secondPrintArea: CSSProperties = {
   ...printArea,
+
   marginTop: 20,
-  pageBreakBefore: "always",
 };
 
 const header: CSSProperties = {
   display: "grid",
+
   gridTemplateColumns:
     "1.25fr 1fr 1.25fr",
+
   alignItems: "start",
+
   gap: 10,
+
   marginBottom: 12,
+
   borderBottom:
     "1.5px solid #111827",
+
   paddingBottom: 8,
 };
 
@@ -1942,12 +2180,18 @@ const headerLeft: CSSProperties = {
 };
 
 const documentTitle: CSSProperties = {
-  textAlign: "center",
-  color: "#111827",
-  fontSize: 21,
-  fontWeight: 900,
   marginTop: 13,
+
+  textAlign: "center",
+
+  color: "#111827",
+
+  fontSize: 21,
+
+  fontWeight: 900,
+
   whiteSpace: "nowrap",
+
   fontFamily:
     "var(--font-almarai), sans-serif",
 };
@@ -1957,107 +2201,165 @@ const contentBox: CSSProperties = {
 };
 
 const paragraph: CSSProperties = {
-  fontSize: 12.3,
   margin: "6px 0",
+
+  fontSize: 12.3,
+
+  lineHeight: 1.58,
+
   textAlign: "justify",
 };
 
 const infoBox: CSSProperties = {
-  border: "1px solid #d1d5db",
-  borderRadius: 8,
-  padding: 9,
   marginTop: 10,
+
+  padding: 9,
+
+  border: "1px solid #d1d5db",
+
+  borderRadius: 8,
+
   lineHeight: 1.65,
+
   fontSize: 12.2,
 };
 
 const signatures: CSSProperties = {
   display: "grid",
+
   gridTemplateColumns: "1fr 1fr",
+
   gap: 16,
+
   marginTop: 17,
 };
 
 const signatureBox: CSSProperties = {
+  minHeight: 84,
+
+  paddingTop: 8,
+
   borderTop:
     "1.5px solid #111827",
-  paddingTop: 8,
+
   lineHeight: 1.65,
+
   fontSize: 12.2,
-  minHeight: 84,
 };
 
 const guarantorBox: CSSProperties = {
   marginTop: 14,
+
+  paddingTop: 8,
+
   borderTop:
     "1.5px solid #111827",
-  paddingTop: 8,
+
   lineHeight: 1.65,
+
   fontSize: 12.2,
 };
 
 const guarantorGrid: CSSProperties = {
   display: "grid",
+
   gridTemplateColumns: "1fr 1fr",
+
   gap: "2px 14px",
+
   marginTop: 4,
 };
 
 const legalBoxes: CSSProperties = {
   display: "grid",
+
   gridTemplateColumns: "1fr 1fr",
+
   gap: 12,
+
   marginTop: 20,
 };
 
 const legalBox: CSSProperties = {
-  border: "1.5px solid #111827",
-  borderRadius: 12,
   padding: 9,
+
+  border: "1.5px solid #111827",
+
+  borderRadius: 12,
+
   fontSize: 10.5,
+
   lineHeight: 1.65,
+
   textAlign: "center",
+
   fontWeight: 900,
 };
 
 const actionButtons: CSSProperties = {
   width: "100%",
+
   maxWidth: 850,
+
   margin: "20px auto 0",
+
   display: "grid",
+
   gap: 12,
 };
 
 const printButton: CSSProperties = {
   width: "100%",
+
+  minHeight: 52,
+
   padding: 16,
+
+  border: "none",
+
+  borderRadius: 14,
+
   background:
     "linear-gradient(135deg,#0d47a1,#1565c0 55%,#0284c7)",
+
   color: "#ffffff",
-  border: "none",
-  borderRadius: 14,
+
   fontSize: 17,
+
   fontWeight: 900,
-  cursor: "pointer",
+
   fontFamily:
     "var(--font-almarai), sans-serif",
+
   boxShadow:
     "0 8px 20px rgba(13,71,161,0.20)",
 };
 
 const backButton: CSSProperties = {
   width: "100%",
-  padding: 16,
+
+  minHeight: 48,
+
+  padding: "13px 16px",
+
+  border: "none",
+
+  borderRadius: 14,
+
   background:
     "linear-gradient(135deg,#22c55e,#15803d)",
+
   color: "#ffffff",
-  border: "none",
-  borderRadius: 14,
-  fontSize: 17,
+
+  fontSize: 15,
+
   fontWeight: 900,
+
   cursor: "pointer",
+
   fontFamily:
     "var(--font-almarai), sans-serif",
+
   boxShadow:
     "0 7px 18px rgba(22,163,74,0.20)",
 };
