@@ -1,23 +1,45 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
-import { useParams, useRouter } from "next/navigation";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import type {
+  CSSProperties,
+  ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
+import {
+  useParams,
+  usePathname,
+  useRouter,
+} from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
-import { normalizeNumber, toNumber } from "@/lib/numberUtils";
+import {
+  normalizeNumber,
+  toNumber,
+} from "@/lib/numberUtils";
 
-type ScreenType = "mobile" | "tablet" | "desktop";
+type ScreenType =
+  | "mobile"
+  | "tablet"
+  | "desktop";
 
 type FinanceUser = {
-  id?: string;
-  branch_id?: string;
-  branch_slug?: string;
-  full_name?: string;
-  username?: string;
-  role?: string;
-  roles?: string[];
-  permissions?: string[];
+  id?: string | null;
+  user_id?: string | null;
+  branch_id?: string | null;
+  branch_slug?: string | null;
+  full_name?: string | null;
+  username?: string | null;
+  role?: string | null;
+  roles?: unknown;
+  permissions?: unknown;
+  investor_id?: string | null;
+  is_active?: boolean | null;
 };
 
 type Investor = {
@@ -46,68 +68,228 @@ type SupabaseRpcError = {
   hint?: string;
 };
 
+type DropdownRect = {
+  top: number;
+  left: number;
+  width: number;
+};
+
+type SelectOption = {
+  value: string;
+  label: string;
+  disabled?: boolean;
+};
+
 const MAX_CONTRACT_CREATE_ATTEMPTS = 5;
+
+const SESSION_DURATION_MS =
+  60 * 60 * 1000;
+
+const ACTIVITY_REFRESH_INTERVAL_MS =
+  60 * 1000;
+
+const SESSION_KEYS = [
+  "finance_user",
+  "finance_branch_user",
+  "finance_user_id",
+  "finance_user_name",
+  "finance_username",
+  "finance_role",
+  "finance_branch_id",
+  "finance_branch_slug",
+  "finance_branch_name",
+  "finance_organization_name",
+  "finance_permissions",
+  "finance_investor_id",
+  "finance_is_active",
+  "finance_last_login_at",
+  "finance_session_expires_at",
+  "finance_last_activity_at",
+  "finance_return_to",
+] as const;
 
 export default function NewRequestPage() {
   const params = useParams();
+  const pathname = usePathname();
   const router = useRouter();
 
-  const branch = String(params.branch ?? "");
-  const today = new Date().toLocaleDateString("en-CA");
+  const branch = String(
+    params.branch ?? ""
+  ).trim();
 
-  const [screen, setScreen] = useState<ScreenType>("desktop");
-  const [authorized, setAuthorized] = useState(false);
-  const [employeeName, setEmployeeName] = useState("الموظف");
+  const today = getTodayDate();
 
-  const [branchId, setBranchId] = useState<string | null>(null);
+  const [screen, setScreen] =
+    useState<ScreenType>("desktop");
 
-  const [investors, setInvestors] = useState<Investor[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [pageReady, setPageReady] =
+    useState(false);
 
-  const [fullName, setFullName] = useState("");
-  const [nationalId, setNationalId] = useState("");
-  const [birthDay, setBirthDay] = useState("");
-  const [birthMonth, setBirthMonth] = useState("");
-  const [birthYear, setBirthYear] = useState("");
-  const [phone, setPhone] = useState("");
-  const [workName, setWorkName] = useState("");
-  const [address, setAddress] = useState("");
+  const [employeeName, setEmployeeName] =
+    useState("الموظف");
 
-  const [financeType, setFinanceType] = useState("");
-  const [investorId, setInvestorId] = useState("");
-  const [productId, setProductId] = useState("");
-  const [productQuantity, setProductQuantity] = useState("");
-  const [availableStock, setAvailableStock] = useState<number | null>(null);
-  const [printPartyType, setPrintPartyType] = useState<
+  const [branchId, setBranchId] =
+    useState<string | null>(null);
+
+  const [listsLoading, setListsLoading] =
+    useState(true);
+
+  const [listsError, setListsError] =
+    useState("");
+
+  const [investors, setInvestors] =
+    useState<Investor[]>([]);
+
+  const [products, setProducts] =
+    useState<Product[]>([]);
+
+  const [fullName, setFullName] =
+    useState("");
+
+  const [nationalId, setNationalId] =
+    useState("");
+
+  const [birthDay, setBirthDay] =
+    useState("");
+
+  const [birthMonth, setBirthMonth] =
+    useState("");
+
+  const [birthYear, setBirthYear] =
+    useState("");
+
+  const [phone, setPhone] =
+    useState("");
+
+  const [workName, setWorkName] =
+    useState("");
+
+  const [address, setAddress] =
+    useState("");
+
+  const [financeType, setFinanceType] =
+    useState("");
+
+  const [investorId, setInvestorId] =
+    useState("");
+
+  const [productId, setProductId] =
+    useState("");
+
+  const [
+    productQuantity,
+    setProductQuantity,
+  ] = useState("");
+
+  const [
+    availableStock,
+    setAvailableStock,
+  ] = useState<number | null>(null);
+
+  const [
+    stockLoading,
+    setStockLoading,
+  ] = useState(false);
+
+  const [
+    printPartyType,
+    setPrintPartyType,
+  ] = useState<
     "organization" | "investor"
   >("organization");
 
-  const [debtAmount, setDebtAmount] = useState("");
-  const [hasDeferredPayments, setHasDeferredPayments] = useState(false);
-  const [installmentAmount, setInstallmentAmount] = useState("");
-  const [deferredPaymentsCount, setDeferredPaymentsCount] = useState("");
+  const [debtAmount, setDebtAmount] =
+    useState("");
 
-  const [paymentDueDate, setPaymentDueDate] = useState("");
-  const [draftPaymentDueDate, setDraftPaymentDueDate] = useState("");
-  const [contractIssueDate, setContractIssueDate] = useState(today);
+  const [
+    hasDeferredPayments,
+    setHasDeferredPayments,
+  ] = useState(false);
 
-  const [hasGuarantor, setHasGuarantor] = useState(false);
-  const [guarantorName, setGuarantorName] = useState("");
-  const [guarantorNationalId, setGuarantorNationalId] = useState("");
-  const [guarantorPhone, setGuarantorPhone] = useState("");
-  const [guarantorBirthHijri, setGuarantorBirthHijri] = useState("");
+  const [
+    installmentAmount,
+    setInstallmentAmount,
+  ] = useState("");
 
-  const [legalCity, setLegalCity] = useState("");
-  const [notes, setNotes] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [
+    deferredPaymentsCount,
+    setDeferredPaymentsCount,
+  ] = useState("");
 
-  const isMobile = screen === "mobile";
-  const isTablet = screen === "tablet";
-  const isCompact = isMobile || isTablet;
+  const [
+    paymentDueDate,
+    setPaymentDueDate,
+  ] = useState("");
+
+  const [
+    contractIssueDate,
+    setContractIssueDate,
+  ] = useState(today);
+
+  const [
+    hasGuarantor,
+    setHasGuarantor,
+  ] = useState(false);
+
+  const [
+    guarantorName,
+    setGuarantorName,
+  ] = useState("");
+
+  const [
+    guarantorNationalId,
+    setGuarantorNationalId,
+  ] = useState("");
+
+  const [
+    guarantorPhone,
+    setGuarantorPhone,
+  ] = useState("");
+
+  const [
+    guarantorBirthHijri,
+    setGuarantorBirthHijri,
+  ] = useState("");
+
+  const [legalCity, setLegalCity] =
+    useState("");
+
+  const [notes, setNotes] =
+    useState("");
+
+  const [saving, setSaving] =
+    useState(false);
+
+  const isMobile =
+    screen === "mobile";
+
+  const isTablet =
+    screen === "tablet";
+
+  const isCompact =
+    isMobile || isTablet;
+
+  const investorOptions:
+    SelectOption[] =
+    investors.map(
+      (investor) => ({
+        value: investor.id,
+        label:
+          investor.investor_name,
+      })
+    );
+
+  const productOptions:
+    SelectOption[] =
+    products.map((product) => ({
+      value: product.id,
+      label: product.product_name,
+    }));
 
   useEffect(() => {
     function updateScreen() {
-      const width = window.innerWidth;
+      const width =
+        window.innerWidth;
 
       if (width < 640) {
         setScreen("mobile");
@@ -119,234 +301,784 @@ export default function NewRequestPage() {
     }
 
     updateScreen();
-    window.addEventListener("resize", updateScreen);
+
+    window.addEventListener(
+      "resize",
+      updateScreen
+    );
 
     return () => {
-      window.removeEventListener("resize", updateScreen);
+      window.removeEventListener(
+        "resize",
+        updateScreen
+      );
     };
   }, []);
 
-  useEffect(() => {
-    if (!branch) {
-      router.replace("/login");
-      return;
-    }
-
-    let cancelled = false;
-
-    async function initPage() {
-      const validSession = await validateSession();
-
-      if (!validSession || cancelled) {
+  const loadLists = useCallback(
+    async (
+      currentBranchId: string,
+      isCancelled: () => boolean =
+        () => false
+    ) => {
+      if (!currentBranchId) {
         return;
       }
 
-      await loadLists();
+      setListsLoading(true);
+      setListsError("");
 
-      if (!cancelled) {
-        setAuthorized(true);
+      try {
+        const [
+          investorsResult,
+          productsResult,
+        ] = await Promise.all([
+          supabase
+            .from(
+              "finance_investors"
+            )
+            .select(
+              "id, investor_name, national_id, is_active"
+            )
+            .eq(
+              "branch_id",
+              currentBranchId
+            )
+            .eq(
+              "is_active",
+              true
+            )
+            .order("created_at", {
+              ascending: false,
+            }),
+
+          supabase
+            .from(
+              "finance_products"
+            )
+            .select(
+              "id, product_name, is_active"
+            )
+            .eq(
+              "branch_id",
+              currentBranchId
+            )
+            .eq(
+              "is_active",
+              true
+            )
+            .order("created_at", {
+              ascending: false,
+            }),
+        ]);
+
+        if (isCancelled()) {
+          return;
+        }
+
+        const errors: string[] =
+          [];
+
+        if (
+          investorsResult.error
+        ) {
+          console.error(
+            "Investors loading error:",
+            investorsResult.error
+          );
+
+          errors.push(
+            "تعذر تحميل المستثمرين"
+          );
+
+          setInvestors([]);
+        } else {
+          setInvestors(
+            (investorsResult.data ||
+              []) as Investor[]
+          );
+        }
+
+        if (
+          productsResult.error
+        ) {
+          console.error(
+            "Products loading error:",
+            productsResult.error
+          );
+
+          errors.push(
+            "تعذر تحميل المنتجات"
+          );
+
+          setProducts([]);
+        } else {
+          setProducts(
+            (productsResult.data ||
+              []) as Product[]
+          );
+        }
+
+        if (errors.length > 0) {
+          setListsError(
+            errors.join("، ")
+          );
+        }
+      } catch (error: unknown) {
+        if (isCancelled()) {
+          return;
+        }
+
+        console.error(
+          "Lists loading error:",
+          error
+        );
+
+        setListsError(
+          getErrorMessage(
+            error,
+            "تعذر تحميل المستثمرين والمنتجات"
+          )
+        );
+      } finally {
+        if (!isCancelled()) {
+          setListsLoading(false);
+        }
       }
+    },
+    []
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function initializePage() {
+      if (
+        typeof window ===
+        "undefined"
+      ) {
+        return;
+      }
+
+      if (!branch) {
+        redirectToLogin(true);
+        return;
+      }
+
+      const localUser =
+        getLocalUser();
+
+      if (
+        !isValidSession(localUser)
+      ) {
+        redirectToLogin(true);
+        return;
+      }
+
+      const storedBranchSlug =
+        String(
+          localUser?.branch_slug ||
+            ""
+        ).trim();
+
+      if (
+        storedBranchSlug &&
+        storedBranchSlug !== branch
+      ) {
+        router.replace(
+          `/finance/${storedBranchSlug}`
+        );
+
+        return;
+      }
+
+      const currentEmployeeName =
+        localUser?.full_name ||
+        localUser?.username ||
+        localStorage.getItem(
+          "finance_user_name"
+        ) ||
+        "الموظف";
+
+      setEmployeeName(
+        currentEmployeeName
+      );
+
+      renewFinanceSession();
+      setPageReady(true);
+
+      const storedBranchId =
+        String(
+          localUser?.branch_id ||
+            localStorage.getItem(
+              "finance_branch_id"
+            ) ||
+            ""
+        ).trim();
+
+      let resolvedBranchId =
+        storedBranchId;
+
+      if (!resolvedBranchId) {
+        try {
+          const fetchedBranchId =
+            await getBranchId(
+              branch
+            );
+
+          if (cancelled) {
+            return;
+          }
+
+          if (!fetchedBranchId) {
+            setListsError(
+              "تعذر تحديد الفرع"
+            );
+
+            setListsLoading(false);
+            return;
+          }
+
+          resolvedBranchId =
+            String(fetchedBranchId);
+
+          localStorage.setItem(
+            "finance_branch_id",
+            resolvedBranchId
+          );
+
+          localStorage.setItem(
+            "finance_branch_slug",
+            branch
+          );
+        } catch (
+          error: unknown
+        ) {
+          if (cancelled) {
+            return;
+          }
+
+          setListsError(
+            getErrorMessage(
+              error,
+              "تعذر تحديد الفرع"
+            )
+          );
+
+          setListsLoading(false);
+          return;
+        }
+      }
+
+      if (cancelled) {
+        return;
+      }
+
+      setBranchId(
+        resolvedBranchId
+      );
+
+      await loadLists(
+        resolvedBranchId,
+        () => cancelled
+      );
     }
 
-    void initPage();
+    void initializePage();
 
     return () => {
       cancelled = true;
     };
-  }, [branch]);
+  }, [
+    branch,
+    loadLists,
+    router,
+  ]);
 
   useEffect(() => {
-    void loadAvailableStock();
-  }, [branchId, investorId, productId]);
-
-  function clearFinanceSession() {
-    if (typeof window === "undefined") {
+    if (
+      !pageReady ||
+      typeof window ===
+        "undefined"
+    ) {
       return;
     }
 
-    localStorage.removeItem("finance_user");
-    localStorage.removeItem("finance_branch_user");
-    localStorage.removeItem("finance_user_id");
-    localStorage.removeItem("finance_user_name");
-    localStorage.removeItem("finance_username");
-    localStorage.removeItem("finance_role");
-    localStorage.removeItem("finance_branch_id");
-    localStorage.removeItem("finance_branch_slug");
-    localStorage.removeItem("finance_branch_name");
-    localStorage.removeItem("finance_organization_name");
+    let lastRefresh = 0;
+
+    function handleActivity() {
+      const now = Date.now();
+
+      if (
+        now - lastRefresh <
+        ACTIVITY_REFRESH_INTERVAL_MS
+      ) {
+        return;
+      }
+
+      lastRefresh = now;
+      renewFinanceSession();
+    }
+
+    const events:
+      Array<keyof WindowEventMap> =
+      [
+        "pointerdown",
+        "keydown",
+        "scroll",
+        "touchstart",
+      ];
+
+    events.forEach(
+      (eventName) => {
+        window.addEventListener(
+          eventName,
+          handleActivity,
+          { passive: true }
+        );
+      }
+    );
+
+    const timer =
+      window.setInterval(() => {
+        const expiresAt =
+          Number(
+            localStorage.getItem(
+              "finance_session_expires_at"
+            ) || 0
+          );
+
+        if (
+          expiresAt > 0 &&
+          Date.now() >=
+            expiresAt
+        ) {
+          redirectToLogin(true);
+        }
+      }, 30 * 1000);
+
+    return () => {
+      events.forEach(
+        (eventName) => {
+          window.removeEventListener(
+            eventName,
+            handleActivity
+          );
+        }
+      );
+
+      window.clearInterval(
+        timer
+      );
+    };
+  }, [pageReady, pathname]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAvailableStock() {
+      if (
+        !branchId ||
+        !investorId ||
+        !productId
+      ) {
+        setAvailableStock(null);
+        setStockLoading(false);
+        return;
+      }
+
+      try {
+        setStockLoading(true);
+
+        const {
+          data,
+          error,
+        } = await supabase
+          .from(
+            "finance_inventory"
+          )
+          .select("quantity")
+          .eq(
+            "branch_id",
+            branchId
+          )
+          .eq(
+            "investor_id",
+            investorId
+          )
+          .eq(
+            "product_id",
+            productId
+          )
+          .maybeSingle();
+
+        if (cancelled) {
+          return;
+        }
+
+        if (error) {
+          throw new Error(
+            error.message
+          );
+        }
+
+        setAvailableStock(
+          data
+            ? Number(
+                data.quantity || 0
+              )
+            : 0
+        );
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        console.error(
+          "Inventory loading error:",
+          error
+        );
+
+        setAvailableStock(null);
+      } finally {
+        if (!cancelled) {
+          setStockLoading(false);
+        }
+      }
+    }
+
+    void loadAvailableStock();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    branchId,
+    investorId,
+    productId,
+  ]);
+
+  function renewFinanceSession() {
+    if (
+      typeof window ===
+      "undefined"
+    ) {
+      return;
+    }
+
+    const now = Date.now();
+
+    localStorage.setItem(
+      "finance_last_activity_at",
+      String(now)
+    );
+
+    localStorage.setItem(
+      "finance_session_expires_at",
+      String(
+        now +
+          SESSION_DURATION_MS
+      )
+    );
   }
 
-  function redirectToLogin() {
-    clearFinanceSession();
-    setAuthorized(false);
-    router.replace("/login");
-  }
-
-  function getLocalUser(): FinanceUser | null {
-    if (typeof window === "undefined") {
+  function getLocalUser():
+    | FinanceUser
+    | null {
+    if (
+      typeof window ===
+      "undefined"
+    ) {
       return null;
     }
 
     const savedUser =
-      localStorage.getItem("finance_user") ||
-      localStorage.getItem("finance_branch_user");
+      localStorage.getItem(
+        "finance_branch_user"
+      ) ||
+      localStorage.getItem(
+        "finance_user"
+      );
 
     if (savedUser) {
       try {
-        const parsed = JSON.parse(savedUser) as FinanceUser;
+        const parsed =
+          JSON.parse(
+            savedUser
+          ) as FinanceUser;
 
-        if (parsed?.branch_id && parsed?.branch_slug) {
-          return parsed;
+        if (
+          parsed &&
+          typeof parsed ===
+            "object" &&
+          !Array.isArray(parsed)
+        ) {
+          return {
+            ...parsed,
+
+            id:
+              parsed.id ||
+              parsed.user_id ||
+              localStorage.getItem(
+                "finance_user_id"
+              ),
+
+            branch_id:
+              parsed.branch_id ||
+              localStorage.getItem(
+                "finance_branch_id"
+              ),
+
+            branch_slug:
+              parsed.branch_slug ||
+              localStorage.getItem(
+                "finance_branch_slug"
+              ),
+
+            full_name:
+              parsed.full_name ||
+              localStorage.getItem(
+                "finance_user_name"
+              ),
+
+            username:
+              parsed.username ||
+              localStorage.getItem(
+                "finance_username"
+              ),
+          };
         }
       } catch {
-        // تتم قراءة المفاتيح القديمة أدناه.
+        // الانتقال للمفاتيح المنفردة.
       }
     }
 
-    const savedBranchId = localStorage.getItem("finance_branch_id");
-    const savedBranchSlug = localStorage.getItem("finance_branch_slug");
+    const savedBranchId =
+      localStorage.getItem(
+        "finance_branch_id"
+      );
 
-    if (!savedBranchId || !savedBranchSlug) {
+    const savedBranchSlug =
+      localStorage.getItem(
+        "finance_branch_slug"
+      );
+
+    const savedUserId =
+      localStorage.getItem(
+        "finance_user_id"
+      );
+
+    if (
+      !savedBranchSlug ||
+      !savedUserId
+    ) {
       return null;
     }
 
     return {
-      id: localStorage.getItem("finance_user_id") || undefined,
-      branch_id: savedBranchId,
-      branch_slug: savedBranchSlug,
-      full_name: localStorage.getItem("finance_user_name") || "الموظف",
-      username: localStorage.getItem("finance_username") || "",
-      role: localStorage.getItem("finance_role") || "",
+      id: savedUserId,
+      branch_id:
+        savedBranchId,
+      branch_slug:
+        savedBranchSlug,
+      full_name:
+        localStorage.getItem(
+          "finance_user_name"
+        ) || "الموظف",
+      username:
+        localStorage.getItem(
+          "finance_username"
+        ) || "",
+      role:
+        localStorage.getItem(
+          "finance_role"
+        ) || "",
       permissions: [],
+      is_active:
+        localStorage.getItem(
+          "finance_is_active"
+        ) !== "false",
     };
   }
 
-  async function validateSession() {
-    const localUser = getLocalUser();
-
-    if (!localUser?.branch_id || !localUser.branch_slug) {
-      redirectToLogin();
+  function isValidSession(
+    user: FinanceUser | null
+  ) {
+    if (!user) {
       return false;
     }
 
-    if (localUser.branch_slug !== branch) {
-      router.replace(`/finance/${localUser.branch_slug}`);
-      return false;
-    }
+    const userId = String(
+      user.id ||
+        user.user_id ||
+        ""
+    ).trim();
 
-    setEmployeeName(
-      localUser.full_name || localUser.username || "الموظف"
-    );
-
-    const { data: branchData, error: branchError } = await supabase
-      .from("finance_branches")
-      .select("id, branch_slug, is_active")
-      .eq("branch_slug", branch)
-      .maybeSingle();
+    const userBranchSlug =
+      String(
+        user.branch_slug || ""
+      ).trim();
 
     if (
-      branchError ||
-      !branchData ||
-      !branchData.is_active ||
-      String(branchData.id) !== String(localUser.branch_id)
+      !userId ||
+      !userBranchSlug
     ) {
-      redirectToLogin();
       return false;
     }
 
-    if (localUser.id) {
-      const { data: userData, error: userError } = await supabase
-        .from("finance_branch_users")
-        .select("id, branch_id, full_name, username, is_active")
-        .eq("id", localUser.id)
-        .eq("branch_id", branchData.id)
-        .maybeSingle();
+    if (
+      user.is_active === false
+    ) {
+      return false;
+    }
 
-      if (userError || !userData || !userData.is_active) {
-        redirectToLogin();
-        return false;
-      }
+    const expiresAt = Number(
+      localStorage.getItem(
+        "finance_session_expires_at"
+      ) || 0
+    );
 
-      setEmployeeName(
-        userData.full_name ||
-          userData.username ||
-          localUser.full_name ||
-          "الموظف"
-      );
+    if (
+      expiresAt > 0 &&
+      Date.now() >= expiresAt
+    ) {
+      return false;
     }
 
     return true;
   }
 
-  async function loadLists() {
-    const currentBranchId = await getBranchId(branch);
-
-    if (!currentBranchId) {
-      alert("تعذر تحديد الفرع");
-      redirectToLogin();
-      return;
-    }
-
-    const safeBranchId = String(currentBranchId);
-    setBranchId(safeBranchId);
-
-    const [investorsResult, productsResult] = await Promise.all([
-      supabase
-        .from("finance_investors")
-        .select("id, investor_name, national_id, is_active")
-        .eq("branch_id", safeBranchId)
-        .eq("is_active", true)
-        .order("created_at", { ascending: false }),
-
-      supabase
-        .from("finance_products")
-        .select("id, product_name, is_active")
-        .eq("branch_id", safeBranchId)
-        .eq("is_active", true)
-        .order("created_at", { ascending: false }),
-    ]);
-
-    if (investorsResult.error) {
-      alert(
-        "تعذر تحميل المستثمرين: " +
-          investorsResult.error.message
+  function getCurrentReturnPath() {
+    if (
+      typeof window ===
+      "undefined"
+    ) {
+      return (
+        pathname ||
+        `/finance/${branch}/new-request`
       );
     }
 
-    if (productsResult.error) {
-      alert(
-        "تعذر تحميل المنتجات: " +
-          productsResult.error.message
-      );
-    }
-
-    setInvestors((investorsResult.data || []) as Investor[]);
-    setProducts((productsResult.data || []) as Product[]);
+    return `${window.location.pathname}${window.location.search}`;
   }
 
-  async function loadAvailableStock() {
-    if (!branchId || !investorId || !productId) {
-      setAvailableStock(null);
+  function isSafeReturnPath(
+    value: string
+  ) {
+    if (
+      !value.startsWith(
+        `/finance/${branch}`
+      )
+    ) {
+      return false;
+    }
+
+    if (
+      value.startsWith("//") ||
+      value.includes("://")
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
+  function clearFinanceSession({
+    preserveReturnPath = false,
+  }: {
+    preserveReturnPath?: boolean;
+  } = {}) {
+    if (
+      typeof window ===
+      "undefined"
+    ) {
       return;
     }
 
-    const safeBranchId = branchId;
+    SESSION_KEYS.forEach(
+      (key) => {
+        if (
+          preserveReturnPath &&
+          key ===
+            "finance_return_to"
+        ) {
+          return;
+        }
 
-    const { data, error } = await supabase
-      .from("finance_inventory")
-      .select("quantity")
-      .eq("branch_id", safeBranchId)
-      .eq("investor_id", investorId)
-      .eq("product_id", productId)
-      .maybeSingle();
+        localStorage.removeItem(
+          key
+        );
+      }
+    );
+  }
 
-    if (error) {
-      console.error("Inventory loading error:", error);
-      setAvailableStock(null);
+  function redirectToLogin(
+    preserveReturnPath = true
+  ) {
+    if (
+      typeof window ===
+      "undefined"
+    ) {
+      router.replace("/login");
       return;
     }
 
-    setAvailableStock(data ? Number(data.quantity || 0) : 0);
+    const returnTo =
+      getCurrentReturnPath();
+
+    if (
+      preserveReturnPath &&
+      isSafeReturnPath(returnTo)
+    ) {
+      localStorage.setItem(
+        "finance_return_to",
+        returnTo
+      );
+    }
+
+    clearFinanceSession({
+      preserveReturnPath,
+    });
+
+    if (
+      preserveReturnPath &&
+      isSafeReturnPath(returnTo)
+    ) {
+      localStorage.setItem(
+        "finance_return_to",
+        returnTo
+      );
+
+      router.replace(
+        `/login?returnTo=${encodeURIComponent(
+          returnTo
+        )}`
+      );
+
+      return;
+    }
+
+    router.replace("/login");
+  }
+
+  function logout() {
+    clearFinanceSession({
+      preserveReturnPath: false,
+    });
+
+    router.replace("/login");
+  }
+
+  function retryLists() {
+    if (!branchId) {
+      setListsError(
+        "تعذر تحديد الفرع"
+      );
+
+      return;
+    }
+
+    void loadLists(branchId);
   }
 
   function resetDeferredPaymentsFields() {
@@ -362,30 +1094,83 @@ export default function NewRequestPage() {
   }
 
   function validateRequest() {
-    const qty = toNumber(productQuantity);
-    const debt = toNumber(debtAmount);
-    const deferredPayment = toNumber(installmentAmount);
-    const deferredCount = toNumber(deferredPaymentsCount);
+    const qty =
+      toNumber(productQuantity);
 
-    if (!branchId) return "تعذر تحديد الفرع";
-    if (!fullName.trim()) return "يرجى إدخال اسم العميل";
-    if (!nationalId) return "يرجى إدخال رقم الهوية";
-    if (!birthDay) return "يرجى إدخال يوم الميلاد";
-    if (!birthMonth) return "يرجى إدخال شهر الميلاد";
-    if (!birthYear) return "يرجى إدخال سنة الميلاد";
-    if (!phone) return "يرجى إدخال رقم الجوال";
-    if (!financeType.trim()) return "يرجى إدخال نوع التمويل";
+    const debt =
+      toNumber(debtAmount);
+
+    const deferredPayment =
+      toNumber(
+        installmentAmount
+      );
+
+    const deferredCount =
+      toNumber(
+        deferredPaymentsCount
+      );
+
+    const cleanNationalId =
+      normalizeNumber(
+        nationalId
+      );
+
+    const cleanPhone =
+      normalizeNumber(phone);
+
+    if (!branchId) {
+      return "تعذر تحديد الفرع";
+    }
+
+    if (listsLoading) {
+      return "انتظر حتى يكتمل تحميل المستثمرين والمنتجات";
+    }
+
+    if (!fullName.trim()) {
+      return "يرجى إدخال اسم العميل";
+    }
+
+    if (
+      cleanNationalId.length !==
+      10
+    ) {
+      return "رقم الهوية يجب أن يكون 10 أرقام";
+    }
+
+    if (!birthDay) {
+      return "يرجى إدخال يوم الميلاد";
+    }
+
+    if (!birthMonth) {
+      return "يرجى إدخال شهر الميلاد";
+    }
+
+    if (!birthYear) {
+      return "يرجى إدخال سنة الميلاد";
+    }
+
+    if (
+      !/^05\d{8}$/.test(
+        cleanPhone
+      )
+    ) {
+      return "رقم الجوال يجب أن يكون 10 أرقام ويبدأ بـ 05";
+    }
+
+    if (!financeType.trim()) {
+      return "يرجى إدخال نوع التمويل";
+    }
 
     if (!investorId) {
       return "يرجى اختيار المستثمر المرتبط بالمخزون";
     }
 
-    if (!productId) return "يرجى اختيار المنتج";
-    if (!productQuantity) return "يرجى إدخال الكمية";
-    if (qty <= 0) return "يرجى إدخال كمية صحيحة";
+    if (!productId) {
+      return "يرجى اختيار المنتج";
+    }
 
-    if (!debtAmount) {
-      return "يرجى إدخال مبلغ الاستحقاق / مبلغ السند";
+    if (qty <= 0) {
+      return "يرجى إدخال كمية صحيحة";
     }
 
     if (debt <= 0) {
@@ -393,16 +1178,10 @@ export default function NewRequestPage() {
     }
 
     if (hasDeferredPayments) {
-      if (!installmentAmount) {
-        return "يرجى إدخال قيمة الدفعة الآجلة";
-      }
-
-      if (deferredPayment <= 0) {
+      if (
+        deferredPayment <= 0
+      ) {
         return "يرجى إدخال قيمة دفعة آجلة صحيحة";
-      }
-
-      if (!deferredPaymentsCount) {
-        return "يرجى إدخال عدد الدفعات الآجلة";
       }
 
       if (deferredCount <= 0) {
@@ -411,7 +1190,7 @@ export default function NewRequestPage() {
     }
 
     if (!paymentDueDate) {
-      return "يرجى اختيار تاريخ الاستحقاق ثم الضغط على زر تم";
+      return "يرجى اختيار تاريخ الاستحقاق";
     }
 
     if (!contractIssueDate) {
@@ -423,19 +1202,47 @@ export default function NewRequestPage() {
     }
 
     if (hasGuarantor) {
-      if (!guarantorName.trim()) {
+      const cleanGuarantorNationalId =
+        normalizeNumber(
+          guarantorNationalId
+        );
+
+      const cleanGuarantorPhone =
+        normalizeNumber(
+          guarantorPhone
+        );
+
+      if (
+        !guarantorName.trim()
+      ) {
         return "يرجى إدخال اسم الكفيل";
       }
 
-      if (!guarantorNationalId) {
-        return "يرجى إدخال رقم هوية الكفيل";
+      if (
+        cleanGuarantorNationalId.length !==
+        10
+      ) {
+        return "رقم هوية الكفيل يجب أن يكون 10 أرقام";
       }
 
-      if (!guarantorPhone) {
-        return "يرجى إدخال رقم جوال الكفيل";
+      if (
+        cleanGuarantorNationalId ===
+        cleanNationalId
+      ) {
+        return "لا يمكن أن يكون العميل كفيلًا لنفسه";
       }
 
-      if (!guarantorBirthHijri.trim()) {
+      if (
+        !/^05\d{8}$/.test(
+          cleanGuarantorPhone
+        )
+      ) {
+        return "رقم جوال الكفيل يجب أن يكون 10 أرقام ويبدأ بـ 05";
+      }
+
+      if (
+        !guarantorBirthHijri.trim()
+      ) {
         return "يرجى إدخال تاريخ ميلاد الكفيل";
       }
     }
@@ -444,7 +1251,10 @@ export default function NewRequestPage() {
   }
 
   function isDuplicateContractNumberError(
-    error: SupabaseRpcError | null | undefined
+    error:
+      | SupabaseRpcError
+      | null
+      | undefined
   ) {
     const combinedMessage = [
       error?.message,
@@ -460,47 +1270,94 @@ export default function NewRequestPage() {
       combinedMessage.includes(
         "finance_contracts_branch_contract_number_key"
       ) ||
-      combinedMessage.includes("duplicate key value") ||
-      combinedMessage.includes("unique constraint")
+      combinedMessage.includes(
+        "duplicate key value"
+      ) ||
+      combinedMessage.includes(
+        "unique constraint"
+      )
     );
   }
 
-  function wait(milliseconds: number) {
-    return new Promise<void>((resolve) => {
-      window.setTimeout(resolve, milliseconds);
-    });
+  function wait(
+    milliseconds: number
+  ) {
+    return new Promise<void>(
+      (resolve) => {
+        window.setTimeout(
+          resolve,
+          milliseconds
+        );
+      }
+    );
   }
 
   async function createAtomicRequestWithRetry(
-    rpcPayload: Record<string, unknown>
+    rpcPayload: Record<
+      string,
+      unknown
+    >
   ): Promise<CreatedRequest> {
-    let lastError: SupabaseRpcError | null = null;
+    let lastError:
+      | SupabaseRpcError
+      | null = null;
 
     for (
       let attempt = 1;
-      attempt <= MAX_CONTRACT_CREATE_ATTEMPTS;
+      attempt <=
+      MAX_CONTRACT_CREATE_ATTEMPTS;
       attempt += 1
     ) {
-      const { data, error } = await supabase.rpc(
+      const {
+        data,
+        error,
+      } = await supabase.rpc(
         "create_new_request_atomic",
         rpcPayload
       );
 
       if (!error) {
-        const rows = Array.isArray(data) ? data : [];
-        return (rows[0] || {}) as CreatedRequest;
+        if (
+          Array.isArray(data)
+        ) {
+          return (
+            (data[0] as CreatedRequest) ||
+            {}
+          );
+        }
+
+        if (
+          data &&
+          typeof data ===
+            "object"
+        ) {
+          return data as CreatedRequest;
+        }
+
+        return {};
       }
 
-      lastError = error as SupabaseRpcError;
+      lastError =
+        error as SupabaseRpcError;
 
-      if (!isDuplicateContractNumberError(lastError)) {
+      if (
+        !isDuplicateContractNumberError(
+          lastError
+        )
+      ) {
         throw new Error(
-          lastError.message || "تعذر إنشاء الطلب"
+          lastError.message ||
+            "تعذر إنشاء الطلب"
         );
       }
 
-      if (attempt < MAX_CONTRACT_CREATE_ATTEMPTS) {
-        await wait(250 * attempt);
+      if (
+        attempt <
+        MAX_CONTRACT_CREATE_ATTEMPTS
+      ) {
+        await wait(
+          250 * attempt
+        );
       }
     }
 
@@ -515,9 +1372,12 @@ export default function NewRequestPage() {
   }
 
   async function createRequest() {
-    if (saving) return;
+    if (saving) {
+      return;
+    }
 
-    const validationMessage = validateRequest();
+    const validationMessage =
+      validateRequest();
 
     if (validationMessage) {
       alert(validationMessage);
@@ -525,319 +1385,497 @@ export default function NewRequestPage() {
     }
 
     if (!branchId) {
-      alert("تعذر تحديد الفرع");
+      alert(
+        "تعذر تحديد الفرع"
+      );
+
       return;
     }
 
-    const safeBranchId: string = branchId;
+    const selectedInvestor =
+      investors.find(
+        (item) =>
+          item.id === investorId
+      );
 
-    const selectedInvestor = investors.find(
-      (item) => item.id === investorId
-    );
-
-    const selectedProduct = products.find(
-      (item) => item.id === productId
-    );
+    const selectedProduct =
+      products.find(
+        (item) =>
+          item.id === productId
+      );
 
     if (!selectedInvestor) {
-      alert("تعذر تحديد المستثمر");
+      alert(
+        "تعذر تحديد المستثمر"
+      );
+
       return;
     }
 
     if (!selectedProduct) {
-      alert("تعذر تحديد المنتج");
-      return;
-    }
-
-    const cleanNationalId = normalizeNumber(nationalId);
-    const cleanPhone = normalizeNumber(phone);
-
-    const cleanGuarantorNationalId = normalizeNumber(
-      guarantorNationalId
-    );
-
-    const cleanGuarantorPhone = normalizeNumber(
-      guarantorPhone
-    );
-
-    const qty = toNumber(productQuantity);
-    const debt = toNumber(debtAmount);
-
-    const deferredPayment = hasDeferredPayments
-      ? toNumber(installmentAmount)
-      : 0;
-
-    const deferredCount = hasDeferredPayments
-      ? toNumber(deferredPaymentsCount)
-      : 0;
-
-    if (cleanNationalId.length !== 10) {
-      alert("رقم الهوية يجب أن يكون 10 أرقام");
-      return;
-    }
-
-    if (!/^05\d{8}$/.test(cleanPhone)) {
-      alert("رقم الجوال يجب أن يكون 10 أرقام ويبدأ بـ 05");
-      return;
-    }
-
-    if (
-      hasGuarantor &&
-      cleanGuarantorNationalId.length !== 10
-    ) {
-      alert("رقم هوية الكفيل يجب أن يكون 10 أرقام");
-      return;
-    }
-
-    if (
-      hasGuarantor &&
-      !/^05\d{8}$/.test(cleanGuarantorPhone)
-    ) {
       alert(
-        "رقم جوال الكفيل يجب أن يكون 10 أرقام ويبدأ بـ 05"
+        "تعذر تحديد المنتج"
       );
+
       return;
     }
+
+    const cleanNationalId =
+      normalizeNumber(
+        nationalId
+      );
+
+    const cleanPhone =
+      normalizeNumber(phone);
+
+    const cleanGuarantorNationalId =
+      normalizeNumber(
+        guarantorNationalId
+      );
+
+    const cleanGuarantorPhone =
+      normalizeNumber(
+        guarantorPhone
+      );
+
+    const qty =
+      toNumber(productQuantity);
+
+    const debt =
+      toNumber(debtAmount);
+
+    const deferredPayment =
+      hasDeferredPayments
+        ? toNumber(
+            installmentAmount
+          )
+        : 0;
+
+    const deferredCount =
+      hasDeferredPayments
+        ? toNumber(
+            deferredPaymentsCount
+          )
+        : 0;
 
     try {
       setSaving(true);
+      renewFinanceSession();
 
-      const { data: stockData, error: stockError } =
-        await supabase
-          .from("finance_inventory")
-          .select("quantity")
-          .eq("branch_id", safeBranchId)
-          .eq("investor_id", investorId)
-          .eq("product_id", productId)
-          .maybeSingle();
+      const {
+        data: stockData,
+        error: stockError,
+      } = await supabase
+        .from(
+          "finance_inventory"
+        )
+        .select("quantity")
+        .eq(
+          "branch_id",
+          branchId
+        )
+        .eq(
+          "investor_id",
+          investorId
+        )
+        .eq(
+          "product_id",
+          productId
+        )
+        .maybeSingle();
 
       if (stockError) {
         throw new Error(
-          "تعذر التحقق من المخزون: " +
-            stockError.message
+          `تعذر التحقق من المخزون: ${stockError.message}`
         );
       }
 
-      const beforeQty = Number(stockData?.quantity || 0);
+      const beforeQty =
+        Number(
+          stockData?.quantity ||
+            0
+        );
 
       if (beforeQty < qty) {
-        const confirmContinue = window.confirm(
-          `الكمية المطلوبة (${qty}) أكبر من المتوفر في المخزون (${beforeQty}). هل تريد الاستمرار والسماح بوصول المخزون إلى السالب؟`
-        );
+        const confirmContinue =
+          window.confirm(
+            `الكمية المطلوبة (${qty}) أكبر من المتوفر في المخزون (${beforeQty}). هل تريد الاستمرار والسماح بوصول المخزون إلى السالب؟`
+          );
 
         if (!confirmContinue) {
           return;
         }
       }
 
-      const { data: branchData, error: branchError } =
-        await supabase
-          .from("finance_branches")
-          .select("organization_name, commercial_record")
-          .eq("id", safeBranchId)
-          .single();
+      const {
+        data: branchData,
+        error: branchError,
+      } = await supabase
+        .from(
+          "finance_branches"
+        )
+        .select(
+          "organization_name, commercial_record"
+        )
+        .eq("id", branchId)
+        .maybeSingle();
 
       if (branchError) {
         throw new Error(
-          "تعذر جلب بيانات الفرع: " +
-            branchError.message
+          `تعذر جلب بيانات الفرع: ${branchError.message}`
         );
       }
 
       const printPartyName =
-        printPartyType === "organization"
-          ? branchData?.organization_name || ""
+        printPartyType ===
+        "organization"
+          ? branchData
+              ?.organization_name ||
+            localStorage.getItem(
+              "finance_organization_name"
+            ) ||
+            ""
           : selectedInvestor.investor_name;
 
       const printPartyIdentifier =
-        printPartyType === "organization"
-          ? branchData?.commercial_record || ""
-          : selectedInvestor.national_id || "";
+        printPartyType ===
+        "organization"
+          ? branchData
+              ?.commercial_record ||
+            ""
+          : selectedInvestor.national_id ||
+            "";
 
-      const birthHijri = `${birthDay}/${birthMonth}/${birthYear}`;
+      const birthHijri =
+        `${birthDay.padStart(
+          2,
+          "0"
+        )}/${birthMonth.padStart(
+          2,
+          "0"
+        )}/${birthYear}`;
 
       const rpcPayload = {
-        p_branch_id: safeBranchId,
+        p_branch_id: branchId,
 
-        p_full_name: fullName.trim(),
-        p_national_id: cleanNationalId,
-        p_birth_hijri: birthHijri,
-        p_phone: cleanPhone,
-        p_work_name: workName.trim(),
-        p_address: address.trim(),
+        p_full_name:
+          fullName.trim(),
 
-        p_finance_type: financeType.trim(),
+        p_national_id:
+          cleanNationalId,
 
-        p_investor_id: selectedInvestor.id,
-        p_investor_name: selectedInvestor.investor_name,
+        p_birth_hijri:
+          birthHijri,
 
-        p_product_id: selectedProduct.id,
-        p_product_name: selectedProduct.product_name,
-        p_product_quantity: qty,
+        p_phone:
+          cleanPhone,
 
-        p_print_party_type: printPartyType,
-        p_print_party_name: printPartyName,
+        p_work_name:
+          workName.trim(),
+
+        p_address:
+          address.trim(),
+
+        p_finance_type:
+          financeType.trim(),
+
+        p_investor_id:
+          selectedInvestor.id,
+
+        p_investor_name:
+          selectedInvestor.investor_name,
+
+        p_product_id:
+          selectedProduct.id,
+
+        p_product_name:
+          selectedProduct.product_name,
+
+        p_product_quantity:
+          qty,
+
+        p_print_party_type:
+          printPartyType,
+
+        p_print_party_name:
+          printPartyName,
+
         p_print_party_identifier:
-          printPartyIdentifier || "",
+          printPartyIdentifier ||
+          "",
 
-        p_debt_amount: debt,
-        p_payment_amount: debt,
+        p_debt_amount:
+          debt,
 
-        p_has_deferred_payments: hasDeferredPayments,
-        p_installment_amount: deferredPayment,
-        p_deferred_payments_count: deferredCount,
+        p_payment_amount:
+          debt,
 
-        p_payment_type: "تاريخ استحقاق",
-        p_payment_due_date: paymentDueDate,
+        p_has_deferred_payments:
+          hasDeferredPayments,
+
+        p_installment_amount:
+          deferredPayment,
+
+        p_deferred_payments_count:
+          deferredCount,
+
+        p_payment_type:
+          "تاريخ استحقاق",
+
+        p_payment_due_date:
+          paymentDueDate,
 
         p_contract_issue_date_gregorian:
           contractIssueDate,
-        p_contract_issue_date_hijri: "",
 
-        p_legal_city: legalCity.trim(),
-        p_notes: notes.trim(),
+        p_contract_issue_date_hijri:
+          "",
 
-        p_has_guarantor: hasGuarantor,
-        p_guarantor_name: hasGuarantor
-          ? guarantorName.trim()
-          : "",
-        p_guarantor_national_id: hasGuarantor
-          ? cleanGuarantorNationalId
-          : "",
-        p_guarantor_phone: hasGuarantor
-          ? cleanGuarantorPhone
-          : "",
-        p_guarantor_birth_hijri: hasGuarantor
-          ? guarantorBirthHijri.trim()
-          : "",
+        p_legal_city:
+          legalCity.trim(),
+
+        p_notes:
+          notes.trim(),
+
+        p_has_guarantor:
+          hasGuarantor,
+
+        p_guarantor_name:
+          hasGuarantor
+            ? guarantorName.trim()
+            : "",
+
+        p_guarantor_national_id:
+          hasGuarantor
+            ? cleanGuarantorNationalId
+            : "",
+
+        p_guarantor_phone:
+          hasGuarantor
+            ? cleanGuarantorPhone
+            : "",
+
+        p_guarantor_birth_hijri:
+          hasGuarantor
+            ? guarantorBirthHijri.trim()
+            : "",
       };
 
       const created =
-        await createAtomicRequestWithRetry(rpcPayload);
+        await createAtomicRequestWithRetry(
+          rpcPayload
+        );
 
-      if (!created.contract_id || !created.note_id) {
+      if (
+        !created.contract_id ||
+        !created.note_id
+      ) {
         throw new Error(
           "تم إنشاء الطلب لكن لم يتم إرجاع بيانات العقد والسند للطباعة"
         );
       }
 
-      alert("تم إنشاء الطلب وخصم المخزون بنجاح");
+      alert(
+        "تم إنشاء الطلب وخصم المخزون بنجاح"
+      );
 
       router.push(
         `/finance/${branch}/new-request/print/${created.contract_id}/${created.note_id}`
       );
     } catch (error: unknown) {
-      console.error("Create request error:", error);
+      console.error(
+        "Create request error:",
+        error
+      );
 
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : "حدث خطأ أثناء إنشاء الطلب";
-
-      alert(errorMessage);
+      alert(
+        getErrorMessage(
+          error,
+          "حدث خطأ أثناء إنشاء الطلب"
+        )
+      );
     } finally {
       setSaving(false);
     }
   }
 
-  function logout() {
-    redirectToLogin();
-  }
-
-  if (!authorized) {
-    return (
-      <main dir="rtl" style={getPageStyle(isMobile)}>
-        <div style={getContainerStyle(isCompact)}>
-          <section style={getHeroStyle(isMobile)}>
-            <div style={heroCircleOne} />
-            <div style={heroCircleTwo} />
-            <div style={heroCircleThree} />
-            <div style={heroDots} />
-
-            <div style={loadingHeroContent}>
-              جاري التحقق من تسجيل الدخول...
-            </div>
-          </section>
-        </div>
-      </main>
-    );
+  if (!pageReady) {
+    return null;
   }
 
   return (
-    <main dir="rtl" style={getPageStyle(isMobile)}>
-      <div style={getContainerStyle(isCompact)}>
-        <section style={getHeroStyle(isMobile)}>
-          <div style={heroCircleOne} />
-          <div style={heroCircleTwo} />
-          <div style={heroCircleThree} />
+    <main
+      dir="rtl"
+      style={getPageStyle(
+        isMobile
+      )}
+    >
+      <div
+        style={getContainerStyle(
+          isCompact
+        )}
+      >
+        <section
+          style={getHeroStyle(
+            isMobile
+          )}
+        >
+          <div
+            style={heroCircleOne}
+          />
+
+          <div
+            style={heroCircleTwo}
+          />
+
+          <div
+            style={heroCircleThree}
+          />
+
           <div style={heroDots} />
 
-          <div style={getHeroContentStyle(screen)}>
-            <div style={getHeroUserCardStyle(screen)}>
-              <div style={getEmployeeTopRowStyle(screen)}>
-                <div style={employeeIcon}>
+          <div
+            style={getHeroContentStyle(
+              screen
+            )}
+          >
+            <div
+              style={getHeroUserCardStyle(
+                screen
+              )}
+            >
+              <div
+                style={getEmployeeTopRowStyle(
+                  screen
+                )}
+              >
+                <div
+                  style={employeeIcon}
+                >
                   <UserIcon />
                 </div>
 
-                <div style={getEmployeeNameStyle(isMobile)}>
+                <div
+                  style={getEmployeeNameStyle(
+                    isMobile
+                  )}
+                >
                   {employeeName}
                 </div>
 
                 {!isMobile && (
-                  <div style={employeeDividerSmall} />
+                  <div
+                    style={
+                      employeeDividerSmall
+                    }
+                  />
                 )}
 
                 <button
                   type="button"
-                  style={logoutInlineButton}
+                  style={
+                    logoutInlineButton
+                  }
                   onClick={logout}
                 >
                   <LogoutIcon />
-                  <span>تسجيل الخروج</span>
+
+                  <span>
+                    تسجيل الخروج
+                  </span>
                 </button>
               </div>
 
               <button
                 type="button"
-                style={getMainWorkstationButtonStyle(isMobile)}
+                style={getMainWorkstationButtonStyle(
+                  isMobile
+                )}
                 onClick={() =>
-                  router.push(`/finance/${branch}`)
+                  router.push(
+                    `/finance/${branch}`
+                  )
                 }
               >
                 <HomeIcon />
-                <span>محطة العمل الرئيسية</span>
+
+                <span>
+                  محطة العمل الرئيسية
+                </span>
               </button>
             </div>
 
-            <div style={getHeroTitleBoxStyle(screen)}>
-              <h1 style={getTitleStyle(screen)}>
+            <div
+              style={getHeroTitleBoxStyle(
+                screen
+              )}
+            >
+              <h1
+                style={getTitleStyle(
+                  screen
+                )}
+              >
                 طلب جديد
               </h1>
             </div>
 
-            <div style={getHeroActionBoxStyle(screen)}>
+            <div
+              style={getHeroActionBoxStyle(
+                screen
+              )}
+            >
               <div style={dateBox}>
-                <span style={dateLabelStyle}>
+                <span
+                  style={
+                    dateLabelStyle
+                  }
+                >
                   تاريخ اليوم
                 </span>
 
-                <strong style={dateText}>
-                  {today}
+                <strong
+                  style={dateText}
+                >
+                  {formatDisplayDate(
+                    today
+                  )}
                 </strong>
               </div>
             </div>
           </div>
         </section>
 
+        {listsError && (
+          <section
+            style={inlineErrorCard}
+          >
+            <span>{listsError}</span>
+
+            <button
+              type="button"
+              style={
+                inlineRetryButton
+              }
+              onClick={retryLists}
+            >
+              إعادة المحاولة
+            </button>
+          </section>
+        )}
+
         <section style={card}>
-          <h2 style={sectionTitle}>بيانات العميل</h2>
+          <h2 style={sectionTitle}>
+            بيانات العميل
+          </h2>
 
           <Field label="اسم العميل">
             <input
               style={input}
               value={fullName}
               onChange={(event) =>
-                setFullName(event.target.value)
+                setFullName(
+                  event.target.value
+                )
               }
             />
           </Field>
@@ -850,7 +1888,9 @@ export default function NewRequestPage() {
               value={nationalId}
               onChange={(event) =>
                 setNationalId(
-                  normalizeNumber(event.target.value)
+                  normalizeNumber(
+                    event.target.value
+                  ).slice(0, 10)
                 )
               }
             />
@@ -860,7 +1900,11 @@ export default function NewRequestPage() {
             تاريخ الميلاد بالهجري
           </div>
 
-          <div style={getDateGridStyle(isMobile)}>
+          <div
+            style={getDateGridStyle(
+              isMobile
+            )}
+          >
             <Field label="اليوم">
               <input
                 style={input}
@@ -869,7 +1913,9 @@ export default function NewRequestPage() {
                 value={birthDay}
                 onChange={(event) =>
                   setBirthDay(
-                    normalizeNumber(event.target.value)
+                    normalizeNumber(
+                      event.target.value
+                    ).slice(0, 2)
                   )
                 }
               />
@@ -883,7 +1929,9 @@ export default function NewRequestPage() {
                 value={birthMonth}
                 onChange={(event) =>
                   setBirthMonth(
-                    normalizeNumber(event.target.value)
+                    normalizeNumber(
+                      event.target.value
+                    ).slice(0, 2)
                   )
                 }
               />
@@ -897,7 +1945,9 @@ export default function NewRequestPage() {
                 value={birthYear}
                 onChange={(event) =>
                   setBirthYear(
-                    normalizeNumber(event.target.value)
+                    normalizeNumber(
+                      event.target.value
+                    ).slice(0, 4)
                   )
                 }
               />
@@ -913,7 +1963,9 @@ export default function NewRequestPage() {
                 value={phone}
                 onChange={(event) =>
                   setPhone(
-                    normalizeNumber(event.target.value)
+                    normalizeNumber(
+                      event.target.value
+                    ).slice(0, 10)
                   )
                 }
               />
@@ -924,7 +1976,9 @@ export default function NewRequestPage() {
                 style={input}
                 value={workName}
                 onChange={(event) =>
-                  setWorkName(event.target.value)
+                  setWorkName(
+                    event.target.value
+                  )
                 }
               />
             </Field>
@@ -935,68 +1989,82 @@ export default function NewRequestPage() {
               style={input}
               value={address}
               onChange={(event) =>
-                setAddress(event.target.value)
+                setAddress(
+                  event.target.value
+                )
               }
             />
           </Field>
         </section>
 
         <section style={card}>
-          <h2 style={sectionTitle}>الطرف الأول</h2>
+          <div
+            style={
+              sectionTitleRow
+            }
+          >
+            <h2
+              style={{
+                ...sectionTitle,
+                marginBottom: 0,
+              }}
+            >
+              الطرف الأول
+            </h2>
+
+            {listsLoading && (
+              <span
+                style={
+                  localLoadingBadge
+                }
+              >
+                جاري تحميل المستثمرين
+                والمنتجات...
+              </span>
+            )}
+          </div>
 
           <Field label="المستثمر المرتبط بالمخزون">
-            <select
-              style={input}
+            <CustomSelect
               value={investorId}
-              onChange={(event) =>
-                setInvestorId(event.target.value)
+              placeholder={
+                listsLoading
+                  ? "جاري تحميل المستثمرين..."
+                  : investors.length ===
+                      0
+                    ? "لا يوجد مستثمرون"
+                    : "اختر المستثمر"
               }
-            >
-              <option value="">اختر المستثمر</option>
-
-              {investors.map((investor) => (
-                <option
-                  key={investor.id}
-                  value={investor.id}
-                >
-                  {investor.investor_name}
-                </option>
-              ))}
-            </select>
+              options={
+                investorOptions
+              }
+              onChange={(value) => {
+                setInvestorId(value);
+                setProductId("");
+                setAvailableStock(null);
+              }}
+            />
           </Field>
 
           <Field label="اختر المنتج">
-            <select
-              style={input}
+            <CustomSelect
               value={productId}
-              onChange={(event) =>
-                setProductId(event.target.value)
+              placeholder={
+                listsLoading
+                  ? "جاري تحميل المنتجات..."
+                  : products.length ===
+                      0
+                    ? "لا توجد منتجات"
+                    : "اختر المنتج"
               }
-            >
-              <option value="">اختر المنتج</option>
-
-              {products.map((product) => (
-                <option
-                  key={product.id}
-                  value={product.id}
-                >
-                  {product.product_name}
-                </option>
-              ))}
-            </select>
+              options={
+                productOptions
+              }
+              onChange={
+                setProductId
+              }
+            />
           </Field>
-
-          {availableStock !== null && (
-            <div
-              style={
-                availableStock < 0
-                  ? stockDanger
-                  : stockInfo
-              }
-            >
-              المتوفر في المخزون: {availableStock}
-            </div>
-          )}
 
           <Field label="الكمية">
             <input
@@ -1005,32 +2073,61 @@ export default function NewRequestPage() {
               value={productQuantity}
               onChange={(event) =>
                 setProductQuantity(
-                  normalizeNumber(event.target.value)
+                  normalizeNumber(
+                    event.target.value
+                  )
                 )
               }
             />
           </Field>
 
+          <div
+            style={
+              availableStock !==
+                null &&
+              toNumber(
+                productQuantity
+              ) > availableStock
+                ? stockDanger
+                : stockInfo
+            }
+          >
+            {stockLoading
+              ? "جاري تحميل الكمية المتوفرة..."
+              : availableStock ===
+                  null
+                ? "اختر المستثمر والمنتج لعرض المخزون"
+                : `المتوفر في المخزون: ${availableStock}`}
+          </div>
+
           <Field label="الطرف الأول المسجّل في العقد والسند">
-            <select
-              style={input}
-              value={printPartyType}
-              onChange={(event) =>
+            <CustomSelect
+              value={
+                printPartyType
+              }
+              placeholder="اختر الطرف الأول"
+              options={[
+                {
+                  value:
+                    "organization",
+                  label:
+                    "المستثمر الرئيسي - المؤسسة",
+                },
+                {
+                  value:
+                    "investor",
+                  label:
+                    "المستثمر",
+                },
+              ]}
+              onChange={(value) =>
                 setPrintPartyType(
-                  event.target.value as
+                  value as
                     | "organization"
                     | "investor"
                 )
               }
-            >
-              <option value="organization">
-                المستثمر الرئيسي - المؤسسة
-              </option>
-
-              <option value="investor">
-                المستثمر
-              </option>
-            </select>
+            />
           </Field>
         </section>
 
@@ -1044,7 +2141,9 @@ export default function NewRequestPage() {
               style={input}
               value={financeType}
               onChange={(event) =>
-                setFinanceType(event.target.value)
+                setFinanceType(
+                  event.target.value
+                )
               }
             />
           </Field>
@@ -1052,36 +2151,51 @@ export default function NewRequestPage() {
           <Field label="مبلغ الاستحقاق / مبلغ السند">
             <input
               style={input}
-              inputMode="numeric"
+              inputMode="decimal"
               value={debtAmount}
               onChange={(event) =>
                 setDebtAmount(
-                  normalizeNumber(event.target.value)
+                  normalizeNumber(
+                    event.target.value
+                  )
                 )
               }
             />
           </Field>
 
           <Field label="هل يوجد دفعات آجلة؟">
-            <select
-              style={input}
+            <CustomSelect
               value={
-                hasDeferredPayments ? "yes" : "no"
+                hasDeferredPayments
+                  ? "yes"
+                  : "no"
               }
-              onChange={(event) => {
-                const value =
-                  event.target.value === "yes";
+              placeholder="اختر"
+              options={[
+                {
+                  value: "no",
+                  label:
+                    "بدون دفعات",
+                },
+                {
+                  value: "yes",
+                  label:
+                    "يوجد دفعات",
+                },
+              ]}
+              onChange={(value) => {
+                const nextValue =
+                  value === "yes";
 
-                setHasDeferredPayments(value);
+                setHasDeferredPayments(
+                  nextValue
+                );
 
-                if (!value) {
+                if (!nextValue) {
                   resetDeferredPaymentsFields();
                 }
               }}
-            >
-              <option value="no">بدون دفعات</option>
-              <option value="yes">يوجد دفعات</option>
-            </select>
+            />
           </Field>
 
           {hasDeferredPayments && (
@@ -1089,8 +2203,10 @@ export default function NewRequestPage() {
               <Field label="قيمة الدفعة الآجلة">
                 <input
                   style={input}
-                  inputMode="numeric"
-                  value={installmentAmount}
+                  inputMode="decimal"
+                  value={
+                    installmentAmount
+                  }
                   onChange={(event) =>
                     setInstallmentAmount(
                       normalizeNumber(
@@ -1105,7 +2221,9 @@ export default function NewRequestPage() {
                 <input
                   style={input}
                   inputMode="numeric"
-                  value={deferredPaymentsCount}
+                  value={
+                    deferredPaymentsCount
+                  }
                   onChange={(event) =>
                     setDeferredPaymentsCount(
                       normalizeNumber(
@@ -1119,46 +2237,13 @@ export default function NewRequestPage() {
           )}
 
           <Field label="تاريخ الاستحقاق بالميلادي">
-            <div style={getDateConfirmRowStyle(isMobile)}>
-              <input
-                style={{
-                  ...input,
-                  marginBottom: 0,
-                }}
-                type="date"
-                value={draftPaymentDueDate}
-                onChange={(event) =>
-                  setDraftPaymentDueDate(
-                    event.target.value
-                  )
-                }
-              />
-
-              <button
-                type="button"
-                style={doneButton}
-                onClick={() => {
-                  if (!draftPaymentDueDate) {
-                    alert(
-                      "اختر تاريخ الاستحقاق أولاً"
-                    );
-                    return;
-                  }
-
-                  setPaymentDueDate(
-                    draftPaymentDueDate
-                  );
-                }}
-              >
-                تم
-              </button>
-            </div>
-
-            {paymentDueDate && (
-              <div style={confirmedDate}>
-                التاريخ المعتمد: {paymentDueDate}
-              </div>
-            )}
+            <ProfessionalDatePicker
+              value={paymentDueDate}
+              onChange={
+                setPaymentDueDate
+              }
+              placeholder="اختر تاريخ الاستحقاق"
+            />
           </Field>
 
           <Field label="مدينة التقاضي">
@@ -1166,29 +2251,46 @@ export default function NewRequestPage() {
               style={input}
               value={legalCity}
               onChange={(event) =>
-                setLegalCity(event.target.value)
+                setLegalCity(
+                  event.target.value
+                )
               }
             />
           </Field>
 
           <Field label="هل يوجد كفيل؟">
-            <select
-              style={input}
-              value={hasGuarantor ? "yes" : "no"}
-              onChange={(event) => {
-                const value =
-                  event.target.value === "yes";
+            <CustomSelect
+              value={
+                hasGuarantor
+                  ? "yes"
+                  : "no"
+              }
+              placeholder="اختر"
+              options={[
+                {
+                  value: "no",
+                  label:
+                    "بدون كفيل",
+                },
+                {
+                  value: "yes",
+                  label:
+                    "يوجد كفيل",
+                },
+              ]}
+              onChange={(value) => {
+                const nextValue =
+                  value === "yes";
 
-                setHasGuarantor(value);
+                setHasGuarantor(
+                  nextValue
+                );
 
-                if (!value) {
+                if (!nextValue) {
                   resetGuarantorFields();
                 }
               }}
-            >
-              <option value="no">بدون كفيل</option>
-              <option value="yes">يوجد كفيل</option>
-            </select>
+            />
           </Field>
 
           {hasGuarantor && (
@@ -1196,7 +2298,9 @@ export default function NewRequestPage() {
               <Field label="اسم الكفيل">
                 <input
                   style={input}
-                  value={guarantorName}
+                  value={
+                    guarantorName
+                  }
                   onChange={(event) =>
                     setGuarantorName(
                       event.target.value
@@ -1210,12 +2314,14 @@ export default function NewRequestPage() {
                   style={input}
                   inputMode="numeric"
                   maxLength={10}
-                  value={guarantorNationalId}
+                  value={
+                    guarantorNationalId
+                  }
                   onChange={(event) =>
                     setGuarantorNationalId(
                       normalizeNumber(
                         event.target.value
-                      )
+                      ).slice(0, 10)
                     )
                   }
                 />
@@ -1226,12 +2332,14 @@ export default function NewRequestPage() {
                   style={input}
                   inputMode="numeric"
                   maxLength={10}
-                  value={guarantorPhone}
+                  value={
+                    guarantorPhone
+                  }
                   onChange={(event) =>
                     setGuarantorPhone(
                       normalizeNumber(
                         event.target.value
-                      )
+                      ).slice(0, 10)
                     )
                   }
                 />
@@ -1240,12 +2348,18 @@ export default function NewRequestPage() {
               <Field label="تاريخ ميلاد الكفيل">
                 <input
                   style={input}
-                  value={guarantorBirthHijri}
+                  value={
+                    guarantorBirthHijri
+                  }
                   onChange={(event) =>
                     setGuarantorBirthHijri(
-                      event.target.value
+                      normalizeHijriDate(
+                        event.target.value
+                      )
                     )
                   }
+                  inputMode="numeric"
+                  placeholder="مثال: 1446/12/15"
                 />
               </Field>
             </>
@@ -1256,21 +2370,22 @@ export default function NewRequestPage() {
               style={textarea}
               value={notes}
               onChange={(event) =>
-                setNotes(event.target.value)
+                setNotes(
+                  event.target.value
+                )
               }
             />
           </Field>
 
           <Field label="تاريخ تحرير العقد">
-            <input
-              style={input}
-              type="date"
-              value={contractIssueDate}
-              onChange={(event) =>
-                setContractIssueDate(
-                  event.target.value
-                )
+            <ProfessionalDatePicker
+              value={
+                contractIssueDate
               }
+              onChange={
+                setContractIssueDate
+              }
+              placeholder="اختر تاريخ تحرير العقد"
             />
           </Field>
 
@@ -1278,17 +2393,30 @@ export default function NewRequestPage() {
             type="button"
             style={{
               ...primaryButton,
-              opacity: saving ? 0.7 : 1,
-              cursor: saving
-                ? "not-allowed"
-                : "pointer",
+              opacity:
+                saving ||
+                listsLoading
+                  ? 0.7
+                  : 1,
+              cursor:
+                saving ||
+                listsLoading
+                  ? "not-allowed"
+                  : "pointer",
             }}
-            onClick={createRequest}
-            disabled={saving}
+            onClick={
+              createRequest
+            }
+            disabled={
+              saving ||
+              listsLoading
+            }
           >
             {saving
               ? "جاري إنشاء الطلب..."
-              : "إنشاء الطلب وطباعة العقد"}
+              : listsLoading
+                ? "جاري تجهيز بيانات الطلب..."
+                : "إنشاء الطلب وطباعة العقد"}
           </button>
         </section>
 
@@ -1296,9 +2424,11 @@ export default function NewRequestPage() {
           <button
             type="button"
             style={backButton}
-            onClick={() => router.back()}
+            onClick={() =>
+              router.back()
+            }
           >
-            ← الرجوع
+            ← رجوع
           </button>
         </div>
       </div>
@@ -1315,10 +2445,794 @@ function Field({
 }) {
   return (
     <div style={fieldBox}>
-      <label style={fieldLabel}>{label}</label>
+      <label style={fieldLabel}>
+        {label}
+      </label>
+
       {children}
     </div>
   );
+}
+
+function CustomSelect({
+  value,
+  placeholder,
+  options,
+  onChange,
+}: {
+  value: string;
+  placeholder: string;
+  options: SelectOption[];
+  onChange: (
+    value: string
+  ) => void;
+}) {
+  const [open, setOpen] =
+    useState(false);
+
+  const [
+    menuRect,
+    setMenuRect,
+  ] = useState<DropdownRect | null>(
+    null
+  );
+
+  const wrapperRef =
+    useRef<HTMLDivElement | null>(
+      null
+    );
+
+  const selectedOption =
+    options.find(
+      (option) =>
+        option.value === value
+    );
+
+  function updateMenuPosition() {
+    if (!wrapperRef.current) {
+      return;
+    }
+
+    const rect =
+      wrapperRef.current.getBoundingClientRect();
+
+    setMenuRect({
+      top: rect.bottom + 7,
+      left: rect.left,
+      width: rect.width,
+    });
+  }
+
+  function closeMenu() {
+    setOpen(false);
+    setMenuRect(null);
+  }
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    updateMenuPosition();
+
+    function handleOutsidePointer(
+      event: PointerEvent
+    ) {
+      const target =
+        event.target as Node;
+
+      if (
+        wrapperRef.current &&
+        wrapperRef.current.contains(
+          target
+        )
+      ) {
+        return;
+      }
+
+      const portalMenu =
+        document.getElementById(
+          "finance-new-request-select-menu"
+        );
+
+      if (
+        portalMenu &&
+        portalMenu.contains(target)
+      ) {
+        return;
+      }
+
+      closeMenu();
+    }
+
+    function handlePositionChange() {
+      updateMenuPosition();
+    }
+
+    document.addEventListener(
+      "pointerdown",
+      handleOutsidePointer
+    );
+
+    window.addEventListener(
+      "resize",
+      handlePositionChange
+    );
+
+    window.addEventListener(
+      "scroll",
+      handlePositionChange,
+      true
+    );
+
+    return () => {
+      document.removeEventListener(
+        "pointerdown",
+        handleOutsidePointer
+      );
+
+      window.removeEventListener(
+        "resize",
+        handlePositionChange
+      );
+
+      window.removeEventListener(
+        "scroll",
+        handlePositionChange,
+        true
+      );
+    };
+  }, [open]);
+
+  return (
+    <div
+      ref={wrapperRef}
+      style={selectWrapper}
+    >
+      <button
+        type="button"
+        style={{
+          ...selectButton,
+          ...(open
+            ? selectButtonOpen
+            : {}),
+        }}
+        onClick={() => {
+          if (open) {
+            closeMenu();
+          } else {
+            updateMenuPosition();
+            setOpen(true);
+          }
+        }}
+        aria-expanded={open}
+      >
+        <span
+          style={
+            selectedOption
+              ? selectValue
+              : selectPlaceholder
+          }
+        >
+          {selectedOption?.label ||
+            placeholder}
+        </span>
+
+        <span
+          style={{
+            ...selectArrow,
+            transform: open
+              ? "rotate(180deg)"
+              : "rotate(0deg)",
+          }}
+        >
+          ▼
+        </span>
+      </button>
+
+      {open &&
+        menuRect &&
+        typeof document !==
+          "undefined" &&
+        createPortal(
+          <div
+            id="finance-new-request-select-menu"
+            style={{
+              ...selectOptionsMenu,
+              top: menuRect.top,
+              left: menuRect.left,
+              width: menuRect.width,
+            }}
+          >
+            {options.length === 0 ? (
+              <div
+                style={emptyOption}
+              >
+                لا توجد خيارات متاحة
+              </div>
+            ) : (
+              options.map(
+                (option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    disabled={
+                      option.disabled
+                    }
+                    style={{
+                      ...selectOptionButton,
+
+                      ...(option.value ===
+                      value
+                        ? selectedOptionButton
+                        : {}),
+
+                      ...(option.disabled
+                        ? disabledOptionButton
+                        : {}),
+                    }}
+                    onPointerDown={(
+                      event
+                    ) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+
+                      if (
+                        option.disabled
+                      ) {
+                        return;
+                      }
+
+                      onChange(
+                        option.value
+                      );
+
+                      closeMenu();
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                )
+              )
+            )}
+          </div>,
+          document.body
+        )}
+    </div>
+  );
+}
+
+function ProfessionalDatePicker({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (
+    value: string
+  ) => void;
+  placeholder: string;
+}) {
+  const initialDate =
+    parseDateValue(value) ||
+    new Date();
+
+  const [open, setOpen] =
+    useState(false);
+
+  const [
+    visibleYear,
+    setVisibleYear,
+  ] = useState(
+    initialDate.getFullYear()
+  );
+
+  const [
+    visibleMonth,
+    setVisibleMonth,
+  ] = useState(
+    initialDate.getMonth()
+  );
+
+  useEffect(() => {
+    const selectedDate =
+      parseDateValue(value);
+
+    if (selectedDate) {
+      setVisibleYear(
+        selectedDate.getFullYear()
+      );
+
+      setVisibleMonth(
+        selectedDate.getMonth()
+      );
+    }
+  }, [value]);
+
+  const days =
+    getCalendarDays(
+      visibleYear,
+      visibleMonth
+    );
+
+  function selectDate(
+    year: number,
+    month: number,
+    day: number
+  ) {
+    onChange(
+      formatLocalDate(
+        new Date(
+          year,
+          month,
+          day
+        )
+      )
+    );
+
+    setOpen(false);
+  }
+
+  function goToPreviousMonth() {
+    if (visibleMonth === 0) {
+      setVisibleMonth(11);
+
+      setVisibleYear(
+        (current) =>
+          current - 1
+      );
+    } else {
+      setVisibleMonth(
+        (current) =>
+          current - 1
+      );
+    }
+  }
+
+  function goToNextMonth() {
+    if (visibleMonth === 11) {
+      setVisibleMonth(0);
+
+      setVisibleYear(
+        (current) =>
+          current + 1
+      );
+    } else {
+      setVisibleMonth(
+        (current) =>
+          current + 1
+      );
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        style={datePickerButton}
+        onClick={() =>
+          setOpen(true)
+        }
+      >
+        <span
+          style={
+            value
+              ? datePickerValue
+              : datePickerPlaceholder
+          }
+        >
+          {value
+            ? formatDisplayDate(
+                value
+              )
+            : placeholder}
+        </span>
+
+        <CalendarIcon />
+      </button>
+
+      {open &&
+        typeof document !==
+          "undefined" &&
+        createPortal(
+          <div
+            style={calendarOverlay}
+            onPointerDown={() =>
+              setOpen(false)
+            }
+          >
+            <div
+              style={calendarModal}
+              onPointerDown={(event) =>
+                event.stopPropagation()
+              }
+            >
+              <div
+                style={calendarHeader}
+              >
+                <button
+                  type="button"
+                  style={
+                    calendarNavigationButton
+                  }
+                  onClick={
+                    goToPreviousMonth
+                  }
+                >
+                  ‹
+                </button>
+
+                <strong
+                  style={
+                    calendarMonthTitle
+                  }
+                >
+                  {
+                    ARABIC_MONTHS[
+                      visibleMonth
+                    ]
+                  }{" "}
+                  {visibleYear}
+                </strong>
+
+                <button
+                  type="button"
+                  style={
+                    calendarNavigationButton
+                  }
+                  onClick={
+                    goToNextMonth
+                  }
+                >
+                  ›
+                </button>
+              </div>
+
+              <div
+                style={
+                  calendarWeekGrid
+                }
+              >
+                {ARABIC_WEEK_DAYS.map(
+                  (day) => (
+                    <div
+                      key={day}
+                      style={
+                        calendarWeekDay
+                      }
+                    >
+                      {day}
+                    </div>
+                  )
+                )}
+              </div>
+
+              <div
+                style={
+                  calendarDaysGrid
+                }
+              >
+                {days.map(
+                  (item, index) => {
+                    if (!item) {
+                      return (
+                        <div
+                          key={`empty-${index}`}
+                        />
+                      );
+                    }
+
+                    const currentValue =
+                      `${visibleYear}-${String(
+                        visibleMonth +
+                          1
+                      ).padStart(
+                        2,
+                        "0"
+                      )}-${String(
+                        item
+                      ).padStart(
+                        2,
+                        "0"
+                      )}`;
+
+                    const isSelected =
+                      currentValue ===
+                      value;
+
+                    const isToday =
+                      currentValue ===
+                      getTodayDate();
+
+                    return (
+                      <button
+                        key={
+                          currentValue
+                        }
+                        type="button"
+                        style={{
+                          ...calendarDayButton,
+
+                          ...(isToday
+                            ? calendarTodayButton
+                            : {}),
+
+                          ...(isSelected
+                            ? calendarSelectedButton
+                            : {}),
+                        }}
+                        onClick={() =>
+                          selectDate(
+                            visibleYear,
+                            visibleMonth,
+                            item
+                          )
+                        }
+                      >
+                        {item}
+                      </button>
+                    );
+                  }
+                )}
+              </div>
+
+              <div
+                style={calendarFooter}
+              >
+                <button
+                  type="button"
+                  style={
+                    calendarTodayAction
+                  }
+                  onClick={() => {
+                    const currentDate =
+                      new Date();
+
+                    setVisibleYear(
+                      currentDate.getFullYear()
+                    );
+
+                    setVisibleMonth(
+                      currentDate.getMonth()
+                    );
+
+                    onChange(
+                      formatLocalDate(
+                        currentDate
+                      )
+                    );
+
+                    setOpen(false);
+                  }}
+                >
+                  اختيار اليوم
+                </button>
+
+                <button
+                  type="button"
+                  style={
+                    calendarCancelAction
+                  }
+                  onClick={() =>
+                    setOpen(false)
+                  }
+                >
+                  إلغاء
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+    </>
+  );
+}
+
+const ARABIC_MONTHS = [
+  "يناير",
+  "فبراير",
+  "مارس",
+  "أبريل",
+  "مايو",
+  "يونيو",
+  "يوليو",
+  "أغسطس",
+  "سبتمبر",
+  "أكتوبر",
+  "نوفمبر",
+  "ديسمبر",
+];
+
+const ARABIC_WEEK_DAYS = [
+  "ح",
+  "ن",
+  "ث",
+  "ر",
+  "خ",
+  "ج",
+  "س",
+];
+
+function getCalendarDays(
+  year: number,
+  month: number
+) {
+  const firstDay =
+    new Date(
+      year,
+      month,
+      1
+    ).getDay();
+
+  const daysInMonth =
+    new Date(
+      year,
+      month + 1,
+      0
+    ).getDate();
+
+  const values:
+    Array<number | null> = [];
+
+  for (
+    let index = 0;
+    index < firstDay;
+    index += 1
+  ) {
+    values.push(null);
+  }
+
+  for (
+    let day = 1;
+    day <= daysInMonth;
+    day += 1
+  ) {
+    values.push(day);
+  }
+
+  while (
+    values.length % 7 !== 0
+  ) {
+    values.push(null);
+  }
+
+  return values;
+}
+
+function getTodayDate() {
+  return formatLocalDate(
+    new Date()
+  );
+}
+
+function formatLocalDate(
+  date: Date
+) {
+  const year =
+    date.getFullYear();
+
+  const month = String(
+    date.getMonth() + 1
+  ).padStart(2, "0");
+
+  const day = String(
+    date.getDate()
+  ).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function parseDateValue(
+  value: string
+) {
+  const match =
+    /^(\d{4})-(\d{2})-(\d{2})$/.exec(
+      value
+    );
+
+  if (!match) {
+    return null;
+  }
+
+  const year =
+    Number(match[1]);
+
+  const month =
+    Number(match[2]) - 1;
+
+  const day =
+    Number(match[3]);
+
+  const date =
+    new Date(
+      year,
+      month,
+      day
+    );
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return date;
+}
+
+function formatDisplayDate(
+  value: string
+) {
+  const date =
+    parseDateValue(value);
+
+  if (!date) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat(
+    "ar-SA-u-ca-gregory",
+    {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    }
+  ).format(date);
+}
+
+function normalizeHijriDate(
+  value: string
+) {
+  const normalized =
+    normalizeNumber(value).slice(
+      0,
+      8
+    );
+
+  if (
+    normalized.length <= 4
+  ) {
+    return normalized;
+  }
+
+  if (
+    normalized.length <= 6
+  ) {
+    return `${normalized.slice(
+      0,
+      4
+    )}/${normalized.slice(4)}`;
+  }
+
+  return `${normalized.slice(
+    0,
+    4
+  )}/${normalized.slice(
+    4,
+    6
+  )}/${normalized.slice(6)}`;
+}
+
+function getErrorMessage(
+  error: unknown,
+  fallback: string
+) {
+  if (
+    error instanceof Error
+  ) {
+    return (
+      error.message || fallback
+    );
+  }
+
+  if (
+    typeof error === "string"
+  ) {
+    return error || fallback;
+  }
+
+  return fallback;
 }
 
 function UserIcon() {
@@ -1414,6 +3328,35 @@ function HomeIcon() {
   );
 }
 
+function CalendarIcon() {
+  return (
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <rect
+        x="3"
+        y="5"
+        width="18"
+        height="16"
+        rx="3"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+
+      <path
+        d="M7 3v4M17 3v4M3 10h18"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function getPageStyle(
   isMobile: boolean
 ): CSSProperties {
@@ -1429,10 +3372,12 @@ function getPageStyle(
     `,
     backgroundSize: "cover",
     backgroundPosition: "center",
-    backgroundAttachment: isMobile
-      ? "scroll"
-      : "fixed",
-    padding: isMobile ? 10 : 18,
+    backgroundAttachment:
+      isMobile
+        ? "scroll"
+        : "fixed",
+    padding:
+      isMobile ? 10 : 18,
     fontFamily:
       "var(--font-almarai), sans-serif",
   };
@@ -1443,7 +3388,10 @@ function getContainerStyle(
 ): CSSProperties {
   return {
     width: "100%",
-    maxWidth: isCompact ? 980 : 1040,
+    maxWidth:
+      isCompact
+        ? 980
+        : 1040,
     margin: "auto",
   };
 }
@@ -1453,18 +3401,23 @@ function getHeroStyle(
 ): CSSProperties {
   return {
     position: "relative",
-    minHeight: isMobile ? "auto" : 160,
-    borderRadius: isMobile ? 20 : 24,
-    padding: isMobile
-      ? "18px 14px"
-      : "22px 26px",
+    minHeight:
+      isMobile
+        ? "auto"
+        : 160,
+    borderRadius:
+      isMobile
+        ? 20
+        : 24,
+    padding:
+      isMobile
+        ? "18px 14px"
+        : "22px 26px",
     marginBottom: 14,
     overflow: "hidden",
     border: "none",
-    outline: "none",
     background:
       "radial-gradient(circle at 15% 18%, rgba(255,255,255,0.08) 0, transparent 24%), radial-gradient(circle at 86% 18%, rgba(255,255,255,0.11) 0, transparent 26%), linear-gradient(105deg,#071c48 0%,#0a327d 30%,#0d65d9 60%,#23a8e4 82%,#6edce4 100%)",
-    boxShadow: "none",
     isolation: "isolate",
   };
 }
@@ -1479,7 +3432,6 @@ function getHeroContentStyle(
       display: "flex",
       flexDirection: "column",
       alignItems: "stretch",
-      justifyContent: "center",
       gap: 16,
       direction: "rtl",
     };
@@ -1491,7 +3443,6 @@ function getHeroContentStyle(
       zIndex: 3,
       display: "grid",
       gridTemplateColumns: "1fr",
-      alignItems: "center",
       justifyItems: "center",
       gap: 18,
       direction: "rtl",
@@ -1550,28 +3501,26 @@ function getHeroUserCardStyle(
 function getEmployeeTopRowStyle(
   screen: ScreenType
 ): CSSProperties {
-  if (screen === "mobile") {
-    return {
-      minHeight: 42,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      flexWrap: "wrap",
-      gap: 10,
-      direction: "rtl",
-      color: "#ffffff",
-      width: "100%",
-    };
-  }
-
   return {
-    height: 42,
+    minHeight: 42,
     display: "flex",
     alignItems: "center",
     justifyContent:
-      screen === "tablet" ? "center" : "flex-start",
-    gap: 14,
-    direction: screen === "tablet" ? "rtl" : "ltr",
+      screen === "desktop"
+        ? "flex-start"
+        : "center",
+    flexWrap:
+      screen === "mobile"
+        ? "wrap"
+        : "nowrap",
+    gap:
+      screen === "mobile"
+        ? 10
+        : 14,
+    direction:
+      screen === "desktop"
+        ? "ltr"
+        : "rtl",
     color: "#ffffff",
     width: "100%",
   };
@@ -1582,12 +3531,11 @@ function getEmployeeNameStyle(
 ): CSSProperties {
   return {
     color: "#ffffff",
-    fontSize: isMobile ? 15 : 17,
+    fontSize:
+      isMobile ? 15 : 17,
     fontWeight: 900,
     whiteSpace: "nowrap",
     direction: "rtl",
-    textShadow:
-      "0 4px 10px rgba(15,23,42,0.18)",
   };
 }
 
@@ -1595,9 +3543,15 @@ function getMainWorkstationButtonStyle(
   isMobile: boolean
 ): CSSProperties {
   return {
-    width: isMobile ? "100%" : 220,
-    maxWidth: isMobile ? 280 : 220,
-    height: 44,
+    width:
+      isMobile
+        ? "100%"
+        : 220,
+    maxWidth:
+      isMobile
+        ? 280
+        : 220,
+    minHeight: 44,
     border: "none",
     background:
       "linear-gradient(135deg,#72e77d,#22c55e 58%,#16a34a)",
@@ -1609,13 +3563,10 @@ function getMainWorkstationButtonStyle(
     cursor: "pointer",
     fontFamily:
       "var(--font-almarai), sans-serif",
-    boxShadow:
-      "0 8px 18px rgba(22,163,74,0.20)",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
     gap: 9,
-    whiteSpace: "nowrap",
     direction: "rtl",
   };
 }
@@ -1627,12 +3578,14 @@ function getHeroTitleBoxStyle(
     position: "relative",
     zIndex: 4,
     display: "flex",
-    flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
     textAlign: "center",
     direction: "rtl",
-    order: screen === "desktop" ? 0 : 1,
+    order:
+      screen === "desktop"
+        ? 0
+        : 1,
   };
 }
 
@@ -1644,16 +3597,15 @@ function getTitleStyle(
     color: "#ffffff",
     fontSize:
       screen === "mobile"
-        ? 27
+        ? 25
         : screen === "tablet"
-          ? 30
-          : 34,
-    lineHeight: 1.45,
-    fontWeight: 700,
-    textShadow:
-      "0 5px 14px rgba(15,23,42,0.14)",
+          ? 28
+          : 30,
+    lineHeight: 1.35,
+    fontWeight: 900,
     fontFamily:
-      "var(--font-noto-naskh-arabic), 'Noto Naskh Arabic', 'Amiri', serif",
+      "var(--font-almarai), sans-serif",
+    whiteSpace: "nowrap",
   };
 }
 
@@ -1667,7 +3619,6 @@ function getHeroActionBoxStyle(
     return {
       display: "flex",
       justifyContent: "center",
-      alignItems: "center",
       width: "100%",
       order: 3,
     };
@@ -1677,7 +3628,6 @@ function getHeroActionBoxStyle(
     display: "flex",
     justifyContent: "flex-end",
     alignItems: "center",
-    direction: "rtl",
   };
 }
 
@@ -1686,64 +3636,42 @@ function getDateGridStyle(
 ): CSSProperties {
   return {
     display: "grid",
-    gridTemplateColumns: isMobile
-      ? "1fr"
-      : "repeat(3,1fr)",
+    gridTemplateColumns:
+      isMobile
+        ? "1fr"
+        : "repeat(3,1fr)",
     gap: 10,
   };
 }
 
-function getDateConfirmRowStyle(
-  isMobile: boolean
-): CSSProperties {
-  return {
-    display: "grid",
-    gridTemplateColumns: isMobile
-      ? "1fr"
-      : "1fr auto",
-    gap: 10,
-    alignItems: "center",
-  };
-}
-
-const loadingHeroContent: CSSProperties = {
-  position: "relative",
-  zIndex: 3,
-  minHeight: 116,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  color: "#ffffff",
-  fontSize: 24,
-  fontWeight: 900,
-  textAlign: "center",
-};
-
-const employeeIcon: CSSProperties = {
+const employeeIcon:
+  CSSProperties = {
   width: 38,
   height: 38,
   borderRadius: "50%",
   border:
     "1.5px solid rgba(255,255,255,0.34)",
-  background: "rgba(255,255,255,0.06)",
+  background:
+    "rgba(255,255,255,0.06)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  color: "rgba(255,255,255,0.96)",
-  flex: "0 0 auto",
+  color: "#ffffff",
 };
 
-const employeeDividerSmall: CSSProperties = {
+const employeeDividerSmall:
+  CSSProperties = {
   width: 1,
   height: 34,
-  background: "rgba(255,255,255,0.30)",
-  flex: "0 0 auto",
+  background:
+    "rgba(255,255,255,0.30)",
 };
 
-const logoutInlineButton: CSSProperties = {
+const logoutInlineButton:
+  CSSProperties = {
   border: "none",
   background: "transparent",
-  color: "rgba(255,255,255,0.90)",
+  color: "#ffffff",
   fontSize: 15,
   fontWeight: 800,
   display: "flex",
@@ -1752,12 +3680,10 @@ const logoutInlineButton: CSSProperties = {
   cursor: "pointer",
   fontFamily:
     "var(--font-almarai), sans-serif",
-  padding: 0,
-  whiteSpace: "nowrap",
-  direction: "rtl",
 };
 
-const dateBox: CSSProperties = {
+const dateBox:
+  CSSProperties = {
   minWidth: 130,
   display: "grid",
   gap: 5,
@@ -1765,55 +3691,62 @@ const dateBox: CSSProperties = {
   color: "#ffffff",
 };
 
-const dateLabelStyle: CSSProperties = {
-  color: "rgba(255,255,255,0.75)",
+const dateLabelStyle:
+  CSSProperties = {
+  color:
+    "rgba(255,255,255,0.75)",
   fontSize: 13,
   fontWeight: 800,
 };
 
-const dateText: CSSProperties = {
+const dateText:
+  CSSProperties = {
   color: "#ffffff",
-  fontSize: 17,
+  fontSize: 15,
   fontWeight: 900,
 };
 
-const heroCircleOne: CSSProperties = {
+const heroCircleOne:
+  CSSProperties = {
   position: "absolute",
   width: 210,
   height: 210,
   right: -78,
   top: -85,
   borderRadius: "50%",
-  background: "rgba(255,255,255,0.075)",
-  pointerEvents: "none",
+  background:
+    "rgba(255,255,255,0.075)",
   zIndex: 1,
 };
 
-const heroCircleTwo: CSSProperties = {
+const heroCircleTwo:
+  CSSProperties = {
   position: "absolute",
   width: 245,
   height: 245,
   right: 145,
   bottom: -178,
   borderRadius: "50%",
-  background: "rgba(255,255,255,0.045)",
-  pointerEvents: "none",
+  background:
+    "rgba(255,255,255,0.045)",
   zIndex: 1,
 };
 
-const heroCircleThree: CSSProperties = {
+const heroCircleThree:
+  CSSProperties = {
   position: "absolute",
   width: 150,
   height: 150,
   left: 380,
   top: -96,
   borderRadius: "50%",
-  background: "rgba(255,255,255,0.035)",
-  pointerEvents: "none",
+  background:
+    "rgba(255,255,255,0.035)",
   zIndex: 1,
 };
 
-const heroDots: CSSProperties = {
+const heroDots:
+  CSSProperties = {
   position: "absolute",
   top: 28,
   right: 34,
@@ -1822,13 +3755,50 @@ const heroDots: CSSProperties = {
   opacity: 0.24,
   backgroundImage:
     "radial-gradient(rgba(255,255,255,0.40) 2px, transparent 2px)",
-  backgroundSize: "14px 14px",
+  backgroundSize:
+    "14px 14px",
   zIndex: 2,
 };
 
-const card: CSSProperties = {
-  background: "rgba(255,255,255,0.97)",
-  border: "1px solid #dbe5f3",
+const inlineErrorCard:
+  CSSProperties = {
+  marginBottom: 14,
+  padding: "12px 14px",
+  borderRadius: 14,
+  border:
+    "1px solid #fecaca",
+  background: "#fff7f7",
+  color: "#991b1b",
+  display: "flex",
+  alignItems: "center",
+  justifyContent:
+    "space-between",
+  gap: 12,
+  flexWrap: "wrap",
+  fontWeight: 900,
+};
+
+const inlineRetryButton:
+  CSSProperties = {
+  minHeight: 38,
+  border: "none",
+  borderRadius: 10,
+  padding: "8px 14px",
+  background:
+    "linear-gradient(135deg,#22c55e,#15803d)",
+  color: "#ffffff",
+  cursor: "pointer",
+  fontWeight: 900,
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const card:
+  CSSProperties = {
+  background:
+    "rgba(255,255,255,0.97)",
+  border:
+    "1px solid #dbe5f3",
   borderRadius: 20,
   padding: 20,
   marginBottom: 14,
@@ -1836,18 +3806,46 @@ const card: CSSProperties = {
     "0 10px 26px rgba(15,23,42,0.05)",
 };
 
-const sectionTitle: CSSProperties = {
+const sectionTitleRow:
+  CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent:
+    "space-between",
+  gap: 12,
+  flexWrap: "wrap",
+  marginBottom: 18,
+};
+
+const localLoadingBadge:
+  CSSProperties = {
+  padding: "7px 10px",
+  borderRadius: 999,
+  border:
+    "1px solid #bfdbfe",
+  background: "#eff6ff",
+  color: "#1d4ed8",
+  fontSize: 12,
+  fontWeight: 900,
+};
+
+const sectionTitle:
+  CSSProperties = {
   margin: "0 0 18px",
   color: "#0d47a1",
   fontSize: 22,
   fontWeight: 900,
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
-const fieldBox: CSSProperties = {
+const fieldBox:
+  CSSProperties = {
   marginBottom: 14,
 };
 
-const fieldLabel: CSSProperties = {
+const fieldLabel:
+  CSSProperties = {
   display: "block",
   marginBottom: 8,
   color: "#0d47a1",
@@ -1855,14 +3853,15 @@ const fieldLabel: CSSProperties = {
   fontSize: 15,
 };
 
-const input: CSSProperties = {
+const input:
+  CSSProperties = {
   width: "100%",
-  minHeight: 50,
+  minHeight: 54,
   padding: "0 14px",
   borderRadius: 14,
-  border: "1px solid #d9e3f5",
+  border:
+    "1.5px solid #cbd8eb",
   fontSize: 16,
-  boxSizing: "border-box",
   background: "#ffffff",
   color: "#0f172a",
   outline: "none",
@@ -1870,75 +3869,346 @@ const input: CSSProperties = {
     "var(--font-almarai), sans-serif",
 };
 
-const textarea: CSSProperties = {
+const textarea:
+  CSSProperties = {
   ...input,
   minHeight: 110,
   padding: 14,
   resize: "vertical",
-  lineHeight: 1.8,
 };
 
-const dateFieldTitle: CSSProperties = {
+const dateFieldTitle:
+  CSSProperties = {
   fontSize: 15,
   fontWeight: 900,
   marginBottom: 8,
   color: "#374151",
 };
 
-const twoColumns: CSSProperties = {
+const twoColumns:
+  CSSProperties = {
   display: "grid",
   gridTemplateColumns:
     "repeat(auto-fit,minmax(220px,1fr))",
   gap: 12,
 };
 
-const doneButton: CSSProperties = {
-  height: 50,
-  padding: "0 20px",
+const stockInfo:
+  CSSProperties = {
+  background: "#f0fdf4",
+  color: "#166534",
+  border:
+    "1px solid #bbf7d0",
+  padding: 12,
+  borderRadius: 12,
+  fontSize: 15,
+  fontWeight: 900,
+  marginBottom: 12,
+};
+
+const stockDanger:
+  CSSProperties = {
+  ...stockInfo,
+  background: "#fef2f2",
+  color: "#991b1b",
+  border:
+    "1px solid #fecaca",
+};
+
+const selectWrapper:
+  CSSProperties = {
+  position: "relative",
+  width: "100%",
+};
+
+const selectButton:
+  CSSProperties = {
+  width: "100%",
+  minHeight: 54,
+  padding: "12px 15px",
+  borderRadius: 14,
+  border:
+    "1.5px solid #cbd8eb",
+  background: "#ffffff",
+  color: "#0f172a",
+  cursor: "pointer",
+  display: "flex",
+  alignItems: "center",
+  justifyContent:
+    "space-between",
+  gap: 12,
+  textAlign: "right",
+  direction: "rtl",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const selectButtonOpen:
+  CSSProperties = {
+  borderColor: "#3b82f6",
+  boxShadow:
+    "0 0 0 4px rgba(59,130,246,0.11)",
+};
+
+const selectValue:
+  CSSProperties = {
+  color: "#0f172a",
+  fontSize: 15,
+  fontWeight: 800,
+};
+
+const selectPlaceholder:
+  CSSProperties = {
+  color: "#64748b",
+  fontSize: 15,
+  fontWeight: 700,
+};
+
+const selectArrow:
+  CSSProperties = {
+  color: "#2563eb",
+  fontSize: 11,
+  transition:
+    "transform 0.18s ease",
+};
+
+const selectOptionsMenu:
+  CSSProperties = {
+  position: "fixed",
+  maxHeight: 280,
+  overflowY: "auto",
+  padding: 7,
+  borderRadius: 14,
+  border:
+    "1px solid #cbd8eb",
+  background: "#ffffff",
+  boxShadow:
+    "0 18px 42px rgba(15,23,42,0.22)",
+  zIndex: 100000,
+};
+
+const selectOptionButton:
+  CSSProperties = {
+  width: "100%",
+  minHeight: 46,
+  border: "none",
+  borderRadius: 10,
+  padding: "10px 12px",
+  background: "transparent",
+  color: "#1e293b",
+  textAlign: "right",
+  cursor: "pointer",
+  fontSize: 14,
+  fontWeight: 800,
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const selectedOptionButton:
+  CSSProperties = {
+  background:
+    "linear-gradient(135deg,#2563eb,#0ea5e9)",
+  color: "#ffffff",
+};
+
+const disabledOptionButton:
+  CSSProperties = {
+  opacity: 0.5,
+  cursor: "not-allowed",
+};
+
+const emptyOption:
+  CSSProperties = {
+  padding: 14,
+  color: "#64748b",
+  textAlign: "center",
+  fontWeight: 800,
+};
+
+const datePickerButton:
+  CSSProperties = {
+  ...input,
+  cursor: "pointer",
+  display: "flex",
+  alignItems: "center",
+  justifyContent:
+    "space-between",
+  textAlign: "right",
+  direction: "rtl",
+  color: "#2563eb",
+};
+
+const datePickerValue:
+  CSSProperties = {
+  color: "#0f172a",
+  fontWeight: 800,
+};
+
+const datePickerPlaceholder:
+  CSSProperties = {
+  color: "#64748b",
+  fontWeight: 700,
+};
+
+const calendarOverlay:
+  CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  zIndex: 200000,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 16,
+  background:
+    "rgba(15,23,42,0.45)",
+  backdropFilter: "blur(5px)",
+};
+
+const calendarModal:
+  CSSProperties = {
+  width: "100%",
+  maxWidth: 430,
+  padding: 20,
+  borderRadius: 22,
+  background: "#ffffff",
+  border:
+    "1px solid #dbeafe",
+  boxShadow:
+    "0 30px 80px rgba(15,23,42,0.28)",
+  direction: "rtl",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const calendarHeader:
+  CSSProperties = {
+  display: "grid",
+  gridTemplateColumns:
+    "48px 1fr 48px",
+  alignItems: "center",
+  gap: 10,
+  marginBottom: 18,
+};
+
+const calendarNavigationButton:
+  CSSProperties = {
+  width: 48,
+  height: 48,
+  border: "none",
+  borderRadius: 14,
+  background: "#eff6ff",
+  color: "#1d4ed8",
+  cursor: "pointer",
+  fontSize: 30,
+  fontWeight: 900,
+};
+
+const calendarMonthTitle:
+  CSSProperties = {
+  textAlign: "center",
+  color: "#0f172a",
+  fontSize: 18,
+  fontWeight: 900,
+};
+
+const calendarWeekGrid:
+  CSSProperties = {
+  display: "grid",
+  gridTemplateColumns:
+    "repeat(7,1fr)",
+  gap: 6,
+  marginBottom: 8,
+};
+
+const calendarWeekDay:
+  CSSProperties = {
+  textAlign: "center",
+  color: "#64748b",
+  fontSize: 13,
+  fontWeight: 900,
+  padding: "6px 0",
+};
+
+const calendarDaysGrid:
+  CSSProperties = {
+  display: "grid",
+  gridTemplateColumns:
+    "repeat(7,1fr)",
+  gap: 6,
+};
+
+const calendarDayButton:
+  CSSProperties = {
+  aspectRatio: "1 / 1",
+  minHeight: 42,
+  border: "none",
+  borderRadius: 12,
+  background: "#f8fafc",
+  color: "#1e293b",
+  cursor: "pointer",
+  fontSize: 15,
+  fontWeight: 800,
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const calendarTodayButton:
+  CSSProperties = {
+  border:
+    "1.5px solid #22c55e",
+  color: "#15803d",
+};
+
+const calendarSelectedButton:
+  CSSProperties = {
+  background:
+    "linear-gradient(135deg,#2563eb,#0ea5e9)",
+  color: "#ffffff",
+  boxShadow:
+    "0 6px 14px rgba(37,99,235,0.24)",
+};
+
+const calendarFooter:
+  CSSProperties = {
+  display: "grid",
+  gridTemplateColumns:
+    "1fr 1fr",
+  gap: 10,
+  marginTop: 18,
+};
+
+const calendarTodayAction:
+  CSSProperties = {
+  minHeight: 46,
+  border: "none",
+  borderRadius: 13,
   background:
     "linear-gradient(135deg,#22c55e,#15803d)",
   color: "#ffffff",
-  border: "none",
-  borderRadius: 14,
-  fontSize: 16,
-  fontWeight: 900,
   cursor: "pointer",
+  fontSize: 14,
+  fontWeight: 900,
   fontFamily:
     "var(--font-almarai), sans-serif",
-  boxShadow:
-    "0 5px 14px rgba(22,163,74,0.18)",
 };
 
-const confirmedDate: CSSProperties = {
-  marginTop: 9,
-  color: "#166534",
-  fontWeight: 900,
+const calendarCancelAction:
+  CSSProperties = {
+  minHeight: 46,
+  border:
+    "1px solid #cbd5e1",
+  borderRadius: 13,
+  background: "#ffffff",
+  color: "#475569",
+  cursor: "pointer",
   fontSize: 14,
-};
-
-const stockInfo: CSSProperties = {
-  background: "#f0fdf4",
-  color: "#166534",
-  border: "1px solid #bbf7d0",
-  padding: 12,
-  borderRadius: 12,
-  fontSize: 15,
   fontWeight: 900,
-  marginBottom: 12,
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
-const stockDanger: CSSProperties = {
-  background: "#fef2f2",
-  color: "#991b1b",
-  border: "1px solid #fecaca",
-  padding: 12,
-  borderRadius: 12,
-  fontSize: 15,
-  fontWeight: 900,
-  marginBottom: 12,
-};
-
-const primaryButton: CSSProperties = {
+const primaryButton:
+  CSSProperties = {
   width: "100%",
   padding: 16,
   background:
@@ -1950,18 +4220,18 @@ const primaryButton: CSSProperties = {
   fontWeight: 900,
   fontFamily:
     "var(--font-almarai), sans-serif",
-  boxShadow:
-    "0 8px 20px rgba(37,99,235,0.18)",
 };
 
-const backWrapper: CSSProperties = {
+const backWrapper:
+  CSSProperties = {
   display: "flex",
   justifyContent: "center",
   marginTop: 18,
   marginBottom: 8,
 };
 
-const backButton: CSSProperties = {
+const backButton:
+  CSSProperties = {
   padding: "11px 18px",
   background:
     "linear-gradient(135deg,#22c55e,#15803d)",
