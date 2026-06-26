@@ -1226,8 +1226,7 @@ export default function NewPromissoryNotePage() {
               <SectionTitle>اختيار العقد</SectionTitle>
 
               <div style={searchWrapper}>
-                <label style={label}>البحث عن العقد</label>
-
+<label style={labelStyle}>البحث عن العقد</label>
                 <input
                   style={input}
                   placeholder="رقم العقد أو اسم العميل أو الهوية أو الجوال"
