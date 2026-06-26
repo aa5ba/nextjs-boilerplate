@@ -2,7 +2,10 @@
 
 import { useState } from "react";
 import type { CSSProperties } from "react";
-import { useRouter } from "next/navigation";
+import {
+  useRouter,
+  useSearchParams,
+} from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
 type FinanceUserSession = {
@@ -49,6 +52,9 @@ type CustomerLoginResult = {
   work_sector: string | null;
 };
 
+const SESSION_DURATION_MS =
+  60 * 60 * 1000;
+
 const FINANCE_SESSION_KEYS = [
   "finance_user",
   "finance_branch_user",
@@ -64,6 +70,9 @@ const FINANCE_SESSION_KEYS = [
   "finance_investor_id",
   "finance_is_active",
   "finance_last_login_at",
+  "finance_session_expires_at",
+  "finance_last_activity_at",
+  "finance_return_to",
 ] as const;
 
 const CUSTOMER_SESSION_KEYS = [
@@ -76,41 +85,72 @@ const CUSTOMER_SESSION_KEYS = [
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
-  const [loginIdentifier, setLoginIdentifier] =
+  const [
+    loginIdentifier,
+    setLoginIdentifier,
+  ] = useState("");
+
+  const [password, setPassword] =
     useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
 
-  function clearFinanceSession() {
-    if (typeof window === "undefined") {
+  const [loading, setLoading] =
+    useState(false);
+
+  const [message, setMessage] =
+    useState("");
+
+  function clearFinanceSession({
+    preserveReturnPath = false,
+  }: {
+    preserveReturnPath?: boolean;
+  } = {}) {
+    if (
+      typeof window === "undefined"
+    ) {
       return;
     }
 
-    FINANCE_SESSION_KEYS.forEach((key) => {
-      localStorage.removeItem(key);
-    });
+    FINANCE_SESSION_KEYS.forEach(
+      (key) => {
+        if (
+          preserveReturnPath &&
+          key === "finance_return_to"
+        ) {
+          return;
+        }
+
+        localStorage.removeItem(key);
+      }
+    );
   }
 
   function clearCustomerSession() {
-    if (typeof window === "undefined") {
+    if (
+      typeof window === "undefined"
+    ) {
       return;
     }
 
-    CUSTOMER_SESSION_KEYS.forEach((key) => {
-      localStorage.removeItem(key);
-    });
+    CUSTOMER_SESSION_KEYS.forEach(
+      (key) => {
+        localStorage.removeItem(key);
+      }
+    );
   }
 
   function saveFinanceSession(
     financeUser: FinanceUserSession
   ) {
-    if (typeof window === "undefined") {
+    if (
+      typeof window === "undefined"
+    ) {
       return;
     }
 
-    const serializedUser = JSON.stringify(financeUser);
+    const serializedUser =
+      JSON.stringify(financeUser);
 
     localStorage.setItem(
       "finance_user",
@@ -164,7 +204,9 @@ export default function LoginPage() {
 
     localStorage.setItem(
       "finance_permissions",
-      JSON.stringify(financeUser.permissions)
+      JSON.stringify(
+        financeUser.permissions
+      )
     );
 
     localStorage.setItem(
@@ -174,19 +216,37 @@ export default function LoginPage() {
 
     localStorage.setItem(
       "finance_is_active",
-      financeUser.is_active ? "true" : "false"
+      financeUser.is_active
+        ? "true"
+        : "false"
     );
 
     localStorage.setItem(
       "finance_last_login_at",
       financeUser.last_login_at || ""
     );
+
+    const now = Date.now();
+
+    localStorage.setItem(
+      "finance_last_activity_at",
+      String(now)
+    );
+
+    localStorage.setItem(
+      "finance_session_expires_at",
+      String(
+        now + SESSION_DURATION_MS
+      )
+    );
   }
 
   function saveCustomerSession(
     customerUser: CustomerSession
   ) {
-    if (typeof window === "undefined") {
+    if (
+      typeof window === "undefined"
+    ) {
       return;
     }
 
@@ -224,8 +284,11 @@ export default function LoginPage() {
     }
 
     return value.filter(
-      (permission): permission is string =>
-        typeof permission === "string" &&
+      (
+        permission
+      ): permission is string =>
+        typeof permission ===
+          "string" &&
         permission.trim().length > 0
     );
   }
@@ -233,9 +296,10 @@ export default function LoginPage() {
   function getFinanceLoginResult(
     data: unknown
   ): FinanceLoginResult | null {
-    const result = Array.isArray(data)
-      ? data[0]
-      : data;
+    const result =
+      Array.isArray(data)
+        ? data[0]
+        : data;
 
     if (
       !result ||
@@ -251,9 +315,10 @@ export default function LoginPage() {
   function getCustomerLoginResult(
     data: unknown
   ): CustomerLoginResult | null {
-    const result = Array.isArray(data)
-      ? data[0]
-      : data;
+    const result =
+      Array.isArray(data)
+        ? data[0]
+        : data;
 
     if (
       !result ||
@@ -266,15 +331,116 @@ export default function LoginPage() {
     return result as CustomerLoginResult;
   }
 
+  function normalizeReturnPath(
+    value: string | null
+  ) {
+    if (!value) {
+      return "";
+    }
+
+    const trimmedValue =
+      value.trim();
+
+    if (!trimmedValue) {
+      return "";
+    }
+
+    try {
+      return decodeURIComponent(
+        trimmedValue
+      );
+    } catch {
+      return trimmedValue;
+    }
+  }
+
+  function isSafeFinanceReturnPath(
+    value: string,
+    branchSlug: string
+  ) {
+    if (!value || !branchSlug) {
+      return false;
+    }
+
+    if (
+      value.startsWith("//") ||
+      value.includes("://") ||
+      value.includes("\\")
+    ) {
+      return false;
+    }
+
+    const branchBasePath =
+      `/finance/${branchSlug}`;
+
+    return (
+      value === branchBasePath ||
+      value.startsWith(
+        `${branchBasePath}/`
+      ) ||
+      value.startsWith(
+        `${branchBasePath}?`
+      )
+    );
+  }
+
+  function getFinanceReturnPath(
+    branchSlug: string
+  ) {
+    if (
+      typeof window === "undefined"
+    ) {
+      return "";
+    }
+
+    const queryReturnTo =
+      normalizeReturnPath(
+        searchParams.get("returnTo")
+      );
+
+    const storedReturnTo =
+      normalizeReturnPath(
+        localStorage.getItem(
+          "finance_return_to"
+        )
+      );
+
+    if (
+      isSafeFinanceReturnPath(
+        queryReturnTo,
+        branchSlug
+      )
+    ) {
+      return queryReturnTo;
+    }
+
+    if (
+      isSafeFinanceReturnPath(
+        storedReturnTo,
+        branchSlug
+      )
+    ) {
+      return storedReturnTo;
+    }
+
+    return "";
+  }
+
   async function handleBranchLogin(
     normalizedUsername: string,
     normalizedPassword: string
   ) {
-    const { data, error } = await supabase.rpc(
+    const {
+      data,
+      error,
+    } = await supabase.rpc(
       "verify_finance_branch_login",
       {
-        p_username: normalizedUsername,
-        p_password: normalizedPassword,
+        p_username:
+          normalizedUsername,
+
+        p_password:
+          normalizedPassword,
       }
     );
 
@@ -284,10 +450,13 @@ export default function LoginPage() {
         error
       );
 
-      throw new Error("BRANCH_LOGIN_FAILED");
+      throw new Error(
+        "BRANCH_LOGIN_FAILED"
+      );
     }
 
-    const result = getFinanceLoginResult(data);
+    const result =
+      getFinanceLoginResult(data);
 
     if (!result) {
       setMessage(
@@ -297,34 +466,46 @@ export default function LoginPage() {
       return;
     }
 
-    if (!result.id || !result.branch_id) {
-      setMessage("بيانات حساب الموظف غير مكتملة");
+    if (
+      !result.id ||
+      !result.branch_id
+    ) {
+      setMessage(
+        "بيانات حساب الموظف غير مكتملة"
+      );
+
       return;
     }
 
     if (!result.branch_slug) {
-      setMessage("مسار الفرع غير مكتمل");
+      setMessage(
+        "مسار الفرع غير مكتمل"
+      );
+
       return;
     }
 
-    const isActive = result.is_active !== false;
+    const isActive =
+      result.is_active !== false;
 
     if (!isActive) {
-      setMessage("هذا الحساب معطل");
+      setMessage(
+        "هذا الحساب معطل"
+      );
+
       return;
     }
 
-    clearFinanceSession();
-    clearCustomerSession();
-
-    const financeUser: FinanceUserSession = {
+    const financeUser:
+      FinanceUserSession = {
       id: String(result.id),
 
       full_name:
         result.full_name || "",
 
       username:
-        result.username || normalizedUsername,
+        result.username ||
+        normalizedUsername,
 
       role:
         result.role || "",
@@ -348,7 +529,9 @@ export default function LoginPage() {
 
       investor_id:
         result.investor_id
-          ? String(result.investor_id)
+          ? String(
+              result.investor_id
+            )
           : null,
 
       is_active:
@@ -356,16 +539,39 @@ export default function LoginPage() {
 
       last_login_at:
         result.last_login_at
-          ? String(result.last_login_at)
+          ? String(
+              result.last_login_at
+            )
           : null,
     };
 
-    saveFinanceSession(financeUser);
+    /*
+      نحدد صفحة العودة قبل مسح
+      بيانات الجلسة القديمة.
+    */
+    const returnPath =
+      getFinanceReturnPath(
+        financeUser.branch_slug
+      );
+
+    clearFinanceSession();
+    clearCustomerSession();
+
+    saveFinanceSession(
+      financeUser
+    );
+
+    localStorage.removeItem(
+      "finance_return_to"
+    );
+
+    if (returnPath) {
+      router.replace(returnPath);
+      return;
+    }
 
     router.replace(
-      `/finance/${encodeURIComponent(
-        financeUser.branch_slug
-      )}`
+      `/finance/${financeUser.branch_slug}`
     );
   }
 
@@ -373,11 +579,17 @@ export default function LoginPage() {
     normalizedPhone: string,
     normalizedPassword: string
   ) {
-    const { data, error } = await supabase.rpc(
+    const {
+      data,
+      error,
+    } = await supabase.rpc(
       "verify_customer_login",
       {
-        p_phone: normalizedPhone,
-        p_password: normalizedPassword,
+        p_phone:
+          normalizedPhone,
+
+        p_password:
+          normalizedPassword,
       }
     );
 
@@ -387,10 +599,13 @@ export default function LoginPage() {
         error
       );
 
-      throw new Error("CUSTOMER_LOGIN_FAILED");
+      throw new Error(
+        "CUSTOMER_LOGIN_FAILED"
+      );
     }
 
-    const result = getCustomerLoginResult(data);
+    const result =
+      getCustomerLoginResult(data);
 
     if (!result) {
       setMessage(
@@ -401,27 +616,34 @@ export default function LoginPage() {
     }
 
     if (!result.id) {
-      setMessage("بيانات حساب العميل غير مكتملة");
+      setMessage(
+        "بيانات حساب العميل غير مكتملة"
+      );
+
       return;
     }
 
     clearFinanceSession();
     clearCustomerSession();
 
-    const customerUser: CustomerSession = {
+    const customerUser:
+      CustomerSession = {
       id: String(result.id),
 
       full_name:
         result.full_name || "",
 
       phone:
-        result.phone || normalizedPhone,
+        result.phone ||
+        normalizedPhone,
 
       work_sector:
         result.work_sector || "",
     };
 
-    saveCustomerSession(customerUser);
+    saveCustomerSession(
+      customerUser
+    );
 
     router.replace("/customer");
   }
@@ -436,16 +658,19 @@ export default function LoginPage() {
     const normalizedIdentifier =
       loginIdentifier.trim();
 
-    const normalizedPassword = password
-      .replace(/\D/g, "")
-      .slice(0, 4);
+    const normalizedPassword =
+      password
+        .replace(/\D/g, "")
+        .slice(0, 4);
 
-    const customerPhoneRegex = /^05\d{8}$/;
+    const customerPhoneRegex =
+      /^05\d{8}$/;
 
     const usernameRegex =
       /^[\u0600-\u06FFa-zA-Z0-9_.-]{2,35}$/;
 
-    const pinRegex = /^\d{4}$/;
+    const pinRegex =
+      /^\d{4}$/;
 
     if (!normalizedIdentifier) {
       setMessage(
@@ -455,7 +680,11 @@ export default function LoginPage() {
       return;
     }
 
-    if (!pinRegex.test(normalizedPassword)) {
+    if (
+      !pinRegex.test(
+        normalizedPassword
+      )
+    ) {
       setMessage(
         "كلمة المرور يجب أن تكون 4 أرقام"
       );
@@ -470,7 +699,9 @@ export default function LoginPage() {
 
     if (
       !isCustomerPhone &&
-      !usernameRegex.test(normalizedIdentifier)
+      !usernameRegex.test(
+        normalizedIdentifier
+      )
     ) {
       setMessage(
         "اسم المستخدم أو رقم الجوال غير صحيح"
@@ -508,14 +739,23 @@ export default function LoginPage() {
   }
 
   return (
-    <div dir="rtl" style={page}>
+    <div
+      dir="rtl"
+      style={page}
+    >
       <div style={card}>
         <div style={logoBox}>
-          <div style={logoCircle}>ا</div>
+          <div style={logoCircle}>
+            ا
+          </div>
 
-          <h1 style={title}>تسجيل الدخول</h1>
+          <h1 style={title}>
+            تسجيل الدخول
+          </h1>
 
-          <p style={subtitle}>برنامج احتساب</p>
+          <p style={subtitle}>
+            برنامج احتساب
+          </p>
         </div>
 
         <input
@@ -539,9 +779,10 @@ export default function LoginPage() {
           placeholder="كلمة المرور"
           value={password}
           onChange={(event) => {
-            const value = event.target.value
-              .replace(/\D/g, "")
-              .slice(0, 4);
+            const value =
+              event.target.value
+                .replace(/\D/g, "")
+                .slice(0, 4);
 
             setPassword(value);
             setMessage("");
@@ -553,7 +794,9 @@ export default function LoginPage() {
           autoComplete="current-password"
           disabled={loading}
           onKeyDown={(event) => {
-            if (event.key === "Enter") {
+            if (
+              event.key === "Enter"
+            ) {
               void handleLogin();
             }
           }}
@@ -561,16 +804,20 @@ export default function LoginPage() {
 
         <button
           type="button"
-          onClick={() => void handleLogin()}
+          onClick={() =>
+            void handleLogin()
+          }
           disabled={loading}
           style={{
             ...buttonStyle,
 
-            cursor: loading
-              ? "not-allowed"
-              : "pointer",
+            cursor:
+              loading
+                ? "not-allowed"
+                : "pointer",
 
-            opacity: loading ? 0.75 : 1,
+            opacity:
+              loading ? 0.75 : 1,
           }}
         >
           {loading
@@ -579,7 +826,10 @@ export default function LoginPage() {
         </button>
 
         {message && (
-          <p role="alert" style={messageStyle}>
+          <p
+            role="alert"
+            style={messageStyle}
+          >
             {message}
           </p>
         )}
