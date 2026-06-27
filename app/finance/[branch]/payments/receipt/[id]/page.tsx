@@ -1035,28 +1035,7 @@ export default function PaymentReceiptPage() {
         >
           ← رجوع
         </button>
-
-        <button
-          type="button"
-          style={homeButton}
-          onClick={() =>
-            router.push(
-              `/finance/${branch}`
-            )
-          }
-        >
-          محطة العمل الرئيسية
-        </button>
-
-        <button
-          type="button"
-          style={logoutButton}
-          onClick={() =>
-            logoutFinanceUser(router)
-          }
-        >
-          تسجيل الخروج
-        </button>
+        
       </div>
     </main>
   );
