@@ -4,19 +4,17 @@ import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import {
+  clearFinanceSession,
+  getFinanceEmployeeName,
+  installFinanceActivityTracker,
+  logoutFinanceUser,
+  redirectToFinanceLogin,
+  validateFinanceSession,
+  type FinanceSessionUser,
+} from "@/lib/financeSession";
 
 type ScreenType = "mobile" | "tablet" | "desktop";
-
-type FinanceSession = {
-  id?: string | null;
-  user_id?: string | null;
-  full_name?: string | null;
-  username?: string | null;
-  role?: string | null;
-  branch_id?: string | null;
-  branch_slug?: string | null;
-  branch_name?: string | null;
-};
 
 type Customer = {
   id: string;
@@ -60,46 +58,76 @@ type ActivityLog = {
   created_at?: string | null;
 };
 
-const SESSION_KEYS = [
-  "finance_user",
-  "finance_branch_user",
-  "finance_user_id",
-  "finance_user_name",
-  "finance_username",
-  "finance_role",
-  "finance_branch_id",
-  "finance_branch_slug",
-  "finance_branch_name",
-  "finance_organization_name",
-];
-
 export default function FinanceCustomerProfilePage() {
   const params = useParams();
   const router = useRouter();
 
-  const branch = String(params.branch ?? "");
-  const customerId = String(params.id ?? "");
+  const branch =
+    typeof params.branch === "string"
+      ? params.branch.trim()
+      : "";
 
-  const [screen, setScreen] = useState<ScreenType>("desktop");
-  const [employeeName, setEmployeeName] = useState("الموظف");
+  const customerId =
+    typeof params.id === "string"
+      ? params.id.trim()
+      : "";
 
-  const [customer, setCustomer] = useState<Customer | null>(null);
-  const [activeContracts, setActiveContracts] = useState<Contract[]>([]);
-  const [closedContracts, setClosedContracts] = useState<Contract[]>([]);
-  const [notes, setNotes] = useState<PromissoryNote[]>([]);
-  const [activities, setActivities] = useState<ActivityLog[]>([]);
+  const [screen, setScreen] =
+    useState<ScreenType>("desktop");
 
-  const [branchId, setBranchId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [sessionUser, setSessionUser] =
+    useState<FinanceSessionUser | null>(null);
 
-  const [fullName, setFullName] = useState("");
-  const [nationalId, setNationalId] = useState("");
-  const [birthHijri, setBirthHijri] = useState("");
-  const [phone, setPhone] = useState("");
-  const [workName, setWorkName] = useState("");
-  const [address, setAddress] = useState("");
+  const [authChecked, setAuthChecked] =
+    useState(false);
+
+  const [employeeName, setEmployeeName] =
+    useState("الموظف");
+
+  const [customer, setCustomer] =
+    useState<Customer | null>(null);
+
+  const [activeContracts, setActiveContracts] =
+    useState<Contract[]>([]);
+
+  const [closedContracts, setClosedContracts] =
+    useState<Contract[]>([]);
+
+  const [notes, setNotes] =
+    useState<PromissoryNote[]>([]);
+
+  const [activities, setActivities] =
+    useState<ActivityLog[]>([]);
+
+  const [branchId, setBranchId] =
+    useState<string | null>(null);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [editing, setEditing] =
+    useState(false);
+
+  const [saving, setSaving] =
+    useState(false);
+
+  const [fullName, setFullName] =
+    useState("");
+
+  const [nationalId, setNationalId] =
+    useState("");
+
+  const [birthHijri, setBirthHijri] =
+    useState("");
+
+  const [phone, setPhone] =
+    useState("");
+
+  const [workName, setWorkName] =
+    useState("");
+
+  const [address, setAddress] =
+    useState("");
 
   const isMobile = screen === "mobile";
   const isTablet = screen === "tablet";
@@ -119,37 +147,190 @@ export default function FinanceCustomerProfilePage() {
     }
 
     updateScreen();
-    window.addEventListener("resize", updateScreen);
 
-    return () => window.removeEventListener("resize", updateScreen);
+    window.addEventListener(
+      "resize",
+      updateScreen
+    );
+
+    return () => {
+      window.removeEventListener(
+        "resize",
+        updateScreen
+      );
+    };
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+
+    async function initializePage() {
+      setLoading(true);
+      setAuthChecked(false);
+      setBranchId(null);
+
+      if (!branch) {
+        clearFinanceSession();
+        router.replace("/login");
+        return;
+      }
+
+      if (!customerId) {
+        resetPageData();
+        setAuthChecked(true);
+        setLoading(false);
+        return;
+      }
+
+      const validation =
+        validateFinanceSession(branch);
+
+      if (
+        !validation.valid ||
+        !validation.user
+      ) {
+        redirectToFinanceLogin(router, {
+          branchSlug: branch,
+        });
+
+        return;
+      }
+
+      const authenticatedUser =
+        validation.user;
+
+      const currentBranchId = String(
+        authenticatedUser.branch_id || ""
+      ).trim();
+
+      if (!currentBranchId) {
+        clearFinanceSession();
+
+        redirectToFinanceLogin(router, {
+          branchSlug: branch,
+        });
+
+        return;
+      }
+
+      if (cancelled) {
+        return;
+      }
+
+      setSessionUser(authenticatedUser);
+      setBranchId(currentBranchId);
+
+      setEmployeeName(
+        getFinanceEmployeeName(
+          authenticatedUser
+        )
+      );
+
+      setAuthChecked(true);
+
+      await loadData(
+        currentBranchId,
+        () => cancelled
+      );
+    }
+
     void initializePage();
-  }, [branch, customerId]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [branch, customerId, router]);
+
+  useEffect(() => {
+    if (
+      !authChecked ||
+      !sessionUser
+    ) {
+      return;
+    }
+
+    const uninstall =
+      installFinanceActivityTracker({
+        expectedBranchSlug: branch,
+
+        onExpired: () => {
+          redirectToFinanceLogin(router, {
+            branchSlug: branch,
+          });
+        },
+
+        onInvalidated: () => {
+          clearFinanceSession();
+          router.replace("/login");
+        },
+
+        onSessionUpdated: (
+          updatedUser
+        ) => {
+          const updatedBranchId = String(
+            updatedUser.branch_id || ""
+          ).trim();
+
+          if (!updatedBranchId) {
+            clearFinanceSession();
+            router.replace("/login");
+            return;
+          }
+
+          setSessionUser(updatedUser);
+          setBranchId(updatedBranchId);
+
+          setEmployeeName(
+            getFinanceEmployeeName(
+              updatedUser
+            )
+          );
+        },
+      });
+
+    return uninstall;
+  }, [
+    authChecked,
+    branch,
+    router,
+    sessionUser?.id,
+  ]);
 
   const allContracts = useMemo(
-    () => [...activeContracts, ...closedContracts],
+    () => [
+      ...activeContracts,
+      ...closedContracts,
+    ],
     [activeContracts, closedContracts]
   );
 
   const totalRemaining = useMemo(() => {
     return activeContracts.reduce(
-      (sum, contract) => sum + Number(contract.remaining_amount || 0),
+      (sum, contract) =>
+        sum +
+        Number(
+          contract.remaining_amount || 0
+        ),
       0
     );
   }, [activeContracts]);
 
   const totalPaid = useMemo(() => {
     return allContracts.reduce(
-      (sum, contract) => sum + Number(contract.paid_amount || 0),
+      (sum, contract) =>
+        sum +
+        Number(
+          contract.paid_amount || 0
+        ),
       0
     );
   }, [allContracts]);
 
   const hasLateContract = useMemo(() => {
     return activeContracts.some(
-      (contract) => contract.contract_status === "متأخر"
+      (contract) =>
+        contract.contract_status ===
+        "متأخر"
     );
   }, [activeContracts]);
 
@@ -161,197 +342,8 @@ export default function FinanceCustomerProfilePage() {
         ? "عميل سابق"
         : "لا توجد عقود";
 
-  function clearSession() {
-    if (typeof window === "undefined") return;
-
-    SESSION_KEYS.forEach((key) => {
-      localStorage.removeItem(key);
-    });
-  }
-
-  function readStoredSession(): FinanceSession | null {
-    if (typeof window === "undefined") return null;
-
-    const rawSession =
-      localStorage.getItem("finance_branch_user") ||
-      localStorage.getItem("finance_user");
-
-    if (rawSession) {
-      try {
-        const parsed = JSON.parse(rawSession) as FinanceSession;
-
-        return {
-          ...parsed,
-          id:
-            parsed.id ||
-            parsed.user_id ||
-            localStorage.getItem("finance_user_id"),
-          full_name:
-            parsed.full_name ||
-            localStorage.getItem("finance_user_name") ||
-            null,
-          username:
-            parsed.username ||
-            localStorage.getItem("finance_username") ||
-            null,
-          role:
-            parsed.role || localStorage.getItem("finance_role") || null,
-          branch_id:
-            parsed.branch_id ||
-            localStorage.getItem("finance_branch_id") ||
-            null,
-          branch_slug:
-            parsed.branch_slug ||
-            localStorage.getItem("finance_branch_slug") ||
-            null,
-          branch_name:
-            parsed.branch_name ||
-            localStorage.getItem("finance_branch_name") ||
-            null,
-        };
-      } catch {
-        return null;
-      }
-    }
-
-    const legacyUserId = localStorage.getItem("finance_user_id");
-    const legacyUsername = localStorage.getItem("finance_username");
-    const legacyBranchId = localStorage.getItem("finance_branch_id");
-    const legacyBranchSlug = localStorage.getItem("finance_branch_slug");
-
-    if (!legacyUserId && !legacyUsername) {
-      return null;
-    }
-
-    return {
-      id: legacyUserId,
-      full_name: localStorage.getItem("finance_user_name"),
-      username: legacyUsername,
-      role: localStorage.getItem("finance_role"),
-      branch_id: legacyBranchId,
-      branch_slug: legacyBranchSlug,
-      branch_name: localStorage.getItem("finance_branch_name"),
-    };
-  }
-
-  async function initializePage() {
-    setLoading(true);
-
-    if (!branch || !customerId) {
-      clearSession();
-      router.replace("/login");
-      return;
-    }
-
-    const storedSession = readStoredSession();
-
-    if (!storedSession) {
-      clearSession();
-      router.replace("/login");
-      return;
-    }
-
-    if (
-      storedSession.branch_slug &&
-      storedSession.branch_slug !== branch
-    ) {
-      router.replace(`/finance/${storedSession.branch_slug}`);
-      return;
-    }
-
-    const { data: branchData, error: branchError } = await supabase
-      .from("finance_branches")
-      .select("id, branch_slug, branch_name, organization_name, is_active")
-      .eq("branch_slug", branch)
-      .eq("is_active", true)
-      .maybeSingle();
-
-    if (branchError || !branchData?.id) {
-      clearSession();
-      router.replace("/login");
-      return;
-    }
-
-    const safeBranchId: string = branchData.id;
-
-    if (
-      storedSession.branch_id &&
-      storedSession.branch_id !== safeBranchId
-    ) {
-      if (storedSession.branch_slug) {
-        router.replace(`/finance/${storedSession.branch_slug}`);
-      } else {
-        clearSession();
-        router.replace("/login");
-      }
-
-      return;
-    }
-
-    let userQuery = supabase
-      .from("finance_branch_users")
-      .select("id, full_name, username, role, branch_id, is_active")
-      .eq("branch_id", safeBranchId)
-      .eq("is_active", true);
-
-    if (storedSession.id) {
-      userQuery = userQuery.eq("id", storedSession.id);
-    } else if (storedSession.username) {
-      userQuery = userQuery.eq("username", storedSession.username);
-    } else {
-      clearSession();
-      router.replace("/login");
-      return;
-    }
-
-    const { data: userData, error: userError } =
-      await userQuery.maybeSingle();
-
-    if (userError || !userData?.id) {
-      clearSession();
-      router.replace("/login");
-      return;
-    }
-
-    const resolvedEmployeeName =
-      userData.full_name ||
-      userData.username ||
-      storedSession.full_name ||
-      storedSession.username ||
-      "الموظف";
-
-    setEmployeeName(resolvedEmployeeName);
-    setBranchId(safeBranchId);
-
-    if (typeof window !== "undefined") {
-      localStorage.setItem("finance_user_id", String(userData.id));
-      localStorage.setItem("finance_user_name", resolvedEmployeeName);
-      localStorage.setItem(
-        "finance_username",
-        String(userData.username || storedSession.username || "")
-      );
-      localStorage.setItem(
-        "finance_role",
-        String(userData.role || storedSession.role || "")
-      );
-      localStorage.setItem("finance_branch_id", safeBranchId);
-      localStorage.setItem("finance_branch_slug", branch);
-      localStorage.setItem(
-        "finance_branch_name",
-        String(branchData.branch_name || "")
-      );
-      localStorage.setItem(
-        "finance_organization_name",
-        String(branchData.organization_name || "")
-      );
-    }
-
-    await loadData(safeBranchId);
-  }
-
   function logout() {
-    clearSession();
-    router.replace("/login");
+    logoutFinanceUser(router);
   }
 
   function resetPageData() {
@@ -360,23 +352,48 @@ export default function FinanceCustomerProfilePage() {
     setClosedContracts([]);
     setNotes([]);
     setActivities([]);
+    setEditing(false);
   }
 
-  async function loadData(currentBranchId: string) {
+  async function loadData(
+    currentBranchId: string,
+    isCancelled: () => boolean =
+      () => false
+  ) {
     try {
       setLoading(true);
 
-      const safeBranchId: string = currentBranchId;
+      const safeBranchId =
+        currentBranchId.trim();
 
-      const { data: customerData, error: customerError } = await supabase
+      if (
+        !safeBranchId ||
+        !customerId
+      ) {
+        resetPageData();
+        return;
+      }
+
+      const {
+        data: customerData,
+        error: customerError,
+      } = await supabase
         .from("finance_customers")
-        .select("*, finance_customer_groups(name)")
+        .select(
+          "*, finance_customer_groups(name)"
+        )
         .eq("id", customerId)
         .eq("branch_id", safeBranchId)
         .maybeSingle();
 
+      if (isCancelled()) {
+        return;
+      }
+
       if (customerError) {
-        throw new Error(customerError.message);
+        throw new Error(
+          customerError.message
+        );
       }
 
       if (!customerData) {
@@ -392,77 +409,204 @@ export default function FinanceCustomerProfilePage() {
       ] = await Promise.all([
         supabase
           .from("finance_contracts")
-          .select("*")
-          .eq("customer_id", customerId)
-          .eq("branch_id", safeBranchId)
-          .in("contract_status", ["نشط", "متأخر"])
-          .order("created_at", { ascending: false }),
+          .select(
+            `
+              id,
+              contract_number,
+              contract_status,
+              paid_amount,
+              remaining_amount,
+              payment_due_date
+            `
+          )
+          .eq(
+            "customer_id",
+            customerId
+          )
+          .eq(
+            "branch_id",
+            safeBranchId
+          )
+          .in(
+            "contract_status",
+            ["نشط", "متأخر"]
+          )
+          .order("created_at", {
+            ascending: false,
+          }),
 
         supabase
           .from("finance_contracts")
-          .select("*")
-          .eq("customer_id", customerId)
-          .eq("branch_id", safeBranchId)
-          .in("contract_status", ["تم السداد", "ملغي"])
-          .order("created_at", { ascending: false }),
+          .select(
+            `
+              id,
+              contract_number,
+              contract_status,
+              paid_amount,
+              remaining_amount,
+              payment_due_date
+            `
+          )
+          .eq(
+            "customer_id",
+            customerId
+          )
+          .eq(
+            "branch_id",
+            safeBranchId
+          )
+          .in(
+            "contract_status",
+            ["تم السداد", "ملغي"]
+          )
+          .order("created_at", {
+            ascending: false,
+          }),
 
         supabase
-          .from("finance_promissory_notes")
-          .select("*")
-          .eq("customer_id", customerId)
-          .eq("branch_id", safeBranchId)
-          .order("created_at", { ascending: false }),
+          .from(
+            "finance_promissory_notes"
+          )
+          .select(
+            `
+              id,
+              note_number,
+              status,
+              amount
+            `
+          )
+          .eq(
+            "customer_id",
+            customerId
+          )
+          .eq(
+            "branch_id",
+            safeBranchId
+          )
+          .order("created_at", {
+            ascending: false,
+          }),
 
         supabase
-          .from("finance_activity_logs")
-          .select("*")
-          .eq("customer_id", customerId)
-          .eq("branch_id", safeBranchId)
-          .order("created_at", { ascending: false })
+          .from(
+            "finance_activity_logs"
+          )
+          .select(
+            `
+              id,
+              activity_type,
+              description,
+              status,
+              created_at
+            `
+          )
+          .eq(
+            "customer_id",
+            customerId
+          )
+          .eq(
+            "branch_id",
+            safeBranchId
+          )
+          .order("created_at", {
+            ascending: false,
+          })
           .limit(20),
       ]);
 
+      if (isCancelled()) {
+        return;
+      }
+
       if (activeResponse.error) {
         throw new Error(
-          activeResponse.error.message || "تعذر تحميل العقود الحالية"
+          activeResponse.error.message ||
+            "تعذر تحميل العقود الحالية"
         );
       }
 
       if (closedResponse.error) {
         throw new Error(
-          closedResponse.error.message || "تعذر تحميل العقود السابقة"
+          closedResponse.error.message ||
+            "تعذر تحميل العقود السابقة"
         );
       }
 
       if (notesResponse.error) {
         throw new Error(
-          notesResponse.error.message || "تعذر تحميل السندات"
+          notesResponse.error.message ||
+            "تعذر تحميل السندات"
         );
       }
 
       if (activitiesResponse.error) {
         throw new Error(
-          activitiesResponse.error.message || "تعذر تحميل سجل العمليات"
+          activitiesResponse.error.message ||
+            "تعذر تحميل سجل العمليات"
         );
       }
 
-      const typedCustomer = customerData as Customer;
+      const typedCustomer =
+        customerData as Customer;
 
       setCustomer(typedCustomer);
-      setActiveContracts((activeResponse.data || []) as Contract[]);
-      setClosedContracts((closedResponse.data || []) as Contract[]);
-      setNotes((notesResponse.data || []) as PromissoryNote[]);
-      setActivities((activitiesResponse.data || []) as ActivityLog[]);
 
-      setFullName(typedCustomer.full_name || "");
-      setNationalId(typedCustomer.national_id || "");
-      setBirthHijri(typedCustomer.birth_hijri || "");
-      setPhone(typedCustomer.phone || "");
-      setWorkName(
-        typedCustomer.work_name || typedCustomer.work || ""
+      setActiveContracts(
+        (activeResponse.data ||
+          []) as Contract[]
       );
-      setAddress(typedCustomer.address || "");
+
+      setClosedContracts(
+        (closedResponse.data ||
+          []) as Contract[]
+      );
+
+      setNotes(
+        (notesResponse.data ||
+          []) as PromissoryNote[]
+      );
+
+      setActivities(
+        (activitiesResponse.data ||
+          []) as ActivityLog[]
+      );
+
+      setFullName(
+        typedCustomer.full_name || ""
+      );
+
+      setNationalId(
+        normalizeDigits(
+          typedCustomer.national_id || ""
+        )
+      );
+
+      setBirthHijri(
+        normalizeDigits(
+          typedCustomer.birth_hijri || ""
+        )
+      );
+
+      setPhone(
+        normalizeDigits(
+          typedCustomer.phone || ""
+        )
+      );
+
+      setWorkName(
+        typedCustomer.work_name ||
+          typedCustomer.work ||
+          ""
+      );
+
+      setAddress(
+        typedCustomer.address || ""
+      );
     } catch (error) {
+      if (isCancelled()) {
+        return;
+      }
+
       resetPageData();
 
       const message =
@@ -472,74 +616,157 @@ export default function FinanceCustomerProfilePage() {
 
       alert(message);
     } finally {
-      setLoading(false);
+      if (!isCancelled()) {
+        setLoading(false);
+      }
     }
   }
 
-  function normalizeDigits(value: string) {
+  function normalizeDigits(
+    value: string
+  ) {
     return value
-      .replace(/[٠-٩]/g, (digit) =>
-        "٠١٢٣٤٥٦٧٨٩".indexOf(digit).toString()
+      .replace(
+        /[٠-٩]/g,
+        (digit) =>
+          String(
+            "٠١٢٣٤٥٦٧٨٩".indexOf(
+              digit
+            )
+          )
       )
-      .replace(/[۰-۹]/g, (digit) =>
-        "۰۱۲۳۴۵۶۷۸۹".indexOf(digit).toString()
+      .replace(
+        /[۰-۹]/g,
+        (digit) =>
+          String(
+            "۰۱۲۳۴۵۶۷۸۹".indexOf(
+              digit
+            )
+          )
       );
   }
 
   async function saveCustomer() {
-    if (saving) return;
+    if (saving) {
+      return;
+    }
 
     if (!branchId) {
       alert("تعذر تحديد الفرع");
       return;
     }
 
-    const safeBranchId: string = branchId;
-    const cleanFullName = fullName.trim();
-    const cleanNationalId = normalizeDigits(nationalId).trim();
-    const cleanPhone = normalizeDigits(phone).trim();
-    const cleanBirthHijri = birthHijri.trim();
-    const cleanWorkName = workName.trim();
-    const cleanAddress = address.trim();
+    const safeBranchId =
+      branchId.trim();
+
+    const cleanFullName =
+      fullName.trim();
+
+    const cleanNationalId =
+      normalizeDigits(nationalId)
+        .replace(/\D/g, "")
+        .trim();
+
+    const cleanPhone =
+      normalizeDigits(phone)
+        .replace(/\D/g, "")
+        .trim();
+
+    const cleanBirthHijri =
+      normalizeDigits(
+        birthHijri
+      ).trim();
+
+    const cleanWorkName =
+      workName.trim();
+
+    const cleanAddress =
+      address.trim();
 
     if (!cleanFullName) {
-      alert("يرجى إدخال اسم العميل");
+      alert(
+        "يرجى إدخال اسم العميل"
+      );
       return;
     }
 
-    if (!/^\d{10}$/.test(cleanNationalId)) {
-      alert("رقم الهوية يجب أن يكون 10 أرقام");
+    if (
+      !/^\d{10}$/.test(
+        cleanNationalId
+      )
+    ) {
+      alert(
+        "رقم الهوية يجب أن يكون 10 أرقام"
+      );
       return;
     }
 
-    if (!/^05\d{8}$/.test(cleanPhone)) {
-      alert("رقم الجوال يجب أن يكون 10 أرقام ويبدأ بـ 05");
+    if (
+      !/^05\d{8}$/.test(cleanPhone)
+    ) {
+      alert(
+        "رقم الجوال يجب أن يكون 10 أرقام ويبدأ بـ 05"
+      );
       return;
     }
 
     try {
       setSaving(true);
 
-      const { error } = await supabase.rpc("update_customer_atomic", {
-        p_branch_id: safeBranchId,
-        p_customer_id: customerId,
-        p_full_name: cleanFullName,
-        p_national_id: cleanNationalId,
-        p_birth_hijri: cleanBirthHijri,
-        p_phone: cleanPhone,
-        p_work_name: cleanWorkName,
-        p_address: cleanAddress,
-        p_employee_name: employeeName || "الموظف",
-      });
+      const { error } =
+        await supabase.rpc(
+          "update_customer_atomic",
+          {
+            p_branch_id:
+              safeBranchId,
+
+            p_customer_id:
+              customerId,
+
+            p_full_name:
+              cleanFullName,
+
+            p_national_id:
+              cleanNationalId,
+
+            p_birth_hijri:
+              cleanBirthHijri ||
+              null,
+
+            p_phone:
+              cleanPhone,
+
+            p_work_name:
+              cleanWorkName ||
+              null,
+
+            p_address:
+              cleanAddress ||
+              null,
+
+            p_employee_name:
+              employeeName ||
+              "الموظف",
+          }
+        );
 
       if (error) {
-        throw new Error(error.message);
+        throw new Error(
+          getCustomerUpdateErrorMessage(
+            error.message
+          )
+        );
       }
 
-      alert("تم حفظ بيانات العميل بنجاح");
+      alert(
+        "تم حفظ بيانات العميل بنجاح"
+      );
+
       setEditing(false);
 
-      await loadData(safeBranchId);
+      await loadData(
+        safeBranchId
+      );
     } catch (error) {
       const message =
         error instanceof Error
@@ -552,57 +779,158 @@ export default function FinanceCustomerProfilePage() {
     }
   }
 
+  function getCustomerUpdateErrorMessage(
+    message: string
+  ) {
+    if (
+      message.includes("23505") ||
+      message
+        .toLowerCase()
+        .includes("duplicate")
+    ) {
+      return "رقم الهوية مستخدم لعميل آخر داخل الفرع";
+    }
+
+    if (
+      message.includes(
+        "CUSTOMER_NOT_FOUND"
+      )
+    ) {
+      return "العميل غير موجود أو لا يتبع هذا الفرع";
+    }
+
+    return (
+      message ||
+      "تعذر حفظ بيانات العميل"
+    );
+  }
+
   function cancelEditing() {
-    setFullName(customer?.full_name || "");
-    setNationalId(customer?.national_id || "");
-    setBirthHijri(customer?.birth_hijri || "");
-    setPhone(customer?.phone || "");
-    setWorkName(customer?.work_name || customer?.work || "");
-    setAddress(customer?.address || "");
+    setFullName(
+      customer?.full_name || ""
+    );
+
+    setNationalId(
+      normalizeDigits(
+        customer?.national_id || ""
+      )
+    );
+
+    setBirthHijri(
+      normalizeDigits(
+        customer?.birth_hijri || ""
+      )
+    );
+
+    setPhone(
+      normalizeDigits(
+        customer?.phone || ""
+      )
+    );
+
+    setWorkName(
+      customer?.work_name ||
+        customer?.work ||
+        ""
+    );
+
+    setAddress(
+      customer?.address || ""
+    );
+
     setEditing(false);
   }
 
-  function formatDate(date?: string | null) {
-    if (!date) return "-";
-
-    const parsedDate = new Date(date);
-
-    if (Number.isNaN(parsedDate.getTime())) {
+  function formatDate(
+    date?: string | null
+  ) {
+    if (!date) {
       return "-";
     }
 
-    return parsedDate.toLocaleString("ar-SA", {
-      dateStyle: "short",
-      timeStyle: "short",
-    });
+    const parsedDate =
+      new Date(date);
+
+    if (
+      Number.isNaN(
+        parsedDate.getTime()
+      )
+    ) {
+      return "-";
+    }
+
+    return parsedDate.toLocaleString(
+      "ar-SA",
+      {
+        dateStyle: "short",
+        timeStyle: "short",
+      }
+    );
   }
 
-  function formatMoney(value: unknown) {
-    return Number(value || 0).toLocaleString("en-US", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
+  function formatMoney(
+    value: unknown
+  ) {
+    const number =
+      Number(value || 0);
+
+    if (
+      !Number.isFinite(number)
+    ) {
+      return "0.00";
+    }
+
+    return number.toLocaleString(
+      "en-US",
+      {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }
+    );
   }
 
-  function openContract(contractId: string) {
-    router.push(`/finance/${branch}/contracts/${contractId}`);
+  function openContract(
+    contractId: string
+  ) {
+    router.push(
+      `/finance/${branch}/contracts/${contractId}`
+    );
   }
 
-  function openPromissoryNote(noteId: string) {
+  function openPromissoryNote(
+    noteId: string
+  ) {
     router.push(
       `/finance/${branch}/contracts/promissory-note/print/${noteId}`
     );
   }
 
-  function renderPage(content: ReactNode) {
+  function renderPage(
+    content: ReactNode
+  ) {
     return (
-      <main dir="rtl" style={getPageStyle(isMobile)}>
-        <div style={getContainerStyle(isCompact)}>
+      <main
+        dir="rtl"
+        style={getPageStyle(
+          isMobile
+        )}
+      >
+        <div
+          style={getContainerStyle(
+            isCompact
+          )}
+        >
           <PageHero
             screen={screen}
-            employeeName={employeeName}
+            employeeName={
+              employeeName
+            }
             onLogout={logout}
-            onHome={() => router.push(`/finance/${branch}`)}
+            onHome={() =>
+              router.push(
+                `/finance/${branch}`
+              )
+            }
           />
 
           {content}
@@ -613,22 +941,33 @@ export default function FinanceCustomerProfilePage() {
     );
   }
 
-  if (loading) {
+  if (
+    !authChecked ||
+    loading
+  ) {
     return renderPage(
-      <div style={loadingBox}>جاري تحميل ملف العميل...</div>
+      <div style={loadingBox}>
+        جاري تحميل ملف العميل...
+      </div>
     );
   }
 
   if (!customer) {
     return renderPage(
       <div style={emptyPageCard}>
-        <h2 style={{ margin: 0 }}>لم يتم العثور على العميل</h2>
+        <h2 style={{ margin: 0 }}>
+          لم يتم العثور على العميل
+        </h2>
 
-        <div style={bottomBackWrapper}>
+        <div
+          style={bottomBackWrapper}
+        >
           <button
             type="button"
             style={backButton}
-            onClick={() => router.back()}
+            onClick={() =>
+              router.back()
+            }
           >
             ← الرجوع
           </button>
@@ -643,38 +982,56 @@ export default function FinanceCustomerProfilePage() {
         <StatCard
           icon="📄"
           title="العقود النشطة"
-          value={activeContracts.length}
+          value={
+            activeContracts.length
+          }
         />
 
         <StatCard
           icon="✅"
           title="العقود السابقة"
-          value={closedContracts.length}
+          value={
+            closedContracts.length
+          }
         />
 
         <StatCard
           icon="💰"
           title="إجمالي المسدد"
-          value={`${formatMoney(totalPaid)} ر.س`}
+          value={`${formatMoney(
+            totalPaid
+          )} ر.س`}
         />
 
         <StatCard
           icon="⚠️"
           title="إجمالي المتبقي"
-          value={`${formatMoney(totalRemaining)} ر.س`}
+          value={`${formatMoney(
+            totalRemaining
+          )} ر.س`}
         />
       </section>
 
-      <section style={getMainGridStyle(screen)}>
+      <section
+        style={getMainGridStyle(
+          screen
+        )}
+      >
         <section style={card}>
           <div style={cardHeader}>
-            <h2 style={sectionTitle}>بيانات العميل</h2>
+            <h2 style={sectionTitle}>
+              بيانات العميل
+            </h2>
 
             {!editing && (
               <button
                 type="button"
-                style={editMiniButton}
-                onClick={() => setEditing(true)}
+                style={
+                  editMiniButton
+                }
+                onClick={() =>
+                  setEditing(true)
+                }
               >
                 تعديل البيانات
               </button>
@@ -694,7 +1051,14 @@ export default function FinanceCustomerProfilePage() {
               value={nationalId}
               editing={editing}
               onChange={(value) =>
-                setNationalId(normalizeDigits(value))
+                setNationalId(
+                  normalizeDigits(
+                    value
+                  ).replace(
+                    /\D/g,
+                    ""
+                  )
+                )
               }
               inputMode="numeric"
               maxLength={10}
@@ -704,14 +1068,29 @@ export default function FinanceCustomerProfilePage() {
               label="تاريخ الميلاد بالهجري"
               value={birthHijri}
               editing={editing}
-              onChange={setBirthHijri}
+              onChange={(value) =>
+                setBirthHijri(
+                  normalizeDigits(
+                    value
+                  )
+                )
+              }
             />
 
             <EditableInfo
               label="رقم الجوال"
               value={phone}
               editing={editing}
-              onChange={(value) => setPhone(normalizeDigits(value))}
+              onChange={(value) =>
+                setPhone(
+                  normalizeDigits(
+                    value
+                  ).replace(
+                    /\D/g,
+                    ""
+                  )
+                )
+              }
               inputMode="numeric"
               maxLength={10}
             />
@@ -730,13 +1109,34 @@ export default function FinanceCustomerProfilePage() {
               onChange={setAddress}
             />
 
-            <InfoItem label="الراتب" value={customer.salary || "-"} />
-            <InfoItem label="البنك" value={customer.bank || "-"} />
-            <InfoItem label="الوسيط" value={customer.broker || "-"} />
+            <InfoItem
+              label="الراتب"
+              value={
+                customer.salary || "-"
+              }
+            />
+
+            <InfoItem
+              label="البنك"
+              value={
+                customer.bank || "-"
+              }
+            />
+
+            <InfoItem
+              label="الوسيط"
+              value={
+                customer.broker || "-"
+              }
+            />
 
             <InfoItem
               label="مجموعة العملاء"
-              value={customer.finance_customer_groups?.name || "-"}
+              value={
+                customer
+                  .finance_customer_groups
+                  ?.name || "-"
+              }
             />
           </div>
 
@@ -748,13 +1148,19 @@ export default function FinanceCustomerProfilePage() {
                 onClick={saveCustomer}
                 disabled={saving}
               >
-                {saving ? "جاري الحفظ..." : "حفظ التعديلات"}
+                {saving
+                  ? "جاري الحفظ..."
+                  : "حفظ التعديلات"}
               </button>
 
               <button
                 type="button"
-                style={cancelEditButton}
-                onClick={cancelEditing}
+                style={
+                  cancelEditButton
+                }
+                onClick={
+                  cancelEditing
+                }
                 disabled={saving}
               >
                 إلغاء التعديل
@@ -764,82 +1170,151 @@ export default function FinanceCustomerProfilePage() {
         </section>
 
         <aside style={sideCard}>
-          <h2 style={sideTitle}>{customerStatus}</h2>
+          <h2 style={sideTitle}>
+            {customerStatus}
+          </h2>
 
           <div style={sideList}>
-            <InfoLine label="عدد السندات" value={notes.length} />
-            <InfoLine label="عدد العمليات" value={activities.length} />
+            <InfoLine
+              label="عدد السندات"
+              value={notes.length}
+            />
+
+            <InfoLine
+              label="عدد العمليات"
+              value={
+                activities.length
+              }
+            />
 
             <InfoLine
               label="المجموعة"
-              value={customer.finance_customer_groups?.name || "-"}
+              value={
+                customer
+                  .finance_customer_groups
+                  ?.name || "-"
+              }
             />
 
             <InfoLine
               label="آخر تحديث"
-              value={formatDate(customer.updated_at)}
+              value={formatDate(
+                customer.updated_at
+              )}
             />
           </div>
         </aside>
       </section>
 
-      <section style={twoColumnsGrid}>
+      <section
+        style={twoColumnsGrid}
+      >
         <section style={card}>
           <div style={cardHeader}>
-            <h2 style={sectionTitle}>العقود الحالية</h2>
-            <span style={countBadge}>{activeContracts.length}</span>
+            <h2 style={sectionTitle}>
+              العقود الحالية
+            </h2>
+
+            <span style={countBadge}>
+              {activeContracts.length}
+            </span>
           </div>
 
-          {activeContracts.length === 0 ? (
-            <div style={emptyBox}>لا توجد عقود حالية</div>
+          {activeContracts.length ===
+          0 ? (
+            <div style={emptyBox}>
+              لا توجد عقود حالية
+            </div>
           ) : (
             <div style={listBox}>
-              {activeContracts.map((contract) => (
-                <ContractItem
-                  key={contract.id}
-                  contract={contract}
-                  type="active"
-                  onClick={() => openContract(contract.id)}
-                  formatMoney={formatMoney}
-                />
-              ))}
+              {activeContracts.map(
+                (contract) => (
+                  <ContractItem
+                    key={
+                      contract.id
+                    }
+                    contract={
+                      contract
+                    }
+                    type="active"
+                    onClick={() =>
+                      openContract(
+                        contract.id
+                      )
+                    }
+                    formatMoney={
+                      formatMoney
+                    }
+                  />
+                )
+              )}
             </div>
           )}
         </section>
 
         <section style={card}>
           <div style={cardHeader}>
-            <h2 style={sectionTitle}>العقود السابقة</h2>
-            <span style={countBadge}>{closedContracts.length}</span>
+            <h2 style={sectionTitle}>
+              العقود السابقة
+            </h2>
+
+            <span style={countBadge}>
+              {closedContracts.length}
+            </span>
           </div>
 
-          {closedContracts.length === 0 ? (
-            <div style={emptyBox}>لا توجد عقود سابقة</div>
+          {closedContracts.length ===
+          0 ? (
+            <div style={emptyBox}>
+              لا توجد عقود سابقة
+            </div>
           ) : (
             <div style={listBox}>
-              {closedContracts.map((contract) => (
-                <ContractItem
-                  key={contract.id}
-                  contract={contract}
-                  type="closed"
-                  onClick={() => openContract(contract.id)}
-                  formatMoney={formatMoney}
-                />
-              ))}
+              {closedContracts.map(
+                (contract) => (
+                  <ContractItem
+                    key={
+                      contract.id
+                    }
+                    contract={
+                      contract
+                    }
+                    type="closed"
+                    onClick={() =>
+                      openContract(
+                        contract.id
+                      )
+                    }
+                    formatMoney={
+                      formatMoney
+                    }
+                  />
+                )
+              )}
             </div>
           )}
         </section>
       </section>
 
-      <section style={twoColumnsGrid}>
+      <section
+        style={twoColumnsGrid}
+      >
         <section style={card}>
           <div style={cardHeader}>
-            <h2 style={sectionTitle}>السندات المرتبطة</h2>
-            <span style={countBadge}>{notes.length}</span>
+            <h2 style={sectionTitle}>
+              السندات المرتبطة
+            </h2>
+
+            <span style={countBadge}>
+              {notes.length}
+            </span>
           </div>
 
           {notes.length === 0 ? (
-            <div style={emptyBox}>لا توجد سندات مرتبطة بالعميل</div>
+            <div style={emptyBox}>
+              لا توجد سندات مرتبطة
+              بالعميل
+            </div>
           ) : (
             <div style={listBox}>
               {notes.map((note) => (
@@ -847,20 +1322,40 @@ export default function FinanceCustomerProfilePage() {
                   key={note.id}
                   type="button"
                   style={noteItem}
-                  onClick={() => openPromissoryNote(note.id)}
+                  onClick={() =>
+                    openPromissoryNote(
+                      note.id
+                    )
+                  }
                 >
                   <div>
                     <strong>
-                      🧾 سند رقم {note.note_number || "-"}
+                      🧾 سند رقم{" "}
+                      {note.note_number ||
+                        "-"}
                     </strong>
 
-                    <span style={itemSubText}>
-                      الحالة: {note.status || "-"} · المبلغ:{" "}
-                      {formatMoney(note.amount)} ر.س
+                    <span
+                      style={
+                        itemSubText
+                      }
+                    >
+                      الحالة:{" "}
+                      {note.status ||
+                        "-"}{" "}
+                      · المبلغ:{" "}
+                      {formatMoney(
+                        note.amount
+                      )}{" "}
+                      ر.س
                     </span>
                   </div>
 
-                  <span style={openHint}>فتح</span>
+                  <span
+                    style={openHint}
+                  >
+                    فتح
+                  </span>
                 </button>
               ))}
             </div>
@@ -869,40 +1364,82 @@ export default function FinanceCustomerProfilePage() {
 
         <section style={card}>
           <div style={cardHeader}>
-            <h2 style={sectionTitle}>سجل العمليات</h2>
-            <span style={countBadge}>{activities.length}</span>
+            <h2 style={sectionTitle}>
+              سجل العمليات
+            </h2>
+
+            <span style={countBadge}>
+              {activities.length}
+            </span>
           </div>
 
-          {activities.length === 0 ? (
-            <div style={emptyBox}>لا توجد عمليات حتى الآن</div>
+          {activities.length ===
+          0 ? (
+            <div style={emptyBox}>
+              لا توجد عمليات حتى
+              الآن
+            </div>
           ) : (
-            <div style={activityList}>
-              {activities.map((activity) => (
-                <div key={activity.id} style={activityItem}>
-                  <div>
-                    <strong>{activity.activity_type || "-"}</strong>
+            <div
+              style={activityList}
+            >
+              {activities.map(
+                (activity) => (
+                  <div
+                    key={activity.id}
+                    style={
+                      activityItem
+                    }
+                  >
+                    <div>
+                      <strong>
+                        {activity.activity_type ||
+                          "-"}
+                      </strong>
 
-                    <p style={activityDesc}>
-                      {activity.description || "-"}
-                    </p>
-                  </div>
+                      <p
+                        style={
+                          activityDesc
+                        }
+                      >
+                        {activity.description ||
+                          "-"}
+                      </p>
+                    </div>
 
-                  <div style={activityMeta}>
-                    <span>{activity.status || "-"}</span>
-                    <small>{formatDate(activity.created_at)}</small>
+                    <div
+                      style={
+                        activityMeta
+                      }
+                    >
+                      <span>
+                        {activity.status ||
+                          "-"}
+                      </span>
+
+                      <small>
+                        {formatDate(
+                          activity.created_at
+                        )}
+                      </small>
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              )}
             </div>
           )}
         </section>
       </section>
 
-      <div style={bottomBackWrapper}>
+      <div
+        style={bottomBackWrapper}
+      >
         <button
           type="button"
           style={backButton}
-          onClick={() => router.back()}
+          onClick={() =>
+            router.back()
+          }
         >
           ← الرجوع
         </button>
@@ -922,53 +1459,115 @@ function PageHero({
   onLogout: () => void;
   onHome: () => void;
 }) {
-  const isMobile = screen === "mobile";
+  const isMobile =
+    screen === "mobile";
 
   return (
-    <header style={getHeroStyle(isMobile)}>
-      <div style={heroCircleOne} />
-      <div style={heroCircleTwo} />
-      <div style={heroCircleThree} />
-      <div style={heroDots} />
+    <header
+      style={getHeroStyle(
+        isMobile
+      )}
+    >
+      <div
+        style={heroCircleOne}
+      />
 
-      <div style={getHeroContentStyle(screen)}>
-        <div style={getHeroUserCardStyle(screen)}>
-          <div style={getEmployeeTopRowStyle(screen)}>
-            <div style={employeeIcon}>
+      <div
+        style={heroCircleTwo}
+      />
+
+      <div
+        style={heroCircleThree}
+      />
+
+      <div
+        style={heroDots}
+      />
+
+      <div
+        style={getHeroContentStyle(
+          screen
+        )}
+      >
+        <div
+          style={getHeroUserCardStyle(
+            screen
+          )}
+        >
+          <div
+            style={getEmployeeTopRowStyle(
+              screen
+            )}
+          >
+            <div
+              style={employeeIcon}
+            >
               <UserIcon />
             </div>
 
-            <div style={getEmployeeNameStyle(isMobile)}>
+            <div
+              style={getEmployeeNameStyle(
+                isMobile
+              )}
+            >
               {employeeName}
             </div>
 
-            {!isMobile && <div style={employeeDividerSmall} />}
+            {!isMobile && (
+              <div
+                style={
+                  employeeDividerSmall
+                }
+              />
+            )}
 
             <button
               type="button"
-              style={logoutInlineButton}
+              style={
+                logoutInlineButton
+              }
               onClick={onLogout}
             >
               <LogoutIcon />
-              <span>تسجيل الخروج</span>
+              <span>
+                تسجيل الخروج
+              </span>
             </button>
           </div>
 
           <button
             type="button"
-            style={getMainWorkstationButtonStyle(isMobile)}
+            style={getMainWorkstationButtonStyle(
+              isMobile
+            )}
             onClick={onHome}
           >
             <HomeIcon />
-            <span>محطة العمل الرئيسية</span>
+            <span>
+              محطة العمل الرئيسية
+            </span>
           </button>
         </div>
 
-        <div style={getHeroTitleBoxStyle(screen)}>
-          <h1 style={getTitleStyle(screen)}>ملف العميل</h1>
+        <div
+          style={getHeroTitleBoxStyle(
+            screen
+          )}
+        >
+          <h1
+            style={getTitleStyle(
+              screen
+            )}
+          >
+            ملف العميل
+          </h1>
         </div>
 
-        <div style={getHeroActionBoxStyle(screen)} />
+        <div
+          style={getHeroActionBoxStyle(
+            screen
+          )}
+        />
       </div>
     </header>
   );
@@ -985,11 +1584,18 @@ function StatCard({
 }) {
   return (
     <div style={statCard}>
-      <div style={statIcon}>{icon}</div>
+      <div style={statIcon}>
+        {icon}
+      </div>
 
       <div>
-        <span style={statTitle}>{title}</span>
-        <strong style={statValue}>{value}</strong>
+        <span style={statTitle}>
+          {title}
+        </span>
+
+        <strong style={statValue}>
+          {value}
+        </strong>
       </div>
     </div>
   );
@@ -1004,8 +1610,13 @@ function InfoItem({
 }) {
   return (
     <div style={infoItem}>
-      <span style={infoLabel}>{label}</span>
-      <strong style={infoValue}>{value || "-"}</strong>
+      <span style={infoLabel}>
+        {label}
+      </span>
+
+      <strong style={infoValue}>
+        {value || "-"}
+      </strong>
     </div>
   );
 }
@@ -1021,13 +1632,21 @@ function EditableInfo({
   label: string;
   value: string;
   editing: boolean;
-  onChange: (value: string) => void;
-  inputMode?: "text" | "numeric" | "decimal" | "tel";
+  onChange: (
+    value: string
+  ) => void;
+  inputMode?:
+    | "text"
+    | "numeric"
+    | "decimal"
+    | "tel";
   maxLength?: number;
 }) {
   return (
     <div style={infoItem}>
-      <span style={infoLabel}>{label}</span>
+      <span style={infoLabel}>
+        {label}
+      </span>
 
       {editing ? (
         <input
@@ -1035,10 +1654,16 @@ function EditableInfo({
           value={value}
           inputMode={inputMode}
           maxLength={maxLength}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={(event) =>
+            onChange(
+              event.target.value
+            )
+          }
         />
       ) : (
-        <strong style={infoValue}>{value || "-"}</strong>
+        <strong style={infoValue}>
+          {value || "-"}
+        </strong>
       )}
     </div>
   );
@@ -1068,39 +1693,64 @@ function ContractItem({
   contract: Contract;
   type: "active" | "closed";
   onClick: () => void;
-  formatMoney: (value: unknown) => string;
+  formatMoney: (
+    value: unknown
+  ) => string;
 }) {
-  const isLate = contract.contract_status === "متأخر";
+  const isLate =
+    contract.contract_status ===
+    "متأخر";
 
   return (
-    <button type="button" style={contractItem} onClick={onClick}>
+    <button
+      type="button"
+      style={contractItem}
+      onClick={onClick}
+    >
       <div style={contractItemTop}>
         <strong>
-          {type === "active" ? "📄" : "✅"} عقد رقم{" "}
-          {contract.contract_number || "-"}
+          {type === "active"
+            ? "📄"
+            : "✅"}{" "}
+          عقد رقم{" "}
+          {contract.contract_number ||
+            "-"}
         </strong>
 
         <span
           style={{
             ...contractStatusBadge,
-            ...(isLate ? contractStatusLate : contractStatusNormal),
+            ...(isLate
+              ? contractStatusLate
+              : contractStatusNormal),
           }}
         >
-          {contract.contract_status || "-"}
+          {contract.contract_status ||
+            "-"}
         </span>
       </div>
 
       <div style={contractItemGrid}>
         <span>
-          المسدد: {formatMoney(contract.paid_amount)} ر.س
+          المسدد:{" "}
+          {formatMoney(
+            contract.paid_amount
+          )}{" "}
+          ر.س
         </span>
 
         <span>
-          المتبقي: {formatMoney(contract.remaining_amount)} ر.س
+          المتبقي:{" "}
+          {formatMoney(
+            contract.remaining_amount
+          )}{" "}
+          ر.س
         </span>
 
         <span>
-          الاستحقاق: {contract.payment_due_date || "-"}
+          الاستحقاق:{" "}
+          {contract.payment_due_date ||
+            "-"}
         </span>
       </div>
     </button>
@@ -1226,7 +1876,9 @@ function HomeIcon() {
   );
 }
 
-function getPageStyle(isMobile: boolean): CSSProperties {
+function getPageStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     minHeight: "100vh",
     backgroundColor: "#f6f9ff",
@@ -1239,27 +1891,45 @@ function getPageStyle(isMobile: boolean): CSSProperties {
     `,
     backgroundSize: "cover",
     backgroundPosition: "center",
-    backgroundAttachment: isMobile ? "scroll" : "fixed",
-    padding: isMobile ? 10 : 18,
-    fontFamily: "var(--font-almarai), sans-serif",
+    backgroundAttachment:
+      isMobile
+        ? "scroll"
+        : "fixed",
+    padding: isMobile
+      ? 10
+      : 18,
+    fontFamily:
+      "var(--font-almarai), sans-serif",
     color: "#0f172a",
   };
 }
 
-function getContainerStyle(isCompact: boolean): CSSProperties {
+function getContainerStyle(
+  isCompact: boolean
+): CSSProperties {
   return {
     width: "100%",
-    maxWidth: isCompact ? 980 : 1180,
+    maxWidth: isCompact
+      ? 980
+      : 1180,
     margin: "auto",
   };
 }
 
-function getHeroStyle(isMobile: boolean): CSSProperties {
+function getHeroStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     position: "relative",
-    minHeight: isMobile ? "auto" : 160,
-    borderRadius: isMobile ? 20 : 24,
-    padding: isMobile ? "18px 14px" : "22px 26px",
+    minHeight: isMobile
+      ? "auto"
+      : 160,
+    borderRadius: isMobile
+      ? 20
+      : 24,
+    padding: isMobile
+      ? "18px 14px"
+      : "22px 26px",
     marginBottom: 14,
     overflow: "hidden",
     border: "none",
@@ -1270,7 +1940,9 @@ function getHeroStyle(isMobile: boolean): CSSProperties {
   };
 }
 
-function getHeroContentStyle(screen: ScreenType): CSSProperties {
+function getHeroContentStyle(
+  screen: ScreenType
+): CSSProperties {
   if (screen === "mobile") {
     return {
       position: "relative",
@@ -1310,7 +1982,9 @@ function getHeroContentStyle(screen: ScreenType): CSSProperties {
   };
 }
 
-function getHeroUserCardStyle(screen: ScreenType): CSSProperties {
+function getHeroUserCardStyle(
+  screen: ScreenType
+): CSSProperties {
   if (screen === "mobile") {
     return {
       width: "100%",
@@ -1389,11 +2063,14 @@ function getEmployeeNameStyle(
 ): CSSProperties {
   return {
     color: "#ffffff",
-    fontSize: isMobile ? 15 : 17,
+    fontSize: isMobile
+      ? 15
+      : 17,
     fontWeight: 900,
     whiteSpace: "nowrap",
     direction: "rtl",
-    textShadow: "0 4px 10px rgba(15,23,42,0.18)",
+    textShadow:
+      "0 4px 10px rgba(15,23,42,0.18)",
   };
 }
 
@@ -1401,8 +2078,12 @@ function getMainWorkstationButtonStyle(
   isMobile: boolean
 ): CSSProperties {
   return {
-    width: isMobile ? "100%" : 220,
-    maxWidth: isMobile ? 280 : 220,
+    width: isMobile
+      ? "100%"
+      : 220,
+    maxWidth: isMobile
+      ? 280
+      : 220,
     height: 44,
     border: "none",
     background:
@@ -1413,8 +2094,10 @@ function getMainWorkstationButtonStyle(
     fontSize: 14,
     fontWeight: 900,
     cursor: "pointer",
-    fontFamily: "var(--font-almarai), sans-serif",
-    boxShadow: "0 8px 18px rgba(22,163,74,0.20)",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
+    boxShadow:
+      "0 8px 18px rgba(22,163,74,0.20)",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
@@ -1437,20 +2120,31 @@ function getHeroTitleBoxStyle(
     textAlign: "center",
     direction: "rtl",
     pointerEvents: "none",
-    order: screen === "desktop" ? 0 : 1,
+    order:
+      screen === "desktop"
+        ? 0
+        : 1,
   };
 }
 
-function getTitleStyle(screen: ScreenType): CSSProperties {
+function getTitleStyle(
+  screen: ScreenType
+): CSSProperties {
   return {
     margin: 0,
     color: "#ffffff",
-    fontFamily: "var(--font-noto-naskh-arabic), serif",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
     fontSize:
-      screen === "mobile" ? 27 : screen === "tablet" ? 30 : 34,
+      screen === "mobile"
+        ? 27
+        : screen === "tablet"
+          ? 30
+          : 34,
     lineHeight: 1.35,
     fontWeight: 900,
-    textShadow: "0 5px 14px rgba(15,23,42,0.14)",
+    textShadow:
+      "0 5px 14px rgba(15,23,42,0.14)",
     whiteSpace: "nowrap",
   };
 }
@@ -1476,7 +2170,9 @@ function getHeroActionBoxStyle(
   };
 }
 
-function getMainGridStyle(screen: ScreenType): CSSProperties {
+function getMainGridStyle(
+  screen: ScreenType
+): CSSProperties {
   return {
     display: "grid",
     gridTemplateColumns:
@@ -1492,32 +2188,38 @@ const employeeIcon: CSSProperties = {
   width: 38,
   height: 38,
   borderRadius: "50%",
-  border: "1.5px solid rgba(255,255,255,0.34)",
-  background: "rgba(255,255,255,0.06)",
+  border:
+    "1.5px solid rgba(255,255,255,0.34)",
+  background:
+    "rgba(255,255,255,0.06)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  color: "rgba(255,255,255,0.96)",
+  color:
+    "rgba(255,255,255,0.96)",
   flex: "0 0 auto",
 };
 
 const employeeDividerSmall: CSSProperties = {
   width: 1,
   height: 34,
-  background: "rgba(255,255,255,0.30)",
+  background:
+    "rgba(255,255,255,0.30)",
 };
 
 const logoutInlineButton: CSSProperties = {
   border: "none",
   background: "transparent",
-  color: "rgba(255,255,255,0.90)",
+  color:
+    "rgba(255,255,255,0.90)",
   fontSize: 15,
   fontWeight: 800,
   display: "flex",
   alignItems: "center",
   gap: 9,
   cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
   padding: 0,
   whiteSpace: "nowrap",
   direction: "rtl",
@@ -1530,7 +2232,8 @@ const heroCircleOne: CSSProperties = {
   right: -78,
   top: -85,
   borderRadius: "50%",
-  background: "rgba(255,255,255,0.075)",
+  background:
+    "rgba(255,255,255,0.075)",
   pointerEvents: "none",
   zIndex: 1,
 };
@@ -1542,7 +2245,8 @@ const heroCircleTwo: CSSProperties = {
   right: 145,
   bottom: -178,
   borderRadius: "50%",
-  background: "rgba(255,255,255,0.045)",
+  background:
+    "rgba(255,255,255,0.045)",
   pointerEvents: "none",
   zIndex: 1,
 };
@@ -1554,7 +2258,8 @@ const heroCircleThree: CSSProperties = {
   left: 380,
   top: -96,
   borderRadius: "50%",
-  background: "rgba(255,255,255,0.035)",
+  background:
+    "rgba(255,255,255,0.035)",
   pointerEvents: "none",
   zIndex: 1,
 };
@@ -1574,7 +2279,8 @@ const heroDots: CSSProperties = {
 
 const statsGrid: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(210px,1fr))",
+  gridTemplateColumns:
+    "repeat(auto-fit,minmax(210px,1fr))",
   gap: 14,
   marginBottom: 18,
 };
@@ -1587,7 +2293,8 @@ const statCard: CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: 14,
-  boxShadow: "0 8px 20px rgba(15,23,42,.05)",
+  boxShadow:
+    "0 8px 20px rgba(15,23,42,.05)",
 };
 
 const statIcon: CSSProperties = {
@@ -1617,7 +2324,8 @@ const statValue: CSSProperties = {
 
 const twoColumnsGrid: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))",
+  gridTemplateColumns:
+    "repeat(auto-fit,minmax(280px,1fr))",
   gap: 16,
   marginBottom: 16,
 };
@@ -1627,16 +2335,19 @@ const card: CSSProperties = {
   border: "1px solid #e2e8f0",
   borderRadius: 22,
   padding: 18,
-  boxShadow: "0 8px 20px rgba(15,23,42,.05)",
+  boxShadow:
+    "0 8px 20px rgba(15,23,42,.05)",
   minWidth: 0,
 };
 
 const sideCard: CSSProperties = {
-  background: "linear-gradient(135deg,#ffffff,#f8fafc)",
+  background:
+    "linear-gradient(135deg,#ffffff,#f8fafc)",
   border: "1px solid #e2e8f0",
   borderRadius: 22,
   padding: 18,
-  boxShadow: "0 8px 20px rgba(15,23,42,.05)",
+  boxShadow:
+    "0 8px 20px rgba(15,23,42,.05)",
   minWidth: 0,
 };
 
@@ -1653,12 +2364,16 @@ const sectionTitle: CSSProperties = {
   margin: 0,
   fontSize: 22,
   color: "#0f172a",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const sideTitle: CSSProperties = {
   margin: "0 0 16px",
   fontSize: 24,
   color: "#0f172a",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const sideList: CSSProperties = {
@@ -1671,13 +2386,15 @@ const infoLine: CSSProperties = {
   justifyContent: "space-between",
   gap: 10,
   padding: "10px 0",
-  borderBottom: "1px solid #e2e8f0",
+  borderBottom:
+    "1px solid #e2e8f0",
   color: "#334155",
 };
 
 const infoGrid: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
+  gridTemplateColumns:
+    "repeat(auto-fit,minmax(220px,1fr))",
   gap: 12,
 };
 
@@ -1721,32 +2438,40 @@ const editInput: CSSProperties = {
 
 const editActions: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))",
+  gridTemplateColumns:
+    "repeat(auto-fit,minmax(170px,1fr))",
   gap: 10,
   marginTop: 16,
 };
 
 const editMiniButton: CSSProperties = {
   border: "none",
-  background: "linear-gradient(135deg,#2563eb,#1d4ed8)",
+  background:
+    "linear-gradient(135deg,#2563eb,#1d4ed8)",
   color: "#ffffff",
   borderRadius: 11,
   padding: "9px 13px",
   fontSize: 13,
   fontWeight: 900,
   cursor: "pointer",
-  boxShadow: "0 5px 12px rgba(37,99,235,0.18)",
+  boxShadow:
+    "0 5px 12px rgba(37,99,235,0.18)",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const saveButton: CSSProperties = {
   padding: 14,
-  background: "linear-gradient(135deg,#22c55e,#15803d)",
+  background:
+    "linear-gradient(135deg,#22c55e,#15803d)",
   color: "#ffffff",
   border: "none",
   borderRadius: 14,
   fontSize: 15,
   fontWeight: 900,
   cursor: "pointer",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const cancelEditButton: CSSProperties = {
@@ -1758,6 +2483,8 @@ const cancelEditButton: CSSProperties = {
   fontSize: 15,
   fontWeight: 900,
   cursor: "pointer",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const countBadge: CSSProperties = {
@@ -1800,7 +2527,8 @@ const contractItemTop: CSSProperties = {
 
 const contractItemGrid: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(125px,1fr))",
+  gridTemplateColumns:
+    "repeat(auto-fit,minmax(125px,1fr))",
   gap: 8,
   color: "#475569",
   fontSize: 13,
@@ -1888,7 +2616,8 @@ const activityMeta: CSSProperties = {
 
 const emptyBox: CSSProperties = {
   background: "#f8fbff",
-  border: "1px dashed #cbd5e1",
+  border:
+    "1px dashed #cbd5e1",
   borderRadius: 16,
   padding: 20,
   textAlign: "center",
@@ -1904,15 +2633,18 @@ const bottomBackWrapper: CSSProperties = {
 
 const backButton: CSSProperties = {
   padding: "10px 17px",
-  background: "linear-gradient(135deg,#22c55e,#15803d)",
+  background:
+    "linear-gradient(135deg,#22c55e,#15803d)",
   color: "#ffffff",
   border: "none",
   borderRadius: 11,
   fontSize: 14,
   fontWeight: 900,
   cursor: "pointer",
-  boxShadow: "0 5px 14px rgba(22,163,74,0.22)",
-  fontFamily: "var(--font-almarai), sans-serif",
+  boxShadow:
+    "0 5px 14px rgba(22,163,74,0.22)",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const emptyPageCard: CSSProperties = {
@@ -1922,7 +2654,8 @@ const emptyPageCard: CSSProperties = {
   borderRadius: 22,
   padding: 28,
   textAlign: "center",
-  boxShadow: "0 8px 20px rgba(15,23,42,.05)",
+  boxShadow:
+    "0 8px 20px rgba(15,23,42,.05)",
 };
 
 const loadingBox: CSSProperties = {
@@ -1933,5 +2666,6 @@ const loadingBox: CSSProperties = {
   textAlign: "center",
   color: "#0d47a1",
   fontWeight: 900,
-  boxShadow: "0 8px 20px rgba(15,23,42,0.04)",
+  boxShadow:
+    "0 8px 20px rgba(15,23,42,0.04)",
 };
