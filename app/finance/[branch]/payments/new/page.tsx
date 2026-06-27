@@ -164,7 +164,6 @@ export default function NewPaymentPage() {
       setPageLoading(true);
       setAuthChecked(false);
       setBranchId(null);
-      setPageLoading(true);
 
       if (!branch) {
         clearFinanceSession();
