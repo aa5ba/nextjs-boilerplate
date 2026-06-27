@@ -582,7 +582,7 @@ function LoginPageContent() {
     if (!result) {
       setMessage({
         type: "error",
-        text: "رقم الجوال أو كلمة المرور غير صحيحة",
+        text: "اسم المستخدم أو كلمة المرور غير صحيحة",
       });
 
       return;
@@ -675,7 +675,7 @@ function LoginPageContent() {
     ) {
       setMessage({
         type: "error",
-        text: "اسم المستخدم أو رقم الجوال غير صحيح",
+        text: "اسم المستخدم أو كلمة المرور غير صحيحه",
       });
 
       return;
@@ -689,7 +689,7 @@ function LoginPageContent() {
     ) {
       setMessage({
         type: "error",
-        text: "كلمة مرور العميل يجب أن تكون 4 أرقام",
+        text: "كلمة مرور العميل يجب أن تكون 4 ارقام او اكثر",
       });
 
       return;
@@ -763,7 +763,7 @@ function LoginPageContent() {
         </div>
 
         <input
-          placeholder="اسم المستخدم أو رقم الجوال"
+          placeholder="اسم المستخدم "
           value={loginIdentifier}
           onChange={(event) => {
             setLoginIdentifier(
