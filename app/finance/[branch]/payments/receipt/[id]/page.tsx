@@ -1,12 +1,27 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import type { CSSProperties } from "react";
-import { useParams, useRouter } from "next/navigation";
+import {
+  useParams,
+  useRouter,
+} from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { getBranchId } from "@/lib/getBranchId";
 import { getOrganizationSettings } from "@/lib/getOrganizationSettings";
 import { exportElementToPdf } from "@/lib/exportElementToPdf";
+import {
+  clearFinanceSession,
+  getFinanceEmployeeName,
+  installFinanceActivityTracker,
+  logoutFinanceUser,
+  redirectToFinanceLogin,
+  validateFinanceSession,
+  type FinanceSessionUser,
+} from "@/lib/financeSession";
 
 type CustomerRelation = {
   full_name?: string | null;
@@ -15,7 +30,8 @@ type CustomerRelation = {
 };
 
 type ContractRelation = {
-  id?: string | null;
+  id: string;
+  branch_id?: string | null;
   contract_number?: string | null;
   debt_amount?: number | string | null;
   payment_amount?: number | string | null;
@@ -25,7 +41,7 @@ type ContractRelation = {
   customer_name?: string | null;
   customer_national_id?: string | null;
   customer_phone?: string | null;
-  finance_customers?:
+  customer?:
     | CustomerRelation
     | CustomerRelation[]
     | null;
@@ -34,6 +50,7 @@ type ContractRelation = {
 type PaymentReceipt = {
   id: string;
   branch_id?: string | null;
+  contract_id?: string | null;
   receipt_number?: string | null;
   receipt_no?: string | null;
   payment_number?: string | null;
@@ -41,13 +58,11 @@ type PaymentReceipt = {
   remaining_amount_after?: number | string | null;
   remaining_amount?: number | string | null;
   payment_type?: string | null;
+  payment_method?: string | null;
   notes?: string | null;
   created_by?: string | null;
+  created_by_name?: string | null;
   created_at?: string | null;
-  finance_contracts?:
-    | ContractRelation
-    | ContractRelation[]
-    | null;
 };
 
 type OrganizationSettingsState = {
@@ -67,13 +82,38 @@ export default function PaymentReceiptPage() {
   const params = useParams();
   const router = useRouter();
 
-  const branch = String(params.branch ?? "");
-  const paymentId = String(params.id ?? "");
+  const branch =
+    typeof params.branch === "string"
+      ? params.branch.trim()
+      : "";
+
+  const paymentId =
+    typeof params.id === "string"
+      ? params.id.trim()
+      : "";
+
+  const [sessionUser, setSessionUser] =
+    useState<FinanceSessionUser | null>(
+      null
+    );
+
+  const [authChecked, setAuthChecked] =
+    useState(false);
+
+  const [employeeName, setEmployeeName] =
+    useState("الموظف");
 
   const [payment, setPayment] =
     useState<PaymentReceipt | null>(null);
 
-  const [loading, setLoading] = useState(true);
+  const [contract, setContract] =
+    useState<ContractRelation | null>(null);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [exportingPdf, setExportingPdf] =
+    useState(false);
 
   const [
     organizationSettings,
@@ -89,13 +129,145 @@ export default function PaymentReceiptPage() {
   useEffect(() => {
     let cancelled = false;
 
-    async function run() {
-      await loadReceipt(() => cancelled);
+    async function initializePage() {
+      setLoading(true);
+      setAuthChecked(false);
+
+      if (!branch) {
+        clearFinanceSession();
+        router.replace("/login");
+        return;
+      }
+
+      if (!paymentId) {
+        setPayment(null);
+        setContract(null);
+        setAuthChecked(true);
+        setLoading(false);
+        return;
+      }
+
+      const validation =
+        validateFinanceSession(branch);
+
+      if (
+        !validation.valid ||
+        !validation.user
+      ) {
+        redirectToFinanceLogin(router, {
+          branchSlug: branch,
+        });
+
+        return;
+      }
+
+      const authenticatedUser =
+        validation.user;
+
+      const currentBranchId =
+        String(
+          authenticatedUser.branch_id || ""
+        ).trim();
+
+      if (!currentBranchId) {
+        clearFinanceSession();
+
+        redirectToFinanceLogin(router, {
+          branchSlug: branch,
+        });
+
+        return;
+      }
+
+      if (cancelled) {
+        return;
+      }
+
+      setSessionUser(authenticatedUser);
+
+      setEmployeeName(
+        getFinanceEmployeeName(
+          authenticatedUser
+        )
+      );
+
+      setAuthChecked(true);
+
+      await loadReceipt(
+        currentBranchId,
+        () => cancelled
+      );
+
+      if (!cancelled) {
+        setLoading(false);
+      }
     }
 
-    void run();
+    void initializePage();
 
-    const style = document.createElement("style");
+    return () => {
+      cancelled = true;
+    };
+  }, [branch, paymentId, router]);
+
+  useEffect(() => {
+    if (
+      !authChecked ||
+      !sessionUser
+    ) {
+      return;
+    }
+
+    const uninstall =
+      installFinanceActivityTracker({
+        expectedBranchSlug: branch,
+
+        onExpired: () => {
+          redirectToFinanceLogin(router, {
+            branchSlug: branch,
+          });
+        },
+
+        onInvalidated: () => {
+          clearFinanceSession();
+          router.replace("/login");
+        },
+
+        onSessionUpdated: (
+          updatedUser
+        ) => {
+          const updatedBranchId =
+            String(
+              updatedUser.branch_id || ""
+            ).trim();
+
+          if (!updatedBranchId) {
+            clearFinanceSession();
+            router.replace("/login");
+            return;
+          }
+
+          setSessionUser(updatedUser);
+
+          setEmployeeName(
+            getFinanceEmployeeName(
+              updatedUser
+            )
+          );
+        },
+      });
+
+    return uninstall;
+  }, [
+    authChecked,
+    branch,
+    router,
+    sessionUser?.id,
+  ]);
+
+  useEffect(() => {
+    const style =
+      document.createElement("style");
 
     style.innerHTML = `
       @page {
@@ -155,43 +327,101 @@ export default function PaymentReceiptPage() {
           page-break-inside: avoid !important;
         }
       }
+
+      @media (max-width: 760px) {
+        #receipt-print-area {
+          width: 100% !important;
+          min-height: auto !important;
+          padding: 16px !important;
+        }
+
+        .receipt-header-grid,
+        .receipt-two-columns,
+        .receipt-signatures-grid {
+          grid-template-columns: 1fr !important;
+        }
+
+        .receipt-header-grid {
+          text-align: center !important;
+        }
+
+        .receipt-country-box,
+        .receipt-meta-top {
+          justify-items: center !important;
+        }
+      }
     `;
 
     document.head.appendChild(style);
 
     return () => {
-      cancelled = true;
-      document.head.removeChild(style);
+      if (
+        document.head.contains(style)
+      ) {
+        document.head.removeChild(style);
+      }
     };
-  }, [branch, paymentId]);
+  }, []);
 
   async function loadReceipt(
-    isCancelled: () => boolean = () => false
+    currentBranchId: string,
+    isCancelled: () => boolean =
+      () => false
   ) {
-    setLoading(true);
-
     try {
-      const branchId = await getBranchId(branch);
-
-      if (isCancelled()) {
-        return;
-      }
-
-      if (!branchId || !paymentId) {
-        setPayment(null);
-        return;
-      }
+      setLoading(true);
+      setPayment(null);
+      setContract(null);
 
       const {
         data: paymentData,
         error: paymentError,
       } = await supabase
         .from("finance_payments")
-        .select(
-          `
-            *,
-            finance_contracts(
+        .select("*")
+        .eq("id", paymentId)
+        .eq(
+          "branch_id",
+          currentBranchId
+        )
+        .maybeSingle();
+
+      if (isCancelled()) {
+        return;
+      }
+
+      if (
+        paymentError ||
+        !paymentData
+      ) {
+        throw new Error(
+          paymentError?.message ||
+            "الإيصال غير موجود"
+        );
+      }
+
+      const typedPayment =
+        paymentData as PaymentReceipt;
+
+      const linkedContractId =
+        String(
+          typedPayment.contract_id || ""
+        ).trim();
+
+      let contractData:
+        | ContractRelation
+        | null = null;
+
+      if (linkedContractId) {
+        const {
+          data: loadedContract,
+          error: contractError,
+        } = await supabase
+          .from("finance_contracts")
+          .select(
+            `
               id,
+              branch_id,
               contract_number,
               debt_amount,
               payment_amount,
@@ -201,31 +431,34 @@ export default function PaymentReceiptPage() {
               customer_name,
               customer_national_id,
               customer_phone,
-              finance_customers(
+              customer:finance_customers!finance_contracts_customer_id_fkey(
                 full_name,
                 national_id,
                 phone
               )
-            )
-          `
-        )
-        .eq("id", paymentId)
-        .eq("branch_id", branchId)
-        .single();
+            `
+          )
+          .eq("id", linkedContractId)
+          .eq(
+            "branch_id",
+            currentBranchId
+          )
+          .maybeSingle();
 
-      if (isCancelled()) {
-        return;
-      }
+        if (isCancelled()) {
+          return;
+        }
 
-      if (paymentError || !paymentData) {
-        alert(
-          `تعذر تحميل الإيصال: ${
-            paymentError?.message || "الإيصال غير موجود"
-          }`
-        );
+        if (contractError) {
+          throw new Error(
+            contractError.message
+          );
+        }
 
-        setPayment(null);
-        return;
+        contractData =
+          loadedContract as
+            | ContractRelation
+            | null;
       }
 
       const [
@@ -245,7 +478,7 @@ export default function PaymentReceiptPage() {
               phone
             `
           )
-          .eq("id", branchId)
+          .eq("id", currentBranchId)
           .maybeSingle(),
       ]);
 
@@ -253,13 +486,22 @@ export default function PaymentReceiptPage() {
         return;
       }
 
-      const branchData = branchResult.data;
+      if (branchResult.error) {
+        console.error(
+          "Load receipt branch error:",
+          branchResult.error
+        );
+      }
+
+      const branchData =
+        branchResult.data;
 
       const organizationLogo =
         orgSettings &&
         typeof orgSettings === "object" &&
         "logoUrl" in orgSettings &&
-        typeof orgSettings.logoUrl === "string"
+        typeof orgSettings.logoUrl ===
+          "string"
           ? orgSettings.logoUrl
           : "";
 
@@ -288,9 +530,8 @@ export default function PaymentReceiptPage() {
         logoUrl: organizationLogo,
       });
 
-      setPayment(
-        paymentData as PaymentReceipt
-      );
+      setPayment(typedPayment);
+      setContract(contractData);
     } catch (error) {
       console.error(
         "Load payment receipt error:",
@@ -299,9 +540,15 @@ export default function PaymentReceiptPage() {
 
       if (!isCancelled()) {
         setPayment(null);
+        setContract(null);
+
+        const message =
+          error instanceof Error
+            ? error.message
+            : "حدث خطأ غير متوقع أثناء تحميل الإيصال";
 
         alert(
-          "حدث خطأ غير متوقع أثناء تحميل الإيصال"
+          `تعذر تحميل الإيصال: ${message}`
         );
       }
     } finally {
@@ -311,27 +558,20 @@ export default function PaymentReceiptPage() {
     }
   }
 
-  const contract = useMemo(() => {
-    const relation =
-      payment?.finance_contracts;
+  const customer =
+    useMemo<CustomerRelation | null>(
+      () => {
+        const relation =
+          contract?.customer;
 
-    if (Array.isArray(relation)) {
-      return relation[0] || null;
-    }
+        if (Array.isArray(relation)) {
+          return relation[0] || null;
+        }
 
-    return relation || null;
-  }, [payment]);
-
-  const customer = useMemo(() => {
-    const relation =
-      contract?.finance_customers;
-
-    if (Array.isArray(relation)) {
-      return relation[0] || null;
-    }
-
-    return relation || null;
-  }, [contract]);
+        return relation || null;
+      },
+      [contract]
+    );
 
   const customerName =
     contract?.customer_name ||
@@ -348,9 +588,10 @@ export default function PaymentReceiptPage() {
     customer?.phone ||
     "-";
 
-  const receiptNumber = useMemo(() => {
-    return getReceiptNumber(payment);
-  }, [payment]);
+  const receiptNumber = useMemo(
+    () => getReceiptNumber(payment),
+    [payment]
+  );
 
   const paymentAmount = Number(
     payment?.payment_amount || 0
@@ -363,15 +604,81 @@ export default function PaymentReceiptPage() {
       0
   );
 
-  const paymentDate = formatGregorianDate(
-    payment?.created_at
-  );
+  const paymentDate =
+    formatGregorianDate(
+      payment?.created_at
+    );
 
-  const paymentTime = formatTime(
-    payment?.created_at
-  );
+  const paymentTime =
+    formatTime(payment?.created_at);
 
-  if (loading) {
+  const paymentEmployeeName =
+    payment?.created_by_name ||
+    payment?.created_by ||
+    employeeName ||
+    "الموظف";
+
+  const linkedContractId =
+    String(
+      contract?.id ||
+        payment?.contract_id ||
+        ""
+    ).trim();
+
+  function goToContract() {
+    if (!linkedContractId) {
+      alert(
+        "تعذر تحديد العقد المرتبط بهذا الإيصال"
+      );
+      return;
+    }
+
+    router.push(
+      `/finance/${branch}/contracts/${linkedContractId}`
+    );
+  }
+
+  function goToNewPayment() {
+    const destination =
+      linkedContractId
+        ? `/finance/${branch}/payments/new?contract=${linkedContractId}`
+        : `/finance/${branch}/payments/new`;
+
+    router.push(destination);
+  }
+
+  async function downloadPdf() {
+    if (exportingPdf) {
+      return;
+    }
+
+    try {
+      setExportingPdf(true);
+
+      await exportElementToPdf(
+        "receipt-print-area",
+        `receipt-${
+          receiptNumber || paymentId
+        }`
+      );
+    } catch (error) {
+      console.error(
+        "Export receipt PDF error:",
+        error
+      );
+
+      alert(
+        "تعذر تحميل الإيصال بصيغة PDF"
+      );
+    } finally {
+      setExportingPdf(false);
+    }
+  }
+
+  if (
+    !authChecked ||
+    loading
+  ) {
     return (
       <main dir="rtl" style={page}>
         <div style={loadingBox}>
@@ -386,6 +693,30 @@ export default function PaymentReceiptPage() {
       <main dir="rtl" style={page}>
         <div style={loadingBox}>
           لم يتم العثور على الإيصال.
+
+          <div style={errorActions}>
+            <button
+              type="button"
+              style={backButton}
+              onClick={() =>
+                router.back()
+              }
+            >
+              ← رجوع
+            </button>
+
+            <button
+              type="button"
+              style={homeButton}
+              onClick={() =>
+                router.push(
+                  `/finance/${branch}`
+                )
+              }
+            >
+              محطة العمل الرئيسية
+            </button>
+          </div>
         </div>
       </main>
     );
@@ -398,10 +729,13 @@ export default function PaymentReceiptPage() {
         style={printArea}
       >
         <header
-          className="receipt-header"
+          className="receipt-header receipt-header-grid"
           style={receiptHeader}
         >
-          <div style={countryBox}>
+          <div
+            className="receipt-country-box"
+            style={countryBox}
+          >
             <strong>
               المملكة العربية السعودية
             </strong>
@@ -451,7 +785,10 @@ export default function PaymentReceiptPage() {
             </div>
           </div>
 
-          <div style={receiptMetaTop}>
+          <div
+            className="receipt-meta-top"
+            style={receiptMetaTop}
+          >
             <strong>إيصال سداد</strong>
             <span>{paymentDate}</span>
           </div>
@@ -474,7 +811,7 @@ export default function PaymentReceiptPage() {
         </section>
 
         <section
-          className="receipt-block"
+          className="receipt-block receipt-two-columns"
           style={twoColumns}
         >
           <div
@@ -533,7 +870,11 @@ export default function PaymentReceiptPage() {
 
             <Row
               label="طريقة الدفع"
-              value={payment.notes || "-"}
+              value={
+                payment.payment_method ||
+                payment.notes ||
+                "-"
+              }
             />
 
             <Row
@@ -555,10 +896,7 @@ export default function PaymentReceiptPage() {
 
             <Row
               label="الموظف"
-              value={
-                payment.created_by ||
-                "المدير"
-              }
+              value={paymentEmployeeName}
             />
           </div>
         </section>
@@ -609,7 +947,7 @@ export default function PaymentReceiptPage() {
         </section>
 
         <footer
-          className="receipt-signatures"
+          className="receipt-signatures receipt-signatures-grid"
           style={footerBox}
         >
           <div style={signatureBox}>
@@ -617,8 +955,7 @@ export default function PaymentReceiptPage() {
 
             <div>
               الاسم /{" "}
-              {payment.created_by ||
-                "المدير"}
+              {paymentEmployeeName}
             </div>
 
             <div>
@@ -640,7 +977,7 @@ export default function PaymentReceiptPage() {
         </footer>
 
         <div style={receiptFooterNote}>
-          تم إصدار هذا الإيصال آلياً من
+          تم إصدار هذا الإيصال آليًا من
           النظام
         </div>
       </section>
@@ -663,22 +1000,38 @@ export default function PaymentReceiptPage() {
           type="button"
           style={primaryActionButton}
           onClick={() =>
-            exportElementToPdf(
-              "receipt-print-area",
-              `receipt-${
-                receiptNumber ||
-                paymentId
-              }`
-            )
+            void downloadPdf()
           }
+          disabled={exportingPdf}
         >
-          📄 تحميل PDF
+          {exportingPdf
+            ? "جاري تجهيز PDF..."
+            : "📄 تحميل PDF"}
+        </button>
+
+        <button
+          type="button"
+          style={contractButton}
+          onClick={goToContract}
+          disabled={!linkedContractId}
+        >
+          العودة إلى العقد
+        </button>
+
+        <button
+          type="button"
+          style={paymentButton}
+          onClick={goToNewPayment}
+        >
+          إجراء سداد آخر
         </button>
 
         <button
           type="button"
           style={backButton}
-          onClick={() => router.back()}
+          onClick={() =>
+            router.back()
+          }
         >
           ← رجوع
         </button>
@@ -694,6 +1047,16 @@ export default function PaymentReceiptPage() {
         >
           محطة العمل الرئيسية
         </button>
+
+        <button
+          type="button"
+          style={logoutButton}
+          onClick={() =>
+            logoutFinanceUser(router)
+          }
+        >
+          تسجيل الخروج
+        </button>
       </div>
     </main>
   );
@@ -707,7 +1070,13 @@ function Row({
     <div style={row}>
       <span>{label}</span>
 
-      <strong>{value || "-"}</strong>
+      <strong>
+        {value === null ||
+        value === undefined ||
+        value === ""
+          ? "-"
+          : value}
+      </strong>
     </div>
   );
 }
@@ -726,7 +1095,9 @@ function getReceiptNumber(
   }
 
   if (payment.receipt_no) {
-    return String(payment.receipt_no);
+    return String(
+      payment.receipt_no
+    );
   }
 
   if (payment.payment_number) {
@@ -735,9 +1106,10 @@ function getReceiptNumber(
     );
   }
 
-  const createdAt = payment.created_at
-    ? new Date(payment.created_at)
-    : new Date();
+  const createdAt =
+    payment.created_at
+      ? new Date(payment.created_at)
+      : new Date();
 
   const year = String(
     createdAt.getFullYear()
@@ -773,7 +1145,9 @@ function formatGregorianDate(
   const parsedDate = new Date(date);
 
   if (
-    Number.isNaN(parsedDate.getTime())
+    Number.isNaN(
+      parsedDate.getTime()
+    )
   ) {
     return "-";
   }
@@ -786,7 +1160,8 @@ function formatGregorianDate(
     parsedDate.getMonth() + 1
   ).padStart(2, "0");
 
-  const year = parsedDate.getFullYear();
+  const year =
+    parsedDate.getFullYear();
 
   return `${day}/${month}/${year}`;
 }
@@ -801,7 +1176,9 @@ function formatTime(
   const parsedDate = new Date(date);
 
   if (
-    Number.isNaN(parsedDate.getTime())
+    Number.isNaN(
+      parsedDate.getTime()
+    )
   ) {
     return "-";
   }
@@ -816,9 +1193,20 @@ function formatTime(
 }
 
 function formatMoney(
-  value: number | string | null | undefined
+  value:
+    | number
+    | string
+    | null
+    | undefined
 ) {
-  const number = Number(value || 0);
+  const number =
+    Number(value || 0);
+
+  if (
+    !Number.isFinite(number)
+  ) {
+    return "0.00";
+  }
 
   return number.toLocaleString(
     "en-US",
@@ -831,7 +1219,17 @@ function formatMoney(
 
 const page: CSSProperties = {
   minHeight: "100vh",
-  background: "#eef5ff",
+  backgroundColor: "#f6f9ff",
+  backgroundImage: `
+    radial-gradient(circle at 12% 18%, rgba(59,130,246,0.16) 0, transparent 28%),
+    radial-gradient(circle at 88% 12%, rgba(168,85,247,0.10) 0, transparent 25%),
+    radial-gradient(circle at 80% 88%, rgba(34,197,94,0.10) 0, transparent 28%),
+    linear-gradient(rgba(246,249,255,0.72),rgba(246,249,255,0.82)),
+    url('/backgrounds/v13-finance-bg-1.png')
+  `,
+  backgroundSize: "cover",
+  backgroundPosition: "center",
+  backgroundAttachment: "fixed",
   padding: 16,
   fontFamily:
     "var(--font-almarai), sans-serif",
@@ -842,13 +1240,21 @@ const loadingBox: CSSProperties = {
   width: "100%",
   maxWidth: 850,
   margin: "80px auto",
-  background: "white",
+  background: "#ffffff",
   border: "1px solid #d9e3f5",
   borderRadius: 18,
   padding: 24,
   textAlign: "center",
   fontWeight: 900,
   color: "#334155",
+};
+
+const errorActions: CSSProperties = {
+  display: "flex",
+  justifyContent: "center",
+  gap: 10,
+  flexWrap: "wrap",
+  marginTop: 18,
 };
 
 const printArea: CSSProperties = {
@@ -1043,11 +1449,11 @@ const receiptFooterNote: CSSProperties = {
 
 const actionsWrapper: CSSProperties = {
   width: "100%",
-  maxWidth: 850,
+  maxWidth: 1180,
   margin: "16px auto 0",
   display: "grid",
   gridTemplateColumns:
-    "repeat(auto-fit,minmax(180px,1fr))",
+    "repeat(auto-fit,minmax(170px,1fr))",
   gap: 10,
 };
 
@@ -1063,6 +1469,38 @@ const primaryActionButton: CSSProperties = {
   cursor: "pointer",
   boxShadow:
     "0 10px 25px rgba(13,71,161,0.18)",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const contractButton: CSSProperties = {
+  padding: 14,
+  background:
+    "linear-gradient(135deg,#7c3aed,#4f46e5)",
+  color: "#ffffff",
+  border: "none",
+  borderRadius: 14,
+  fontSize: 15,
+  fontWeight: 900,
+  cursor: "pointer",
+  boxShadow:
+    "0 8px 18px rgba(79,70,229,0.22)",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const paymentButton: CSSProperties = {
+  padding: 14,
+  background:
+    "linear-gradient(135deg,#0891b2,#0369a1)",
+  color: "#ffffff",
+  border: "none",
+  borderRadius: 14,
+  fontSize: 15,
+  fontWeight: 900,
+  cursor: "pointer",
+  boxShadow:
+    "0 8px 18px rgba(3,105,161,0.22)",
   fontFamily:
     "var(--font-almarai), sans-serif",
 };
@@ -1097,6 +1535,23 @@ const homeButton: CSSProperties = {
   cursor: "pointer",
   boxShadow:
     "0 8px 18px rgba(21,128,61,0.25)",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const logoutButton: CSSProperties = {
+  border:
+    "1px solid rgba(255,255,255,0.20)",
+  background:
+    "linear-gradient(135deg,#ef4444,#b91c1c)",
+  color: "#ffffff",
+  borderRadius: 14,
+  padding: 14,
+  fontSize: 15,
+  fontWeight: 900,
+  cursor: "pointer",
+  boxShadow:
+    "0 8px 18px rgba(185,28,28,0.22)",
   fontFamily:
     "var(--font-almarai), sans-serif",
 };
