@@ -928,11 +928,7 @@ export default function ActiveContractsPage() {
           <button
             type="button"
             style={backButton}
-            onClick={() =>
-              router.push(
-                `/finance/${branch}`
-              )
-            }
+          onClick={() => router.back()}
           >
             ← رجوع
           </button>
