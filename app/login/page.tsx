@@ -656,7 +656,7 @@ function LoginPageContent() {
     if (!normalizedIdentifier) {
       setMessage({
         type: "error",
-        text: "أدخل اسم المستخدم أو رقم الجوال",
+        text: "أدخل اسم المستخدم ",
       });
 
       return;
