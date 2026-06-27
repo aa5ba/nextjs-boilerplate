@@ -3,6 +3,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import type {
@@ -60,6 +61,34 @@ type MessageState = {
   type: "success" | "error";
   text: string;
 } | null;
+
+type ThemeOption = {
+  key: string;
+  title: string;
+  subtitle: string;
+  available: boolean;
+};
+
+const THEME_OPTIONS: ThemeOption[] = [
+  {
+    key: "professional",
+    title: "المظهر الاحترافي",
+    subtitle: "المظهر الرسمي المعتمد لمحطة العمل",
+    available: true,
+  },
+  {
+    key: "modern_dark",
+    title: "المظهر الداكن",
+    subtitle: "سيتم توفيره في تحديث قادم",
+    available: false,
+  },
+  {
+    key: "soft_light",
+    title: "المظهر الهادئ",
+    subtitle: "سيتم توفيره في تحديث قادم",
+    available: false,
+  },
+];
 
 function getErrorMessage(
   error: unknown,
@@ -147,7 +176,7 @@ function normalizeDigits(value: string) {
     );
 }
 
-function formatDateTime(
+function formatGregorianDateTime(
   value: string | null
 ) {
   if (!value) {
@@ -163,8 +192,9 @@ function formatDateTime(
   }
 
   return new Intl.DateTimeFormat(
-    "ar-SA",
+    "ar-SA-u-ca-gregory",
     {
+      calendar: "gregory",
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
@@ -182,6 +212,11 @@ export default function FinanceSettingsPage() {
     typeof params.branch === "string"
       ? params.branch
       : "";
+
+  const themeMenuRef =
+    useRef<HTMLDivElement | null>(
+      null
+    );
 
   const [screen, setScreen] =
     useState<ScreenType>("desktop");
@@ -205,6 +240,11 @@ export default function FinanceSettingsPage() {
 
   const [themeKey, setThemeKey] =
     useState("professional");
+
+  const [
+    themeMenuOpen,
+    setThemeMenuOpen,
+  ] = useState(false);
 
   const [
     currentPassword,
@@ -281,6 +321,12 @@ export default function FinanceSettingsPage() {
         ].includes(settings.role)
     );
 
+  const selectedTheme =
+    THEME_OPTIONS.find(
+      (option) =>
+        option.key === themeKey
+    ) || THEME_OPTIONS[0];
+
   const readOnlyRows = useMemo(
     () => [
       {
@@ -314,16 +360,19 @@ export default function FinanceSettingsPage() {
       },
       {
         label: "تاريخ إنشاء الحساب",
-        value: formatDateTime(
-          settings?.created_at || null
-        ),
+        value:
+          formatGregorianDateTime(
+            settings?.created_at ||
+              null
+          ),
       },
       {
         label: "آخر تسجيل دخول",
-        value: formatDateTime(
-          settings?.last_login_at ||
-            null
-        ),
+        value:
+          formatGregorianDateTime(
+            settings?.last_login_at ||
+              null
+          ),
       },
     ],
     [settings]
@@ -348,17 +397,6 @@ export default function FinanceSettingsPage() {
         value:
           settings?.organization_phone ||
           "—",
-      },
-      {
-        label: "البريد الإلكتروني",
-        value:
-          settings?.organization_email ||
-          "—",
-      },
-      {
-        label: "المدينة",
-        value:
-          settings?.city || "—",
       },
       {
         label: "العنوان",
@@ -395,6 +433,51 @@ export default function FinanceSettingsPage() {
       window.removeEventListener(
         "resize",
         updateScreen
+      );
+    };
+  }, []);
+
+  useEffect(() => {
+    function handleOutsideClick(
+      event: MouseEvent
+    ) {
+      if (
+        themeMenuRef.current &&
+        !themeMenuRef.current.contains(
+          event.target as Node
+        )
+      ) {
+        setThemeMenuOpen(false);
+      }
+    }
+
+    function handleEscape(
+      event: KeyboardEvent
+    ) {
+      if (event.key === "Escape") {
+        setThemeMenuOpen(false);
+      }
+    }
+
+    document.addEventListener(
+      "mousedown",
+      handleOutsideClick
+    );
+
+    document.addEventListener(
+      "keydown",
+      handleEscape
+    );
+
+    return () => {
+      document.removeEventListener(
+        "mousedown",
+        handleOutsideClick
+      );
+
+      document.removeEventListener(
+        "keydown",
+        handleEscape
       );
     };
   }, []);
@@ -768,6 +851,15 @@ export default function FinanceSettingsPage() {
       return;
     }
 
+    const confirmed =
+      window.confirm(
+        "هل أنت متأكد من حذف حسابك؟ سيتم تعطيل الحساب وتسجيل خروجك مع الاحتفاظ بالسجلات السابقة."
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
     setDeletingAccount(true);
 
     try {
@@ -803,6 +895,18 @@ export default function FinanceSettingsPage() {
     }
   }
 
+  function selectTheme(
+    option: ThemeOption
+  ) {
+    if (!option.available) {
+      return;
+    }
+
+    setThemeKey(option.key);
+    setThemeMenuOpen(false);
+    setSettingsMessage(null);
+  }
+
   function logout() {
     logoutFinanceUser(router);
   }
@@ -821,6 +925,8 @@ export default function FinanceSettingsPage() {
         <div style={loadingBox}>
           جاري تحميل الإعدادات...
         </div>
+
+        <GlobalStyles />
       </main>
     );
   }
@@ -903,6 +1009,7 @@ export default function FinanceSettingsPage() {
                   onClick={logout}
                 >
                   <LogoutIcon />
+
                   <span>
                     تسجيل الخروج
                   </span>
@@ -1001,6 +1108,7 @@ export default function FinanceSettingsPage() {
 
           <Field label="رقم الجوال - اختياري">
             <input
+              className="settings-input"
               style={input}
               type="tel"
               inputMode="numeric"
@@ -1021,26 +1129,188 @@ export default function FinanceSettingsPage() {
           </Field>
 
           <Field label="المظهر">
-            <select
-              style={input}
-              value={themeKey}
-              onChange={(event) =>
-                setThemeKey(
-                  event.target.value
-                )
+            <div
+              ref={themeMenuRef}
+              style={
+                dropdownContainer
               }
             >
-              <option value="professional">
-                المظهر الاحترافي
-              </option>
-
-              <option
-                value="coming_soon"
-                disabled
+              <button
+                type="button"
+                className="settings-dropdown-trigger"
+                style={{
+                  ...dropdownTrigger,
+                  ...(themeMenuOpen
+                    ? dropdownTriggerOpen
+                    : {}),
+                }}
+                onClick={() =>
+                  setThemeMenuOpen(
+                    (previous) =>
+                      !previous
+                  )
+                }
+                aria-haspopup="listbox"
+                aria-expanded={
+                  themeMenuOpen
+                }
               >
-                مظهر إضافي - قريبًا
-              </option>
-            </select>
+                <span
+                  style={
+                    dropdownSelection
+                  }
+                >
+                  <span
+                    style={
+                      themePreviewIcon
+                    }
+                  >
+                    <ThemeIcon />
+                  </span>
+
+                  <span
+                    style={
+                      dropdownSelectionText
+                    }
+                  >
+                    <strong
+                      style={
+                        dropdownSelectionTitle
+                      }
+                    >
+                      {
+                        selectedTheme.title
+                      }
+                    </strong>
+
+                    <small
+                      style={
+                        dropdownSelectionSubtitle
+                      }
+                    >
+                      {
+                        selectedTheme.subtitle
+                      }
+                    </small>
+                  </span>
+                </span>
+
+                <span
+                  style={{
+                    ...dropdownArrow,
+                    transform:
+                      themeMenuOpen
+                        ? "rotate(180deg)"
+                        : "rotate(0deg)",
+                  }}
+                >
+                  <ChevronDownIcon />
+                </span>
+              </button>
+
+              {themeMenuOpen && (
+                <div
+                  className="settings-dropdown-menu"
+                  style={
+                    dropdownMenu
+                  }
+                  role="listbox"
+                >
+                  {THEME_OPTIONS.map(
+                    (option) => {
+                      const selected =
+                        option.key ===
+                        themeKey;
+
+                      return (
+                        <button
+                          key={
+                            option.key
+                          }
+                          type="button"
+                          role="option"
+                          aria-selected={
+                            selected
+                          }
+                          disabled={
+                            !option.available
+                          }
+                          style={{
+                            ...dropdownOption,
+                            ...(selected
+                              ? dropdownOptionSelected
+                              : {}),
+                            ...(!option.available
+                              ? dropdownOptionDisabled
+                              : {}),
+                          }}
+                          onClick={() =>
+                            selectTheme(
+                              option
+                            )
+                          }
+                        >
+                          <span
+                            style={
+                              dropdownOptionIcon
+                            }
+                          >
+                            <ThemeIcon />
+                          </span>
+
+                          <span
+                            style={
+                              dropdownOptionText
+                            }
+                          >
+                            <strong
+                              style={
+                                dropdownOptionTitle
+                              }
+                            >
+                              {
+                                option.title
+                              }
+                            </strong>
+
+                            <small
+                              style={
+                                dropdownOptionSubtitle
+                              }
+                            >
+                              {
+                                option.subtitle
+                              }
+                            </small>
+                          </span>
+
+                          {selected &&
+                            option.available && (
+                              <span
+                                style={
+                                  selectedCheck
+                                }
+                              >
+                                <CheckIcon />
+                              </span>
+                            )}
+
+                          {!option.available && (
+                            <span
+                              style={
+                                comingSoonBadge
+                              }
+                            >
+                              قريبًا
+                            </span>
+                          )}
+                        </button>
+                      );
+                    }
+                  )}
+                </div>
+              )}
+            </div>
           </Field>
 
           {settingsMessage && (
@@ -1078,6 +1348,7 @@ export default function FinanceSettingsPage() {
 
           <Field label="كلمة المرور الحالية">
             <input
+              className="settings-input"
               style={input}
               type="password"
               autoComplete="current-password"
@@ -1094,6 +1365,7 @@ export default function FinanceSettingsPage() {
 
           <Field label="كلمة المرور الجديدة">
             <input
+              className="settings-input"
               style={input}
               type="password"
               autoComplete="new-password"
@@ -1109,6 +1381,7 @@ export default function FinanceSettingsPage() {
 
           <Field label="تأكيد كلمة المرور الجديدة">
             <input
+              className="settings-input"
               style={input}
               type="password"
               autoComplete="new-password"
@@ -1172,6 +1445,7 @@ export default function FinanceSettingsPage() {
 
             <Field label="كلمة المرور الحالية">
               <input
+                className="settings-input"
                 style={input}
                 type="password"
                 autoComplete="current-password"
@@ -1231,13 +1505,17 @@ export default function FinanceSettingsPage() {
             type="button"
             style={backButton}
             onClick={() =>
-              router.back()
+              router.push(
+                `/finance/${branch}`
+              )
             }
           >
             ← رجوع
           </button>
         </div>
       </div>
+
+      <GlobalStyles />
     </main>
   );
 }
@@ -1302,6 +1580,69 @@ function StatusMessage({
     >
       {message.text}
     </div>
+  );
+}
+
+function GlobalStyles() {
+  return (
+    <style jsx global>{`
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        overflow-x: hidden;
+      }
+
+      button,
+      input {
+        font-family: var(--font-almarai), sans-serif;
+      }
+
+      .settings-input {
+        transition:
+          border-color 0.18s ease,
+          box-shadow 0.18s ease,
+          background 0.18s ease;
+      }
+
+      .settings-input:focus {
+        border-color: #3b82f6 !important;
+        background: #ffffff !important;
+        box-shadow:
+          0 0 0 4px rgba(59, 130, 246, 0.11) !important;
+      }
+
+      .settings-dropdown-trigger {
+        transition:
+          border-color 0.18s ease,
+          box-shadow 0.18s ease,
+          background 0.18s ease;
+      }
+
+      .settings-dropdown-trigger:hover {
+        border-color: #93c5fd !important;
+        background: #ffffff !important;
+      }
+
+      .settings-dropdown-menu {
+        animation: settings-menu-open 0.16s ease-out;
+      }
+
+      @keyframes settings-menu-open {
+        from {
+          opacity: 0;
+          transform: translateY(-7px) scale(0.985);
+        }
+
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+    `}</style>
   );
 }
 
@@ -1398,6 +1739,71 @@ function HomeIcon() {
   );
 }
 
+function ThemeIcon() {
+  return (
+    <svg
+      width="21"
+      height="21"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M12 3.5a8.5 8.5 0 1 0 0 17h1.2c1.3 0 2.1-1.4 1.4-2.5-.6-.9 0-2.1 1.1-2.1h1.5c2 0 3.5-1.7 3.2-3.7A8.5 8.5 0 0 0 12 3.5Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+
+      <path
+        d="M7.5 10.2h.01M10.1 7.3h.01M14 7.4h.01M16.7 10.1h.01"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function ChevronDownIcon() {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="m6.5 9 5.5 5.5L17.5 9"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="m5.5 12.5 4 4 9-9"
+        stroke="currentColor"
+        strokeWidth="2.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function getPageStyle(
   isMobile: boolean
 ): CSSProperties {
@@ -1423,6 +1829,7 @@ function getPageStyle(
       : 18,
     fontFamily:
       "var(--font-almarai), sans-serif",
+    overflowX: "hidden",
   };
 }
 
@@ -1819,6 +2226,7 @@ const heroDots: CSSProperties = {
 };
 
 const card: CSSProperties = {
+  position: "relative",
   background: "#ffffff",
   border:
     "1px solid #e2e8f0",
@@ -1827,6 +2235,7 @@ const card: CSSProperties = {
   marginBottom: 16,
   boxShadow:
     "0 8px 22px rgba(15,23,42,0.04)",
+  overflow: "visible",
 };
 
 const dangerCard: CSSProperties = {
@@ -1906,6 +2315,194 @@ const infoValue: CSSProperties = {
   fontSize: 15,
   fontWeight: 900,
   overflowWrap: "anywhere",
+};
+
+const dropdownContainer: CSSProperties = {
+  position: "relative",
+  width: "100%",
+  zIndex: 30,
+};
+
+const dropdownTrigger: CSSProperties = {
+  width: "100%",
+  minHeight: 68,
+  padding: "10px 14px",
+  borderRadius: 15,
+  border:
+    "1px solid #dbe3ef",
+  background:
+    "linear-gradient(180deg,#ffffff,#f8fafc)",
+  color: "#0f172a",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 12,
+  cursor: "pointer",
+  textAlign: "right",
+  outline: "none",
+};
+
+const dropdownTriggerOpen: CSSProperties = {
+  borderColor: "#60a5fa",
+  background: "#ffffff",
+  boxShadow:
+    "0 0 0 4px rgba(59,130,246,0.11)",
+};
+
+const dropdownSelection: CSSProperties = {
+  minWidth: 0,
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+};
+
+const themePreviewIcon: CSSProperties = {
+  width: 42,
+  height: 42,
+  flex: "0 0 auto",
+  borderRadius: 13,
+  background:
+    "linear-gradient(135deg,#dbeafe,#bfdbfe)",
+  color: "#1d4ed8",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  border:
+    "1px solid #bfdbfe",
+};
+
+const dropdownSelectionText: CSSProperties = {
+  minWidth: 0,
+  display: "grid",
+  gap: 4,
+};
+
+const dropdownSelectionTitle: CSSProperties = {
+  color: "#0f172a",
+  fontSize: 15,
+  fontWeight: 900,
+};
+
+const dropdownSelectionSubtitle: CSSProperties = {
+  color: "#64748b",
+  fontSize: 12,
+  fontWeight: 700,
+  lineHeight: 1.5,
+};
+
+const dropdownArrow: CSSProperties = {
+  width: 34,
+  height: 34,
+  flex: "0 0 auto",
+  borderRadius: 10,
+  color: "#475569",
+  background: "#f1f5f9",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  transition:
+    "transform 0.18s ease",
+};
+
+const dropdownMenu: CSSProperties = {
+  position: "absolute",
+  top: "calc(100% + 8px)",
+  right: 0,
+  left: 0,
+  zIndex: 100,
+  padding: 7,
+  borderRadius: 16,
+  border:
+    "1px solid #dbe3ef",
+  background:
+    "rgba(255,255,255,0.99)",
+  boxShadow:
+    "0 20px 45px rgba(15,23,42,0.16)",
+  backdropFilter: "blur(12px)",
+  overflow: "hidden",
+};
+
+const dropdownOption: CSSProperties = {
+  width: "100%",
+  minHeight: 64,
+  border: "none",
+  background: "transparent",
+  color: "#0f172a",
+  padding: "10px 11px",
+  borderRadius: 12,
+  display: "flex",
+  alignItems: "center",
+  gap: 11,
+  textAlign: "right",
+  cursor: "pointer",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const dropdownOptionSelected: CSSProperties = {
+  background:
+    "linear-gradient(135deg,#eff6ff,#ecfeff)",
+  boxShadow:
+    "inset 0 0 0 1px #bfdbfe",
+};
+
+const dropdownOptionDisabled: CSSProperties = {
+  opacity: 0.58,
+  cursor: "not-allowed",
+};
+
+const dropdownOptionIcon: CSSProperties = {
+  width: 38,
+  height: 38,
+  flex: "0 0 auto",
+  borderRadius: 11,
+  background: "#eff6ff",
+  color: "#2563eb",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+};
+
+const dropdownOptionText: CSSProperties = {
+  minWidth: 0,
+  flex: 1,
+  display: "grid",
+  gap: 3,
+};
+
+const dropdownOptionTitle: CSSProperties = {
+  fontSize: 14,
+  fontWeight: 900,
+};
+
+const dropdownOptionSubtitle: CSSProperties = {
+  color: "#64748b",
+  fontSize: 11,
+  fontWeight: 700,
+  lineHeight: 1.5,
+};
+
+const selectedCheck: CSSProperties = {
+  width: 30,
+  height: 30,
+  flex: "0 0 auto",
+  borderRadius: "50%",
+  background:
+    "linear-gradient(135deg,#22c55e,#16a34a)",
+  color: "#ffffff",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+};
+
+const comingSoonBadge: CSSProperties = {
+  flex: "0 0 auto",
+  padding: "5px 8px",
+  borderRadius: 999,
+  background: "#f1f5f9",
+  color: "#64748b",
+  fontSize: 10,
+  fontWeight: 900,
 };
 
 const saveButton: CSSProperties = {
