@@ -1,2783 +1,2001 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import type {
+  CSSProperties,
+  ReactNode,
+} from "react";
+import {
+  useParams,
+  useRouter,
+} from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
+import {
+  clearFinanceSession,
+  getFinanceEmployeeName,
+  installFinanceActivityTracker,
+  logoutFinanceUser,
+  readFinanceSession,
+  refreshFinanceSessionState,
+  redirectToFinanceLogin,
+  validateFinanceSession,
+  type FinanceSessionUser,
+} from "@/lib/financeSession";
 
-const SUPPORT_PERMISSIONS = [
-  { key: "manage_branches", label: "إدارة الفروع" },
-  { key: "manage_support_users", label: "إدارة مستخدمي الدعم" },
-  { key: "system_settings", label: "إعدادات النظام" },
-  { key: "impersonate_branch", label: "الدخول للفروع" },
-  { key: "view_logs", label: "عرض السجلات" },
-  { key: "backup_restore", label: "النسخ والاستعادة" },
-] as const;
+type ScreenType =
+  | "mobile"
+  | "tablet"
+  | "desktop";
 
-const SUPPORT_ROLES = ["support", "viewer", "super_admin"] as const;
-
-type SupportPermission = (typeof SUPPORT_PERMISSIONS)[number]["key"];
-type SupportRole = (typeof SUPPORT_ROLES)[number];
-
-type ScreenType = "mobile" | "tablet" | "desktop";
-
-type TabType =
-  | "overview"
-  | "branches"
-  | "branch_managers"
-  | "users"
-  | "logs";
-
-type CurrentUser = {
-  id: string;
+type SettingsRow = {
+  user_id: string;
   full_name: string;
   username: string;
-  role: string;
-  permissions: string[];
-};
-
-type DashboardAccess = {
-  manage_branches: boolean;
-  impersonate_branch: boolean;
-  manage_support_users: boolean;
-  view_logs: boolean;
-  system_settings: boolean;
-  backup_restore: boolean;
-};
-
-type Branch = {
-  id: string;
-  branch_name: string;
-  branch_slug: string;
-  organization_name: string;
-  city: string | null;
-  commercial_record: string | null;
   phone: string | null;
-  is_active: boolean;
-  notes: string | null;
-  created_at: string;
-};
-
-type SupportUser = {
-  id: string;
-  full_name: string;
-  username: string;
   role: string;
+  account_status: string;
   is_active: boolean;
-  created_at: string;
-  permissions: string[];
-};
-
-type BranchRelation = {
+  created_at: string | null;
+  last_login_at: string | null;
+  branch_id: string;
   branch_name: string;
   branch_slug: string;
   organization_name: string;
+  commercial_record: string | null;
+  organization_phone: string | null;
+  organization_email: string | null;
+  organization_address: string | null;
+  city: string | null;
+  theme_key: string;
+  investor_id: string | null;
+  session_version: number;
+  permissions_version: number;
 };
 
-type BranchManager = {
-  id: string;
-  branch_id: string;
-  full_name: string;
-  username: string;
-  role: string;
-  is_active: boolean;
-  created_at: string;
-  finance_branches?: BranchRelation | BranchRelation[] | null;
-};
+type MessageState = {
+  type: "success" | "error";
+  text: string;
+} | null;
 
-type SupportLog = {
-  id: string;
-  user_id: string | null;
-  user_name: string | null;
-  action: string;
-  target_type: string | null;
-  target_id: string | null;
-  details: string | null;
-  created_at: string;
-};
+function getErrorMessage(
+  error: unknown,
+  fallback: string
+) {
+  if (
+    error &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    const message = error.message;
 
-type DashboardResponse = {
-  ok: boolean;
-  message?: string;
-  user?: CurrentUser;
-  access?: DashboardAccess;
-  branches?: Branch[];
-  branch_managers?: BranchManager[];
-  support_users?: SupportUser[];
-  logs?: SupportLog[];
-};
+    if (
+      message.includes(
+        "كلمة المرور الحالية غير صحيحة"
+      )
+    ) {
+      return "كلمة المرور الحالية غير صحيحة";
+    }
 
-type ApiResponse<T = unknown> = {
-  ok: boolean;
-  message?: string;
-  data?: T;
-  redirect_url?: string;
-};
+    if (
+      message.includes(
+        "كلمة المرور الجديدة يجب أن تختلف"
+      )
+    ) {
+      return "كلمة المرور الجديدة يجب أن تختلف عن كلمة المرور الحالية";
+    }
 
-type BusyAction =
-  | "dashboard"
-  | "save_branch"
-  | "logout"
-  | "create_support_user"
-  | `branch_status:${string}`
-  | `branch_enter:${string}`
-  | `manager_status:${string}`
-  | `manager_password:${string}`
-  | `support_status:${string}`
-  | null;
+    if (
+      message.includes(
+        "كلمة المرور الجديدة يجب أن تكون"
+      )
+    ) {
+      return "كلمة المرور الجديدة يجب أن تكون من 4 إلى 8 خانات دون مسافات";
+    }
 
-const EMPTY_ACCESS: DashboardAccess = {
-  manage_branches: false,
-  impersonate_branch: false,
-  manage_support_users: false,
-  view_logs: false,
-  system_settings: false,
-  backup_restore: false,
-};
+    if (
+      message.includes(
+        "رقم الجوال يجب أن يبدأ"
+      )
+    ) {
+      return "رقم الجوال يجب أن يبدأ بـ 05 ويتكون من 10 أرقام";
+    }
 
-export default function AdminSupportPage() {
+    if (
+      message.includes(
+        "لا يمكن للمدير الرئيسي حذف حسابه"
+      )
+    ) {
+      return "لا يمكن للمدير الرئيسي حذف حسابه";
+    }
+
+    if (
+      message.includes("INVALID_SESSION")
+    ) {
+      return "انتهت الجلسة أو أصبحت غير صالحة";
+    }
+
+    return message;
+  }
+
+  return fallback;
+}
+
+function normalizeDigits(value: string) {
+  return value
+    .replace(
+      /[٠-٩]/g,
+      (digit) =>
+        String(
+          "٠١٢٣٤٥٦٧٨٩".indexOf(
+            digit
+          )
+        )
+    )
+    .replace(
+      /[۰-۹]/g,
+      (digit) =>
+        String(
+          "۰۱۲۳۴۵۶۷۸۹".indexOf(
+            digit
+          )
+        )
+    );
+}
+
+function formatDateTime(
+  value: string | null
+) {
+  if (!value) {
+    return "—";
+  }
+
+  const date = new Date(value);
+
+  if (
+    Number.isNaN(date.getTime())
+  ) {
+    return "—";
+  }
+
+  return new Intl.DateTimeFormat(
+    "ar-SA",
+    {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }
+  ).format(date);
+}
+
+export default function FinanceSettingsPage() {
+  const params = useParams();
   const router = useRouter();
 
-  const [screen, setScreen] = useState<ScreenType>("desktop");
-  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
-  const [access, setAccess] = useState<DashboardAccess>(EMPTY_ACCESS);
+  const branch =
+    typeof params.branch === "string"
+      ? params.branch
+      : "";
 
-  const [branches, setBranches] = useState<Branch[]>([]);
-  const [branchManagers, setBranchManagers] = useState<BranchManager[]>([]);
-  const [supportUsers, setSupportUsers] = useState<SupportUser[]>([]);
-  const [logs, setLogs] = useState<SupportLog[]>([]);
+  const [screen, setScreen] =
+    useState<ScreenType>("desktop");
 
-  const [activeTab, setActiveTab] = useState<TabType>("overview");
-  const [loading, setLoading] = useState(true);
-  const [busyAction, setBusyAction] = useState<BusyAction>("dashboard");
-  const [pageError, setPageError] = useState("");
+  const [authChecked, setAuthChecked] =
+    useState(false);
 
-  const [showBranchForm, setShowBranchForm] = useState(false);
-  const [editingBranchId, setEditingBranchId] = useState<string | null>(null);
+  const [sessionUser, setSessionUser] =
+    useState<FinanceSessionUser | null>(
+      null
+    );
 
-  const [branchName, setBranchName] = useState("");
-  const [branchSlug, setBranchSlug] = useState("");
-  const [organizationName, setOrganizationName] = useState("");
-  const [branchCity, setBranchCity] = useState("");
-  const [branchCommercialRecord, setBranchCommercialRecord] = useState("");
-  const [branchPhone, setBranchPhone] = useState("");
-  const [branchNotes, setBranchNotes] = useState("");
+  const [settings, setSettings] =
+    useState<SettingsRow | null>(null);
 
-  const [managerFullName, setManagerFullName] = useState("");
-  const [managerUsername, setManagerUsername] = useState("");
-  const [managerPassword, setManagerPassword] = useState("");
+  const [employeeName, setEmployeeName] =
+    useState("الموظف");
 
-  const [showUserForm, setShowUserForm] = useState(false);
-  const [supportFullName, setSupportFullName] = useState("");
-  const [supportUsername, setSupportUsername] = useState("");
-  const [supportPassword, setSupportPassword] = useState("");
-  const [supportRole, setSupportRole] = useState<SupportRole>("support");
-  const [selectedPermissions, setSelectedPermissions] = useState<
-    SupportPermission[]
-  >([]);
+  const [phone, setPhone] =
+    useState("");
 
-  const isMobile = screen === "mobile";
-  const isTablet = screen === "tablet";
-  const isCompact = isMobile || isTablet;
+  const [themeKey, setThemeKey] =
+    useState("professional");
+
+  const [
+    currentPassword,
+    setCurrentPassword,
+  ] = useState("");
+
+  const [
+    newPassword,
+    setNewPassword,
+  ] = useState("");
+
+  const [
+    confirmPassword,
+    setConfirmPassword,
+  ] = useState("");
+
+  const [
+    deletePassword,
+    setDeletePassword,
+  ] = useState("");
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [saving, setSaving] =
+    useState(false);
+
+  const [
+    changingPassword,
+    setChangingPassword,
+  ] = useState(false);
+
+  const [
+    deletingAccount,
+    setDeletingAccount,
+  ] = useState(false);
+
+  const [
+    settingsMessage,
+    setSettingsMessage,
+  ] = useState<MessageState>(null);
+
+  const [
+    passwordMessage,
+    setPasswordMessage,
+  ] = useState<MessageState>(null);
+
+  const [
+    deleteMessage,
+    setDeleteMessage,
+  ] = useState<MessageState>(null);
+
+  const isMobile =
+    screen === "mobile";
+
+  const isTablet =
+    screen === "tablet";
+
+  const isCompact =
+    isMobile || isTablet;
+
+  const isMainManager =
+    settings?.role ===
+    "مدير رئيسي";
+
+  const canSelfDelete =
+    Boolean(
+      settings &&
+        !isMainManager &&
+        [
+          "مدير فرع",
+          "موظف",
+          "مستثمر",
+        ].includes(settings.role)
+    );
+
+  const readOnlyRows = useMemo(
+    () => [
+      {
+        label: "الاسم الكامل",
+        value:
+          settings?.full_name ||
+          "—",
+      },
+      {
+        label: "اسم المستخدم",
+        value:
+          settings?.username ||
+          "—",
+      },
+      {
+        label: "اسم الفرع",
+        value:
+          settings?.branch_name ||
+          "—",
+      },
+      {
+        label: "الدور",
+        value:
+          settings?.role || "—",
+      },
+      {
+        label: "حالة الحساب",
+        value:
+          settings?.account_status ||
+          "—",
+      },
+      {
+        label: "تاريخ إنشاء الحساب",
+        value: formatDateTime(
+          settings?.created_at || null
+        ),
+      },
+      {
+        label: "آخر تسجيل دخول",
+        value: formatDateTime(
+          settings?.last_login_at ||
+            null
+        ),
+      },
+    ],
+    [settings]
+  );
+
+  const organizationRows = useMemo(
+    () => [
+      {
+        label: "اسم المؤسسة",
+        value:
+          settings?.organization_name ||
+          "—",
+      },
+      {
+        label: "السجل التجاري",
+        value:
+          settings?.commercial_record ||
+          "—",
+      },
+      {
+        label: "جوال المؤسسة",
+        value:
+          settings?.organization_phone ||
+          "—",
+      },
+      {
+        label: "البريد الإلكتروني",
+        value:
+          settings?.organization_email ||
+          "—",
+      },
+      {
+        label: "المدينة",
+        value:
+          settings?.city || "—",
+      },
+      {
+        label: "العنوان",
+        value:
+          settings?.organization_address ||
+          "—",
+      },
+    ],
+    [settings]
+  );
 
   useEffect(() => {
     function updateScreen() {
-      const width = window.innerWidth;
+      const width =
+        window.innerWidth;
 
       if (width < 640) {
         setScreen("mobile");
-        return;
-      }
-
-      if (width < 1024) {
+      } else if (width < 980) {
         setScreen("tablet");
-        return;
+      } else {
+        setScreen("desktop");
       }
-
-      setScreen("desktop");
     }
 
     updateScreen();
-    window.addEventListener("resize", updateScreen);
+
+    window.addEventListener(
+      "resize",
+      updateScreen
+    );
 
     return () => {
-      window.removeEventListener("resize", updateScreen);
+      window.removeEventListener(
+        "resize",
+        updateScreen
+      );
     };
   }, []);
 
-  const redirectToLogin = useCallback(() => {
-    router.replace("/admin-support/login");
-    router.refresh();
-  }, [router]);
+  useEffect(() => {
+    if (!branch) {
+      return;
+    }
 
-  const apiRequest = useCallback(
-    async <T,>(
-      url: string,
-      options?: RequestInit
-    ): Promise<ApiResponse<T>> => {
-      try {
-        const response = await fetch(url, {
-          ...options,
-          credentials: "include",
-          cache: "no-store",
-          headers: {
-            "Content-Type": "application/json",
-            ...(options?.headers || {}),
-          },
-        });
+    const validation =
+      validateFinanceSession(branch);
 
-        let payload: ApiResponse<T>;
-
-        try {
-          payload = (await response.json()) as ApiResponse<T>;
-        } catch {
-          payload = {
-            ok: false,
-            message: "تعذر قراءة استجابة الخادم",
-          };
+    if (
+      !validation.valid ||
+      !validation.user
+    ) {
+      redirectToFinanceLogin(
+        router,
+        {
+          branchSlug: branch,
         }
+      );
 
-        if (response.status === 401) {
-          redirectToLogin();
+      return;
+    }
 
-          return {
-            ok: false,
-            message: payload.message || "انتهت جلسة الدخول",
-          };
-        }
+    setSessionUser(
+      validation.user
+    );
 
-        if (!response.ok || !payload.ok) {
-          return {
-            ok: false,
-            message:
-              payload.message ||
-              `تعذر تنفيذ الطلب، رمز الاستجابة ${response.status}`,
-          };
-        }
+    setEmployeeName(
+      getFinanceEmployeeName(
+        validation.user
+      )
+    );
 
-        return payload;
-      } catch (error) {
-        console.error("Admin support request failed:", error);
-
-        return {
-          ok: false,
-          message: "تعذر الاتصال بالخادم، تحقق من اتصال الإنترنت",
-        };
-      }
-    },
-    [redirectToLogin]
-  );
-
-  const loadDashboard = useCallback(
-    async (showFullLoader = false) => {
-      if (showFullLoader) {
-        setLoading(true);
-      }
-
-      setBusyAction("dashboard");
-      setPageError("");
-
-      try {
-        const response = await fetch("/api/admin-support/dashboard", {
-          method: "GET",
-          credentials: "include",
-          cache: "no-store",
-          headers: {
-            Accept: "application/json",
-          },
-        });
-
-        let payload: DashboardResponse;
-
-        try {
-          payload = (await response.json()) as DashboardResponse;
-        } catch {
-          payload = {
-            ok: false,
-            message: "تعذر قراءة بيانات لوحة الدعم",
-          };
-        }
-
-        if (response.status === 401) {
-          redirectToLogin();
-          return;
-        }
-
-        if (!response.ok || !payload.ok || !payload.user || !payload.access) {
-          setPageError(payload.message || "تعذر تحميل لوحة الدعم");
-          return;
-        }
-
-        setCurrentUser(payload.user);
-        setAccess(payload.access);
-        setBranches(Array.isArray(payload.branches) ? payload.branches : []);
-        setBranchManagers(
-          Array.isArray(payload.branch_managers)
-            ? payload.branch_managers
-            : []
-        );
-        setSupportUsers(
-          Array.isArray(payload.support_users) ? payload.support_users : []
-        );
-        setLogs(Array.isArray(payload.logs) ? payload.logs : []);
-      } catch (error) {
-        console.error("Dashboard load failed:", error);
-        setPageError("تعذر الاتصال بالخادم أثناء تحميل لوحة الدعم");
-      } finally {
-        setBusyAction(null);
-        setLoading(false);
-      }
-    },
-    [redirectToLogin]
-  );
+    setAuthChecked(true);
+  }, [branch, router]);
 
   useEffect(() => {
-    void loadDashboard(true);
-  }, [loadDashboard]);
-
-  useEffect(() => {
-    const tabAllowed =
-      activeTab === "overview" ||
-      (activeTab === "branches" &&
-        (access.manage_branches || access.impersonate_branch)) ||
-      (activeTab === "branch_managers" && access.manage_branches) ||
-      (activeTab === "users" && access.manage_support_users) ||
-      (activeTab === "logs" && access.view_logs);
-
-    if (!tabAllowed) {
-      setActiveTab("overview");
+    if (
+      !authChecked ||
+      !sessionUser
+    ) {
+      return;
     }
-  }, [access, activeTab]);
 
-  function hasPermission(key: SupportPermission) {
-    return (
-      currentUser?.role === "super_admin" ||
-      currentUser?.permissions.includes(key) === true
+    void loadSettings(
+      sessionUser
     );
-  }
 
-  function getBranchRelation(manager: BranchManager) {
-    const relation = manager.finance_branches;
+    const uninstall =
+      installFinanceActivityTracker({
+        expectedBranchSlug: branch,
 
-    if (Array.isArray(relation)) {
-      return relation[0] || null;
-    }
+        onExpired: () => {
+          redirectToFinanceLogin(
+            router,
+            {
+              branchSlug: branch,
+            }
+          );
+        },
 
-    return relation || null;
-  }
+        onInvalidated: () => {
+          clearFinanceSession();
+          router.replace("/login");
+        },
 
-  function validateUsername(value: string) {
-    const username = value.trim();
+        onSessionUpdated: (
+          updatedUser
+        ) => {
+          setSessionUser(
+            updatedUser
+          );
 
-    return (
-      username.length >= 3 &&
-      username.length <= 30 &&
-      /^[A-Za-z0-9_\u0600-\u06FF]+$/.test(username)
-    );
-  }
+          setEmployeeName(
+            getFinanceEmployeeName(
+              updatedUser
+            )
+          );
+        },
+      });
 
-  function validatePin(value: string) {
-    return /^\d{4}$/.test(value.trim());
-  }
+    return uninstall;
+  }, [
+    authChecked,
+    branch,
+    router,
+    sessionUser?.id,
+  ]);
 
-  function validateSupportPassword(value: string) {
-    const password = value.trim();
-    return password.length >= 4 && password.length <= 100;
-  }
+  async function loadSettings(
+    user?: FinanceSessionUser
+  ) {
+    const activeUser =
+      user ||
+      readFinanceSession();
 
-  function showMessage(message?: string) {
-    if (message) {
-      window.alert(message);
-    }
-  }
-
-  function resetBranchForm() {
-    setEditingBranchId(null);
-    setBranchName("");
-    setBranchSlug("");
-    setOrganizationName("");
-    setBranchCity("");
-    setBranchCommercialRecord("");
-    setBranchPhone("");
-    setBranchNotes("");
-    setManagerFullName("");
-    setManagerUsername("");
-    setManagerPassword("");
-    setShowBranchForm(false);
-  }
-
-  function editBranch(branch: Branch) {
-    if (!access.manage_branches) {
-      showMessage("لا تملك صلاحية إدارة الفروع");
-      return;
-    }
-
-    setEditingBranchId(branch.id);
-    setBranchName(branch.branch_name || "");
-    setBranchSlug(branch.branch_slug || "");
-    setOrganizationName(branch.organization_name || "");
-    setBranchCity(branch.city || "");
-    setBranchCommercialRecord(branch.commercial_record || "");
-    setBranchPhone(branch.phone || "");
-    setBranchNotes(branch.notes || "");
-    setManagerFullName("");
-    setManagerUsername("");
-    setManagerPassword("");
-    setShowBranchForm(true);
-    setActiveTab("branches");
-
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
-  }
-
-  async function saveBranch() {
-    if (!access.manage_branches) {
-      showMessage("لا تملك صلاحية إدارة الفروع");
-      return;
-    }
-
-    if (busyAction) return;
-
-    const cleanBranchName = branchName.trim();
-    const cleanSlug = branchSlug.trim().toLowerCase();
-    const cleanOrganizationName = organizationName.trim();
-    const cleanManagerFullName = managerFullName.trim();
-    const cleanManagerUsername = managerUsername.trim();
-    const cleanManagerPassword = managerPassword.trim();
-
-    if (!cleanBranchName) {
-      showMessage("اكتب اسم الفرع");
-      return;
-    }
-
-    if (!cleanSlug) {
-      showMessage("اكتب رابط الفرع");
-      return;
-    }
-
-    if (!/^[a-z0-9_-]+$/.test(cleanSlug)) {
-      showMessage(
-        "رابط الفرع يقبل الحروف الإنجليزية الصغيرة والأرقام و _ أو - فقط"
+    if (
+      !activeUser?.id ||
+      !activeUser.branch_id
+    ) {
+      redirectToFinanceLogin(
+        router,
+        {
+          branchSlug: branch,
+        }
       );
+
       return;
     }
 
-    if (!cleanOrganizationName) {
-      showMessage("اكتب اسم المنظمة");
-      return;
-    }
+    setLoading(true);
 
-    if (!editingBranchId) {
-      if (!cleanManagerFullName) {
-        showMessage("اكتب اسم مدير الفرع");
-        return;
-      }
-
-      if (!validateUsername(cleanManagerUsername)) {
-        showMessage(
-          "اسم مستخدم مدير الفرع يجب أن يكون من 3 إلى 30 حرفًا، ويقبل العربي أو الإنجليزي أو الأرقام أو _ فقط"
+    try {
+      const { data, error } =
+        await supabase.rpc(
+          "get_own_finance_settings_secure",
+          {
+            p_branch_id:
+              activeUser.branch_id,
+            p_user_id:
+              activeUser.id,
+          }
         );
-        return;
+
+      if (error) {
+        throw error;
       }
 
-      if (!validatePin(cleanManagerPassword)) {
-        showMessage("كلمة مرور مدير الفرع يجب أن تكون 4 أرقام فقط");
-        return;
+      const rows = Array.isArray(
+        data
+      )
+        ? (data as SettingsRow[])
+        : [];
+
+      const row = rows[0];
+
+      if (!row) {
+        throw new Error(
+          "تعذر تحميل بيانات الإعدادات"
+        );
       }
-    }
 
-    const requestBody = {
-      branch_name: cleanBranchName,
-      branch_slug: cleanSlug,
-      organization_name: cleanOrganizationName,
-      city: branchCity.trim(),
-      commercial_record: branchCommercialRecord.trim(),
-      phone: branchPhone.trim(),
-      notes: branchNotes.trim(),
-    };
+      setSettings(row);
 
-    setBusyAction("save_branch");
-
-    const response = editingBranchId
-      ? await apiRequest(`/api/admin-support/branches/${editingBranchId}`, {
-          method: "PATCH",
-          body: JSON.stringify({
-            ...requestBody,
-            is_active:
-              branches.find((branch) => branch.id === editingBranchId)
-                ?.is_active ?? true,
-          }),
-        })
-      : await apiRequest("/api/admin-support/branches", {
-          method: "POST",
-          body: JSON.stringify({
-            ...requestBody,
-            manager_full_name: cleanManagerFullName,
-            manager_username: cleanManagerUsername,
-            manager_password: cleanManagerPassword,
-          }),
-        });
-
-    setBusyAction(null);
-
-    if (!response.ok) {
-      showMessage(response.message);
-      return;
-    }
-
-    resetBranchForm();
-    showMessage(
-      response.message ||
-        (editingBranchId ? "تم تحديث الفرع" : "تم إنشاء الفرع")
-    );
-
-    await loadDashboard();
-  }
-
-  async function toggleBranch(branch: Branch) {
-    if (!access.manage_branches) {
-      showMessage("لا تملك صلاحية إدارة الفروع");
-      return;
-    }
-
-    if (busyAction) return;
-
-    const nextStatus = !branch.is_active;
-    const confirmed = window.confirm(
-      nextStatus
-        ? `هل تريد تفعيل فرع ${branch.branch_name}؟`
-        : `هل تريد تعطيل فرع ${branch.branch_name}؟`
-    );
-
-    if (!confirmed) return;
-
-    setBusyAction(`branch_status:${branch.id}`);
-
-    const response = await apiRequest(
-      `/api/admin-support/branches/${branch.id}`,
-      {
-        method: "PATCH",
-        body: JSON.stringify({
-          branch_name: branch.branch_name,
-          branch_slug: branch.branch_slug,
-          organization_name: branch.organization_name,
-          city: branch.city || "",
-          commercial_record: branch.commercial_record || "",
-          phone: branch.phone || "",
-          notes: branch.notes || "",
-          is_active: nextStatus,
-        }),
-      }
-    );
-
-    setBusyAction(null);
-
-    if (!response.ok) {
-      showMessage(response.message);
-      return;
-    }
-
-    showMessage(response.message);
-    await loadDashboard();
-  }
-
-  async function toggleBranchManager(manager: BranchManager) {
-    if (!access.manage_branches) {
-      showMessage("لا تملك صلاحية إدارة الفروع");
-      return;
-    }
-
-    if (busyAction) return;
-
-    const nextStatus = !manager.is_active;
-    const confirmed = window.confirm(
-      nextStatus
-        ? `هل تريد تفعيل المدير ${manager.full_name}؟`
-        : `هل تريد تعطيل المدير ${manager.full_name}؟`
-    );
-
-    if (!confirmed) return;
-
-    setBusyAction(`manager_status:${manager.id}`);
-
-    const response = await apiRequest(
-      `/api/admin-support/branch-managers/${manager.id}`,
-      {
-        method: "PATCH",
-        body: JSON.stringify({
-          action: "set_active",
-          is_active: nextStatus,
-        }),
-      }
-    );
-
-    setBusyAction(null);
-
-    if (!response.ok) {
-      showMessage(response.message);
-      return;
-    }
-
-    showMessage(response.message);
-    await loadDashboard();
-  }
-
-  async function resetBranchManagerPassword(manager: BranchManager) {
-    if (!access.manage_branches) {
-      showMessage("لا تملك صلاحية إدارة الفروع");
-      return;
-    }
-
-    if (busyAction) return;
-
-    const newPassword = window.prompt(
-      `اكتب كلمة مرور جديدة من 4 أرقام للمدير: ${manager.full_name}`
-    );
-
-    if (newPassword === null) return;
-
-    const cleanPassword = newPassword.trim();
-
-    if (!validatePin(cleanPassword)) {
-      showMessage("كلمة المرور يجب أن تكون 4 أرقام فقط");
-      return;
-    }
-
-    setBusyAction(`manager_password:${manager.id}`);
-
-    const response = await apiRequest(
-      `/api/admin-support/branch-managers/${manager.id}`,
-      {
-        method: "PATCH",
-        body: JSON.stringify({
-          action: "reset_password",
-          new_password: cleanPassword,
-        }),
-      }
-    );
-
-    setBusyAction(null);
-
-    if (!response.ok) {
-      showMessage(response.message);
-      return;
-    }
-
-    showMessage(response.message || "تم تحديث كلمة المرور بنجاح");
-    await loadDashboard();
-  }
-
-  async function enterBranch(branch: Branch) {
-    if (!access.impersonate_branch) {
-      showMessage("لا تملك صلاحية الدخول للفروع");
-      return;
-    }
-
-    if (!branch.is_active) {
-      showMessage("لا يمكن الدخول إلى فرع معطل");
-      return;
-    }
-
-    if (busyAction) return;
-
-    setBusyAction(`branch_enter:${branch.id}`);
-
-    const response = await apiRequest("/api/admin-support/impersonate", {
-      method: "POST",
-      body: JSON.stringify({
-        branch_id: branch.id,
-      }),
-    });
-
-    setBusyAction(null);
-
-    if (!response.ok || !response.redirect_url) {
-      showMessage(response.message || "تعذر الدخول إلى الفرع");
-      return;
-    }
-
-    router.push(response.redirect_url);
-  }
-
-  function resetUserForm() {
-    setSupportFullName("");
-    setSupportUsername("");
-    setSupportPassword("");
-    setSupportRole("support");
-    setSelectedPermissions([]);
-    setShowUserForm(false);
-  }
-
-  async function createSupportUser() {
-    if (!access.manage_support_users) {
-      showMessage("لا تملك صلاحية إدارة مستخدمي الدعم");
-      return;
-    }
-
-    if (busyAction) return;
-
-    const cleanFullName = supportFullName.trim();
-    const cleanUsername = supportUsername.trim();
-    const cleanPassword = supportPassword.trim();
-
-    if (!cleanFullName) {
-      showMessage("اكتب الاسم");
-      return;
-    }
-
-    if (cleanFullName.length > 100) {
-      showMessage("الاسم طويل جدًا");
-      return;
-    }
-
-    if (!validateUsername(cleanUsername)) {
-      showMessage(
-        "اسم المستخدم يجب أن يكون من 3 إلى 30 حرفًا، ويقبل العربي أو الإنجليزي أو الأرقام أو _ فقط"
+      setPhone(
+        row.phone || ""
       );
+
+      setThemeKey(
+        row.theme_key ||
+          "professional"
+      );
+    } catch (error) {
+      const message =
+        getErrorMessage(
+          error,
+          "حدث خطأ أثناء تحميل الإعدادات"
+        );
+
+      if (
+        message.includes(
+          "الجلسة"
+        )
+      ) {
+        clearFinanceSession();
+        router.replace("/login");
+        return;
+      }
+
+      setSettingsMessage({
+        type: "error",
+        text: message,
+      });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function saveSettings() {
+    if (
+      !sessionUser?.id ||
+      !sessionUser.branch_id
+    ) {
       return;
     }
 
-    if (!validateSupportPassword(cleanPassword)) {
-      showMessage("كلمة المرور يجب أن تكون من 4 إلى 100 حرف");
+    const cleanPhone =
+      normalizeDigits(
+        phone
+      ).trim();
+
+    if (
+      cleanPhone &&
+      !/^05[0-9]{8}$/.test(
+        cleanPhone
+      )
+    ) {
+      setSettingsMessage({
+        type: "error",
+        text: "رقم الجوال يجب أن يبدأ بـ 05 ويتكون من 10 أرقام",
+      });
+
+      return;
+    }
+
+    setSaving(true);
+    setSettingsMessage(null);
+
+    try {
+      const { error } =
+        await supabase.rpc(
+          "update_own_finance_settings_atomic",
+          {
+            p_branch_id:
+              sessionUser.branch_id,
+            p_user_id:
+              sessionUser.id,
+            p_phone:
+              cleanPhone || null,
+            p_theme_key:
+              themeKey,
+          }
+        );
+
+      if (error) {
+        throw error;
+      }
+
+      const refreshed =
+        await refreshFinanceSessionState(
+          branch
+        );
+
+      if (
+        refreshed.user
+      ) {
+        setSessionUser(
+          refreshed.user
+        );
+
+        setEmployeeName(
+          getFinanceEmployeeName(
+            refreshed.user
+          )
+        );
+      }
+
+      await loadSettings(
+        refreshed.user ||
+          sessionUser
+      );
+
+      setSettingsMessage({
+        type: "success",
+        text: "تم حفظ التغييرات بنجاح",
+      });
+    } catch (error) {
+      setSettingsMessage({
+        type: "error",
+        text: getErrorMessage(
+          error,
+          "حدث خطأ أثناء حفظ التغييرات"
+        ),
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function changePassword() {
+    if (
+      !sessionUser?.id ||
+      !sessionUser.branch_id
+    ) {
+      return;
+    }
+
+    setPasswordMessage(null);
+
+    if (!currentPassword) {
+      setPasswordMessage({
+        type: "error",
+        text: "يرجى إدخال كلمة المرور الحالية",
+      });
+
       return;
     }
 
     if (
-      supportRole === "super_admin" &&
-      currentUser?.role !== "super_admin"
+      newPassword.length < 4 ||
+      newPassword.length > 8 ||
+      /\s/.test(newPassword)
     ) {
-      showMessage("إنشاء مدير نظام متاح لمدير النظام فقط");
+      setPasswordMessage({
+        type: "error",
+        text: "كلمة المرور الجديدة يجب أن تكون من 4 إلى 8 خانات دون مسافات",
+      });
+
       return;
     }
 
-    setBusyAction("create_support_user");
+    if (
+      newPassword !==
+      confirmPassword
+    ) {
+      setPasswordMessage({
+        type: "error",
+        text: "تأكيد كلمة المرور غير مطابق",
+      });
 
-    const response = await apiRequest("/api/admin-support/support-users", {
-      method: "POST",
-      body: JSON.stringify({
-        full_name: cleanFullName,
-        username: cleanUsername,
-        password: cleanPassword,
-        role: supportRole,
-        permissions: selectedPermissions,
-      }),
-    });
-
-    setBusyAction(null);
-
-    if (!response.ok) {
-      showMessage(response.message);
       return;
     }
 
-    resetUserForm();
-    showMessage(response.message || "تم إنشاء مستخدم الدعم بنجاح");
-    await loadDashboard();
-  }
-
-  async function toggleSupportUser(user: SupportUser) {
-    if (!access.manage_support_users) {
-      showMessage("لا تملك صلاحية إدارة مستخدمي الدعم");
-      return;
-    }
-
-    if (busyAction) return;
-
-    const nextStatus = !user.is_active;
-    const confirmed = window.confirm(
-      nextStatus
-        ? `هل تريد تفعيل المستخدم ${user.full_name}؟`
-        : `هل تريد تعطيل المستخدم ${user.full_name}؟`
-    );
-
-    if (!confirmed) return;
-
-    setBusyAction(`support_status:${user.id}`);
-
-    const response = await apiRequest(
-      `/api/admin-support/support-users/${user.id}`,
-      {
-        method: "PATCH",
-        body: JSON.stringify({
-          is_active: nextStatus,
-        }),
-      }
-    );
-
-    setBusyAction(null);
-
-    if (!response.ok) {
-      showMessage(response.message);
-      return;
-    }
-
-    showMessage(response.message);
-    await loadDashboard();
-  }
-
-  async function logout() {
-    if (busyAction) return;
-
-    setBusyAction("logout");
+    setChangingPassword(true);
 
     try {
-      await fetch("/api/admin-support/logout", {
-        method: "POST",
-        credentials: "include",
-        cache: "no-store",
-      });
+      const { error } =
+        await supabase.rpc(
+          "change_own_finance_password_atomic",
+          {
+            p_branch_id:
+              sessionUser.branch_id,
+            p_user_id:
+              sessionUser.id,
+            p_current_password:
+              currentPassword,
+            p_new_password:
+              newPassword,
+          }
+        );
+
+      if (error) {
+        throw error;
+      }
+
+      clearFinanceSession();
+      router.replace("/login");
     } catch (error) {
-      console.error("Logout request failed:", error);
+      setPasswordMessage({
+        type: "error",
+        text: getErrorMessage(
+          error,
+          "حدث خطأ أثناء تغيير كلمة المرور"
+        ),
+      });
     } finally {
-      setBusyAction(null);
-      redirectToLogin();
+      setChangingPassword(false);
     }
   }
 
-  const activeBranches = useMemo(
-    () => branches.filter((branch) => branch.is_active).length,
-    [branches]
-  );
+  async function deleteAccount() {
+    if (
+      !sessionUser?.id ||
+      !sessionUser.branch_id ||
+      !canSelfDelete
+    ) {
+      return;
+    }
 
-  const disabledBranches = branches.length - activeBranches;
+    setDeleteMessage(null);
 
-  const visibleTabs = useMemo(
-    () => ({
-      branches: access.manage_branches || access.impersonate_branch,
-      branchManagers: access.manage_branches,
-      users: access.manage_support_users,
-      logs: access.view_logs,
-    }),
-    [access]
-  );
+    if (!deletePassword) {
+      setDeleteMessage({
+        type: "error",
+        text: "يرجى إدخال كلمة المرور الحالية",
+      });
 
-  if (loading) {
-    return (
-      <main dir="rtl" style={getPageStyle(isCompact)}>
-        <section style={loadingCard}>
-          <div style={loadingSpinner} />
-          <h1 style={loadingTitle}>جاري تحميل لوحة الدعم الفني</h1>
-        </section>
+      return;
+    }
 
-        <GlobalResponsiveStyles />
-      </main>
-    );
+    setDeletingAccount(true);
+
+    try {
+      const { error } =
+        await supabase.rpc(
+          "self_disable_finance_account_atomic",
+          {
+            p_branch_id:
+              sessionUser.branch_id,
+            p_user_id:
+              sessionUser.id,
+            p_current_password:
+              deletePassword,
+          }
+        );
+
+      if (error) {
+        throw error;
+      }
+
+      clearFinanceSession();
+      router.replace("/login");
+    } catch (error) {
+      setDeleteMessage({
+        type: "error",
+        text: getErrorMessage(
+          error,
+          "حدث خطأ أثناء حذف الحساب"
+        ),
+      });
+    } finally {
+      setDeletingAccount(false);
+    }
   }
 
-  if (pageError && !currentUser) {
+  function logout() {
+    logoutFinanceUser(router);
+  }
+
+  if (
+    !authChecked ||
+    loading
+  ) {
     return (
-      <main dir="rtl" style={getPageStyle(isCompact)}>
-        <section style={errorCard}>
-          <h1 style={errorTitle}>تعذر تحميل لوحة الدعم</h1>
-          <p style={errorText}>{pageError}</p>
-
-          <button
-            type="button"
-            style={primaryButton}
-            onClick={() => void loadDashboard(true)}
-            disabled={busyAction === "dashboard"}
-          >
-            {busyAction === "dashboard" ? "جاري المحاولة..." : "إعادة المحاولة"}
-          </button>
-        </section>
-
-        <GlobalResponsiveStyles />
+      <main
+        dir="rtl"
+        style={getPageStyle(
+          isMobile
+        )}
+      >
+        <div style={loadingBox}>
+          جاري تحميل الإعدادات...
+        </div>
       </main>
     );
   }
 
   return (
-    <main dir="rtl" style={getPageStyle(isCompact)}>
-      <div className="support-shell" style={getShellStyle(isCompact)}>
-        {!isCompact && (
-          <aside className="support-sidebar" style={sidePanel}>
-            <BrandBox />
-
-            <SideNav
-              activeTab={activeTab}
-              setActiveTab={setActiveTab}
-              visibleTabs={visibleTabs}
-            />
-
-            <button
-              type="button"
-              style={getDisabledStyle(
-                logoutButton,
-                busyAction === "logout"
-              )}
-              onClick={() => void logout()}
-              disabled={busyAction !== null}
-            >
-              {busyAction === "logout" ? "جاري الخروج..." : "تسجيل خروج"}
-            </button>
-          </aside>
+    <main
+      dir="rtl"
+      style={getPageStyle(
+        isMobile
+      )}
+    >
+      <div
+        style={getContainerStyle(
+          isCompact
         )}
-
-        <section className="support-main" style={mainPanel}>
-          <header style={getHeroStyle(isMobile)}>
-            <span style={heroCircleOne} />
-            <span style={heroCircleTwo} />
-            <span style={heroCircleThree} />
-            <span style={heroDots} />
-
-            <div style={heroContent}>
-              <div>
-                <p style={topLabel}>لوحة الدعم الفني</p>
-                <h1 style={getHeroTitleStyle(isMobile)}>
-                  إدارة النظام والفروع
-                </h1>
-
-                <p style={heroSub}>
-                  مرحبًا {currentUser?.full_name || currentUser?.username}
-                </p>
-              </div>
-
-              <div style={heroUserCard}>
-                <span style={heroUserName}>
-                  {currentUser?.full_name || currentUser?.username}
-                </span>
-
-                <span style={heroUserRole}>
-                  {roleLabel(currentUser?.role || "")}
-                </span>
-              </div>
-            </div>
-          </header>
-
-          {isCompact && (
-            <MobileNav
-              activeTab={activeTab}
-              setActiveTab={setActiveTab}
-              visibleTabs={visibleTabs}
-              onLogout={() => void logout()}
-              disabled={busyAction !== null}
-            />
+      >
+        <section
+          style={getHeroStyle(
+            isMobile
           )}
+        >
+          <div
+            style={heroCircleOne}
+          />
 
-          {pageError && (
-            <div style={inlineError}>
-              <span>{pageError}</span>
+          <div
+            style={heroCircleTwo}
+          />
 
-              <button
-                type="button"
-                style={inlineRetryButton}
-                onClick={() => void loadDashboard()}
-                disabled={busyAction === "dashboard"}
+          <div
+            style={heroCircleThree}
+          />
+
+          <div
+            style={heroDots}
+          />
+
+          <div
+            style={getHeroContentStyle(
+              screen
+            )}
+          >
+            <div
+              style={getHeroUserCardStyle(
+                screen
+              )}
+            >
+              <div
+                style={getEmployeeTopRowStyle(
+                  screen
+                )}
               >
-                إعادة المحاولة
-              </button>
-            </div>
-          )}
-
-          <section className="stats-grid" style={statsGrid}>
-            {visibleTabs.branches && (
-              <>
-                <Stat title="كل الفروع" value={branches.length} />
-                <Stat title="الفروع النشطة" value={activeBranches} />
-                <Stat title="الفروع المعطلة" value={disabledBranches} />
-              </>
-            )}
-
-            {visibleTabs.branchManagers && (
-              <Stat title="مدراء الفروع" value={branchManagers.length} />
-            )}
-
-            {visibleTabs.users && (
-              <Stat title="مستخدمو الدعم" value={supportUsers.length} />
-            )}
-          </section>
-
-          {activeTab === "overview" && (
-            <section className="dashboard-grid" style={dashboardGrid}>
-              <div style={darkCard}>
-                <h2 style={whiteTitle}>لوحة التحكم المركزية</h2>
-
-                <div style={quickActions}>
-                  {visibleTabs.branches && (
-                    <button
-                      type="button"
-                      style={quickButton}
-                      onClick={() => setActiveTab("branches")}
-                    >
-                      إدارة الفروع
-                    </button>
-                  )}
-
-                  {visibleTabs.branchManagers && (
-                    <button
-                      type="button"
-                      style={quickButton}
-                      onClick={() => setActiveTab("branch_managers")}
-                    >
-                      مدراء الفروع
-                    </button>
-                  )}
-
-                  {visibleTabs.users && (
-                    <button
-                      type="button"
-                      style={quickButton}
-                      onClick={() => setActiveTab("users")}
-                    >
-                      مستخدمو الدعم
-                    </button>
-                  )}
-
-                  {visibleTabs.logs && (
-                    <button
-                      type="button"
-                      style={quickButton}
-                      onClick={() => setActiveTab("logs")}
-                    >
-                      سجل العمليات
-                    </button>
-                  )}
+                <div
+                  style={employeeIcon}
+                >
+                  <UserIcon />
                 </div>
-              </div>
 
-              {visibleTabs.logs && (
-                <div style={panelCard}>
-                  <h2 style={panelTitle}>آخر العمليات</h2>
-
-                  {logs.length === 0 ? (
-                    <div style={emptyBox}>لا توجد عمليات حتى الآن</div>
-                  ) : (
-                    <div style={miniLogs}>
-                      {logs.slice(0, 6).map((log) => (
-                        <div key={log.id} style={miniLogItem}>
-                          <strong>{log.action}</strong>
-                          <span>{log.user_name || "-"}</span>
-                          <small>{formatDateTime(log.created_at)}</small>
-                        </div>
-                      ))}
-                    </div>
+                <div
+                  style={getEmployeeNameStyle(
+                    isMobile
                   )}
+                >
+                  {employeeName}
                 </div>
-              )}
-            </section>
-          )}
 
-          {activeTab === "branches" && visibleTabs.branches && (
-            <>
-              <div style={sectionTop}>
-                <h2 style={sectionTitle}>إدارة الفروع</h2>
-
-                {access.manage_branches && (
-                  <button
-                    type="button"
-                    style={primaryButton}
-                    onClick={() => {
-                      resetBranchForm();
-                      setShowBranchForm(true);
-                    }}
-                    disabled={busyAction !== null}
-                  >
-                    + إضافة فرع
-                  </button>
+                {!isMobile && (
+                  <div
+                    style={
+                      employeeDividerSmall
+                    }
+                  />
                 )}
-              </div>
-
-              {showBranchForm && access.manage_branches && (
-                <section style={formCard}>
-                  <h2 style={formTitle}>
-                    {editingBranchId ? "تعديل فرع" : "إضافة فرع جديد"}
-                  </h2>
-
-                  <div style={formGrid}>
-                    <Field label="اسم الفرع *">
-                      <input
-                        style={input}
-                        value={branchName}
-                        maxLength={100}
-                        onChange={(event) => setBranchName(event.target.value)}
-                        placeholder="مثال: فرع الرياض"
-                        disabled={busyAction !== null}
-                      />
-                    </Field>
-
-                    <Field label="رابط الفرع *">
-                      <input
-                        style={input}
-                        value={branchSlug}
-                        maxLength={60}
-                        dir="ltr"
-                        autoCapitalize="none"
-                        spellCheck={false}
-                        onChange={(event) =>
-                          setBranchSlug(
-                            event.target.value
-                              .toLowerCase()
-                              .replace(/[^a-z0-9_-]/g, "")
-                          )
-                        }
-                        placeholder="riyadh"
-                        disabled={busyAction !== null}
-                      />
-                    </Field>
-
-                    <Field label="اسم المنظمة *">
-                      <input
-                        style={input}
-                        value={organizationName}
-                        maxLength={150}
-                        onChange={(event) =>
-                          setOrganizationName(event.target.value)
-                        }
-                        placeholder="مثال: مؤسسة سداد وأرقام"
-                        disabled={busyAction !== null}
-                      />
-                    </Field>
-
-                    <Field label="المدينة">
-                      <input
-                        style={input}
-                        value={branchCity}
-                        maxLength={100}
-                        onChange={(event) => setBranchCity(event.target.value)}
-                        placeholder="مثال: حائل"
-                        disabled={busyAction !== null}
-                      />
-                    </Field>
-
-                    <Field label="السجل التجاري">
-                      <input
-                        style={input}
-                        value={branchCommercialRecord}
-                        maxLength={30}
-                        inputMode="numeric"
-                        onChange={(event) =>
-                          setBranchCommercialRecord(
-                            event.target.value.replace(/\D/g, "")
-                          )
-                        }
-                        placeholder="مثال: 7049981769"
-                        disabled={busyAction !== null}
-                      />
-                    </Field>
-
-                    <Field label="رقم الجوال">
-                      <input
-                        style={input}
-                        value={branchPhone}
-                        maxLength={20}
-                        inputMode="tel"
-                        dir="ltr"
-                        onChange={(event) =>
-                          setBranchPhone(
-                            event.target.value.replace(/[^\d+]/g, "")
-                          )
-                        }
-                        placeholder="05xxxxxxxx"
-                        disabled={busyAction !== null}
-                      />
-                    </Field>
-                  </div>
-
-                  {!editingBranchId && (
-                    <>
-                      <div style={subFormTitle}>بيانات دخول مدير الفرع</div>
-
-                      <div style={formGrid}>
-                        <Field label="اسم مدير الفرع *">
-                          <input
-                            style={input}
-                            value={managerFullName}
-                            maxLength={100}
-                            onChange={(event) =>
-                              setManagerFullName(event.target.value)
-                            }
-                            placeholder="مثال: عبدالله البكر"
-                            disabled={busyAction !== null}
-                          />
-                        </Field>
-
-                        <Field label="اسم المستخدم *">
-                          <input
-                            style={input}
-                            value={managerUsername}
-                            maxLength={30}
-                            autoCapitalize="none"
-                            spellCheck={false}
-                            onChange={(event) =>
-                              setManagerUsername(
-                                event.target.value.replace(
-                                  /[^A-Za-z0-9_\u0600-\u06FF]/g,
-                                  ""
-                                )
-                              )
-                            }
-                            placeholder="admin_riyadh"
-                            disabled={busyAction !== null}
-                          />
-                        </Field>
-
-                        <Field label="كلمة المرور 4 أرقام *">
-                          <input
-                            style={input}
-                            type="password"
-                            inputMode="numeric"
-                            autoComplete="new-password"
-                            maxLength={4}
-                            value={managerPassword}
-                            onChange={(event) =>
-                              setManagerPassword(
-                                event.target.value.replace(/\D/g, "").slice(0, 4)
-                              )
-                            }
-                            placeholder="••••"
-                            disabled={busyAction !== null}
-                          />
-                        </Field>
-                      </div>
-                    </>
-                  )}
-
-                  <div style={{ marginTop: 12 }}>
-                    <label style={label}>ملاحظات</label>
-
-                    <textarea
-                      style={textarea}
-                      value={branchNotes}
-                      maxLength={1000}
-                      onChange={(event) => setBranchNotes(event.target.value)}
-                      placeholder="ملاحظات داخلية للدعم الفني"
-                      disabled={busyAction !== null}
-                    />
-                  </div>
-
-                  <div style={buttonsRow}>
-                    <button
-                      type="button"
-                      style={getDisabledStyle(
-                        primaryButton,
-                        busyAction === "save_branch"
-                      )}
-                      onClick={() => void saveBranch()}
-                      disabled={busyAction !== null}
-                    >
-                      {busyAction === "save_branch"
-                        ? "جاري الحفظ..."
-                        : editingBranchId
-                          ? "حفظ التعديلات"
-                          : "إنشاء الفرع"}
-                    </button>
-
-                    <button
-                      type="button"
-                      style={secondaryButton}
-                      onClick={resetBranchForm}
-                      disabled={busyAction !== null}
-                    >
-                      إلغاء
-                    </button>
-                  </div>
-                </section>
-              )}
-
-              <section style={panelCard}>
-                {branches.length === 0 ? (
-                  <div style={emptyBox}>لا توجد فروع متاحة</div>
-                ) : (
-                  <div style={branchesList}>
-                    {branches.map((branch) => {
-                      const branchBusy =
-                        busyAction === `branch_status:${branch.id}` ||
-                        busyAction === `branch_enter:${branch.id}`;
-
-                      return (
-                        <article
-                          className="branch-row"
-                          key={branch.id}
-                          style={branchRow}
-                        >
-                          <div style={branchMain}>
-                            <div style={branchAvatar}>
-                              {branch.branch_name?.slice(0, 1) || "ف"}
-                            </div>
-
-                            <div style={{ minWidth: 0 }}>
-                              <h3 style={branchTitle}>
-                                {branch.branch_name}
-                              </h3>
-
-                              <p style={muted}>{branch.organization_name}</p>
-                              <p style={muted}>
-                                {branch.city || "المدينة غير محددة"}
-                              </p>
-                              <p style={muted}>
-                                {branch.commercial_record ||
-                                  "لا يوجد سجل تجاري"}
-                              </p>
-                              <p style={muted}>
-                                {branch.phone || "لا يوجد رقم جوال"}
-                              </p>
-                              <p style={ltrMuted}>
-                                /finance/{branch.branch_slug}
-                              </p>
-                            </div>
-                          </div>
-
-                          <span
-                            style={
-                              branch.is_active ? activeBadge : inactiveBadge
-                            }
-                          >
-                            {branch.is_active ? "نشط" : "معطل"}
-                          </span>
-
-                          <div style={rowActions}>
-                            {access.impersonate_branch && (
-                              <button
-                                type="button"
-                                style={getDisabledStyle(
-                                  smallBlueButton,
-                                  branchBusy || !branch.is_active
-                                )}
-                                onClick={() => void enterBranch(branch)}
-                                disabled={
-                                  busyAction !== null || !branch.is_active
-                                }
-                              >
-                                {busyAction === `branch_enter:${branch.id}`
-                                  ? "جاري الدخول..."
-                                  : "دخول"}
-                              </button>
-                            )}
-
-                            {access.manage_branches && (
-                              <>
-                                <button
-                                  type="button"
-                                  style={smallButton}
-                                  onClick={() => editBranch(branch)}
-                                  disabled={busyAction !== null}
-                                >
-                                  تعديل
-                                </button>
-
-                                <button
-                                  type="button"
-                                  style={getDisabledStyle(
-                                    branch.is_active
-                                      ? smallDangerButton
-                                      : smallGreenButton,
-                                    branchBusy
-                                  )}
-                                  onClick={() => void toggleBranch(branch)}
-                                  disabled={busyAction !== null}
-                                >
-                                  {busyAction ===
-                                  `branch_status:${branch.id}`
-                                    ? "جاري التنفيذ..."
-                                    : branch.is_active
-                                      ? "تعطيل"
-                                      : "تفعيل"}
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        </article>
-                      );
-                    })}
-                  </div>
-                )}
-              </section>
-            </>
-          )}
-
-          {activeTab === "branch_managers" &&
-            visibleTabs.branchManagers && (
-              <>
-                <div style={sectionTop}>
-                  <h2 style={sectionTitle}>مدراء الفروع</h2>
-                </div>
-
-                <section style={usersGrid}>
-                  {branchManagers.length === 0 ? (
-                    <div style={emptyBox}>لا يوجد مدراء فروع</div>
-                  ) : (
-                    branchManagers.map((manager) => {
-                      const branchInfo = getBranchRelation(manager);
-                      const managerBusy =
-                        busyAction === `manager_status:${manager.id}` ||
-                        busyAction === `manager_password:${manager.id}`;
-
-                      return (
-                        <article key={manager.id} style={userCard}>
-                          <div style={userIcon}>م</div>
-
-                          <h3 style={userTitle}>{manager.full_name}</h3>
-                          <p style={muted}>@{manager.username}</p>
-                          <p style={muted}>
-                            {branchInfo?.branch_name || "فرع غير محدد"}
-                          </p>
-                          <p style={ltrMuted}>
-                            /finance/{branchInfo?.branch_slug || "-"}
-                          </p>
-                          <p style={muted}>
-                            {formatDateTime(manager.created_at)}
-                          </p>
-
-                          <span
-                            style={
-                              manager.is_active ? activeBadge : inactiveBadge
-                            }
-                          >
-                            {manager.is_active ? "نشط" : "معطل"}
-                          </span>
-
-                          <div style={rowActions}>
-                            <button
-                              type="button"
-                              style={getDisabledStyle(
-                                smallBlueButton,
-                                managerBusy
-                              )}
-                              onClick={() =>
-                                void resetBranchManagerPassword(manager)
-                              }
-                              disabled={busyAction !== null}
-                            >
-                              {busyAction ===
-                              `manager_password:${manager.id}`
-                                ? "جاري التحديث..."
-                                : "إعادة كلمة المرور"}
-                            </button>
-
-                            <button
-                              type="button"
-                              style={getDisabledStyle(
-                                manager.is_active
-                                  ? smallDangerButton
-                                  : smallGreenButton,
-                                managerBusy
-                              )}
-                              onClick={() =>
-                                void toggleBranchManager(manager)
-                              }
-                              disabled={busyAction !== null}
-                            >
-                              {busyAction ===
-                              `manager_status:${manager.id}`
-                                ? "جاري التنفيذ..."
-                                : manager.is_active
-                                  ? "تعطيل"
-                                  : "تفعيل"}
-                            </button>
-                          </div>
-                        </article>
-                      );
-                    })
-                  )}
-                </section>
-              </>
-            )}
-
-          {activeTab === "users" && visibleTabs.users && (
-            <>
-              <div style={sectionTop}>
-                <h2 style={sectionTitle}>مستخدمو الدعم الفني</h2>
 
                 <button
                   type="button"
-                  style={primaryButton}
-                  onClick={() => {
-                    resetUserForm();
-                    setShowUserForm(true);
-                  }}
-                  disabled={busyAction !== null}
+                  style={
+                    logoutInlineButton
+                  }
+                  onClick={logout}
                 >
-                  + إضافة مستخدم
+                  <LogoutIcon />
+                  <span>
+                    تسجيل الخروج
+                  </span>
                 </button>
               </div>
 
-              {showUserForm && (
-                <section style={formCard}>
-                  <h2 style={formTitle}>إضافة مستخدم دعم فني</h2>
+              <button
+                type="button"
+                style={getMainWorkstationButtonStyle(
+                  isMobile
+                )}
+                onClick={() =>
+                  router.push(
+                    `/finance/${branch}`
+                  )
+                }
+              >
+                <HomeIcon />
 
-                  <div style={formGrid}>
-                    <Field label="الاسم *">
-                      <input
-                        style={input}
-                        value={supportFullName}
-                        maxLength={100}
-                        onChange={(event) =>
-                          setSupportFullName(event.target.value)
-                        }
-                        disabled={busyAction !== null}
-                      />
-                    </Field>
+                <span>
+                  محطة العمل الرئيسية
+                </span>
+              </button>
+            </div>
 
-                    <Field label="اسم المستخدم *">
-                      <input
-                        style={input}
-                        value={supportUsername}
-                        maxLength={30}
-                        autoCapitalize="none"
-                        spellCheck={false}
-                        onChange={(event) =>
-                          setSupportUsername(
-                            event.target.value.replace(
-                              /[^A-Za-z0-9_\u0600-\u06FF]/g,
-                              ""
-                            )
-                          )
-                        }
-                        disabled={busyAction !== null}
-                      />
-                    </Field>
-
-                    <Field label="كلمة المرور *">
-                      <input
-                        style={input}
-                        type="password"
-                        autoComplete="new-password"
-                        value={supportPassword}
-                        maxLength={100}
-                        onChange={(event) =>
-                          setSupportPassword(event.target.value)
-                        }
-                        disabled={busyAction !== null}
-                      />
-                    </Field>
-
-                    <Field label="الدور *">
-                      <select
-                        style={input}
-                        value={supportRole}
-                        onChange={(event) =>
-                          setSupportRole(event.target.value as SupportRole)
-                        }
-                        disabled={busyAction !== null}
-                      >
-                        <option value="support">دعم فني</option>
-                        <option value="viewer">مشاهدة فقط</option>
-
-                        {currentUser?.role === "super_admin" && (
-                          <option value="super_admin">مدير النظام</option>
-                        )}
-                      </select>
-                    </Field>
-                  </div>
-
-                  <div style={permissionsBox}>
-                    {SUPPORT_PERMISSIONS.map((permission) => (
-                      <label key={permission.key} style={permissionItem}>
-                        <input
-                          type="checkbox"
-                          checked={selectedPermissions.includes(permission.key)}
-                          disabled={busyAction !== null}
-                          onChange={(event) => {
-                            setSelectedPermissions((previous) =>
-                              event.target.checked
-                                ? Array.from(
-                                    new Set([
-                                      ...previous,
-                                      permission.key,
-                                    ])
-                                  )
-                                : previous.filter(
-                                    (value) => value !== permission.key
-                                  )
-                            );
-                          }}
-                        />
-
-                        {permission.label}
-                      </label>
-                    ))}
-                  </div>
-
-                  <div style={buttonsRow}>
-                    <button
-                      type="button"
-                      style={getDisabledStyle(
-                        primaryButton,
-                        busyAction === "create_support_user"
-                      )}
-                      onClick={() => void createSupportUser()}
-                      disabled={busyAction !== null}
-                    >
-                      {busyAction === "create_support_user"
-                        ? "جاري الحفظ..."
-                        : "حفظ المستخدم"}
-                    </button>
-
-                    <button
-                      type="button"
-                      style={secondaryButton}
-                      onClick={resetUserForm}
-                      disabled={busyAction !== null}
-                    >
-                      إلغاء
-                    </button>
-                  </div>
-                </section>
+            <div
+              style={getHeroTitleBoxStyle(
+                screen
               )}
-
-              <section style={usersGrid}>
-                {supportUsers.length === 0 ? (
-                  <div style={emptyBox}>لا يوجد مستخدمو دعم متاحون</div>
-                ) : (
-                  supportUsers.map((user) => {
-                    const userBusy =
-                      busyAction === `support_status:${user.id}`;
-
-                    return (
-                      <article key={user.id} style={userCard}>
-                        <div style={userIcon}>د</div>
-
-                        <h3 style={userTitle}>{user.full_name}</h3>
-                        <p style={muted}>@{user.username}</p>
-                        <p style={roleBadge}>{roleLabel(user.role)}</p>
-
-                        <span
-                          style={user.is_active ? activeBadge : inactiveBadge}
-                        >
-                          {user.is_active ? "نشط" : "معطل"}
-                        </span>
-
-                        <div style={permissionsTags}>
-                          {user.permissions?.length ? (
-                            user.permissions.map((permission) => (
-                              <span key={permission} style={permissionTag}>
-                                {permissionLabel(permission)}
-                              </span>
-                            ))
-                          ) : (
-                            <span style={permissionTag}>
-                              بدون صلاحيات محددة
-                            </span>
-                          )}
-                        </div>
-
-                        <button
-                          type="button"
-                          style={getDisabledStyle(
-                            user.is_active
-                              ? smallDangerButton
-                              : smallGreenButton,
-                            userBusy || user.id === currentUser?.id
-                          )}
-                          onClick={() => void toggleSupportUser(user)}
-                          disabled={
-                            busyAction !== null || user.id === currentUser?.id
-                          }
-                          title={
-                            user.id === currentUser?.id
-                              ? "لا يمكنك تعطيل حسابك الحالي"
-                              : undefined
-                          }
-                        >
-                          {userBusy
-                            ? "جاري التنفيذ..."
-                            : user.id === currentUser?.id
-                              ? "الحساب الحالي"
-                              : user.is_active
-                                ? "تعطيل"
-                                : "تفعيل"}
-                        </button>
-                      </article>
-                    );
-                  })
+            >
+              <h1
+                style={getTitleStyle(
+                  screen
                 )}
-              </section>
-            </>
-          )}
+              >
+                الإعدادات
+              </h1>
+            </div>
 
-          {activeTab === "logs" && visibleTabs.logs && (
-            <>
-              <div style={sectionTop}>
-                <h2 style={sectionTitle}>سجل عمليات الدعم</h2>
-              </div>
-
-              <section style={panelCard}>
-                {logs.length === 0 ? (
-                  <div style={emptyBox}>لا توجد سجلات حتى الآن</div>
-                ) : (
-                  <div style={logTable}>
-                    {logs.map((log) => (
-                      <div key={log.id} style={logRow}>
-                        <div>
-                          <strong style={logAction}>{log.action}</strong>
-                          <p style={muted}>{log.details || "-"}</p>
-                        </div>
-
-                        <div style={logMeta}>
-                          <span>{log.user_name || "-"}</span>
-                          <small>{formatDateTime(log.created_at)}</small>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </section>
-            </>
-          )}
+            <div
+              style={getHeroActionBoxStyle(
+                screen
+              )}
+            />
+          </div>
         </section>
-      </div>
 
-      <GlobalResponsiveStyles />
+        <section style={card}>
+          <h2 style={sectionTitle}>
+            بيانات الحساب
+          </h2>
+
+          <div
+            style={getInfoGridStyle(
+              isMobile
+            )}
+          >
+            {readOnlyRows.map(
+              (item) => (
+                <InfoItem
+                  key={item.label}
+                  label={item.label}
+                  value={item.value}
+                />
+              )
+            )}
+          </div>
+        </section>
+
+        <section style={card}>
+          <h2 style={sectionTitle}>
+            بيانات المؤسسة
+          </h2>
+
+          <div
+            style={getInfoGridStyle(
+              isMobile
+            )}
+          >
+            {organizationRows.map(
+              (item) => (
+                <InfoItem
+                  key={item.label}
+                  label={item.label}
+                  value={item.value}
+                />
+              )
+            )}
+          </div>
+        </section>
+
+        <section style={card}>
+          <h2 style={sectionTitle}>
+            إعدادات الحساب
+          </h2>
+
+          <Field label="رقم الجوال - اختياري">
+            <input
+              style={input}
+              type="tel"
+              inputMode="numeric"
+              maxLength={10}
+              value={phone}
+              onChange={(event) =>
+                setPhone(
+                  normalizeDigits(
+                    event.target.value
+                  ).replace(
+                    /\D/g,
+                    ""
+                  )
+                )
+              }
+              placeholder="05xxxxxxxx"
+            />
+          </Field>
+
+          <Field label="المظهر">
+            <select
+              style={input}
+              value={themeKey}
+              onChange={(event) =>
+                setThemeKey(
+                  event.target.value
+                )
+              }
+            >
+              <option value="professional">
+                المظهر الاحترافي
+              </option>
+
+              <option
+                value="coming_soon"
+                disabled
+              >
+                مظهر إضافي - قريبًا
+              </option>
+            </select>
+          </Field>
+
+          {settingsMessage && (
+            <StatusMessage
+              message={
+                settingsMessage
+              }
+            />
+          )}
+
+          <button
+            type="button"
+            style={{
+              ...saveButton,
+              opacity: saving
+                ? 0.65
+                : 1,
+              cursor: saving
+                ? "not-allowed"
+                : "pointer",
+            }}
+            onClick={saveSettings}
+            disabled={saving}
+          >
+            {saving
+              ? "جاري الحفظ..."
+              : "حفظ التغييرات"}
+          </button>
+        </section>
+
+        <section style={card}>
+          <h2 style={sectionTitle}>
+            تغيير كلمة المرور
+          </h2>
+
+          <Field label="كلمة المرور الحالية">
+            <input
+              style={input}
+              type="password"
+              autoComplete="current-password"
+              value={
+                currentPassword
+              }
+              onChange={(event) =>
+                setCurrentPassword(
+                  event.target.value
+                )
+              }
+            />
+          </Field>
+
+          <Field label="كلمة المرور الجديدة">
+            <input
+              style={input}
+              type="password"
+              autoComplete="new-password"
+              maxLength={8}
+              value={newPassword}
+              onChange={(event) =>
+                setNewPassword(
+                  event.target.value
+                )
+              }
+            />
+          </Field>
+
+          <Field label="تأكيد كلمة المرور الجديدة">
+            <input
+              style={input}
+              type="password"
+              autoComplete="new-password"
+              maxLength={8}
+              value={
+                confirmPassword
+              }
+              onChange={(event) =>
+                setConfirmPassword(
+                  event.target.value
+                )
+              }
+            />
+          </Field>
+
+          {passwordMessage && (
+            <StatusMessage
+              message={
+                passwordMessage
+              }
+            />
+          )}
+
+          <button
+            type="button"
+            style={{
+              ...passwordButton,
+              opacity:
+                changingPassword
+                  ? 0.65
+                  : 1,
+              cursor:
+                changingPassword
+                  ? "not-allowed"
+                  : "pointer",
+            }}
+            onClick={
+              changePassword
+            }
+            disabled={
+              changingPassword
+            }
+          >
+            {changingPassword
+              ? "جاري التغيير..."
+              : "تغيير كلمة المرور"}
+          </button>
+        </section>
+
+        {canSelfDelete && (
+          <section
+            style={dangerCard}
+          >
+            <h2
+              style={
+                dangerSectionTitle
+              }
+            >
+              حذف الحساب
+            </h2>
+
+            <Field label="كلمة المرور الحالية">
+              <input
+                style={input}
+                type="password"
+                autoComplete="current-password"
+                value={
+                  deletePassword
+                }
+                onChange={(
+                  event
+                ) =>
+                  setDeletePassword(
+                    event.target
+                      .value
+                  )
+                }
+              />
+            </Field>
+
+            {deleteMessage && (
+              <StatusMessage
+                message={
+                  deleteMessage
+                }
+              />
+            )}
+
+            <button
+              type="button"
+              style={{
+                ...deleteButton,
+                opacity:
+                  deletingAccount
+                    ? 0.55
+                    : 1,
+                cursor:
+                  deletingAccount
+                    ? "not-allowed"
+                    : "pointer",
+              }}
+              onClick={
+                deleteAccount
+              }
+              disabled={
+                deletingAccount
+              }
+            >
+              {deletingAccount
+                ? "جاري حذف الحساب..."
+                : "حذف الحساب"}
+            </button>
+          </section>
+        )}
+
+        <div
+          style={backWrapper}
+        >
+          <button
+            type="button"
+            style={backButton}
+            onClick={() =>
+              router.back()
+            }
+          >
+            ← رجوع
+          </button>
+        </div>
+      </div>
     </main>
   );
 }
 
 function Field({
-  label: fieldLabel,
+  label,
   children,
 }: {
   label: string;
   children: ReactNode;
 }) {
   return (
-    <div>
-      <label style={label}>{fieldLabel}</label>
+    <div style={fieldBox}>
+      <label
+        style={labelStyle}
+      >
+        {label}
+      </label>
+
       {children}
     </div>
   );
 }
 
-function BrandBox() {
+function InfoItem({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
   return (
-    <div style={brandBox}>
-      <div style={brandIcon}>د</div>
+    <div style={infoItem}>
+      <div style={infoLabel}>
+        {label}
+      </div>
 
-      <div>
-        <h2 style={brandTitle}>دعم احتساب</h2>
-        <p style={brandSub}>لوحة التحكم المركزية</p>
+      <div style={infoValue}>
+        {value}
       </div>
     </div>
   );
 }
 
-function SideNav({
-  activeTab,
-  setActiveTab,
-  visibleTabs,
+function StatusMessage({
+  message,
 }: {
-  activeTab: TabType;
-  setActiveTab: (tab: TabType) => void;
-  visibleTabs: {
-    branches: boolean;
-    branchManagers: boolean;
-    users: boolean;
-    logs: boolean;
-  };
+  message: Exclude<
+    MessageState,
+    null
+  >;
 }) {
   return (
-    <nav style={nav}>
-      <NavButton
-        active={activeTab === "overview"}
-        onClick={() => setActiveTab("overview")}
-      >
-        النظرة العامة
-      </NavButton>
-
-      {visibleTabs.branches && (
-        <NavButton
-          active={activeTab === "branches"}
-          onClick={() => setActiveTab("branches")}
-        >
-          الفروع
-        </NavButton>
-      )}
-
-      {visibleTabs.branchManagers && (
-        <NavButton
-          active={activeTab === "branch_managers"}
-          onClick={() => setActiveTab("branch_managers")}
-        >
-          مدراء الفروع
-        </NavButton>
-      )}
-
-      {visibleTabs.users && (
-        <NavButton
-          active={activeTab === "users"}
-          onClick={() => setActiveTab("users")}
-        >
-          مستخدمو الدعم
-        </NavButton>
-      )}
-
-      {visibleTabs.logs && (
-        <NavButton
-          active={activeTab === "logs"}
-          onClick={() => setActiveTab("logs")}
-        >
-          سجل العمليات
-        </NavButton>
-      )}
-    </nav>
-  );
-}
-
-function NavButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      style={active ? navActive : navItem}
-      onClick={onClick}
+    <div
+      style={{
+        ...statusMessage,
+        ...(message.type ===
+        "success"
+          ? successMessage
+          : errorMessage),
+      }}
     >
-      {children}
-    </button>
-  );
-}
-
-function MobileNav({
-  activeTab,
-  setActiveTab,
-  visibleTabs,
-  onLogout,
-  disabled,
-}: {
-  activeTab: TabType;
-  setActiveTab: (tab: TabType) => void;
-  visibleTabs: {
-    branches: boolean;
-    branchManagers: boolean;
-    users: boolean;
-    logs: boolean;
-  };
-  onLogout: () => void;
-  disabled: boolean;
-}) {
-  return (
-    <div className="mobile-nav">
-      <button
-        type="button"
-        className={
-          activeTab === "overview" ? "mobile-tab active" : "mobile-tab"
-        }
-        onClick={() => setActiveTab("overview")}
-      >
-        العامة
-      </button>
-
-      {visibleTabs.branches && (
-        <button
-          type="button"
-          className={
-            activeTab === "branches" ? "mobile-tab active" : "mobile-tab"
-          }
-          onClick={() => setActiveTab("branches")}
-        >
-          الفروع
-        </button>
-      )}
-
-      {visibleTabs.branchManagers && (
-        <button
-          type="button"
-          className={
-            activeTab === "branch_managers"
-              ? "mobile-tab active"
-              : "mobile-tab"
-          }
-          onClick={() => setActiveTab("branch_managers")}
-        >
-          المدراء
-        </button>
-      )}
-
-      {visibleTabs.users && (
-        <button
-          type="button"
-          className={
-            activeTab === "users" ? "mobile-tab active" : "mobile-tab"
-          }
-          onClick={() => setActiveTab("users")}
-        >
-          الدعم
-        </button>
-      )}
-
-      {visibleTabs.logs && (
-        <button
-          type="button"
-          className={
-            activeTab === "logs" ? "mobile-tab active" : "mobile-tab"
-          }
-          onClick={() => setActiveTab("logs")}
-        >
-          السجل
-        </button>
-      )}
-
-      <button
-        type="button"
-        className="mobile-tab logout"
-        onClick={onLogout}
-        disabled={disabled}
-      >
-        خروج
-      </button>
+      {message.text}
     </div>
   );
 }
 
-function Stat({ title, value }: { title: string; value: number }) {
+function UserIcon() {
   return (
-    <div style={statCard}>
-      <span style={statValue}>{value}</span>
-      <span style={statTitle}>{title}</span>
-    </div>
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M12 12.2a4.2 4.2 0 1 0 0-8.4 4.2 4.2 0 0 0 0 8.4Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+
+      <path
+        d="M4.8 20.2c.8-3.5 3.6-5.4 7.2-5.4s6.4 1.9 7.2 5.4"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
   );
 }
 
-function roleLabel(role: string) {
-  if (role === "super_admin") return "مدير النظام";
-  if (role === "viewer") return "مشاهدة فقط";
-  return "دعم فني";
-}
-
-function permissionLabel(key: string) {
+function LogoutIcon() {
   return (
-    SUPPORT_PERMISSIONS.find((permission) => permission.key === key)?.label ||
-    key
+    <svg
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M9.5 7V5.8c0-1 .8-1.8 1.8-1.8h6.1c1 0 1.8.8 1.8 1.8v12.4c0 1-.8 1.8-1.8 1.8h-6.1c-1 0-1.8-.8-1.8-1.8V17"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+
+      <path
+        d="M4.8 12h9.5"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+
+      <path
+        d="M7.8 8.8 4.6 12l3.2 3.2"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
-function formatDateTime(date: string) {
-  if (!date) return "-";
+function HomeIcon() {
+  return (
+    <svg
+      width="21"
+      height="21"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M3.8 11.2 12 4.5l8.2 6.7"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
 
-  const parsedDate = new Date(date);
+      <path
+        d="M6.2 10.4v9.1h11.6v-9.1"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
 
-  if (Number.isNaN(parsedDate.getTime())) {
-    return "-";
-  }
-
-  return parsedDate.toLocaleString("ar-SA", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+      <path
+        d="M10 19.5v-5.2h4v5.2"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
 }
 
-function getDisabledStyle(
-  baseStyle: CSSProperties,
-  disabled: boolean
+function getPageStyle(
+  isMobile: boolean
 ): CSSProperties {
-  if (!disabled) return baseStyle;
-
-  return {
-    ...baseStyle,
-    opacity: 0.55,
-    cursor: "not-allowed",
-  };
-}
-
-function getPageStyle(isCompact: boolean): CSSProperties {
   return {
     minHeight: "100vh",
-    padding: isCompact ? 8 : 14,
-    fontFamily: "var(--font-almarai), sans-serif",
-    color: "#0f172a",
-    overflowX: "hidden",
-    backgroundColor: "#edf4ff",
-    backgroundImage:
-      "radial-gradient(circle at 12% 16%, rgba(37,99,235,.14), transparent 28%), radial-gradient(circle at 88% 8%, rgba(14,165,233,.12), transparent 26%), linear-gradient(rgba(244,247,251,.88), rgba(244,247,251,.94)), url('/backgrounds/v13-finance-bg-1.png')",
+    backgroundColor: "#f6f9ff",
+    backgroundImage: `
+      radial-gradient(circle at 12% 18%, rgba(59,130,246,0.16) 0, transparent 28%),
+      radial-gradient(circle at 88% 12%, rgba(168,85,247,0.10) 0, transparent 25%),
+      radial-gradient(circle at 80% 88%, rgba(34,197,94,0.10) 0, transparent 28%),
+      linear-gradient(rgba(246,249,255,0.72),rgba(246,249,255,0.82)),
+      url('/backgrounds/v13-finance-bg-1.png')
+    `,
     backgroundSize: "cover",
-    backgroundPosition: "center",
-    backgroundRepeat: "no-repeat",
-    backgroundAttachment: "fixed",
+    backgroundPosition:
+      "center",
+    backgroundAttachment:
+      isMobile
+        ? "scroll"
+        : "fixed",
+    padding: isMobile
+      ? 10
+      : 18,
+    fontFamily:
+      "var(--font-almarai), sans-serif",
   };
 }
 
-function getShellStyle(isCompact: boolean): CSSProperties {
+function getContainerStyle(
+  isCompact: boolean
+): CSSProperties {
   return {
     width: "100%",
-    maxWidth: 1450,
+    maxWidth: isCompact
+      ? 980
+      : 1180,
     margin: "auto",
-    display: "grid",
-    gridTemplateColumns: isCompact ? "1fr" : "280px minmax(0, 1fr)",
-    gap: 14,
   };
 }
 
-function getHeroStyle(isMobile: boolean): CSSProperties {
+function getHeroStyle(
+  isMobile: boolean
+): CSSProperties {
   return {
     position: "relative",
-    overflow: "hidden",
-    background:
-      "linear-gradient(135deg, #0f172a 0%, #1d4ed8 58%, #0ea5e9 100%)",
-    color: "white",
-    borderRadius: isMobile ? 20 : 24,
-    padding: isMobile ? 18 : 24,
+    minHeight: isMobile
+      ? "auto"
+      : 160,
+    borderRadius: isMobile
+      ? 20
+      : 24,
+    padding: isMobile
+      ? "18px 14px"
+      : "22px 26px",
     marginBottom: 14,
-    boxShadow: "0 18px 42px rgba(30,64,175,.20)",
+    overflow: "hidden",
+    border: "none",
+    outline: "none",
+    background:
+      "radial-gradient(circle at 15% 18%, rgba(255,255,255,0.08) 0, transparent 24%), radial-gradient(circle at 86% 18%, rgba(255,255,255,0.11) 0, transparent 26%), linear-gradient(105deg,#071c48 0%,#0a327d 30%,#0d65d9 60%,#23a8e4 82%,#6edce4 100%)",
+    boxShadow: "none",
+    isolation: "isolate",
   };
 }
 
-function getHeroTitleStyle(isMobile: boolean): CSSProperties {
-  return {
-    margin: "6px 0",
-    fontSize: isMobile ? 25 : 32,
-    lineHeight: 1.4,
-    fontFamily: "var(--font-almarai), sans-serif",
-  };
-}
-
-function GlobalResponsiveStyles() {
-  return (
-    <style jsx global>{`
-      * {
-        box-sizing: border-box;
-      }
-
-      html {
-        background: #edf4ff;
-      }
-
-      body {
-        margin: 0;
-        overflow-x: hidden;
-      }
-      
-@keyframes support-spin {
-  to {
-    transform: rotate(360deg);
+function getHeroContentStyle(
+  screen: ScreenType
+): CSSProperties {
+  if (screen === "mobile") {
+    return {
+      position: "relative",
+      zIndex: 3,
+      minHeight: "auto",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "stretch",
+      justifyContent:
+        "center",
+      gap: 16,
+      direction: "rtl",
+    };
   }
+
+  if (screen === "tablet") {
+    return {
+      position: "relative",
+      zIndex: 3,
+      minHeight: "auto",
+      display: "grid",
+      gridTemplateColumns:
+        "1fr",
+      alignItems: "center",
+      justifyItems: "center",
+      gap: 18,
+      direction: "rtl",
+    };
+  }
+
+  return {
+    position: "relative",
+    zIndex: 3,
+    minHeight: 116,
+    display: "grid",
+    gridTemplateColumns:
+      "minmax(250px, 315px) 1fr minmax(220px, 315px)",
+    alignItems: "center",
+    gap: 16,
+    direction: "ltr",
+  };
 }
 
-button,
-      input,
-      textarea,
-      select {
-        font-family: var(--font-almarai), sans-serif;
-      }
+function getHeroUserCardStyle(
+  screen: ScreenType
+): CSSProperties {
+  if (screen === "mobile") {
+    return {
+      width: "100%",
+      display: "grid",
+      gap: 12,
+      direction: "rtl",
+      justifySelf: "center",
+      justifyItems: "center",
+      order: 2,
+    };
+  }
 
-      button:focus-visible,
-      input:focus-visible,
-      textarea:focus-visible,
-      select:focus-visible {
-        outline: 3px solid rgba(37, 99, 235, 0.22);
-        outline-offset: 2px;
-      }
+  if (screen === "tablet") {
+    return {
+      width: "100%",
+      maxWidth: 520,
+      display: "grid",
+      gap: 14,
+      direction: "rtl",
+      justifySelf: "center",
+      justifyItems: "center",
+      order: 2,
+    };
+  }
 
-      .mobile-nav {
-        display: flex;
-        gap: 8px;
-        overflow-x: auto;
-        padding: 2px 1px 12px;
-        margin-bottom: 10px;
-        -webkit-overflow-scrolling: touch;
-      }
-
-      .mobile-nav::-webkit-scrollbar {
-        display: none;
-      }
-
-      .mobile-tab {
-        flex: 0 0 auto;
-        border: 1px solid #dbe4f0;
-        background: rgba(255, 255, 255, 0.92);
-        color: #334155;
-        border-radius: 999px;
-        padding: 10px 13px;
-        font-weight: 900;
-        cursor: pointer;
-        white-space: nowrap;
-      }
-
-      .mobile-tab.active {
-        color: #ffffff;
-        border-color: transparent;
-        background: linear-gradient(135deg, #1d4ed8, #0ea5e9);
-      }
-
-      .mobile-tab.logout {
-        background: #fee2e2;
-        color: #991b1b;
-      }
-
-      .mobile-tab:disabled {
-        opacity: 0.55;
-        cursor: not-allowed;
-      }
-
-      @media (max-width: 1023px) {
-        .support-main {
-          min-height: auto !important;
-          border-radius: 22px !important;
-          padding: 12px !important;
-        }
-
-        .dashboard-grid {
-          grid-template-columns: 1fr !important;
-        }
-
-        .branch-row {
-          grid-template-columns: 1fr !important;
-          align-items: stretch !important;
-        }
-      }
-
-      @media (max-width: 700px) {
-        .stats-grid {
-          grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-        }
-      }
-
-      @media (max-width: 440px) {
-        .stats-grid {
-          grid-template-columns: 1fr !important;
-        }
-      }
-    `}</style>
-  );
+  return {
+    width: "100%",
+    maxWidth: 315,
+    display: "grid",
+    gap: 24,
+    direction: "ltr",
+    justifySelf: "start",
+  };
 }
 
-const loadingCard: CSSProperties = {
-  width: "min(100%, 480px)",
-  margin: "18vh auto 0",
-  padding: 28,
-  borderRadius: 24,
-  background: "rgba(255,255,255,.94)",
-  border: "1px solid #dbe4f0",
-  boxShadow: "0 18px 50px rgba(15,23,42,.12)",
-  textAlign: "center",
-};
+function getEmployeeTopRowStyle(
+  screen: ScreenType
+): CSSProperties {
+  if (screen === "mobile") {
+    return {
+      minHeight: 42,
+      display: "flex",
+      alignItems: "center",
+      justifyContent:
+        "center",
+      flexWrap: "wrap",
+      gap: 10,
+      direction: "rtl",
+      color: "#ffffff",
+      width: "100%",
+    };
+  }
 
-const loadingSpinner: CSSProperties = {
-  width: 42,
-  height: 42,
-  margin: "0 auto 16px",
+  if (screen === "tablet") {
+    return {
+      height: 42,
+      display: "flex",
+      alignItems: "center",
+      justifyContent:
+        "center",
+      gap: 14,
+      direction: "rtl",
+      color: "#ffffff",
+      width: "100%",
+    };
+  }
+
+  return {
+    height: 42,
+    display: "flex",
+    alignItems: "center",
+    gap: 14,
+    direction: "ltr",
+    color: "#ffffff",
+  };
+}
+
+function getEmployeeNameStyle(
+  isMobile: boolean
+): CSSProperties {
+  return {
+    color: "#ffffff",
+    fontSize: isMobile
+      ? 15
+      : 17,
+    fontWeight: 900,
+    whiteSpace: "nowrap",
+    direction: "rtl",
+    textShadow:
+      "0 4px 10px rgba(15,23,42,0.18)",
+  };
+}
+
+function getMainWorkstationButtonStyle(
+  isMobile: boolean
+): CSSProperties {
+  return {
+    width: isMobile
+      ? "100%"
+      : 220,
+    maxWidth: isMobile
+      ? 280
+      : 220,
+    height: 44,
+    border: "none",
+    background:
+      "linear-gradient(135deg,#72e77d,#22c55e 58%,#16a34a)",
+    color: "#ffffff",
+    borderRadius: 999,
+    padding: "0 18px",
+    fontSize: 14,
+    fontWeight: 900,
+    cursor: "pointer",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
+    boxShadow:
+      "0 8px 18px rgba(22,163,74,0.20)",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent:
+      "center",
+    gap: 9,
+    whiteSpace: "nowrap",
+    direction: "rtl",
+  };
+}
+
+function getHeroTitleBoxStyle(
+  screen: ScreenType
+): CSSProperties {
+  return {
+    position: "relative",
+    zIndex: 4,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent:
+      "center",
+    textAlign: "center",
+    direction: "rtl",
+    pointerEvents: "none",
+    order:
+      screen === "desktop"
+        ? 0
+        : 1,
+  };
+}
+
+function getTitleStyle(
+  screen: ScreenType
+): CSSProperties {
+  return {
+    margin: 0,
+    color: "#ffffff",
+    fontSize:
+      screen === "mobile"
+        ? 26
+        : screen === "tablet"
+          ? 28
+          : 30,
+    lineHeight: 1.35,
+    fontWeight: 900,
+    letterSpacing: "-0.4px",
+    textShadow:
+      "0 5px 14px rgba(15,23,42,0.14)",
+    whiteSpace: "nowrap",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
+  };
+}
+
+function getHeroActionBoxStyle(
+  screen: ScreenType
+): CSSProperties {
+  if (
+    screen === "mobile" ||
+    screen === "tablet"
+  ) {
+    return {
+      display: "none",
+      width: "100%",
+      order: 3,
+    };
+  }
+
+  return {
+    display: "flex",
+    flexDirection: "column",
+    justifyContent:
+      "center",
+    alignItems: "flex-end",
+    gap: 12,
+    direction: "rtl",
+  };
+}
+
+function getInfoGridStyle(
+  isMobile: boolean
+): CSSProperties {
+  return {
+    display: "grid",
+    gridTemplateColumns:
+      isMobile
+        ? "1fr"
+        : "repeat(2, minmax(0, 1fr))",
+    gap: 12,
+  };
+}
+
+const employeeIcon: CSSProperties = {
+  width: 38,
+  height: 38,
   borderRadius: "50%",
-  border: "4px solid #dbeafe",
-  borderTopColor: "#2563eb",
-  animation: "support-spin .8s linear infinite",
-};
-
-const loadingTitle: CSSProperties = {
-  margin: 0,
-  fontSize: 21,
-  fontFamily: "var(--font-almarai), sans-serif",
-};
-
-const errorCard: CSSProperties = {
-  ...loadingCard,
-  marginTop: "14vh",
-};
-
-const errorTitle: CSSProperties = {
-  margin: "0 0 10px",
-  color: "#991b1b",
-};
-
-const errorText: CSSProperties = {
-  color: "#64748b",
-  lineHeight: 1.8,
-};
-
-const sidePanel: CSSProperties = {
-  minHeight: "calc(100vh - 28px)",
-  background: "linear-gradient(180deg,#0f172a,#020617)",
-  border: "1px solid rgba(148,163,184,.18)",
-  borderRadius: 26,
-  padding: 16,
-  color: "white",
-  position: "sticky",
-  top: 14,
-  alignSelf: "start",
-};
-
-const brandBox: CSSProperties = {
-  display: "flex",
-  gap: 12,
-  alignItems: "center",
-  padding: 12,
-  borderRadius: 20,
-  background: "rgba(255,255,255,.06)",
-  marginBottom: 18,
-};
-
-const brandIcon: CSSProperties = {
-  width: 46,
-  height: 46,
-  borderRadius: 16,
-  background: "linear-gradient(135deg,#2563eb,#0ea5e9)",
+  border:
+    "1.5px solid rgba(255,255,255,0.34)",
+  background:
+    "rgba(255,255,255,0.06)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  fontSize: 22,
-  fontWeight: 900,
+  color:
+    "rgba(255,255,255,0.96)",
+  flex: "0 0 auto",
 };
 
-const brandTitle: CSSProperties = {
-  margin: 0,
-  fontSize: 20,
-};
+const employeeDividerSmall: CSSProperties =
+  {
+    width: 1,
+    height: 34,
+    background:
+      "rgba(255,255,255,0.30)",
+    flex: "0 0 auto",
+  };
 
-const brandSub: CSSProperties = {
-  margin: "5px 0 0",
-  color: "#94a3b8",
-  fontSize: 13,
-};
-
-const nav: CSSProperties = {
-  display: "grid",
-  gap: 8,
-};
-
-const navItem: CSSProperties = {
-  width: "100%",
-  border: "1px solid transparent",
-  background: "transparent",
-  color: "#cbd5e1",
-  borderRadius: 15,
-  padding: "13px 12px",
-  cursor: "pointer",
-  textAlign: "right",
-  fontSize: 15,
-  fontWeight: 800,
-};
-
-const navActive: CSSProperties = {
-  ...navItem,
-  color: "white",
-  background: "linear-gradient(135deg,#2563eb,#0ea5e9)",
-  border: "1px solid rgba(255,255,255,.15)",
-};
-
-const logoutButton: CSSProperties = {
-  width: "100%",
-  marginTop: 18,
-  background: "#fee2e2",
-  color: "#991b1b",
-  border: "none",
-  borderRadius: 15,
-  padding: "13px 16px",
-  fontWeight: 900,
-  cursor: "pointer",
-};
-
-const mainPanel: CSSProperties = {
-  minWidth: 0,
-  minHeight: "calc(100vh - 28px)",
-  background: "rgba(248,250,252,.93)",
-  border: "1px solid rgba(226,232,240,.92)",
-  borderRadius: 26,
-  padding: 16,
-  backdropFilter: "blur(10px)",
-  boxShadow: "0 18px 48px rgba(15,23,42,.08)",
-};
-
-const heroContent: CSSProperties = {
-  position: "relative",
-  zIndex: 3,
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: 16,
-  flexWrap: "wrap",
-};
-
-const topLabel: CSSProperties = {
-  margin: 0,
-  color: "#bfdbfe",
-  fontWeight: 800,
-};
-
-const heroSub: CSSProperties = {
-  margin: 0,
-  color: "#e0f2fe",
-};
-
-const heroUserCard: CSSProperties = {
-  display: "grid",
-  gap: 5,
-  minWidth: 175,
-  padding: "12px 15px",
-  borderRadius: 17,
-  border: "1px solid rgba(255,255,255,.22)",
-  background: "rgba(255,255,255,.10)",
-  backdropFilter: "blur(7px)",
-};
-
-const heroUserName: CSSProperties = {
-  fontWeight: 900,
-};
-
-const heroUserRole: CSSProperties = {
-  color: "#dbeafe",
-  fontSize: 13,
-};
+const logoutInlineButton: CSSProperties =
+  {
+    border: "none",
+    background: "transparent",
+    color:
+      "rgba(255,255,255,0.90)",
+    fontSize: 15,
+    fontWeight: 800,
+    display: "flex",
+    alignItems: "center",
+    gap: 9,
+    cursor: "pointer",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
+    padding: 0,
+    whiteSpace: "nowrap",
+    direction: "rtl",
+  };
 
 const heroCircleOne: CSSProperties = {
   position: "absolute",
-  width: 180,
-  height: 180,
+  width: 210,
+  height: 210,
+  right: -78,
+  top: -85,
   borderRadius: "50%",
-  top: -95,
-  left: -45,
-  background: "rgba(255,255,255,.10)",
+  background:
+    "rgba(255,255,255,0.075)",
+  pointerEvents: "none",
+  zIndex: 1,
 };
 
 const heroCircleTwo: CSSProperties = {
   position: "absolute",
-  width: 110,
-  height: 110,
+  width: 245,
+  height: 245,
+  right: 145,
+  bottom: -178,
   borderRadius: "50%",
-  bottom: -58,
-  right: "28%",
-  background: "rgba(125,211,252,.14)",
+  background:
+    "rgba(255,255,255,0.045)",
+  pointerEvents: "none",
+  zIndex: 1,
 };
 
-const heroCircleThree: CSSProperties = {
-  position: "absolute",
-  width: 74,
-  height: 74,
-  borderRadius: "50%",
-  top: 18,
-  right: 28,
-  border: "1px solid rgba(255,255,255,.18)",
-};
+const heroCircleThree: CSSProperties =
+  {
+    position: "absolute",
+    width: 150,
+    height: 150,
+    left: 380,
+    top: -96,
+    borderRadius: "50%",
+    background:
+      "rgba(255,255,255,0.035)",
+    pointerEvents: "none",
+    zIndex: 1,
+  };
 
 const heroDots: CSSProperties = {
   position: "absolute",
-  insetInlineEnd: 26,
-  bottom: 18,
-  width: 74,
-  height: 34,
-  opacity: 0.32,
+  top: 28,
+  right: 34,
+  width: 84,
+  height: 58,
+  opacity: 0.24,
   backgroundImage:
-    "radial-gradient(circle, rgba(255,255,255,.9) 1.3px, transparent 1.5px)",
-  backgroundSize: "10px 10px",
+    "radial-gradient(rgba(255,255,255,0.40) 2px, transparent 2px)",
+  backgroundSize: "14px 14px",
+  zIndex: 2,
 };
 
-const inlineError: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: 12,
-  flexWrap: "wrap",
-  marginBottom: 12,
-  padding: 12,
-  borderRadius: 14,
-  background: "#fee2e2",
-  color: "#991b1b",
-  border: "1px solid #fecaca",
-};
-
-const inlineRetryButton: CSSProperties = {
-  border: "none",
-  borderRadius: 10,
-  padding: "8px 12px",
-  background: "#991b1b",
-  color: "white",
-  fontWeight: 800,
-  cursor: "pointer",
-};
-
-const statsGrid: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))",
-  gap: 12,
-  marginBottom: 14,
-};
-
-const statCard: CSSProperties = {
-  background: "white",
-  border: "1px solid #e2e8f0",
-  borderRadius: 20,
-  padding: 18,
-  boxShadow: "0 8px 18px rgba(15,23,42,.04)",
-};
-
-const statValue: CSSProperties = {
-  display: "block",
-  fontSize: 34,
-  fontWeight: 900,
-  color: "#2563eb",
-};
-
-const statTitle: CSSProperties = {
-  display: "block",
-  color: "#0f172a",
-  fontWeight: 900,
-  marginTop: 4,
-};
-
-const dashboardGrid: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: 12,
-};
-
-const darkCard: CSSProperties = {
-  background: "linear-gradient(135deg,#0f172a,#1e3a8a)",
-  color: "white",
-  borderRadius: 22,
+const card: CSSProperties = {
+  background: "#ffffff",
+  border:
+    "1px solid #e2e8f0",
+  borderRadius: 18,
   padding: 20,
-  minHeight: 190,
+  marginBottom: 16,
+  boxShadow:
+    "0 8px 22px rgba(15,23,42,0.04)",
 };
 
-const whiteTitle: CSSProperties = {
-  marginTop: 0,
-};
-
-const quickActions: CSSProperties = {
-  display: "flex",
-  gap: 10,
-  flexWrap: "wrap",
-  marginTop: 20,
-};
-
-const quickButton: CSSProperties = {
-  border: "1px solid rgba(255,255,255,.18)",
-  background: "rgba(255,255,255,.08)",
-  color: "white",
-  borderRadius: 14,
-  padding: "12px 14px",
-  cursor: "pointer",
-  fontWeight: 800,
-};
-
-const panelCard: CSSProperties = {
-  background: "white",
-  border: "1px solid #e2e8f0",
-  borderRadius: 22,
-  padding: 16,
-  boxShadow: "0 8px 18px rgba(15,23,42,.04)",
-};
-
-const panelTitle: CSSProperties = {
-  marginTop: 0,
-};
-
-const miniLogs: CSSProperties = {
-  display: "grid",
-  gap: 8,
-};
-
-const miniLogItem: CSSProperties = {
-  border: "1px solid #e2e8f0",
-  background: "#f8fafc",
-  borderRadius: 14,
-  padding: 12,
-  display: "grid",
-  gap: 4,
-};
-
-const sectionTop: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 12,
-  alignItems: "center",
-  flexWrap: "wrap",
-  marginBottom: 12,
+const dangerCard: CSSProperties = {
+  ...card,
+  border:
+    "1px solid #e5e7eb",
+  background:
+    "rgba(255,255,255,0.86)",
 };
 
 const sectionTitle: CSSProperties = {
-  margin: 0,
+  marginTop: 0,
+  marginBottom: 18,
   color: "#0f172a",
-  fontFamily: "var(--font-almarai), sans-serif",
-};
-
-const primaryButton: CSSProperties = {
-  border: "none",
-  background: "linear-gradient(135deg,#2563eb,#0ea5e9)",
-  color: "white",
-  borderRadius: 14,
-  padding: "13px 18px",
-  fontSize: 15,
+  fontSize: 21,
   fontWeight: 900,
-  cursor: "pointer",
-  boxShadow: "0 8px 18px rgba(37,99,235,.18)",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
-const secondaryButton: CSSProperties = {
-  ...primaryButton,
-  background: "linear-gradient(135deg,#64748b,#334155)",
-  boxShadow: "0 8px 18px rgba(51,65,85,.14)",
-};
+const dangerSectionTitle: CSSProperties =
+  {
+    ...sectionTitle,
+    color: "#475569",
+    fontSize: 17,
+  };
 
-const formCard: CSSProperties = {
-  background: "white",
-  border: "1px solid #e2e8f0",
-  borderRadius: 22,
-  padding: 16,
+const fieldBox: CSSProperties = {
   marginBottom: 14,
 };
 
-const formTitle: CSSProperties = {
-  marginTop: 0,
-  fontFamily: "var(--font-almarai), sans-serif",
-};
-
-const subFormTitle: CSSProperties = {
-  marginTop: 18,
-  marginBottom: 12,
-  padding: 12,
-  background: "#eff6ff",
-  color: "#1d4ed8",
-  border: "1px solid #bfdbfe",
-  borderRadius: 14,
-  fontWeight: 900,
-};
-
-const formGrid: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
-  gap: 12,
-};
-
-const label: CSSProperties = {
+const labelStyle: CSSProperties = {
   display: "block",
   marginBottom: 7,
-  color: "#334155",
-  fontWeight: 900,
+  color: "#0f172a",
+  fontWeight: 800,
+  fontSize: 14,
 };
 
 const input: CSSProperties = {
   width: "100%",
+  padding: 14,
+  borderRadius: 14,
+  border:
+    "1px solid #dbe3ef",
+  fontSize: 16,
   boxSizing: "border-box",
-  border: "1px solid #cbd5e1",
-  borderRadius: 13,
-  padding: 13,
-  fontSize: 15,
   background: "#f8fafc",
   color: "#0f172a",
+  outline: "none",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
-const textarea: CSSProperties = {
-  ...input,
-  minHeight: 90,
-  resize: "vertical",
-};
-
-const buttonsRow: CSSProperties = {
+const infoItem: CSSProperties = {
+  minHeight: 76,
+  padding: "13px 15px",
+  borderRadius: 14,
+  border:
+    "1px solid #e2e8f0",
+  background:
+    "linear-gradient(180deg,#ffffff,#f8fafc)",
   display: "flex",
-  gap: 8,
-  flexWrap: "wrap",
-  marginTop: 12,
-};
-
-const branchesList: CSSProperties = {
-  display: "grid",
-  gap: 10,
-};
-
-const branchRow: CSSProperties = {
-  border: "1px solid #e2e8f0",
-  background: "#ffffff",
-  borderRadius: 18,
-  padding: 14,
-  display: "grid",
-  gridTemplateColumns: "minmax(0,1fr) auto auto",
-  gap: 12,
-  alignItems: "center",
-};
-
-const branchMain: CSSProperties = {
-  display: "flex",
-  gap: 12,
-  alignItems: "center",
-  minWidth: 0,
-};
-
-const branchAvatar: CSSProperties = {
-  width: 48,
-  height: 48,
-  borderRadius: 16,
-  background: "#dbeafe",
-  color: "#1d4ed8",
-  display: "flex",
-  alignItems: "center",
+  flexDirection: "column",
   justifyContent: "center",
-  fontWeight: 900,
-  fontSize: 20,
-  flex: "0 0 auto",
-};
-
-const branchTitle: CSSProperties = {
-  margin: 0,
-  fontFamily: "var(--font-almarai), sans-serif",
-};
-
-const muted: CSSProperties = {
-  color: "#64748b",
-  margin: "6px 0",
-  wordBreak: "break-word",
-};
-
-const ltrMuted: CSSProperties = {
-  ...muted,
-  direction: "ltr",
-  textAlign: "right",
-};
-
-const activeBadge: CSSProperties = {
-  display: "inline-block",
-  background: "#dcfce7",
-  color: "#166534",
-  borderRadius: 999,
-  padding: "6px 10px",
-  fontWeight: 900,
-  width: "fit-content",
-};
-
-const inactiveBadge: CSSProperties = {
-  display: "inline-block",
-  background: "#fee2e2",
-  color: "#991b1b",
-  borderRadius: 999,
-  padding: "6px 10px",
-  fontWeight: 900,
-  width: "fit-content",
-};
-
-const rowActions: CSSProperties = {
-  display: "flex",
-  gap: 7,
-  flexWrap: "wrap",
-};
-
-const smallButton: CSSProperties = {
-  border: "none",
-  background: "linear-gradient(135deg,#e0f2fe,#dbeafe)",
-  color: "#075985",
-  borderRadius: 10,
-  padding: "9px 12px",
-  cursor: "pointer",
-  fontWeight: 800,
-};
-
-const smallBlueButton: CSSProperties = {
-  ...smallButton,
-  background: "linear-gradient(135deg,#2563eb,#0ea5e9)",
-  color: "white",
-};
-
-const smallGreenButton: CSSProperties = {
-  ...smallButton,
-  background: "linear-gradient(135deg,#16a34a,#15803d)",
-  color: "white",
-};
-
-const smallDangerButton: CSSProperties = {
-  ...smallButton,
-  background: "linear-gradient(135deg,#ef4444,#b91c1c)",
-  color: "white",
-};
-
-const usersGrid: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(250px,1fr))",
-  gap: 12,
-};
-
-const userCard: CSSProperties = {
-  background: "white",
-  border: "1px solid #e2e8f0",
-  borderRadius: 22,
-  padding: 16,
-  display: "grid",
-  gap: 8,
-};
-
-const userIcon: CSSProperties = {
-  width: 52,
-  height: 52,
-  borderRadius: 18,
-  background: "#ede9fe",
-  color: "#5b21b6",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  fontSize: 22,
-  fontWeight: 900,
-};
-
-const userTitle: CSSProperties = {
-  margin: 0,
-  fontFamily: "var(--font-almarai), sans-serif",
-};
-
-const roleBadge: CSSProperties = {
-  background: "#f1f5f9",
-  color: "#334155",
-  borderRadius: 999,
-  padding: "7px 10px",
-  width: "fit-content",
-  fontWeight: 800,
-};
-
-const permissionsBox: CSSProperties = {
-  marginTop: 14,
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))",
-  gap: 10,
-};
-
-const permissionItem: CSSProperties = {
-  background: "#f8fafc",
-  border: "1px solid #e2e8f0",
-  borderRadius: 12,
-  padding: 12,
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  fontWeight: 800,
-};
-
-const permissionsTags: CSSProperties = {
-  display: "flex",
-  flexWrap: "wrap",
   gap: 6,
 };
 
-const permissionTag: CSSProperties = {
-  background: "#eff6ff",
-  color: "#1d4ed8",
-  borderRadius: 999,
-  padding: "5px 8px",
+const infoLabel: CSSProperties = {
+  color: "#64748b",
   fontSize: 12,
   fontWeight: 800,
 };
 
-const emptyBox: CSSProperties = {
-  background: "#f8fafc",
-  border: "1px dashed #cbd5e1",
-  borderRadius: 16,
-  padding: 18,
-  textAlign: "center",
-  color: "#64748b",
-};
-
-const logTable: CSSProperties = {
-  display: "grid",
-  gap: 8,
-};
-
-const logRow: CSSProperties = {
-  border: "1px solid #e2e8f0",
-  borderRadius: 16,
-  padding: 12,
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 12,
-  flexWrap: "wrap",
-};
-
-const logAction: CSSProperties = {
+const infoValue: CSSProperties = {
   color: "#0f172a",
+  fontSize: 15,
+  fontWeight: 900,
+  overflowWrap: "anywhere",
 };
 
-const logMeta: CSSProperties = {
-  display: "grid",
-  gap: 4,
+const saveButton: CSSProperties = {
+  width: "100%",
+  padding: 15,
+  background:
+    "linear-gradient(135deg,#2563eb,#1d4ed8)",
+  color: "#ffffff",
+  border: "none",
+  borderRadius: 14,
+  fontSize: 16,
+  marginTop: 8,
+  fontWeight: 900,
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+  boxShadow:
+    "0 8px 18px rgba(37,99,235,0.18)",
+};
+
+const passwordButton: CSSProperties = {
+  ...saveButton,
+  background:
+    "linear-gradient(135deg,#0f766e,#0d9488)",
+  boxShadow:
+    "0 8px 18px rgba(13,148,136,0.17)",
+};
+
+const deleteButton: CSSProperties = {
+  padding: "9px 14px",
+  background: "#f8fafc",
   color: "#64748b",
+  border:
+    "1px solid #cbd5e1",
+  borderRadius: 10,
+  fontSize: 13,
+  fontWeight: 800,
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const statusMessage: CSSProperties = {
+  marginTop: 6,
+  marginBottom: 10,
+  padding: "11px 13px",
+  borderRadius: 12,
+  fontSize: 14,
+  fontWeight: 800,
+  lineHeight: 1.7,
+};
+
+const successMessage: CSSProperties = {
+  color: "#166534",
+  background: "#f0fdf4",
+  border:
+    "1px solid #bbf7d0",
+};
+
+const errorMessage: CSSProperties = {
+  color: "#991b1b",
+  background: "#fef2f2",
+  border:
+    "1px solid #fecaca",
+};
+
+const backWrapper: CSSProperties = {
+  display: "flex",
+  justifyContent: "center",
+  marginTop: 18,
+};
+
+const backButton: CSSProperties = {
+  padding: "11px 18px",
+  background:
+    "linear-gradient(135deg,#22c55e,#15803d)",
+  color: "#ffffff",
+  border: "none",
+  borderRadius: 12,
+  fontSize: 14,
+  fontWeight: 900,
+  cursor: "pointer",
+  boxShadow:
+    "0 5px 14px rgba(22,163,74,0.22)",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const loadingBox: CSSProperties = {
+  textAlign: "center",
+  paddingTop: 80,
+  fontSize: 18,
+  color: "#0f172a",
+  fontWeight: 800,
 };
