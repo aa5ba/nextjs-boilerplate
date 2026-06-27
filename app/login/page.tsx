@@ -754,11 +754,11 @@ function LoginPageContent() {
           </div>
 
           <h1 style={title}>
-            تسجيل الدخول
+            تسجيل الدخول لمحطة العمل
           </h1>
 
           <p style={subtitle}>
-            برنامج احتساب
+            البرنامج الإحترافي لإدارة الأعمال المالية
           </p>
         </div>
 
