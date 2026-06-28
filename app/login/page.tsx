@@ -50,6 +50,12 @@ type FinanceLoginResult = {
   permissions_version?: number | string | null;
 };
 
+type FinanceBranchLoginApiResponse = {
+  ok?: boolean;
+  message?: string;
+  user?: FinanceLoginResult;
+};
+
 type CustomerLoginResult = {
   id: string;
   full_name: string | null;
@@ -73,6 +79,20 @@ const CUSTOMER_SESSION_KEYS = [
 const FINANCE_PASSWORD_CHANGED_MESSAGE_KEY =
   "finance_password_changed_message";
 
+function normalizeDigits(value: string) {
+  return value
+    .replace(/[٠-٩]/g, (digit) =>
+      String(
+        "٠١٢٣٤٥٦٧٨٩".indexOf(digit)
+      )
+    )
+    .replace(/[۰-۹]/g, (digit) =>
+      String(
+        "۰۱۲۳۴۵۶۷۸۹".indexOf(digit)
+      )
+    );
+}
+
 export default function LoginPage() {
   return (
     <Suspense fallback={<LoginPageLoading />}>
@@ -85,22 +105,30 @@ function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [loginIdentifier, setLoginIdentifier] =
-    useState("");
+  const [
+    loginIdentifier,
+    setLoginIdentifier,
+  ] = useState("");
 
-  const [password, setPassword] =
-    useState("");
+  const [
+    password,
+    setPassword,
+  ] = useState("");
 
-  const [loading, setLoading] =
-    useState(false);
+  const [
+    loading,
+    setLoading,
+  ] = useState(false);
 
   const [
     checkingExistingSession,
     setCheckingExistingSession,
   ] = useState(true);
 
-  const [message, setMessage] =
-    useState<MessageState>(null);
+  const [
+    message,
+    setMessage,
+  ] = useState<MessageState>(null);
 
   useEffect(() => {
     if (
@@ -296,25 +324,6 @@ function LoginPageContent() {
     return Math.floor(parsed);
   }
 
-  function getFinanceLoginResult(
-    data: unknown
-  ): FinanceLoginResult | null {
-    const result =
-      Array.isArray(data)
-        ? data[0]
-        : data;
-
-    if (
-      !result ||
-      typeof result !== "object" ||
-      Array.isArray(result)
-    ) {
-      return null;
-    }
-
-    return result as FinanceLoginResult;
-  }
-
   function getCustomerLoginResult(
     data: unknown
   ): CustomerLoginResult | null {
@@ -367,39 +376,57 @@ function LoginPageContent() {
     normalizedUsername: string,
     normalizedPassword: string
   ) {
-    const { data, error } =
-      await supabase.rpc(
-        "verify_finance_branch_login",
-        {
-          p_username:
+    const response = await fetch(
+      "/finance/api/branch-login",
+      {
+        method: "POST",
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          "Content-Type":
+            "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          username:
             normalizedUsername,
-          p_password:
+          password:
             normalizedPassword,
-        }
-      );
+        }),
+      }
+    );
 
-    if (error) {
-      console.error(
-        "Branch login RPC error:",
-        error
-      );
+    let payload:
+      FinanceBranchLoginApiResponse;
 
-      throw new Error(
-        "BRANCH_LOGIN_FAILED"
-      );
+    try {
+      payload =
+        (await response.json()) as FinanceBranchLoginApiResponse;
+    } catch {
+      payload = {
+        ok: false,
+        message:
+          "تعذر قراءة استجابة تسجيل الدخول",
+      };
     }
 
-    const result =
-      getFinanceLoginResult(data);
-
-    if (!result) {
+    if (
+      !response.ok ||
+      !payload.ok ||
+      !payload.user
+    ) {
       setMessage({
         type: "error",
-        text: "اسم المستخدم أو كلمة المرور غير صحيحة",
+        text:
+          payload.message ||
+          "اسم المستخدم أو كلمة المرور غير صحيحة",
       });
 
       return;
     }
+
+    const result =
+      payload.user;
 
     if (
       !result.id ||
@@ -407,121 +434,127 @@ function LoginPageContent() {
     ) {
       setMessage({
         type: "error",
-        text: "بيانات حساب الموظف غير مكتملة",
+        text:
+          "بيانات حساب الموظف غير مكتملة",
       });
 
       return;
     }
 
-    const branchSlug = String(
-      result.branch_slug || ""
-    ).trim();
+    const branchSlug =
+      String(
+        result.branch_slug || ""
+      )
+        .trim()
+        .toLowerCase();
 
     if (!branchSlug) {
       setMessage({
         type: "error",
-        text: "مسار الفرع غير مكتمل",
+        text:
+          "مسار الفرع غير مكتمل",
       });
 
       return;
     }
 
-    const isActive =
-      result.is_active !== false;
-
-    if (!isActive) {
+    if (
+      result.is_active === false
+    ) {
       setMessage({
         type: "error",
-        text: "هذا الحساب معطل",
+        text:
+          "هذا الحساب معطل",
       });
 
       return;
     }
 
-    const financeUser: FinanceSessionUser =
-      {
-        id: String(
-          result.id
-        ).trim(),
+    const financeUser:
+      FinanceSessionUser = {
+      id: String(
+        result.id
+      ).trim(),
 
-        full_name: String(
-          result.full_name || ""
-        ).trim(),
+      full_name: String(
+        result.full_name || ""
+      ).trim(),
 
-        username: String(
-          result.username ||
-            normalizedUsername
-        ).trim(),
+      username: String(
+        result.username ||
+          normalizedUsername
+      ).trim(),
 
-        role: String(
-          result.role || ""
-        ).trim(),
+      role: String(
+        result.role || ""
+      ).trim(),
 
-        branch_id: String(
-          result.branch_id
-        ).trim(),
+      branch_id: String(
+        result.branch_id
+      ).trim(),
 
-        branch_slug: branchSlug,
+      branch_slug:
+        branchSlug,
 
-        branch_name: String(
-          result.branch_name || ""
-        ).trim(),
+      branch_name: String(
+        result.branch_name || ""
+      ).trim(),
 
-        organization_name: String(
-          result.organization_name ||
-            ""
-        ).trim(),
+      organization_name: String(
+        result.organization_name ||
+          ""
+      ).trim(),
 
-        permissions:
-          normalizePermissions(
-            result.permissions
-          ),
+      permissions:
+        normalizePermissions(
+          result.permissions
+        ),
 
-        manageable_permissions:
-          normalizePermissions(
-            result.manageable_permissions
-          ),
+      manageable_permissions:
+        normalizePermissions(
+          result.manageable_permissions
+        ),
 
-        investor_id:
-          result.investor_id
-            ? String(
-                result.investor_id
-              ).trim()
-            : null,
+      investor_id:
+        result.investor_id
+          ? String(
+              result.investor_id
+            ).trim()
+          : null,
 
-        is_active: true,
+      is_active: true,
 
-        last_login_at:
-          result.last_login_at
-            ? String(
-                result.last_login_at
-              )
-            : null,
+      last_login_at:
+        result.last_login_at
+          ? String(
+              result.last_login_at
+            )
+          : null,
 
-        phone:
-          result.phone
-            ? String(
-                result.phone
-              ).trim()
-            : null,
+      phone:
+        result.phone
+          ? String(
+              result.phone
+            ).trim()
+          : null,
 
-        theme_key:
-          String(
-            result.theme_key ||
-              "professional"
-          ).trim() ||
-          "professional",
+      theme_key:
+        String(
+          result.theme_key ||
+            "professional"
+        ).trim() ||
+        "professional",
 
-        session_version:
-          normalizeVersion(
-            result.session_version
-          ),
+      session_version:
+        normalizeVersion(
+          result.session_version
+        ),
 
-        permissions_version:
-          normalizeVersion(
-            result.permissions_version
-          ),
-      };
+      permissions_version:
+        normalizeVersion(
+          result.permissions_version
+        ),
+    };
 
     const returnPath =
       getRequestedFinanceReturnPath(
@@ -559,7 +592,8 @@ function LoginPageContent() {
       await supabase.rpc(
         "verify_customer_login",
         {
-          p_phone: normalizedPhone,
+          p_phone:
+            normalizedPhone,
           p_password:
             normalizedPassword,
         }
@@ -582,7 +616,8 @@ function LoginPageContent() {
     if (!result) {
       setMessage({
         type: "error",
-        text: "اسم المستخدم أو كلمة المرور غير صحيحة",
+        text:
+          "اسم المستخدم أو كلمة المرور غير صحيحة",
       });
 
       return;
@@ -591,7 +626,8 @@ function LoginPageContent() {
     if (!result.id) {
       setMessage({
         type: "error",
-        text: "بيانات حساب العميل غير مكتملة",
+        text:
+          "بيانات حساب العميل غير مكتملة",
       });
 
       return;
@@ -600,27 +636,34 @@ function LoginPageContent() {
     clearFinanceSession();
     clearCustomerSession();
 
-    const customerUser: CustomerSession =
-      {
-        id: String(result.id),
+    const customerUser:
+      CustomerSession = {
+      id: String(
+        result.id
+      ),
 
-        full_name:
-          result.full_name || "",
+      full_name:
+        result.full_name || "",
 
-        phone:
-          result.phone ||
-          normalizedPhone,
+      phone:
+        result.phone ||
+        normalizedPhone,
 
-        work_sector:
-          result.work_sector || "",
-      };
+      work_sector:
+        result.work_sector || "",
+    };
 
     saveCustomerSession(
       customerUser
     );
 
-    router.prefetch("/customer");
-    router.replace("/customer");
+    router.prefetch(
+      "/customer"
+    );
+
+    router.replace(
+      "/customer"
+    );
   }
 
   async function handleLogin() {
@@ -634,10 +677,14 @@ function LoginPageContent() {
     setMessage(null);
 
     const normalizedIdentifier =
-      loginIdentifier.trim();
+      normalizeDigits(
+        loginIdentifier
+      ).trim();
 
     const normalizedPassword =
-      password
+      normalizeDigits(
+        password
+      )
         .replace(/\D/g, "")
         .slice(0, 8);
 
@@ -653,10 +700,13 @@ function LoginPageContent() {
     const financePasswordRegex =
       /^\d{4,8}$/;
 
-    if (!normalizedIdentifier) {
+    if (
+      !normalizedIdentifier
+    ) {
       setMessage({
         type: "error",
-        text: "أدخل اسم المستخدم ",
+        text:
+          "أدخل اسم المستخدم ",
       });
 
       return;
@@ -675,7 +725,8 @@ function LoginPageContent() {
     ) {
       setMessage({
         type: "error",
-        text: "اسم المستخدم أو كلمة المرور غير صحيحه",
+        text:
+          "اسم المستخدم أو كلمة المرور غير صحيحه",
       });
 
       return;
@@ -689,7 +740,8 @@ function LoginPageContent() {
     ) {
       setMessage({
         type: "error",
-        text: "كلمة مرور العميل يجب أن تكون 4 ارقام او اكثر",
+        text:
+          "كلمة مرور العميل يجب أن تكون 4 أرقام",
       });
 
       return;
@@ -703,7 +755,8 @@ function LoginPageContent() {
     ) {
       setMessage({
         type: "error",
-        text: "كلمة المرور يجب أن تكون من 4 إلى 8 أرقام",
+        text:
+          "كلمة المرور يجب أن تكون من 4 إلى 8 أرقام",
       });
 
       return;
@@ -731,15 +784,20 @@ function LoginPageContent() {
 
       setMessage({
         type: "error",
-        text: "حدث خطأ أثناء تسجيل الدخول، حاول مرة أخرى",
+        text:
+          "حدث خطأ أثناء تسجيل الدخول، حاول مرة أخرى",
       });
     } finally {
       setLoading(false);
     }
   }
 
-  if (checkingExistingSession) {
-    return <LoginPageLoading />;
+  if (
+    checkingExistingSession
+  ) {
+    return (
+      <LoginPageLoading />
+    );
   }
 
   return (
@@ -766,8 +824,13 @@ function LoginPageContent() {
           placeholder="اسم المستخدم "
           value={loginIdentifier}
           onChange={(event) => {
+            const value =
+              normalizeDigits(
+                event.target.value
+              );
+
             setLoginIdentifier(
-              event.target.value
+              value
             );
 
             if (
@@ -789,8 +852,13 @@ function LoginPageContent() {
           value={password}
           onChange={(event) => {
             const value =
-              event.target.value
-                .replace(/\D/g, "")
+              normalizeDigits(
+                event.target.value
+              )
+                .replace(
+                  /\D/g,
+                  ""
+                )
                 .slice(0, 8);
 
             setPassword(value);
@@ -810,7 +878,8 @@ function LoginPageContent() {
           disabled={loading}
           onKeyDown={(event) => {
             if (
-              event.key === "Enter"
+              event.key ===
+              "Enter"
             ) {
               void handleLogin();
             }
