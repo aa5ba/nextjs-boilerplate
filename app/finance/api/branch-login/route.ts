@@ -7,6 +7,9 @@ import {
   financeBranchSessionCookieOptions,
 } from "@/lib/financeBranchSession";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 type FinanceLoginRow = {
   id: string;
   full_name: string | null;
@@ -26,6 +29,25 @@ type FinanceLoginRow = {
   session_version?: number | string | null;
   permissions_version?: number | string | null;
 };
+
+type LoginRequestBody = {
+  username?: unknown;
+  password?: unknown;
+};
+
+function normalizeDigits(value: string) {
+  return value
+    .replace(/[٠-٩]/g, (digit) =>
+      String(
+        "٠١٢٣٤٥٦٧٨٩".indexOf(digit)
+      )
+    )
+    .replace(/[۰-۹]/g, (digit) =>
+      String(
+        "۰۱۲۳۴۵۶۷۸۹".indexOf(digit)
+      )
+    );
+}
 
 function cleanText(value: unknown) {
   return typeof value === "string"
@@ -64,21 +86,31 @@ function getLoginResult(
   return result as FinanceLoginRow;
 }
 
+function createJsonResponse(
+  body: Record<string, unknown>,
+  status: number
+) {
+  return NextResponse.json(body, {
+    status,
+    headers: {
+      "Cache-Control":
+        "no-store, no-cache, must-revalidate",
+      Pragma: "no-cache",
+      Expires: "0",
+    },
+  });
+}
+
 function createErrorResponse(
   message: string,
   status: number
 ) {
-  return NextResponse.json(
+  return createJsonResponse(
     {
       ok: false,
       message,
     },
-    {
-      status,
-      headers: {
-        "Cache-Control": "no-store",
-      },
-    }
+    status
   );
 }
 
@@ -86,42 +118,48 @@ export async function POST(
   request: Request
 ) {
   try {
-    let body: unknown;
+    let body: LoginRequestBody;
 
     try {
-      body = await request.json();
-    } catch {
+      const parsedBody: unknown =
+        await request.json();
+
+      if (
+        !parsedBody ||
+        typeof parsedBody !== "object" ||
+        Array.isArray(parsedBody)
+      ) {
+        return createErrorResponse(
+          "اسم المستخدم أو كلمة المرور غير صحيحة",
+          400
+        );
+      }
+
+      body =
+        parsedBody as LoginRequestBody;
+    } catch (error) {
+      console.error(
+        "Finance branch login invalid JSON:",
+        error
+      );
+
       return createErrorResponse(
         "اسم المستخدم أو كلمة المرور غير صحيحة",
         400
       );
     }
 
-    if (
-      !body ||
-      typeof body !== "object" ||
-      Array.isArray(body)
-    ) {
-      return createErrorResponse(
-        "اسم المستخدم أو كلمة المرور غير صحيحة",
-        400
+    const username =
+      normalizeDigits(
+        cleanText(body.username)
       );
-    }
 
-    const payload = body as {
-      username?: unknown;
-      password?: unknown;
-    };
-
-    const username = cleanText(
-      payload.username
-    );
-
-    const password = cleanText(
-      payload.password
-    )
-      .replace(/\D/g, "")
-      .slice(0, 8);
+    const password =
+      normalizeDigits(
+        cleanText(body.password)
+      )
+        .replace(/\D/g, "")
+        .slice(0, 8);
 
     const usernameRegex =
       /^[\u0600-\u06FFa-zA-Z0-9_.-]{2,35}$/;
@@ -139,29 +177,50 @@ export async function POST(
       );
     }
 
-    const { data, error } =
-      await supabaseAdmin.rpc(
-        "verify_finance_branch_login",
-        {
-          p_username: username,
-          p_password: password,
-        }
-      );
+    let rpcData: unknown;
 
-    if (error) {
+    try {
+      const { data, error } =
+        await supabaseAdmin.rpc(
+          "verify_finance_branch_login",
+          {
+            p_username: username,
+            p_password: password,
+          }
+        );
+
+      if (error) {
+        console.error(
+          "Finance branch login RPC failed:",
+          {
+            message: error.message,
+            code: error.code,
+            details: error.details,
+            hint: error.hint,
+          }
+        );
+
+        return createErrorResponse(
+          "حدث خطأ أثناء التحقق من بيانات الدخول",
+          500
+        );
+      }
+
+      rpcData = data;
+    } catch (error) {
       console.error(
-        "Finance branch login RPC failed:",
+        "Finance branch login RPC exception:",
         error
       );
 
       return createErrorResponse(
-        "حدث خطأ أثناء تسجيل الدخول، حاول مرة أخرى",
+        "تعذر الاتصال بخدمة تسجيل الدخول",
         500
       );
     }
 
     const result =
-      getLoginResult(data);
+      getLoginResult(rpcData);
 
     if (!result) {
       return createErrorResponse(
@@ -170,28 +229,50 @@ export async function POST(
       );
     }
 
-    const userId = cleanText(
-      result.id
-    );
+    const userId =
+      cleanText(result.id);
 
-    const branchId = cleanText(
-      result.branch_id
-    );
+    const branchId =
+      cleanText(result.branch_id);
 
-    const branchSlug = cleanText(
-      result.branch_slug
-    ).toLowerCase();
+    const branchSlug =
+      cleanText(
+        result.branch_slug
+      ).toLowerCase();
 
     if (
       !userId ||
       !branchId ||
-      !branchSlug ||
+      !branchSlug
+    ) {
+      console.error(
+        "Finance branch login incomplete user data:",
+        {
+          hasUserId: Boolean(userId),
+          hasBranchId: Boolean(branchId),
+          hasBranchSlug:
+            Boolean(branchSlug),
+        }
+      );
+
+      return createErrorResponse(
+        "بيانات حساب الموظف غير مكتملة",
+        403
+      );
+    }
+
+    if (
       !/^[a-z0-9_-]+$/.test(
         branchSlug
       )
     ) {
+      console.error(
+        "Finance branch login invalid branch slug:",
+        branchSlug
+      );
+
       return createErrorResponse(
-        "بيانات حساب الموظف غير مكتملة",
+        "مسار الفرع غير صالح",
         403
       );
     }
@@ -210,38 +291,70 @@ export async function POST(
         result.session_version
       );
 
-    const token =
-      createFinanceBranchSessionToken({
-        userId,
-        branchId,
-        branchSlug,
-        sessionVersion,
-      });
+    let token: string;
+
+    try {
+      token =
+        createFinanceBranchSessionToken({
+          userId,
+          branchId,
+          branchSlug,
+          sessionVersion,
+        });
+    } catch (error) {
+      console.error(
+        "Finance branch session token creation failed:",
+        error
+      );
+
+      return createErrorResponse(
+        "تعذر إنشاء جلسة تسجيل الدخول",
+        500
+      );
+    }
+
+    if (!token) {
+      console.error(
+        "Finance branch session token is empty"
+      );
+
+      return createErrorResponse(
+        "تعذر إنشاء جلسة تسجيل الدخول",
+        500
+      );
+    }
 
     const response =
-      NextResponse.json(
+      createJsonResponse(
         {
           ok: true,
           user: result,
         },
-        {
-          status: 200,
-          headers: {
-            "Cache-Control": "no-store",
-          },
-        }
+        200
       );
 
-    response.cookies.set(
-      FINANCE_BRANCH_SESSION_COOKIE_NAME,
-      token,
-      financeBranchSessionCookieOptions
-    );
+    try {
+      response.cookies.set(
+        FINANCE_BRANCH_SESSION_COOKIE_NAME,
+        token,
+        financeBranchSessionCookieOptions
+      );
+    } catch (error) {
+      console.error(
+        "Finance branch session cookie failed:",
+        error
+      );
+
+      return createErrorResponse(
+        "تعذر حفظ جلسة تسجيل الدخول",
+        500
+      );
+    }
 
     return response;
   } catch (error) {
     console.error(
-      "Finance branch login route error:",
+      "Finance branch login route unexpected error:",
       error
     );
 
@@ -253,28 +366,35 @@ export async function POST(
 }
 
 export async function DELETE() {
-  const response =
-    NextResponse.json(
-      {
-        ok: true,
-      },
-      {
-        status: 200,
-        headers: {
-          "Cache-Control": "no-store",
+  try {
+    const response =
+      createJsonResponse(
+        {
+          ok: true,
         },
+        200
+      );
+
+    response.cookies.set(
+      FINANCE_BRANCH_SESSION_COOKIE_NAME,
+      "",
+      {
+        ...financeBranchSessionCookieOptions,
+        maxAge: 0,
+        expires: new Date(0),
       }
     );
 
-  response.cookies.set(
-    FINANCE_BRANCH_SESSION_COOKIE_NAME,
-    "",
-    {
-      ...financeBranchSessionCookieOptions,
-      maxAge: 0,
-      expires: new Date(0),
-    }
-  );
+    return response;
+  } catch (error) {
+    console.error(
+      "Finance branch logout route error:",
+      error
+    );
 
-  return response;
+    return createErrorResponse(
+      "تعذر إنهاء جلسة تسجيل الدخول",
+      500
+    );
+  }
 }
