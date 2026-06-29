@@ -4,6 +4,9 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { verifyAdminSupportRequest } from "@/lib/adminSupportAuth";
 import { ADMIN_SUPPORT_COOKIE_NAME } from "@/lib/adminSupportSession";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 const ALLOWED_ROLES = [
   "support",
   "viewer",
@@ -17,6 +20,7 @@ const ALLOWED_PERMISSIONS = [
   "impersonate_branch",
   "view_logs",
   "backup_restore",
+  "manage_verification_results",
 ] as const;
 
 type SupportRole = (typeof ALLOWED_ROLES)[number];
@@ -41,6 +45,16 @@ function cleanText(value: unknown) {
     : "";
 }
 
+function noStoreHeaders() {
+  return {
+    "Cache-Control":
+      "no-store, no-cache, must-revalidate, proxy-revalidate",
+    Pragma: "no-cache",
+    Expires: "0",
+    "X-Content-Type-Options": "nosniff",
+  };
+}
+
 function createErrorResponse(
   message: string,
   status: number,
@@ -53,9 +67,7 @@ function createErrorResponse(
     },
     {
       status,
-      headers: {
-        "Cache-Control": "no-store",
-      },
+      headers: noStoreHeaders(),
     }
   );
 
@@ -66,11 +78,11 @@ function createErrorResponse(
       {
         httpOnly: true,
         secure:
-          process.env.NODE_ENV ===
-          "production",
-        sameSite: "lax",
+          process.env.NODE_ENV === "production",
+        sameSite: "strict",
         path: "/",
         maxAge: 0,
+        priority: "high",
       }
     );
   }
@@ -257,9 +269,10 @@ export async function POST(
       body.username
     );
 
-    const password = cleanText(
-      body.password
-    );
+    const password =
+      typeof body.password === "string"
+        ? body.password
+        : "";
 
     const role = cleanText(
       body.role
@@ -321,11 +334,6 @@ export async function POST(
       );
     }
 
-    /*
-      لا نسمح لمستخدم دعم عادي بإنشاء
-      مدير نظام، حتى لو امتلك صلاحية
-      إدارة مستخدمي الدعم.
-    */
     if (
       role === "super_admin" &&
       auth.user.role !== "super_admin"
@@ -412,9 +420,7 @@ export async function POST(
       },
       {
         status: 201,
-        headers: {
-          "Cache-Control": "no-store",
-        },
+        headers: noStoreHeaders(),
       }
     );
   } catch (error) {
