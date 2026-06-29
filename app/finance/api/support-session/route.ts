@@ -1,14 +1,27 @@
-import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
+import {
+  NextRequest,
+  NextResponse,
+} from "next/server";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { verifyAdminSupportRequest } from "@/lib/adminSupportAuth";
 import {
   ADMIN_SUPPORT_IMPERSONATION_COOKIE_NAME,
-  adminSupportImpersonationCookieOptions,
+  adminSupportImpersonationCookieDeleteOptions,
   verifyAdminSupportImpersonationToken,
 } from "@/lib/adminSupportSession";
 
-const FINANCE_SUPPORT_PERMISSIONS = [
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+const BRANCH_SLUG_PATTERN =
+  /^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$/;
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const FINANCE_SUPPORT_PERMISSIONS = Object.freeze([
   "workflow",
   "customers",
   "contracts",
@@ -19,37 +32,166 @@ const FINANCE_SUPPORT_PERMISSIONS = [
   "settings",
   "print",
   "archive",
-];
-
-type SupportUserRow = {
-  id: string;
-  full_name: string;
-  username: string;
-  role: string;
-  is_active: boolean;
-};
+]);
 
 type BranchRow = {
-  id: string;
-  branch_name: string;
-  branch_slug: string;
-  organization_name: string;
-  is_active: boolean;
+  id: unknown;
+  branch_name: unknown;
+  branch_slug: unknown;
+  organization_name: unknown;
+  is_active: unknown;
 };
 
-function cleanText(value: unknown) {
-  return typeof value === "string" ? value.trim() : "";
+type NormalizedBranch = {
+  id: string;
+  branchName: string;
+  branchSlug: string;
+  organizationName: string;
+  isActive: boolean;
+};
+
+function noStoreHeaders(): Record<string, string> {
+  return {
+    "Cache-Control":
+      "private, no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+    Pragma: "no-cache",
+    Expires: "0",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    Vary: "Cookie, Origin",
+  };
 }
 
-function clearImpersonationCookie(response: NextResponse) {
+function cleanText(
+  value: unknown
+): string {
+  return typeof value === "string"
+    ? value.trim()
+    : "";
+}
+
+function isValidUuid(
+  value: string
+): boolean {
+  return UUID_PATTERN.test(value);
+}
+
+function normalizeBranchSlug(
+  value: unknown
+): string | null {
+  const branchSlug =
+    cleanText(value).toLowerCase();
+
+  if (
+    branchSlug.length < 1 ||
+    branchSlug.length > 64 ||
+    !BRANCH_SLUG_PATTERN.test(
+      branchSlug
+    )
+  ) {
+    return null;
+  }
+
+  return branchSlug;
+}
+
+function normalizeLimitedText(
+  value: unknown,
+  minimumLength: number,
+  maximumLength: number
+): string | null {
+  const text = cleanText(value);
+
+  if (
+    text.length < minimumLength ||
+    text.length > maximumLength
+  ) {
+    return null;
+  }
+
+  return text;
+}
+
+function normalizeBranch(
+  value: BranchRow | null
+): NormalizedBranch | null {
+  if (!value) {
+    return null;
+  }
+
+  const id =
+    cleanText(value.id);
+
+  const branchName =
+    normalizeLimitedText(
+      value.branch_name,
+      1,
+      150
+    );
+
+  const branchSlug =
+    normalizeBranchSlug(
+      value.branch_slug
+    );
+
+  const organizationName =
+    normalizeLimitedText(
+      value.organization_name,
+      1,
+      200
+    );
+
+  if (
+    !isValidUuid(id) ||
+    !branchName ||
+    !branchSlug ||
+    !organizationName ||
+    typeof value.is_active !==
+      "boolean"
+  ) {
+    return null;
+  }
+
+  return {
+    id,
+    branchName,
+    branchSlug,
+    organizationName,
+    isActive:
+      value.is_active,
+  };
+}
+
+function logSupabaseError(
+  context: string,
+  error: {
+    code?: string;
+    message?: string;
+  }
+): void {
+  console.error(context, {
+    code:
+      typeof error.code ===
+      "string"
+        ? error.code
+        : "UNKNOWN",
+
+    message:
+      typeof error.message ===
+      "string"
+        ? error.message
+        : "Unknown database error",
+  });
+}
+
+function clearImpersonationCookie(
+  response: NextResponse
+): NextResponse {
   response.cookies.set(
     ADMIN_SUPPORT_IMPERSONATION_COOKIE_NAME,
     "",
-    {
-      ...adminSupportImpersonationCookieOptions,
-      maxAge: 0,
-      expires: new Date(0),
-    }
+    adminSupportImpersonationCookieDeleteOptions
   );
 
   return response;
@@ -59,59 +201,102 @@ function createErrorResponse(
   message: string,
   status: number,
   shouldClearImpersonationCookie = false
-) {
-  const response = NextResponse.json(
-    {
-      ok: false,
-      message,
-    },
-    {
-      status,
-      headers: {
-        "Cache-Control": "no-store",
+): NextResponse {
+  const response =
+    NextResponse.json(
+      {
+        ok: false,
+        message,
       },
-    }
-  );
+      {
+        status,
+        headers:
+          noStoreHeaders(),
+      }
+    );
 
-  if (shouldClearImpersonationCookie) {
-    return clearImpersonationCookie(response);
+  if (
+    shouldClearImpersonationCookie
+  ) {
+    clearImpersonationCookie(
+      response
+    );
   }
 
   return response;
 }
 
-export async function GET(request: Request) {
-  try {
-    const url = new URL(request.url);
+function isSameOriginRequest(
+  request: NextRequest
+): boolean {
+  const originHeader =
+    request.headers.get("origin");
 
-    const requestedBranchSlug = cleanText(
-      url.searchParams.get("branch")
-    ).toLowerCase();
+  if (originHeader) {
+    try {
+      const origin =
+        new URL(originHeader);
+
+      return (
+        origin.origin ===
+        request.nextUrl.origin
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  const fetchSite =
+    request.headers
+      .get("sec-fetch-site")
+      ?.trim()
+      .toLowerCase();
+
+  return (
+    !fetchSite ||
+    fetchSite === "same-origin" ||
+    fetchSite === "same-site" ||
+    fetchSite === "none"
+  );
+}
+
+function getRequestedBranchSlug(
+  request: NextRequest
+): string | null {
+  return normalizeBranchSlug(
+    request.nextUrl.searchParams.get(
+      "branch"
+    )
+  );
+}
+
+export async function GET(
+  request: NextRequest
+): Promise<NextResponse> {
+  try {
+    const requestedBranchSlug =
+      getRequestedBranchSlug(
+        request
+      );
 
     if (!requestedBranchSlug) {
-      return createErrorResponse(
-        "رابط الفرع مطلوب",
-        400
-      );
-    }
-
-    if (!/^[a-z0-9_-]+$/.test(requestedBranchSlug)) {
       return createErrorResponse(
         "رابط الفرع غير صحيح",
         400
       );
     }
 
-    const cookieStore = await cookies();
+    const impersonationToken =
+      request.cookies.get(
+        ADMIN_SUPPORT_IMPERSONATION_COOKIE_NAME
+      )?.value;
 
-    const token = cookieStore.get(
-      ADMIN_SUPPORT_IMPERSONATION_COOKIE_NAME
-    )?.value;
+    const impersonationSession =
+      verifyAdminSupportImpersonationToken(
+        impersonationToken
+      );
 
-    const session =
-      verifyAdminSupportImpersonationToken(token);
-
-    if (!session) {
+    if (!impersonationSession) {
       return createErrorResponse(
         "لا توجد جلسة دخول دعم صالحة",
         401,
@@ -119,57 +304,121 @@ export async function GET(request: Request) {
       );
     }
 
-    if (session.branchSlug !== requestedBranchSlug) {
+    if (
+      impersonationSession.branchSlug !==
+      requestedBranchSlug
+    ) {
       return createErrorResponse(
         "جلسة الدعم لا تخص هذا الفرع",
-        403
+        403,
+        true
       );
     }
 
-    const [
-      branchResult,
-      supportUserResult,
-      permissionResult,
-    ] = await Promise.all([
-      supabaseAdmin
-        .from("finance_branches")
-        .select(
-          `
-            id,
-            branch_name,
-            branch_slug,
-            organization_name,
-            is_active
-          `
-        )
-        .eq("id", session.branchId)
-        .eq("branch_slug", requestedBranchSlug)
-        .maybeSingle(),
+    /*
+     * التحقق المركزي يعيد قراءة مستخدم الدعم
+     * وصلاحياته وsession_version من قاعدة
+     * البيانات، ولا يثق ببيانات Cookie.
+     */
+    const auth =
+      await verifyAdminSupportRequest(
+        "impersonate_branch"
+      );
 
-      supabaseAdmin
-        .from("admin_support_users")
-        .select(
-          `
-            id,
-            full_name,
-            username,
-            role,
-            is_active
-          `
-        )
-        .eq("id", session.supportUserId)
-        .maybeSingle(),
+    if (!auth.ok) {
+      return createErrorResponse(
+        auth.message,
+        auth.status,
+        true
+      );
+    }
 
-      supabaseAdmin
-        .from("admin_support_user_permissions")
-        .select("permission_key")
-        .eq("user_id", session.supportUserId),
-    ]);
+    /*
+     * يجب أن تكون جلسة الانتحال مرتبطة
+     * بجلسة الدعم الأصلية نفسها، وليس فقط
+     * بالمستخدم نفسه.
+     */
+    if (
+      impersonationSession.supportSessionId !==
+      auth.user.session.sessionId
+    ) {
+      return createErrorResponse(
+        "جلسة دخول الفرع لا تطابق جلسة الدعم الحالية",
+        401,
+        true
+      );
+    }
 
-    if (branchResult.error) {
-      console.error(
+    if (
+      impersonationSession.supportUserId !==
+      auth.user.id
+    ) {
+      return createErrorResponse(
+        "جلسة دخول الفرع لا تطابق مستخدم الدعم الحالي",
+        401,
+        true
+      );
+    }
+
+    if (
+      impersonationSession.supportSessionVersion !==
+        auth.user.sessionVersion ||
+      impersonationSession.supportSessionVersion !==
+        auth.user.session.sessionVersion
+    ) {
+      return createErrorResponse(
+        "تم تحديث جلسة مستخدم الدعم، سجّل الدخول مرة أخرى",
+        401,
+        true
+      );
+    }
+
+    /*
+     * هذه القيم ليست مصدر صلاحية، لكن
+     * مقارنتها تمنع استمرار رمز قديم بعد
+     * تغيير اسم المستخدم أو بيانات الحساب.
+     */
+    if (
+      impersonationSession.supportUsername !==
+        auth.user.username ||
+      impersonationSession.supportFullName !==
+        auth.user.fullName
+    ) {
+      return createErrorResponse(
+        "تم تحديث بيانات مستخدم الدعم، أعد دخول الفرع",
+        401,
+        true
+      );
+    }
+
+    const {
+      data: branchData,
+      error: branchError,
+    } = await supabaseAdmin
+      .from("finance_branches")
+      .select(
+        `
+          id,
+          branch_name,
+          branch_slug,
+          organization_name,
+          is_active
+        `
+      )
+      .eq(
+        "id",
+        impersonationSession.branchId
+      )
+      .eq(
+        "branch_slug",
+        requestedBranchSlug
+      )
+      .maybeSingle();
+
+    if (branchError) {
+      logSupabaseError(
         "Support session branch lookup failed:",
-        branchResult.error
+        branchError
       );
 
       return createErrorResponse(
@@ -178,81 +427,50 @@ export async function GET(request: Request) {
       );
     }
 
-    if (supportUserResult.error) {
-      console.error(
-        "Support session user lookup failed:",
-        supportUserResult.error
-      );
-
+    if (!branchData) {
       return createErrorResponse(
-        "تعذر التحقق من مستخدم الدعم",
-        500
-      );
-    }
-
-    if (permissionResult.error) {
-      console.error(
-        "Support session permission lookup failed:",
-        permissionResult.error
-      );
-
-      return createErrorResponse(
-        "تعذر التحقق من صلاحيات مستخدم الدعم",
-        500
+        "الفرع غير موجود",
+        403,
+        true
       );
     }
 
     const branch =
-      branchResult.data as BranchRow | null;
+      normalizeBranch(
+        branchData as BranchRow
+      );
 
-    const supportUser =
-      supportUserResult.data as SupportUserRow | null;
+    if (!branch) {
+      console.error(
+        "Invalid finance branch row during support session verification:",
+        {
+          branchId:
+            impersonationSession.branchId,
+        }
+      );
 
-    if (!branch || !branch.is_active) {
       return createErrorResponse(
-        "الفرع غير موجود أو غير نشط",
-        403,
+        "بيانات الفرع غير صالحة",
+        500,
         true
       );
     }
 
-    if (!supportUser || !supportUser.is_active) {
+    if (!branch.isActive) {
       return createErrorResponse(
-        "مستخدم الدعم غير موجود أو غير نشط",
-        403,
-        true
-      );
-    }
-
-    const supportPermissions = Array.isArray(
-      permissionResult.data
-    )
-      ? permissionResult.data
-          .map((item) =>
-            typeof item.permission_key === "string"
-              ? item.permission_key
-              : ""
-          )
-          .filter(Boolean)
-      : [];
-
-    const canImpersonate =
-      supportUser.role === "super_admin" ||
-      supportPermissions.includes(
-        "impersonate_branch"
-      );
-
-    if (!canImpersonate) {
-      return createErrorResponse(
-        "تم سحب صلاحية الدخول إلى الفروع",
+        "الفرع غير نشط",
         403,
         true
       );
     }
 
     if (
-      session.branchId !== branch.id ||
-      session.branchSlug !== branch.branch_slug
+      impersonationSession.branchId !==
+        branch.id ||
+      impersonationSession.branchSlug !==
+        branch.branchSlug ||
+      requestedBranchSlug !==
+        branch.branchSlug
     ) {
       return createErrorResponse(
         "بيانات جلسة الدعم لا تطابق الفرع",
@@ -261,42 +479,113 @@ export async function GET(request: Request) {
       );
     }
 
+    /*
+     * تغيير اسم الفرع لا يمنح صلاحية أو
+     * يغير هوية الفرع، لكنه يتطلب تجديد
+     * جلسة الانتحال حتى تظهر البيانات
+     * الحالية بصورة صحيحة.
+     */
+    if (
+      impersonationSession.branchName !==
+      branch.branchName
+    ) {
+      return createErrorResponse(
+        "تم تحديث بيانات الفرع، أعد الدخول إليه من لوحة الدعم",
+        401,
+        true
+      );
+    }
+
     return NextResponse.json(
       {
         ok: true,
-        session_type: "admin_support",
+
+        session_type:
+          "admin_support",
+
         user: {
-          id: `support:${supportUser.id}`,
-          branch_id: branch.id,
-          branch_slug: branch.branch_slug,
-          branch_name: branch.branch_name,
+          id:
+            `support:${auth.user.id}`,
+
+          branch_id:
+            branch.id,
+
+          branch_slug:
+            branch.branchSlug,
+
+          branch_name:
+            branch.branchName,
+
           organization_name:
-            branch.organization_name,
-          full_name: supportUser.full_name,
-          username: supportUser.username,
-          role: "support_impersonation",
-          roles: ["support_impersonation"],
-          permissions:
-            FINANCE_SUPPORT_PERMISSIONS,
-          logged_at: new Date(
-            session.issuedAt * 1000
-          ).toISOString(),
-          support_user_id: supportUser.id,
-          support_role: supportUser.role,
-          is_support_session: true,
+            branch.organizationName,
+
+          full_name:
+            auth.user.fullName,
+
+          username:
+            auth.user.username,
+
+          role:
+            "support_impersonation",
+
+          roles: [
+            "support_impersonation",
+          ],
+
+          permissions: [
+            ...FINANCE_SUPPORT_PERMISSIONS,
+          ],
+
+          logged_at:
+            new Date(
+              impersonationSession
+                .issuedAt * 1000
+            ).toISOString(),
+
+          session_expires_at:
+            new Date(
+              impersonationSession
+                .expiresAt * 1000
+            ).toISOString(),
+
+          support_user_id:
+            auth.user.id,
+
+          support_role:
+            auth.user.role,
+
+          support_session_id:
+            auth.user.session
+              .sessionId,
+
+          impersonation_id:
+            impersonationSession
+              .impersonationId,
+
+          is_support_session:
+            true,
         },
       },
       {
         status: 200,
-        headers: {
-          "Cache-Control": "no-store",
-        },
+        headers:
+          noStoreHeaders(),
       }
     );
   } catch (error) {
     console.error(
       "Finance support session route error:",
-      error
+      error instanceof Error
+        ? {
+            name:
+              error.name,
+            message:
+              error.message,
+          }
+        : {
+            name:
+              "UnknownError",
+          }
     );
 
     return createErrorResponse(
@@ -306,41 +595,71 @@ export async function GET(request: Request) {
   }
 }
 
-export async function DELETE() {
+export async function DELETE(
+  request: NextRequest
+): Promise<NextResponse> {
   try {
-    const response = NextResponse.json(
-      {
-        ok: true,
-        message: "تم إنهاء دخول الفرع والعودة إلى لوحة الدعم",
-      },
-      {
-        status: 200,
-        headers: {
-          "Cache-Control": "no-store",
-        },
-      }
-    );
+    if (
+      !isSameOriginRequest(
+        request
+      )
+    ) {
+      return createErrorResponse(
+        "تم رفض مصدر الطلب",
+        403,
+        true
+      );
+    }
 
-    return clearImpersonationCookie(response);
+    const response =
+      NextResponse.json(
+        {
+          ok: true,
+          message:
+            "تم إنهاء دخول الفرع والعودة إلى لوحة الدعم",
+        },
+        {
+          status: 200,
+          headers:
+            noStoreHeaders(),
+        }
+      );
+
+    return clearImpersonationCookie(
+      response
+    );
   } catch (error) {
     console.error(
       "Finance support impersonation logout error:",
-      error
+      error instanceof Error
+        ? {
+            name:
+              error.name,
+            message:
+              error.message,
+          }
+        : {
+            name:
+              "UnknownError",
+          }
     );
 
-    const response = NextResponse.json(
-      {
-        ok: false,
-        message: "تعذر إنهاء جلسة دخول الفرع",
-      },
-      {
-        status: 500,
-        headers: {
-          "Cache-Control": "no-store",
+    const response =
+      NextResponse.json(
+        {
+          ok: false,
+          message:
+            "تعذر إنهاء جلسة دخول الفرع",
         },
-      }
-    );
+        {
+          status: 500,
+          headers:
+            noStoreHeaders(),
+        }
+      );
 
-    return clearImpersonationCookie(response);
+    return clearImpersonationCookie(
+      response
+    );
   }
 }
