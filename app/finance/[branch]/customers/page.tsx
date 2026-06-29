@@ -1604,23 +1604,46 @@ export default function FinanceCustomersPage() {
   }
 
   async function logout() {
-    if (
-      logoutLoading
-    ) {
-      return;
-    }
+  if (
+    logoutLoading
+  ) {
+    return;
+  }
 
-    if (
-      isSupportSession
-    ) {
-      await leaveSupportBranch();
-      return;
-    }
+  if (
+    isSupportSession
+  ) {
+    await leaveSupportBranch();
+    return;
+  }
+
+  setLogoutLoading(true);
+
+  try {
+    await fetch(
+      "/finance/api/branch-login",
+      {
+        method: "DELETE",
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          Accept: "application/json",
+        },
+      }
+    );
+  } catch (error) {
+    console.error(
+      "Finance branch cookie logout failed:",
+      error
+    );
+  } finally {
+    setLogoutLoading(false);
 
     logoutFinanceUser(
       router
     );
   }
+}
 
   if (
     !authChecked ||
