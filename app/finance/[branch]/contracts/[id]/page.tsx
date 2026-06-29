@@ -74,6 +74,14 @@ type Contract = {
   created_by?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  closed_at?: string | null;
+
+  default_declared_at?: string | null;
+  default_expires_at?: string | null;
+  default_declared_by?: string | null;
+  default_declared_by_name?: string | null;
+  default_reason?: string | null;
+  default_notes?: string | null;
 
   has_deferred_payments?: boolean | null;
   installment_amount?: number | string | null;
@@ -131,6 +139,7 @@ type ReopenContractResult = {
 
 const SESSION_DURATION_MS = 60 * 60 * 1000;
 const ACTIVITY_REFRESH_INTERVAL_MS = 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const SESSION_KEYS = [
   "finance_user",
@@ -1321,6 +1330,58 @@ export default function FinanceContractDetailsPage() {
     );
   }
 
+  function parseContractDueDate(
+    value?: string | null
+  ) {
+    const cleanValue = String(
+      value || ""
+    ).trim();
+
+    const match =
+      /^(\d{4})-(\d{2})-(\d{2})$/.exec(
+        cleanValue
+      );
+
+    if (!match) {
+      return null;
+    }
+
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+
+    const date = new Date(
+      Date.UTC(
+        year,
+        month - 1,
+        day
+      )
+    );
+
+    if (
+      date.getUTCFullYear() !== year ||
+      date.getUTCMonth() !==
+        month - 1 ||
+      date.getUTCDate() !== day
+    ) {
+      return null;
+    }
+
+    return date;
+  }
+
+  function getTodayDateOnly() {
+    const now = new Date();
+
+    return new Date(
+      Date.UTC(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate()
+      )
+    );
+  }
+
   function formatDate(
     date?: string | null
   ) {
@@ -1403,16 +1464,24 @@ export default function FinanceContractDetailsPage() {
     status?: string | null
   ) {
     if (
-      status === "تم السداد"
+      status === "تم السداد" ||
+      status === "مغلق"
     ) {
       return paidStatus;
+    }
+
+    if (status === "متعثر") {
+      return defaultedStatus;
     }
 
     if (status === "متأخر") {
       return lateStatus;
     }
 
-    if (status === "ملغي") {
+    if (
+      status === "ملغي" ||
+      status === "ملغى"
+    ) {
       return cancelledStatus;
     }
 
@@ -1423,13 +1492,97 @@ export default function FinanceContractDetailsPage() {
     return null;
   }
 
+  const remainingAmount = Number(
+    contract?.remaining_amount || 0
+  );
+
+  const storedContractStatus = String(
+    contract?.contract_status || ""
+  ).trim();
+
+  const isCancelledContract = [
+    "ملغي",
+    "ملغى",
+  ].includes(storedContractStatus);
+
+  const isClosedContract = [
+    "تم السداد",
+    "مغلق",
+  ].includes(storedContractStatus);
+
   const isFullyPaid =
-    Number(
-      contract?.remaining_amount ||
-        0
-    ) <= 0 ||
-    contract?.contract_status ===
+    remainingAmount <= 0 ||
+    storedContractStatus ===
       "تم السداد";
+
+  const contractDueDate =
+    parseContractDueDate(
+      contract?.payment_due_date
+    );
+
+  const contractDaysAfterDue =
+    contractDueDate
+      ? Math.floor(
+          (
+            getTodayDateOnly().getTime() -
+            contractDueDate.getTime()
+          ) /
+            DAY_MS
+        )
+      : null;
+
+  const hasActiveDefault =
+    Boolean(
+      contract?.default_declared_at &&
+        contract?.default_expires_at &&
+        new Date(
+          contract.default_expires_at
+        ).getTime() > Date.now()
+    );
+
+  const isAutomaticallyLate =
+    Boolean(
+      contractDueDate &&
+        contractDaysAfterDue !== null &&
+        contractDaysAfterDue >= 7 &&
+        remainingAmount > 0 &&
+        !isFullyPaid &&
+        !isClosedContract &&
+        !isCancelledContract
+    );
+
+  const displayedContractStatus = (() => {
+    if (isCancelledContract) {
+      return storedContractStatus;
+    }
+
+    if (
+      isFullyPaid ||
+      isClosedContract
+    ) {
+      return storedContractStatus ===
+        "مغلق"
+        ? "مغلق"
+        : "تم السداد";
+    }
+
+    if (hasActiveDefault) {
+      return "متعثر";
+    }
+
+    if (isAutomaticallyLate) {
+      return "متأخر";
+    }
+
+    return "نشط";
+  })();
+
+  const canDeclareDefault =
+    Boolean(
+      contract &&
+        isAutomaticallyLate &&
+        !hasActiveDefault
+    );
 
   const hasDeferredPayments =
     Boolean(
@@ -1476,11 +1629,10 @@ export default function FinanceContractDetailsPage() {
             contract ? (
               <span
                 style={statusStyle(
-                  contract.contract_status
+                  displayedContractStatus
                 )}
               >
-                {contract.contract_status ||
-                  "نشط"}
+                {displayedContractStatus}
               </span>
             ) : undefined
           }
@@ -1599,6 +1751,32 @@ export default function FinanceContractDetailsPage() {
             </InfoCard>
 
             <InfoCard title="بيانات العقد">
+              <Row
+                label="حالة العقد"
+                value={
+                  <span
+                    style={statusStyle(
+                      displayedContractStatus
+                    )}
+                  >
+                    {displayedContractStatus}
+                  </span>
+                }
+              />
+
+              {contractDaysAfterDue !==
+                null &&
+                contractDaysAfterDue >=
+                  7 &&
+                !isFullyPaid &&
+                !isClosedContract &&
+                !isCancelledContract && (
+                  <Row
+                    label="أيام التأخير"
+                    value={`${contractDaysAfterDue} يوم`}
+                  />
+                )}
+
               <Row
                 label="نوع التمويل"
                 value={
@@ -1938,13 +2116,27 @@ export default function FinanceContractDetailsPage() {
             </InfoCard>
 
             <section style={actionsSection}>
-              {!isFullyPaid && (
+              {!isFullyPaid &&
+                !isClosedContract &&
+                !isCancelledContract && (
+                  <ActionButton
+                    icon="💳"
+                    title="تسجيل سداد"
+                    onClick={() =>
+                      router.push(
+                        `/finance/${branch}/payments/new?contract=${contractId}`
+                      )
+                    }
+                  />
+                )}
+
+              {canDeclareDefault && (
                 <ActionButton
-                  icon="💳"
-                  title="تسجيل سداد"
+                  icon="⚠️"
+                  title="إعلان التعثر"
                   onClick={() =>
                     router.push(
-                      `/finance/${branch}/payments/new?contract=${contractId}`
+                      `/finance/${branch}/contracts/${contractId}/declare-default`
                     )
                   }
                 />
@@ -2023,22 +2215,24 @@ export default function FinanceContractDetailsPage() {
                 />
               )}
 
-              {!isFullyPaid && (
-                <ActionButton
-                  icon="🔒"
-                  title={
-                    closingContract
-                      ? "جاري إغلاق العقد..."
-                      : "إغلاق العقد"
-                  }
-                  onClick={() =>
-                    void closeContract()
-                  }
-                  disabled={
-                    closingContract
-                  }
-                />
-              )}
+              {!isFullyPaid &&
+                !isClosedContract &&
+                !isCancelledContract && (
+                  <ActionButton
+                    icon="🔒"
+                    title={
+                      closingContract
+                        ? "جاري إغلاق العقد..."
+                        : "إغلاق العقد"
+                    }
+                    onClick={() =>
+                      void closeContract()
+                    }
+                    disabled={
+                      closingContract
+                    }
+                  />
+                )}
             </section>
           </>
         )}
@@ -3040,6 +3234,15 @@ const lateStatus: CSSProperties = {
   whiteSpace: "nowrap",
 };
 
+const defaultedStatus: CSSProperties = {
+  background: "#fee2e2",
+  color: "#991b1b",
+  borderRadius: 999,
+  padding: "8px 14px",
+  fontWeight: 900,
+  whiteSpace: "nowrap",
+};
+
 const paidStatus: CSSProperties = {
   background: "#dbeafe",
   color: "#1d4ed8",
@@ -3050,8 +3253,8 @@ const paidStatus: CSSProperties = {
 };
 
 const cancelledStatus: CSSProperties = {
-  background: "#fee2e2",
-  color: "#991b1b",
+  background: "#f1f5f9",
+  color: "#475569",
   borderRadius: 999,
   padding: "8px 14px",
   fontWeight: 900,
