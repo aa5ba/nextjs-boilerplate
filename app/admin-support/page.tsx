@@ -7,19 +7,37 @@ import {
   useRef,
   useState,
 } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type {
+  CSSProperties,
+  ReactNode,
+} from "react";
 import { useRouter } from "next/navigation";
 
 const SUPPORT_PERMISSIONS = [
-  { key: "manage_branches", label: "إدارة الفروع" },
+  {
+    key: "manage_branches",
+    label: "إدارة الفروع",
+  },
   {
     key: "manage_support_users",
     label: "إدارة مستخدمي الدعم",
   },
-  { key: "system_settings", label: "إعدادات النظام" },
-  { key: "impersonate_branch", label: "الدخول للفروع" },
-  { key: "view_logs", label: "عرض السجلات" },
-  { key: "backup_restore", label: "النسخ والاستعادة" },
+  {
+    key: "system_settings",
+    label: "إعدادات النظام",
+  },
+  {
+    key: "impersonate_branch",
+    label: "الدخول للفروع",
+  },
+  {
+    key: "view_logs",
+    label: "عرض السجلات",
+  },
+  {
+    key: "backup_restore",
+    label: "النسخ والاستعادة",
+  },
   {
     key: "manage_verification_results",
     label: "إدارة نتائج التحقق",
@@ -37,6 +55,19 @@ const VERIFICATION_POSITIONS = [
   "متأخر",
   "متعثر",
 ] as const;
+
+const DASHBOARD_PAGE_SIZE = 25;
+const DASHBOARD_LOGS_PAGE_SIZE = 50;
+const REQUEST_TIMEOUT_MS = 30_000;
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const BRANCH_SLUG_PATTERN =
+  /^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$/;
+
+const USERNAME_PATTERN =
+  /^[A-Za-z0-9_\u0600-\u06FF]{3,30}$/;
 
 type SupportPermission =
   (typeof SUPPORT_PERMISSIONS)[number]["key"];
@@ -58,6 +89,12 @@ type TabType =
   | "branch_managers"
   | "users"
   | "verifications"
+  | "logs";
+
+type DashboardSection =
+  | "all"
+  | "branches"
+  | "support_users"
   | "logs";
 
 type CurrentUser = {
@@ -204,15 +241,35 @@ type RawVerificationContract = {
   default_notes?: unknown;
 };
 
+type PaginationState = {
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
+};
+
+type DashboardPagination = {
+  branches: PaginationState;
+  branch_managers: PaginationState;
+  support_users: PaginationState;
+  logs: PaginationState;
+};
+
 type DashboardResponse = {
   ok: boolean;
   message?: string;
+
+  requested_section?: DashboardSection;
+
   user?: CurrentUser;
   access?: DashboardAccess;
-  branches?: Branch[];
-  branch_managers?: BranchManager[];
-  support_users?: SupportUser[];
-  logs?: SupportLog[];
+
+  branches?: unknown;
+  branch_managers?: unknown;
+  support_users?: unknown;
+  logs?: unknown;
+
+  pagination?: Partial<DashboardPagination>;
 };
 
 type ApiResponse<T = unknown> = {
@@ -251,6 +308,7 @@ type BusyAction =
   | "create_support_user"
   | "verification_search"
   | "verification_refresh"
+  | `dashboard_section:${DashboardSection}`
   | `branch_status:${string}`
   | `branch_enter:${string}`
   | `manager_status:${string}`
@@ -259,6 +317,29 @@ type BusyAction =
   | `support_permissions:${string}`
   | `verification_set:${string}`
   | `verification_clear:${string}`;
+
+type RequestResult<T> =
+  | {
+      ok: true;
+      status: number;
+      payload: ApiResponse<T>;
+    }
+  | {
+      ok: false;
+      status: number;
+      message: string;
+      aborted: boolean;
+      unauthorized: boolean;
+      forbidden: boolean;
+      rateLimited: boolean;
+    };
+
+type PaginationReference = {
+  branchesPage: number;
+  managersPage: number;
+  usersPage: number;
+  logsPage: number;
+};
 
 const EMPTY_ACCESS: DashboardAccess = {
   manage_branches: false,
@@ -270,20 +351,44 @@ const EMPTY_ACCESS: DashboardAccess = {
   manage_verification_results: false,
 };
 
-function normalizeDigits(value: string) {
+const EMPTY_PAGINATION: PaginationState = {
+  page: 1,
+  page_size: DASHBOARD_PAGE_SIZE,
+  total: 0,
+  total_pages: 0,
+};
+
+const EMPTY_LOGS_PAGINATION: PaginationState = {
+  page: 1,
+  page_size: DASHBOARD_LOGS_PAGE_SIZE,
+  total: 0,
+  total_pages: 0,
+};
+
+function normalizeDigits(
+  value: string
+): string {
   return value
     .replace(/[٠-٩]/g, (digit) =>
-      String("٠١٢٣٤٥٦٧٨٩".indexOf(digit))
+      String(
+        "٠١٢٣٤٥٦٧٨٩".indexOf(
+          digit
+        )
+      )
     )
     .replace(/[۰-۹]/g, (digit) =>
-      String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit))
+      String(
+        "۰۱۲۳۴۵۶۷۸۹".indexOf(
+          digit
+        )
+      )
     );
 }
 
 function cleanNumericValue(
   value: string,
   maxLength = 30
-) {
+): string {
   return normalizeDigits(value)
     .replace(/\D/g, "")
     .slice(0, maxLength);
@@ -292,8 +397,10 @@ function cleanNumericValue(
 function normalizePhoneValue(
   value: string,
   maxLength = 20
-) {
-  const normalized = normalizeDigits(value).trim();
+): string {
+  const normalized =
+    normalizeDigits(value).trim();
+
   const hasLeadingPlus =
     normalized.startsWith("+");
 
@@ -302,7 +409,10 @@ function normalizePhoneValue(
     .slice(
       0,
       hasLeadingPlus
-        ? Math.max(0, maxLength - 1)
+        ? Math.max(
+            0,
+            maxLength - 1
+          )
         : maxLength
     );
 
@@ -314,7 +424,7 @@ function normalizePhoneValue(
 function cleanTextValue(
   value: unknown,
   fallback = ""
-) {
+): string {
   return typeof value === "string"
     ? value.trim()
     : fallback;
@@ -329,7 +439,105 @@ function nullableTextValue(
   return cleaned || null;
 }
 
-function toFiniteNumber(value: unknown) {
+function isPlainObject(
+  value: unknown
+): value is Record<string, unknown> {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value)
+  ) {
+    return false;
+  }
+
+  const prototype =
+    Object.getPrototypeOf(value);
+
+  return (
+    prototype === Object.prototype ||
+    prototype === null
+  );
+}
+
+function isValidUuid(
+  value: string
+): boolean {
+  return UUID_PATTERN.test(value);
+}
+
+function isValidBranchSlug(
+  value: string
+): boolean {
+  return BRANCH_SLUG_PATTERN.test(
+    value
+  );
+}
+
+function isValidUsername(
+  value: string
+): boolean {
+  return USERNAME_PATTERN.test(
+    value
+  );
+}
+
+function isValidPin(
+  value: string
+): boolean {
+  return /^\d{4}$/.test(value);
+}
+
+function isValidSupportPassword(
+  value: string
+): boolean {
+  return (
+    value.length >= 4 &&
+    value.length <= 100
+  );
+}
+
+function isSupportRole(
+  value: unknown
+): value is SupportRole {
+  return (
+    typeof value === "string" &&
+    (
+      SUPPORT_ROLES as readonly string[]
+    ).includes(value)
+  );
+}
+
+function isSupportPermission(
+  value: unknown
+): value is SupportPermission {
+  return (
+    typeof value === "string" &&
+    SUPPORT_PERMISSIONS.some(
+      (permission) =>
+        permission.key === value
+    )
+  );
+}
+
+function normalizeSupportPermissions(
+  value: unknown
+): SupportPermission[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      value.filter(
+        isSupportPermission
+      )
+    )
+  );
+}
+
+function toFiniteNumber(
+  value: unknown
+): number {
   const parsed =
     typeof value === "number"
       ? value
@@ -340,6 +548,21 @@ function toFiniteNumber(value: unknown) {
   return Number.isFinite(parsed)
     ? parsed
     : 0;
+}
+
+function normalizeBoolean(
+  value: unknown,
+  fallback = false
+): boolean {
+  return typeof value === "boolean"
+    ? value
+    : fallback;
+}
+
+function normalizeDateText(
+  value: unknown
+): string {
+  return cleanTextValue(value);
 }
 
 function isVerificationPosition(
@@ -370,22 +593,632 @@ function normalizeOptionalVerificationPosition(
     : null;
 }
 
+function normalizeCurrentUser(
+  value: unknown
+): CurrentUser | null {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  const id =
+    cleanTextValue(value.id);
+
+  const fullName =
+    cleanTextValue(
+      value.full_name
+    );
+
+  const username =
+    cleanTextValue(
+      value.username
+    );
+
+  const role =
+    cleanTextValue(
+      value.role
+    ).toLowerCase();
+
+  if (
+    !isValidUuid(id) ||
+    !username ||
+    !role
+  ) {
+    return null;
+  }
+
+  return {
+    id,
+    full_name:
+      fullName || username,
+    username,
+    role,
+    permissions:
+      Array.isArray(
+        value.permissions
+      )
+        ? Array.from(
+            new Set(
+              value.permissions
+                .filter(
+                  (
+                    permission
+                  ): permission is string =>
+                    typeof permission ===
+                    "string"
+                )
+                .map((permission) =>
+                  permission.trim()
+                )
+                .filter(Boolean)
+            )
+          )
+        : [],
+  };
+}
+
+function normalizeDashboardAccess(
+  value: unknown
+): DashboardAccess | null {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  return {
+    manage_branches:
+      normalizeBoolean(
+        value.manage_branches
+      ),
+
+    impersonate_branch:
+      normalizeBoolean(
+        value.impersonate_branch
+      ),
+
+    manage_support_users:
+      normalizeBoolean(
+        value.manage_support_users
+      ),
+
+    view_logs:
+      normalizeBoolean(
+        value.view_logs
+      ),
+
+    system_settings:
+      normalizeBoolean(
+        value.system_settings
+      ),
+
+    backup_restore:
+      normalizeBoolean(
+        value.backup_restore
+      ),
+
+    manage_verification_results:
+      normalizeBoolean(
+        value.manage_verification_results
+      ),
+  };
+}
+function normalizeBranch(
+  value: unknown
+): Branch | null {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  const id =
+    cleanTextValue(value.id);
+
+  const branchName =
+    cleanTextValue(
+      value.branch_name
+    );
+
+  const branchSlug =
+    cleanTextValue(
+      value.branch_slug
+    ).toLowerCase();
+
+  const organizationName =
+    cleanTextValue(
+      value.organization_name
+    );
+
+  if (
+    !isValidUuid(id) ||
+    !branchName ||
+    !organizationName ||
+    !isValidBranchSlug(
+      branchSlug
+    )
+  ) {
+    return null;
+  }
+
+  return {
+    id,
+    branch_name:
+      branchName,
+
+    branch_slug:
+      branchSlug,
+
+    organization_name:
+      organizationName,
+
+    city:
+      nullableTextValue(
+        value.city
+      ),
+
+    commercial_record:
+      nullableTextValue(
+        value.commercial_record
+      ),
+
+    phone:
+      nullableTextValue(
+        value.phone
+      ),
+
+    is_active:
+      normalizeBoolean(
+        value.is_active
+      ),
+
+    notes:
+      nullableTextValue(
+        value.notes
+      ),
+
+    created_at:
+      normalizeDateText(
+        value.created_at
+      ),
+  };
+}
+
+function normalizeBranches(
+  value: unknown
+): Branch[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map(
+      normalizeBranch
+    )
+    .filter(
+      (
+        branch
+      ): branch is Branch =>
+        branch !== null
+    );
+}
+
+function normalizeBranchRelation(
+  value: unknown
+): BranchRelation | null {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  const branchName =
+    cleanTextValue(
+      value.branch_name
+    );
+
+  const branchSlug =
+    cleanTextValue(
+      value.branch_slug
+    ).toLowerCase();
+
+  const organizationName =
+    cleanTextValue(
+      value.organization_name
+    );
+
+  if (
+    !branchName ||
+    !organizationName ||
+    !isValidBranchSlug(
+      branchSlug
+    )
+  ) {
+    return null;
+  }
+
+  return {
+    branch_name:
+      branchName,
+
+    branch_slug:
+      branchSlug,
+
+    organization_name:
+      organizationName,
+  };
+}
+
+function normalizeBranchManager(
+  value: unknown
+): BranchManager | null {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  const id =
+    cleanTextValue(value.id);
+
+  const branchId =
+    cleanTextValue(
+      value.branch_id
+    );
+
+  const fullName =
+    cleanTextValue(
+      value.full_name
+    );
+
+  const username =
+    cleanTextValue(
+      value.username
+    );
+
+  const role =
+    cleanTextValue(
+      value.role
+    );
+
+  if (
+    !isValidUuid(id) ||
+    !isValidUuid(branchId) ||
+    !fullName ||
+    !username ||
+    !role
+  ) {
+    return null;
+  }
+
+  let branchRelation:
+    | BranchRelation
+    | BranchRelation[]
+    | null = null;
+
+  if (
+    Array.isArray(
+      value.finance_branches
+    )
+  ) {
+    branchRelation =
+      value.finance_branches
+        .map(
+          normalizeBranchRelation
+        )
+        .filter(
+          (
+            relation
+          ): relation is BranchRelation =>
+            relation !== null
+        );
+  } else {
+    branchRelation =
+      normalizeBranchRelation(
+        value.finance_branches
+      );
+  }
+
+  return {
+    id,
+    branch_id:
+      branchId,
+
+    full_name:
+      fullName,
+
+    username,
+    role,
+
+    is_active:
+      normalizeBoolean(
+        value.is_active
+      ),
+
+    created_at:
+      normalizeDateText(
+        value.created_at
+      ),
+
+    finance_branches:
+      branchRelation,
+  };
+}
+
+function normalizeBranchManagers(
+  value: unknown
+): BranchManager[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map(
+      normalizeBranchManager
+    )
+    .filter(
+      (
+        manager
+      ): manager is BranchManager =>
+        manager !== null
+    );
+}
+
+function normalizeSupportUser(
+  value: unknown
+): SupportUser | null {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  const id =
+    cleanTextValue(value.id);
+
+  const fullName =
+    cleanTextValue(
+      value.full_name
+    );
+
+  const username =
+    cleanTextValue(
+      value.username
+    );
+
+  const role =
+    cleanTextValue(
+      value.role
+    ).toLowerCase();
+
+  if (
+    !isValidUuid(id) ||
+    !fullName ||
+    !username ||
+    !role
+  ) {
+    return null;
+  }
+
+  return {
+    id,
+
+    full_name:
+      fullName,
+
+    username,
+    role,
+
+    is_active:
+      normalizeBoolean(
+        value.is_active
+      ),
+
+    created_at:
+      normalizeDateText(
+        value.created_at
+      ),
+
+    permissions:
+      Array.isArray(
+        value.permissions
+      )
+        ? Array.from(
+            new Set(
+              value.permissions
+                .filter(
+                  (
+                    permission
+                  ): permission is string =>
+                    typeof permission ===
+                    "string"
+                )
+                .map(
+                  (
+                    permission
+                  ) =>
+                    permission.trim()
+                )
+                .filter(Boolean)
+            )
+          )
+        : [],
+  };
+}
+
+function normalizeSupportUsers(
+  value: unknown
+): SupportUser[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map(
+      normalizeSupportUser
+    )
+    .filter(
+      (
+        user
+      ): user is SupportUser =>
+        user !== null
+    );
+}
+
+function normalizeSupportLog(
+  value: unknown
+): SupportLog | null {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  const id =
+    cleanTextValue(value.id);
+
+  const action =
+    cleanTextValue(
+      value.action
+    );
+
+  if (
+    !isValidUuid(id) ||
+    !action
+  ) {
+    return null;
+  }
+
+  return {
+    id,
+
+    user_id:
+      nullableTextValue(
+        value.user_id
+      ),
+
+    user_name:
+      nullableTextValue(
+        value.user_name
+      ),
+
+    action,
+
+    target_type:
+      nullableTextValue(
+        value.target_type
+      ),
+
+    target_id:
+      nullableTextValue(
+        value.target_id
+      ),
+
+    details:
+      nullableTextValue(
+        value.details
+      ),
+
+    created_at:
+      normalizeDateText(
+        value.created_at
+      ),
+  };
+}
+
+function normalizeSupportLogs(
+  value: unknown
+): SupportLog[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map(
+      normalizeSupportLog
+    )
+    .filter(
+      (
+        log
+      ): log is SupportLog =>
+        log !== null
+    );
+}
+
+function normalizePaginationState(
+  value: unknown,
+  fallbackPageSize: number
+): PaginationState {
+  if (!isPlainObject(value)) {
+    return {
+      page: 1,
+      page_size:
+        fallbackPageSize,
+      total: 0,
+      total_pages: 0,
+    };
+  }
+
+  const page =
+    toFiniteNumber(
+      value.page
+    );
+
+  const pageSize =
+    toFiniteNumber(
+      value.page_size
+    );
+
+  const total =
+    toFiniteNumber(
+      value.total
+    );
+
+  const totalPages =
+    toFiniteNumber(
+      value.total_pages
+    );
+
+  return {
+    page:
+      Number.isSafeInteger(page) &&
+      page >= 1
+        ? page
+        : 1,
+
+    page_size:
+      Number.isSafeInteger(
+        pageSize
+      ) &&
+      pageSize >= 1
+        ? pageSize
+        : fallbackPageSize,
+
+    total:
+      Number.isSafeInteger(total) &&
+      total >= 0
+        ? total
+        : 0,
+
+    total_pages:
+      Number.isSafeInteger(
+        totalPages
+      ) &&
+      totalPages >= 0
+        ? totalPages
+        : 0,
+  };
+}
+
 function normalizeVerificationContract(
   value: RawVerificationContract
 ): VerificationContract | null {
   const contractId =
-    cleanTextValue(value.contract_id);
+    cleanTextValue(
+      value.contract_id
+    );
 
   const branchId =
-    cleanTextValue(value.branch_id);
+    cleanTextValue(
+      value.branch_id
+    );
 
   const customerId =
-    cleanTextValue(value.customer_id);
+    cleanTextValue(
+      value.customer_id
+    );
 
   if (
-    !contractId ||
-    !branchId ||
-    !customerId
+    !isValidUuid(contractId) ||
+    !isValidUuid(branchId) ||
+    !isValidUuid(customerId)
   ) {
     return null;
   }
@@ -402,15 +1235,24 @@ function normalizeVerificationContract(
     );
 
   return {
-    contract_id: contractId,
+    contract_id:
+      contractId,
 
     contract_number:
-      value.contract_number === null ||
-      value.contract_number === undefined
+      value.contract_number ===
+        null ||
+      value.contract_number ===
+        undefined
         ? null
-        : String(value.contract_number),
+        : cleanTextValue(
+            String(
+              value.contract_number
+            )
+          ) || null,
 
-    branch_id: branchId,
+    branch_id:
+      branchId,
+
     branch_name:
       cleanTextValue(
         value.branch_name,
@@ -418,9 +1260,13 @@ function normalizeVerificationContract(
       ) || "فرع غير محدد",
 
     branch_slug:
-      cleanTextValue(value.branch_slug),
+      cleanTextValue(
+        value.branch_slug
+      ).toLowerCase(),
 
-    customer_id: customerId,
+    customer_id:
+      customerId,
+
     customer_name:
       cleanTextValue(
         value.customer_name,
@@ -428,16 +1274,24 @@ function normalizeVerificationContract(
       ) || "العميل",
 
     national_id:
-      cleanTextValue(value.national_id),
+      cleanTextValue(
+        value.national_id
+      ),
 
     customer_phone:
-      cleanTextValue(value.customer_phone),
+      cleanTextValue(
+        value.customer_phone
+      ),
 
     debt_amount:
-      toFiniteNumber(value.debt_amount),
+      toFiniteNumber(
+        value.debt_amount
+      ),
 
     paid_amount:
-      toFiniteNumber(value.paid_amount),
+      toFiniteNumber(
+        value.paid_amount
+      ),
 
     remaining_amount:
       toFiniteNumber(
@@ -467,7 +1321,8 @@ function normalizeVerificationContract(
       effectivePosition,
 
     has_support_override:
-      value.has_support_override === true,
+      value.has_support_override ===
+      true,
 
     override_position:
       normalizeOptionalVerificationPosition(
@@ -513,19 +1368,21 @@ function normalizeVerificationContract(
 
 function normalizeVerificationResults(
   value: unknown
-) {
+): VerificationContract[] {
   if (!Array.isArray(value)) {
-    return [] as VerificationContract[];
+    return [];
   }
 
   return value
-    .map((item) =>
-      item &&
-      typeof item === "object"
-        ? normalizeVerificationContract(
-            item as RawVerificationContract
-          )
-        : null
+    .map(
+      (
+        item
+      ) =>
+        isPlainObject(item)
+          ? normalizeVerificationContract(
+              item
+            )
+          : null
     )
     .filter(
       (
@@ -535,14 +1392,366 @@ function normalizeVerificationResults(
     );
 }
 
+function createTimeoutSignal(
+  externalSignal?: AbortSignal | null
+): {
+  signal: AbortSignal;
+  cleanup: () => void;
+} {
+  const controller =
+    new AbortController();
+
+  const abortFromExternal =
+    (): void => {
+      controller.abort(
+        externalSignal?.reason
+      );
+    };
+
+  if (
+    externalSignal?.aborted
+  ) {
+    abortFromExternal();
+  } else {
+    externalSignal?.addEventListener(
+      "abort",
+      abortFromExternal,
+      {
+        once: true,
+      }
+    );
+  }
+
+  const timeoutId =
+    window.setTimeout(
+      () => {
+        controller.abort(
+          new DOMException(
+            "انتهت مهلة الطلب",
+            "TimeoutError"
+          )
+        );
+      },
+      REQUEST_TIMEOUT_MS
+    );
+
+  return {
+    signal:
+      controller.signal,
+
+    cleanup:
+      (): void => {
+        window.clearTimeout(
+          timeoutId
+        );
+
+        externalSignal?.removeEventListener(
+          "abort",
+          abortFromExternal
+        );
+      },
+  };
+}
+
+function isAbortError(
+  error: unknown
+): boolean {
+  return (
+    error instanceof DOMException &&
+    (
+      error.name ===
+        "AbortError" ||
+      error.name ===
+        "TimeoutError"
+    )
+  );
+}
+
+function getApiErrorMessage(
+  status: number,
+  payloadMessage?: string
+): string {
+  if (payloadMessage) {
+    return payloadMessage;
+  }
+
+  if (status === 400) {
+    return "بيانات الطلب غير صحيحة";
+  }
+
+  if (status === 401) {
+    return "انتهت جلسة الدخول";
+  }
+
+  if (status === 403) {
+    return "لا تملك الصلاحية لتنفيذ هذه العملية";
+  }
+
+  if (status === 404) {
+    return "البيانات المطلوبة غير موجودة";
+  }
+
+  if (status === 409) {
+    return "توجد بيانات متعارضة مع العملية المطلوبة";
+  }
+
+  if (status === 413) {
+    return "حجم البيانات أكبر من الحد المسموح";
+  }
+
+  if (status === 415) {
+    return "نوع البيانات غير مدعوم";
+  }
+
+  if (status === 429) {
+    return "تم تنفيذ عدد كبير من الطلبات، حاول بعد قليل";
+  }
+
+  if (status >= 500) {
+    return "حدث خطأ في الخادم";
+  }
+
+  return `تعذر تنفيذ الطلب، رمز الاستجابة ${status}`;
+}
+
+function buildDashboardUrl(
+  section: DashboardSection,
+  pagination: PaginationReference
+): string {
+  const searchParams =
+    new URLSearchParams();
+
+  searchParams.set(
+    "section",
+    section
+  );
+
+  searchParams.set(
+    "branches_page",
+    String(
+      pagination.branchesPage
+    )
+  );
+
+  searchParams.set(
+    "branches_page_size",
+    String(
+      DASHBOARD_PAGE_SIZE
+    )
+  );
+
+  searchParams.set(
+    "managers_page",
+    String(
+      pagination.managersPage
+    )
+  );
+
+  searchParams.set(
+    "managers_page_size",
+    String(
+      DASHBOARD_PAGE_SIZE
+    )
+  );
+
+  searchParams.set(
+    "support_users_page",
+    String(
+      pagination.usersPage
+    )
+  );
+
+  searchParams.set(
+    "support_users_page_size",
+    String(
+      DASHBOARD_PAGE_SIZE
+    )
+  );
+
+  searchParams.set(
+    "logs_page",
+    String(
+      pagination.logsPage
+    )
+  );
+
+  searchParams.set(
+    "logs_page_size",
+    String(
+      DASHBOARD_LOGS_PAGE_SIZE
+    )
+  );
+
+  return `/api/admin-support/dashboard?${searchParams.toString()}`;
+}
+
+function getBranchRelation(
+  manager: BranchManager
+): BranchRelation | null {
+  const relation =
+    manager.finance_branches;
+
+  if (
+    Array.isArray(relation)
+  ) {
+    return relation[0] || null;
+  }
+
+  return relation || null;
+}
+
+function roleLabel(
+  role: string
+): string {
+  if (
+    role === "super_admin"
+  ) {
+    return "مدير النظام";
+  }
+
+  if (
+    role === "viewer"
+  ) {
+    return "مشاهدة فقط";
+  }
+
+  return "دعم فني";
+}
+
+function permissionLabel(
+  key: string
+): string {
+  return (
+    SUPPORT_PERMISSIONS.find(
+      (
+        permission
+      ) =>
+        permission.key === key
+    )?.label || key
+  );
+}
+
+function formatDateTime(
+  date: string
+): string {
+  if (!date) {
+    return "-";
+  }
+
+  const parsedDate =
+    new Date(date);
+
+  if (
+    Number.isNaN(
+      parsedDate.getTime()
+    )
+  ) {
+    return "-";
+  }
+
+  return parsedDate.toLocaleString(
+    "ar-SA",
+    {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }
+  );
+}
+
+function formatDate(
+  date: string | null
+): string {
+  if (!date) {
+    return "-";
+  }
+
+  const parsedDate =
+    new Date(date);
+
+  if (
+    Number.isNaN(
+      parsedDate.getTime()
+    )
+  ) {
+    return date;
+  }
+
+  return parsedDate.toLocaleDateString(
+    "ar-SA",
+    {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }
+  );
+}
+
+function formatMoney(
+  value: number
+): string {
+  const safeValue =
+    Number.isFinite(value)
+      ? value
+      : 0;
+
+  return `${safeValue.toLocaleString(
+    "ar-SA",
+    {
+      maximumFractionDigits: 2,
+    }
+  )} ر.س`;
+}
+
+function getDisabledStyle(
+  baseStyle: CSSProperties,
+  disabled: boolean
+): CSSProperties {
+  if (!disabled) {
+    return baseStyle;
+  }
+
+  return {
+    ...baseStyle,
+    opacity: 0.55,
+    cursor: "not-allowed",
+  };
+}
+
 export default function AdminSupportPage() {
-  const router = useRouter();
+  const router =
+    useRouter();
+
+  const mountedRef =
+    useRef(false);
+
+  const busyActionsRef =
+    useRef<Set<BusyAction>>(
+      new Set<BusyAction>()
+    );
 
   const dashboardAbortRef =
-    useRef<AbortController | null>(null);
+    useRef<AbortController | null>(
+      null
+    );
 
   const verificationAbortRef =
-    useRef<AbortController | null>(null);
+    useRef<AbortController | null>(
+      null
+    );
+
+  const paginationRef =
+    useRef<PaginationReference>({
+      branchesPage: 1,
+      managersPage: 1,
+      usersPage: 1,
+      logsPage: 1,
+    });
+
+  const dashboardRequestSequenceRef =
+    useRef(0);
 
   const verificationRequestSequenceRef =
     useRef(0);
@@ -553,10 +1762,17 @@ export default function AdminSupportPage() {
     >(null);
 
   const [screen, setScreen] =
-    useState<ScreenType>("desktop");
+    useState<ScreenType>(
+      "desktop"
+    );
 
-  const [currentUser, setCurrentUser] =
-    useState<CurrentUser | null>(null);
+  const [
+    currentUser,
+    setCurrentUser,
+  ] =
+    useState<CurrentUser | null>(
+      null
+    );
 
   const [access, setAccess] =
     useState<DashboardAccess>(
@@ -569,161 +1785,251 @@ export default function AdminSupportPage() {
   const [
     branchManagers,
     setBranchManagers,
-  ] = useState<BranchManager[]>([]);
+  ] =
+    useState<BranchManager[]>([]);
 
   const [
     supportUsers,
     setSupportUsers,
-  ] = useState<SupportUser[]>([]);
+  ] =
+    useState<SupportUser[]>([]);
 
   const [logs, setLogs] =
     useState<SupportLog[]>([]);
 
+  const [
+    branchesPagination,
+    setBranchesPagination,
+  ] =
+    useState<PaginationState>(
+      EMPTY_PAGINATION
+    );
+
+  const [
+    managersPagination,
+    setManagersPagination,
+  ] =
+    useState<PaginationState>(
+      EMPTY_PAGINATION
+    );
+
+  const [
+    usersPagination,
+    setUsersPagination,
+  ] =
+    useState<PaginationState>(
+      EMPTY_PAGINATION
+    );
+
+  const [
+    logsPagination,
+    setLogsPagination,
+  ] =
+    useState<PaginationState>(
+      EMPTY_LOGS_PAGINATION
+    );
+
   const [activeTab, setActiveTab] =
-    useState<TabType>("overview");
+    useState<TabType>(
+      "overview"
+    );
 
   const [loading, setLoading] =
     useState(true);
 
-  const [busyActions, setBusyActions] =
+  const [
+    busyActions,
+    setBusyActions,
+  ] =
     useState<Set<BusyAction>>(
       () =>
-        new Set<BusyAction>([
-          "dashboard",
-        ])
+        new Set<BusyAction>()
     );
 
-  const [pageError, setPageError] =
+  const [
+    pageError,
+    setPageError,
+  ] =
     useState("");
 
   const [notice, setNotice] =
-    useState<NoticeState>(null);
+    useState<NoticeState>(
+      null
+    );
 
-  const [confirmState, setConfirmState] =
-    useState<ConfirmState>(null);
+  const [
+    confirmState,
+    setConfirmState,
+  ] =
+    useState<ConfirmState>(
+      null
+    );
 
   const [
     passwordDialog,
     setPasswordDialog,
   ] =
-    useState<PasswordDialogState>(null);
+    useState<PasswordDialogState>(
+      null
+    );
 
   const [
     showBranchForm,
     setShowBranchForm,
-  ] = useState(false);
+  ] =
+    useState(false);
 
   const [
     editingBranchId,
     setEditingBranchId,
-  ] = useState<string | null>(null);
+  ] =
+    useState<string | null>(
+      null
+    );
 
-  const [branchName, setBranchName] =
+  const [
+    branchName,
+    setBranchName,
+  ] =
     useState("");
 
-  const [branchSlug, setBranchSlug] =
+  const [
+    branchSlug,
+    setBranchSlug,
+  ] =
     useState("");
 
   const [
     organizationName,
     setOrganizationName,
-  ] = useState("");
+  ] =
+    useState("");
 
-  const [branchCity, setBranchCity] =
+  const [
+    branchCity,
+    setBranchCity,
+  ] =
     useState("");
 
   const [
     branchCommercialRecord,
     setBranchCommercialRecord,
-  ] = useState("");
-
-  const [branchPhone, setBranchPhone] =
+  ] =
     useState("");
 
-  const [branchNotes, setBranchNotes] =
+  const [
+    branchPhone,
+    setBranchPhone,
+  ] =
+    useState("");
+
+  const [
+    branchNotes,
+    setBranchNotes,
+  ] =
     useState("");
 
   const [
     managerFullName,
     setManagerFullName,
-  ] = useState("");
+  ] =
+    useState("");
 
   const [
     managerUsername,
     setManagerUsername,
-  ] = useState("");
+  ] =
+    useState("");
 
   const [
     managerPassword,
     setManagerPassword,
-  ] = useState("");
+  ] =
+    useState("");
 
   const [
     showUserForm,
     setShowUserForm,
-  ] = useState(false);
+  ] =
+    useState(false);
 
   const [
     supportFullName,
     setSupportFullName,
-  ] = useState("");
+  ] =
+    useState("");
 
   const [
     supportUsername,
     setSupportUsername,
-  ] = useState("");
+  ] =
+    useState("");
 
   const [
     supportPassword,
     setSupportPassword,
-  ] = useState("");
+  ] =
+    useState("");
 
   const [
     supportRole,
     setSupportRole,
   ] =
-    useState<SupportRole>("support");
+    useState<SupportRole>(
+      "support"
+    );
 
   const [
     selectedPermissions,
     setSelectedPermissions,
-  ] = useState<
-    SupportPermission[]
-  >([]);
+  ] =
+    useState<
+      SupportPermission[]
+    >([]);
 
   const [
     editingPermissionsUserId,
     setEditingPermissionsUserId,
-  ] = useState<string | null>(null);
+  ] =
+    useState<string | null>(
+      null
+    );
 
   const [
     editingPermissions,
     setEditingPermissions,
-  ] = useState<
-    SupportPermission[]
-  >([]);
+  ] =
+    useState<
+      SupportPermission[]
+    >([]);
 
   const [
     verificationSearchValue,
     setVerificationSearchValue,
-  ] = useState("");
+  ] =
+    useState("");
 
   const [
     verificationResults,
     setVerificationResults,
-  ] = useState<
-    VerificationContract[]
-  >([]);
+  ] =
+    useState<
+      VerificationContract[]
+    >([]);
 
   const [
     verificationSearchPerformed,
     setVerificationSearchPerformed,
-  ] = useState(false);
+  ] =
+    useState(false);
 
   const [
     editingVerificationContractId,
     setEditingVerificationContractId,
-  ] = useState<string | null>(null);
+  ] =
+    useState<string | null>(
+      null
+    );
 
   const [
     verificationPosition,
@@ -736,14 +2042,15 @@ export default function AdminSupportPage() {
   const [
     verificationReason,
     setVerificationReason,
-  ] = useState("");
+  ] =
+    useState("");
 
   const [
     verificationNotes,
     setVerificationNotes,
-  ] = useState("");
-
-  const isMobile =
+  ] =
+    useState("");
+    const isMobile =
     screen === "mobile";
 
   const isTablet =
@@ -752,52 +2059,99 @@ export default function AdminSupportPage() {
   const isCompact =
     isMobile || isTablet;
 
-  const beginAction = useCallback(
-    (action: BusyAction) => {
-      setBusyActions((previous) => {
-        const next = new Set(previous);
-        next.add(action);
-        return next;
-      });
-    },
-    []
-  );
+  const beginAction =
+    useCallback(
+      (
+        action: BusyAction
+      ): boolean => {
+        if (
+          busyActionsRef.current.has(
+            action
+          )
+        ) {
+          return false;
+        }
 
-  const endAction = useCallback(
-    (action: BusyAction) => {
-      setBusyActions((previous) => {
-        const next = new Set(previous);
-        next.delete(action);
-        return next;
-      });
-    },
-    []
-  );
+        busyActionsRef.current.add(
+          action
+        );
 
-  const isBusy = useCallback(
-    (action: BusyAction) =>
-      busyActions.has(action),
-    [busyActions]
-  );
+        if (mountedRef.current) {
+          setBusyActions(
+            new Set(
+              busyActionsRef.current
+            )
+          );
+        }
 
-  const showNotice = useCallback(
-    (
-      message?: string,
-      type: NoticeType = "info"
-    ) => {
-      if (!message) return;
+        return true;
+      },
+      []
+    );
 
-      setNotice({
-        message,
-        type,
-      });
-    },
-    []
-  );
+  const endAction =
+    useCallback(
+      (
+        action: BusyAction
+      ): void => {
+        busyActionsRef.current.delete(
+          action
+        );
 
-  const closeNotice = useCallback(() => {
-    setNotice(null);
-  }, []);
+        if (mountedRef.current) {
+          setBusyActions(
+            new Set(
+              busyActionsRef.current
+            )
+          );
+        }
+      },
+      []
+    );
+
+  const isBusy =
+    useCallback(
+      (
+        action: BusyAction
+      ): boolean =>
+        busyActions.has(action),
+      [busyActions]
+    );
+
+  const showNotice =
+    useCallback(
+      (
+        message?: string,
+        type: NoticeType = "info"
+      ): void => {
+        const cleanMessage =
+          cleanTextValue(message);
+
+        if (
+          !cleanMessage ||
+          !mountedRef.current
+        ) {
+          return;
+        }
+
+        setNotice({
+          message:
+            cleanMessage,
+
+          type,
+        });
+      },
+      []
+    );
+
+  const closeNotice =
+    useCallback((): void => {
+      if (
+        mountedRef.current
+      ) {
+        setNotice(null);
+      }
+    }, []);
 
   const requestConfirmation =
     useCallback(
@@ -808,67 +2162,107 @@ export default function AdminSupportPage() {
           confirmLabel?: string;
           danger?: boolean;
         }
-      ) =>
-        new Promise<boolean>(
+      ): Promise<boolean> => {
+        if (
+          confirmationResolverRef.current
+        ) {
+          confirmationResolverRef.current(
+            false
+          );
+        }
+
+        return new Promise<boolean>(
           (resolve) => {
             confirmationResolverRef.current =
               resolve;
 
             setConfirmState({
               title:
-                options?.title ||
+                cleanTextValue(
+                  options?.title
+                ) ||
                 "تأكيد العملية",
 
-              message,
+              message:
+                cleanTextValue(
+                  message
+                ),
 
               confirmLabel:
-                options?.confirmLabel ||
+                cleanTextValue(
+                  options?.confirmLabel
+                ) ||
                 "تأكيد",
 
               danger:
-                options?.danger === true,
+                options?.danger ===
+                true,
             });
           }
-        ),
+        );
+      },
       []
     );
 
   const resolveConfirmation =
     useCallback(
-      (confirmed: boolean) => {
+      (
+        confirmed: boolean
+      ): void => {
         const resolver =
           confirmationResolverRef.current;
 
         confirmationResolverRef.current =
           null;
 
-        setConfirmState(null);
+        if (
+          mountedRef.current
+        ) {
+          setConfirmState(null);
+        }
+
         resolver?.(confirmed);
       },
       []
     );
 
   const resetVerificationEditor =
-    useCallback(() => {
+    useCallback((): void => {
       setEditingVerificationContractId(
         null
       );
 
-      setVerificationPosition("نشط");
+      setVerificationPosition(
+        "نشط"
+      );
+
       setVerificationReason("");
       setVerificationNotes("");
     }, []);
 
   const clearVerificationWorkspace =
-    useCallback(() => {
+    useCallback((): void => {
       verificationAbortRef.current?.abort();
-      verificationAbortRef.current = null;
+
+      verificationAbortRef.current =
+        null;
 
       verificationRequestSequenceRef.current +=
         1;
 
-      setVerificationSearchValue("");
-      setVerificationResults([]);
+      if (
+        !mountedRef.current
+      ) {
+        return;
+      }
+
+      setVerificationSearchValue(
+        ""
+      );
+
+      setVerificationResults(
+        []
+      );
 
       setVerificationSearchPerformed(
         false
@@ -876,21 +2270,575 @@ export default function AdminSupportPage() {
 
       resetVerificationEditor();
 
-      endAction(
+      busyActionsRef.current.delete(
         "verification_search"
       );
 
-      endAction(
+      busyActionsRef.current.delete(
         "verification_refresh"
       );
+
+      setBusyActions(
+        new Set(
+          busyActionsRef.current
+        )
+      );
     }, [
-      endAction,
       resetVerificationEditor,
     ]);
 
+  const redirectToLogin =
+    useCallback((): void => {
+      dashboardAbortRef.current?.abort();
+
+      verificationAbortRef.current?.abort();
+
+      router.replace(
+        "/admin-support/login"
+      );
+    }, [router]);
+
+  const executeRequest =
+    useCallback(
+      async <T,>(
+        url: string,
+        options?: RequestInit
+      ): Promise<
+        RequestResult<T>
+      > => {
+        const timeoutRequest =
+          createTimeoutSignal(
+            options?.signal
+          );
+
+        try {
+          const headers =
+            new Headers(
+              options?.headers
+            );
+
+          headers.set(
+            "Accept",
+            "application/json"
+          );
+
+          const method =
+            (
+              options?.method ||
+              "GET"
+            ).toUpperCase();
+
+          if (
+            method !== "GET" &&
+            method !== "HEAD" &&
+            options?.body !==
+              undefined &&
+            !headers.has(
+              "Content-Type"
+            )
+          ) {
+            headers.set(
+              "Content-Type",
+              "application/json"
+            );
+          }
+
+          const response =
+            await fetch(
+              url,
+              {
+                ...options,
+
+                method,
+
+                credentials:
+                  "include",
+
+                cache:
+                  "no-store",
+
+                headers,
+
+                signal:
+                  timeoutRequest.signal,
+              }
+            );
+
+          let payload:
+            ApiResponse<T>;
+
+          try {
+            const rawPayload =
+              (await response.json()) as unknown;
+
+            payload =
+              isPlainObject(
+                rawPayload
+              ) &&
+              typeof rawPayload.ok ===
+                "boolean"
+                ? (
+                    rawPayload as ApiResponse<T>
+                  )
+                : {
+                    ok: false,
+                    message:
+                      "استجابة الخادم غير صالحة",
+                  };
+          } catch {
+            payload = {
+              ok: false,
+              message:
+                "تعذر قراءة استجابة الخادم",
+            };
+          }
+
+          if (
+            response.status === 401
+          ) {
+            redirectToLogin();
+
+            return {
+              ok: false,
+
+              status:
+                response.status,
+
+              message:
+                getApiErrorMessage(
+                  response.status,
+                  payload.message
+                ),
+
+              aborted: false,
+              unauthorized: true,
+              forbidden: false,
+              rateLimited: false,
+            };
+          }
+
+          if (
+            !response.ok ||
+            !payload.ok
+          ) {
+            return {
+              ok: false,
+
+              status:
+                response.status,
+
+              message:
+                getApiErrorMessage(
+                  response.status,
+                  payload.message
+                ),
+
+              aborted: false,
+              unauthorized: false,
+
+              forbidden:
+                response.status ===
+                403,
+
+              rateLimited:
+                response.status ===
+                429,
+            };
+          }
+
+          return {
+            ok: true,
+
+            status:
+              response.status,
+
+            payload,
+          };
+        } catch (error) {
+          if (
+            isAbortError(error) ||
+            timeoutRequest.signal
+              .aborted
+          ) {
+            const timeoutReason =
+              timeoutRequest.signal
+                .reason;
+
+            const timedOut =
+              timeoutReason instanceof
+                DOMException &&
+              timeoutReason.name ===
+                "TimeoutError";
+
+            return {
+              ok: false,
+              status: 0,
+
+              message:
+                timedOut
+                  ? "انتهت مهلة الاتصال بالخادم"
+                  : "تم إلغاء الطلب",
+
+              aborted: true,
+              unauthorized: false,
+              forbidden: false,
+              rateLimited: false,
+            };
+          }
+
+          console.error(
+            "Admin support request failed:",
+            error instanceof Error
+              ? {
+                  name:
+                    error.name,
+
+                  message:
+                    error.message,
+                }
+              : {
+                  name:
+                    "UnknownError",
+                }
+          );
+
+          return {
+            ok: false,
+            status: 0,
+
+            message:
+              "تعذر الاتصال بالخادم، تحقق من اتصال الإنترنت",
+
+            aborted: false,
+            unauthorized: false,
+            forbidden: false,
+            rateLimited: false,
+          };
+        } finally {
+          timeoutRequest.cleanup();
+        }
+      },
+      [redirectToLogin]
+    );
+
+  const applyDashboardPayload =
+    useCallback(
+      (
+        payload: DashboardResponse,
+        section: DashboardSection
+      ): boolean => {
+        const normalizedUser =
+          normalizeCurrentUser(
+            payload.user
+          );
+
+        const normalizedAccess =
+          normalizeDashboardAccess(
+            payload.access
+          );
+
+        if (
+          !normalizedUser ||
+          !normalizedAccess
+        ) {
+          return false;
+        }
+
+        setCurrentUser(
+          normalizedUser
+        );
+
+        setAccess(
+          normalizedAccess
+        );
+
+        const pagination =
+          isPlainObject(
+            payload.pagination
+          )
+            ? payload.pagination
+            : {};
+
+        if (
+          section === "all" ||
+          section === "branches"
+        ) {
+          setBranches(
+            normalizeBranches(
+              payload.branches
+            )
+          );
+
+          const nextBranchesPagination =
+            normalizePaginationState(
+              pagination.branches,
+              DASHBOARD_PAGE_SIZE
+            );
+
+          setBranchesPagination(
+            nextBranchesPagination
+          );
+
+          paginationRef.current.branchesPage =
+            nextBranchesPagination.page;
+
+          if (
+            normalizedAccess.manage_branches
+          ) {
+            setBranchManagers(
+              normalizeBranchManagers(
+                payload.branch_managers
+              )
+            );
+
+            const nextManagersPagination =
+              normalizePaginationState(
+                pagination.branch_managers,
+                DASHBOARD_PAGE_SIZE
+              );
+
+            setManagersPagination(
+              nextManagersPagination
+            );
+
+            paginationRef.current.managersPage =
+              nextManagersPagination.page;
+          } else {
+            setBranchManagers(
+              []
+            );
+
+            setManagersPagination(
+              EMPTY_PAGINATION
+            );
+
+            paginationRef.current.managersPage =
+              1;
+          }
+        }
+
+        if (
+          section === "all" ||
+          section ===
+            "support_users"
+        ) {
+          setSupportUsers(
+            normalizeSupportUsers(
+              payload.support_users
+            )
+          );
+
+          const nextUsersPagination =
+            normalizePaginationState(
+              pagination.support_users,
+              DASHBOARD_PAGE_SIZE
+            );
+
+          setUsersPagination(
+            nextUsersPagination
+          );
+
+          paginationRef.current.usersPage =
+            nextUsersPagination.page;
+        }
+
+        if (
+          section === "all" ||
+          section === "logs"
+        ) {
+          setLogs(
+            normalizeSupportLogs(
+              payload.logs
+            )
+          );
+
+          const nextLogsPagination =
+            normalizePaginationState(
+              pagination.logs,
+              DASHBOARD_LOGS_PAGE_SIZE
+            );
+
+          setLogsPagination(
+            nextLogsPagination
+          );
+
+          paginationRef.current.logsPage =
+            nextLogsPagination.page;
+        }
+
+        return true;
+      },
+      []
+    );
+
+  const loadDashboard =
+    useCallback(
+      async (
+        options?: {
+          fullLoader?: boolean;
+          section?: DashboardSection;
+          branchesPage?: number;
+          managersPage?: number;
+          usersPage?: number;
+          logsPage?: number;
+        }
+      ): Promise<void> => {
+        const section =
+          options?.section ||
+          "all";
+
+        const action:
+          BusyAction =
+          section === "all"
+            ? "dashboard"
+            : `dashboard_section:${section}`;
+
+        if (
+          !beginAction(action)
+        ) {
+          return;
+        }
+
+        dashboardAbortRef.current?.abort();
+
+        const controller =
+          new AbortController();
+
+        dashboardAbortRef.current =
+          controller;
+
+        const requestSequence =
+          dashboardRequestSequenceRef.current +
+          1;
+
+        dashboardRequestSequenceRef.current =
+          requestSequence;
+
+        if (
+          options?.fullLoader &&
+          mountedRef.current
+        ) {
+          setLoading(true);
+        }
+
+        if (
+          mountedRef.current
+        ) {
+          setPageError("");
+        }
+
+        try {
+          const requestedPagination:
+            PaginationReference = {
+            branchesPage:
+              options?.branchesPage ??
+              paginationRef.current
+                .branchesPage,
+
+            managersPage:
+              options?.managersPage ??
+              paginationRef.current
+                .managersPage,
+
+            usersPage:
+              options?.usersPage ??
+              paginationRef.current
+                .usersPage,
+
+            logsPage:
+              options?.logsPage ??
+              paginationRef.current
+                .logsPage,
+          };
+
+          const url =
+            buildDashboardUrl(
+              section,
+              requestedPagination
+            );
+
+          const result =
+            await executeRequest<unknown>(
+              url,
+              {
+                method: "GET",
+
+                signal:
+                  controller.signal,
+              }
+            );
+
+          if (
+            controller.signal.aborted ||
+            requestSequence !==
+              dashboardRequestSequenceRef.current ||
+            !mountedRef.current
+          ) {
+            return;
+          }
+
+          if (!result.ok) {
+            if (
+              !result.aborted &&
+              !result.unauthorized
+            ) {
+              setPageError(
+                result.message
+              );
+            }
+
+            return;
+          }
+
+          const payload =
+            result.payload as DashboardResponse;
+
+          if (
+            !applyDashboardPayload(
+              payload,
+              section
+            )
+          ) {
+            setPageError(
+              "بيانات لوحة الدعم غير مكتملة أو غير صالحة"
+            );
+
+            return;
+          }
+        } finally {
+          if (
+            dashboardAbortRef.current ===
+            controller
+          ) {
+            dashboardAbortRef.current =
+              null;
+          }
+
+          endAction(action);
+
+          if (
+            options?.fullLoader &&
+            mountedRef.current
+          ) {
+            setLoading(false);
+          }
+        }
+      },
+      [
+        applyDashboardPayload,
+        beginAction,
+        endAction,
+        executeRequest,
+      ]
+    );
+
   useEffect(() => {
-    function updateScreen() {
-      const width = window.innerWidth;
+    mountedRef.current =
+      true;
+
+    function updateScreen(): void {
+      const width =
+        window.innerWidth;
 
       if (width < 640) {
         setScreen("mobile");
@@ -909,20 +2857,70 @@ export default function AdminSupportPage() {
 
     window.addEventListener(
       "resize",
-      updateScreen
+      updateScreen,
+      {
+        passive: true,
+      }
     );
 
     return () => {
+      mountedRef.current =
+        false;
+
       window.removeEventListener(
         "resize",
         updateScreen
       );
+
+      dashboardAbortRef.current?.abort();
+
+      verificationAbortRef.current?.abort();
+
+      confirmationResolverRef.current?.(
+        false
+      );
+
+      confirmationResolverRef.current =
+        null;
     };
   }, []);
 
   useEffect(() => {
+    paginationRef.current = {
+      branchesPage:
+        branchesPagination.page,
+
+      managersPage:
+        managersPagination.page,
+
+      usersPage:
+        usersPagination.page,
+
+      logsPage:
+        logsPagination.page,
+    };
+  }, [
+    branchesPagination.page,
+    managersPagination.page,
+    usersPagination.page,
+    logsPagination.page,
+  ]);
+
+  useEffect(() => {
+    void loadDashboard({
+      fullLoader: true,
+      section: "all",
+      branchesPage: 1,
+      managersPage: 1,
+      usersPage: 1,
+      logsPage: 1,
+    });
+  }, [loadDashboard]);
+
+  useEffect(() => {
     if (
-      activeTab !== "verifications"
+      activeTab !==
+      "verifications"
     ) {
       clearVerificationWorkspace();
     }
@@ -932,359 +2930,124 @@ export default function AdminSupportPage() {
   ]);
 
   useEffect(() => {
-    return () => {
-      dashboardAbortRef.current?.abort();
-      verificationAbortRef.current?.abort();
+    const tabAllowed =
+      activeTab ===
+        "overview" ||
+      (
+        activeTab ===
+          "branches" &&
+        (
+          access.manage_branches ||
+          access.impersonate_branch
+        )
+      ) ||
+      (
+        activeTab ===
+          "branch_managers" &&
+        access.manage_branches
+      ) ||
+      (
+        activeTab ===
+          "users" &&
+        access.manage_support_users
+      ) ||
+      (
+        activeTab ===
+          "verifications" &&
+        access.manage_verification_results
+      ) ||
+      (
+        activeTab ===
+          "logs" &&
+        access.view_logs
+      );
 
-      confirmationResolverRef.current?.(
+    if (
+      !tabAllowed
+    ) {
+      setActiveTab(
+        "overview"
+      );
+    }
+  }, [
+    access,
+    activeTab,
+  ]);
+
+  const resetBranchForm =
+    useCallback((): void => {
+      setEditingBranchId(
+        null
+      );
+
+      setBranchName("");
+      setBranchSlug("");
+      setOrganizationName("");
+      setBranchCity("");
+
+      setBranchCommercialRecord(
+        ""
+      );
+
+      setBranchPhone("");
+      setBranchNotes("");
+      setManagerFullName("");
+      setManagerUsername("");
+      setManagerPassword("");
+
+      setShowBranchForm(
         false
       );
-    };
-  }, []);
+    }, []);
 
-  const redirectToLogin =
-    useCallback(() => {
-      dashboardAbortRef.current?.abort();
-      verificationAbortRef.current?.abort();
+  const resetUserForm =
+    useCallback((): void => {
+      setSupportFullName("");
+      setSupportUsername("");
+      setSupportPassword("");
 
-      router.replace(
-        "/admin-support/login"
+      setSupportRole(
+        "support"
       );
 
-      router.refresh();
-    }, [router]);
+      setSelectedPermissions(
+        []
+      );
 
-  const apiRequest = useCallback(
-    async <T,>(
-      url: string,
-      options?: RequestInit
-    ): Promise<ApiResponse<T>> => {
-      try {
-        const response = await fetch(
-          url,
-          {
-            ...options,
-            credentials: "include",
-            cache: "no-store",
-            headers: {
-              "Content-Type":
-                "application/json",
-              ...(options?.headers || {}),
-            },
-          }
-        );
+      setShowUserForm(
+        false
+      );
+    }, []);
 
-        let payload: ApiResponse<T>;
+  const closePermissionsEditor =
+    useCallback((): void => {
+      setEditingPermissionsUserId(
+        null
+      );
 
-        try {
-          payload =
-            (await response.json()) as ApiResponse<T>;
-        } catch {
-          payload = {
-            ok: false,
-            message:
-              "تعذر قراءة استجابة الخادم",
-          };
-        }
+      setEditingPermissions(
+        []
+      );
+    }, []);
 
-        if (response.status === 401) {
-          redirectToLogin();
-
-          return {
-            ok: false,
-            message:
-              payload.message ||
-              "انتهت جلسة الدخول",
-          };
-        }
-
-        if (
-          !response.ok ||
-          !payload.ok
-        ) {
-          return {
-            ok: false,
-            message:
-              payload.message ||
-              `تعذر تنفيذ الطلب، رمز الاستجابة ${response.status}`,
-          };
-        }
-
-        return payload;
-      } catch (error) {
-        if (
-          error instanceof DOMException &&
-          error.name === "AbortError"
-        ) {
-          return {
-            ok: false,
-            message:
-              "تم إلغاء الطلب",
-          };
-        }
-
-        console.error(
-          "Admin support request failed:",
-          error
-        );
-
-        return {
-          ok: false,
-          message:
-            "تعذر الاتصال بالخادم، تحقق من اتصال الإنترنت",
-        };
-      }
-    },
-    [redirectToLogin]
-  );
-
-  const loadDashboard =
-    useCallback(
-      async (
-        showFullLoader = false
-      ) => {
-        dashboardAbortRef.current?.abort();
-
-        const controller =
-          new AbortController();
-
-        dashboardAbortRef.current =
-          controller;
-
-        if (showFullLoader) {
-          setLoading(true);
-        }
-
-        beginAction("dashboard");
-        setPageError("");
-
-        try {
-          const response = await fetch(
-            "/api/admin-support/dashboard",
-            {
-              method: "GET",
-              credentials: "include",
-              cache: "no-store",
-              signal: controller.signal,
-              headers: {
-                Accept:
-                  "application/json",
-              },
-            }
-          );
-
-          let payload: DashboardResponse;
-
-          try {
-            payload =
-              (await response.json()) as DashboardResponse;
-          } catch {
-            payload = {
-              ok: false,
-              message:
-                "تعذر قراءة بيانات لوحة الدعم",
-            };
-          }
-
-          if (
-            controller.signal.aborted
-          ) {
-            return;
-          }
-
-          if (
-            response.status === 401
-          ) {
-            redirectToLogin();
-            return;
-          }
-
-          if (
-            !response.ok ||
-            !payload.ok ||
-            !payload.user ||
-            !payload.access
-          ) {
-            setPageError(
-              payload.message ||
-                "تعذر تحميل لوحة الدعم"
-            );
-
-            return;
-          }
-
-          setCurrentUser(payload.user);
-
-          setAccess({
-            ...EMPTY_ACCESS,
-            ...payload.access,
-          });
-
-          setBranches(
-            Array.isArray(
-              payload.branches
-            )
-              ? payload.branches
-              : []
-          );
-
-          setBranchManagers(
-            Array.isArray(
-              payload.branch_managers
-            )
-              ? payload.branch_managers
-              : []
-          );
-
-          setSupportUsers(
-            Array.isArray(
-              payload.support_users
-            )
-              ? payload.support_users
-              : []
-          );
-
-          setLogs(
-            Array.isArray(payload.logs)
-              ? payload.logs
-              : []
-          );
-        } catch (error) {
-          if (
-            error instanceof DOMException &&
-            error.name === "AbortError"
-          ) {
-            return;
-          }
-
-          console.error(
-            "Dashboard load failed:",
-            error
-          );
-
-          setPageError(
-            "تعذر الاتصال بالخادم أثناء تحميل لوحة الدعم"
-          );
-        } finally {
-          if (
-            dashboardAbortRef.current ===
-            controller
-          ) {
-            dashboardAbortRef.current =
-              null;
-
-            endAction("dashboard");
-            setLoading(false);
-          }
-        }
-      },
-      [
-        beginAction,
-        endAction,
-        redirectToLogin,
-      ]
-    );
-
-  useEffect(() => {
-    void loadDashboard(true);
-  }, [loadDashboard]);
-
-  useEffect(() => {
-    const tabAllowed =
-      activeTab === "overview" ||
-      (activeTab === "branches" &&
-        (access.manage_branches ||
-          access.impersonate_branch)) ||
-      (activeTab ===
-        "branch_managers" &&
-        access.manage_branches) ||
-      (activeTab === "users" &&
-        access.manage_support_users) ||
-      (activeTab ===
-        "verifications" &&
-        access.manage_verification_results) ||
-      (activeTab === "logs" &&
-        access.view_logs);
-
-    if (!tabAllowed) {
-      setActiveTab("overview");
-    }
-  }, [access, activeTab]);
-
-  function getBranchRelation(
-    manager: BranchManager
-  ) {
-    const relation =
-      manager.finance_branches;
-
-    if (Array.isArray(relation)) {
-      return relation[0] || null;
+  function openNewBranchForm(): void {
+    if (
+      !access.manage_branches
+    ) {
+      showNotice(
+        "لا تملك صلاحية إدارة الفروع",
+        "error"
+      );
+      return;
     }
 
-    return relation || null;
-  }
-
-  function validateUsername(
-    value: string
-  ) {
-    const username = value.trim();
-
-    return (
-      username.length >= 3 &&
-      username.length <= 30 &&
-      /^[A-Za-z0-9_\u0600-\u06FF]+$/.test(
-        username
-      )
-    );
-  }
-
-  function validatePin(
-    value: string
-  ) {
-    return /^\d{4}$/.test(
-      value.trim()
-    );
-  }
-
-  function validateSupportPassword(
-    value: string
-  ) {
-    return (
-      value.length >= 4 &&
-      value.length <= 100
-    );
-  }
-    function resetBranchForm() {
-    setEditingBranchId(null);
-    setBranchName("");
-    setBranchSlug("");
-    setOrganizationName("");
-    setBranchCity("");
-    setBranchCommercialRecord("");
-    setBranchPhone("");
-    setBranchNotes("");
-    setManagerFullName("");
-    setManagerUsername("");
-    setManagerPassword("");
-    setShowBranchForm(false);
-  }
-
-  function openNewBranchForm() {
     resetUserForm();
     closePermissionsEditor();
+    resetBranchForm();
 
-    setEditingBranchId(null);
-    setBranchName("");
-    setBranchSlug("");
-    setOrganizationName("");
-    setBranchCity("");
-    setBranchCommercialRecord("");
-    setBranchPhone("");
-    setBranchNotes("");
-    setManagerFullName("");
-    setManagerUsername("");
-    setManagerPassword("");
-    setShowBranchForm(true);
+    setShowBranchForm(
+      true
+    );
 
     window.scrollTo({
       top: 0,
@@ -1292,8 +3055,12 @@ export default function AdminSupportPage() {
     });
   }
 
-  function editBranch(branch: Branch) {
-    if (!access.manage_branches) {
+  function editBranch(
+    branch: Branch
+  ): void {
+    if (
+      !access.manage_branches
+    ) {
       showNotice(
         "لا تملك صلاحية إدارة الفروع",
         "error"
@@ -1304,23 +3071,50 @@ export default function AdminSupportPage() {
     resetUserForm();
     closePermissionsEditor();
 
-    setEditingBranchId(branch.id);
-    setBranchName(branch.branch_name || "");
-    setBranchSlug(branch.branch_slug || "");
+    setEditingBranchId(
+      branch.id
+    );
+
+    setBranchName(
+      branch.branch_name
+    );
+
+    setBranchSlug(
+      branch.branch_slug
+    );
+
     setOrganizationName(
-      branch.organization_name || ""
+      branch.organization_name
     );
-    setBranchCity(branch.city || "");
+
+    setBranchCity(
+      branch.city || ""
+    );
+
     setBranchCommercialRecord(
-      branch.commercial_record || ""
+      branch.commercial_record ||
+        ""
     );
-    setBranchPhone(branch.phone || "");
-    setBranchNotes(branch.notes || "");
+
+    setBranchPhone(
+      branch.phone || ""
+    );
+
+    setBranchNotes(
+      branch.notes || ""
+    );
+
     setManagerFullName("");
     setManagerUsername("");
     setManagerPassword("");
-    setShowBranchForm(true);
-    setActiveTab("branches");
+
+    setShowBranchForm(
+      true
+    );
+
+    setActiveTab(
+      "branches"
+    );
 
     window.scrollTo({
       top: 0,
@@ -1328,386 +3122,85 @@ export default function AdminSupportPage() {
     });
   }
 
-  async function saveBranch() {
-    if (!access.manage_branches) {
+  function openNewUserForm(): void {
+    if (
+      !access.manage_support_users
+    ) {
       showNotice(
-        "لا تملك صلاحية إدارة الفروع",
+        "لا تملك صلاحية إدارة مستخدمي الدعم",
         "error"
       );
       return;
     }
 
-    if (isBusy("save_branch")) {
-      return;
-    }
+    resetBranchForm();
+    closePermissionsEditor();
+    resetUserForm();
 
-    const cleanBranchName =
-      branchName.trim();
+    setShowUserForm(
+      true
+    );
 
-    const cleanSlug =
-      branchSlug
-        .trim()
-        .toLowerCase();
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
+  }
 
-    const cleanOrganizationName =
-      organizationName.trim();
-
-    const cleanManagerFullName =
-      managerFullName.trim();
-
-    const cleanManagerUsername =
-      managerUsername.trim();
-
-    const cleanManagerPassword =
-      managerPassword.trim();
-
-    if (!cleanBranchName) {
+  function openPermissionsEditor(
+    user: SupportUser
+  ): void {
+    if (
+      !access.manage_support_users
+    ) {
       showNotice(
-        "اكتب اسم الفرع",
-        "error"
-      );
-      return;
-    }
-
-    if (!cleanSlug) {
-      showNotice(
-        "اكتب رابط الفرع",
+        "لا تملك صلاحية إدارة مستخدمي الدعم",
         "error"
       );
       return;
     }
 
     if (
-      !/^[a-z0-9_-]+$/.test(
-        cleanSlug
-      )
+      user.role ===
+      "super_admin"
     ) {
       showNotice(
-        "رابط الفرع يقبل الحروف الإنجليزية الصغيرة والأرقام و _ أو - فقط",
-        "error"
+        "مدير النظام يملك جميع الصلاحيات تلقائيًا",
+        "info"
       );
       return;
     }
 
-    if (!cleanOrganizationName) {
+    if (
+      user.id ===
+      currentUser?.id
+    ) {
       showNotice(
-        "اكتب اسم المنظمة",
+        "لا يمكنك تعديل صلاحيات حسابك الحالي",
         "error"
       );
       return;
     }
 
-    if (!editingBranchId) {
-      if (!cleanManagerFullName) {
-        showNotice(
-          "اكتب اسم مدير الفرع",
-          "error"
-        );
-        return;
-      }
+    resetUserForm();
 
-      if (
-        !validateUsername(
-          cleanManagerUsername
-        )
-      ) {
-        showNotice(
-          "اسم مستخدم مدير الفرع يجب أن يكون من 3 إلى 30 حرفًا",
-          "error"
-        );
-        return;
-      }
-
-      if (
-        !validatePin(
-          cleanManagerPassword
-        )
-      ) {
-        showNotice(
-          "كلمة مرور مدير الفرع يجب أن تكون 4 أرقام فقط",
-          "error"
-        );
-        return;
-      }
-    }
-
-    const requestBody = {
-      branch_name:
-        cleanBranchName,
-
-      branch_slug:
-        cleanSlug,
-
-      organization_name:
-        cleanOrganizationName,
-
-      city:
-        branchCity.trim(),
-
-      commercial_record:
-        branchCommercialRecord.trim(),
-
-      phone:
-        branchPhone.trim(),
-
-      notes:
-        branchNotes.trim(),
-    };
-
-    beginAction("save_branch");
-
-    const response =
-      editingBranchId
-        ? await apiRequest(
-            `/api/admin-support/branches/${editingBranchId}`,
-            {
-              method: "PATCH",
-              body: JSON.stringify({
-                ...requestBody,
-
-                is_active:
-                  branches.find(
-                    (branch) =>
-                      branch.id ===
-                      editingBranchId
-                  )?.is_active ?? true,
-              }),
-            }
-          )
-        : await apiRequest(
-            "/api/admin-support/branches",
-            {
-              method: "POST",
-              body: JSON.stringify({
-                ...requestBody,
-
-                manager_full_name:
-                  cleanManagerFullName,
-
-                manager_username:
-                  cleanManagerUsername,
-
-                manager_password:
-                  cleanManagerPassword,
-              }),
-            }
-          );
-
-    endAction("save_branch");
-
-    if (!response.ok) {
-      showNotice(
-        response.message,
-        "error"
-      );
-      return;
-    }
-
-    const wasEditing =
-      Boolean(editingBranchId);
-
-    resetBranchForm();
-
-    showNotice(
-      response.message ||
-        (wasEditing
-          ? "تم تحديث الفرع بنجاح"
-          : "تم إنشاء الفرع بنجاح"),
-      "success"
+    setEditingPermissionsUserId(
+      user.id
     );
 
-    await loadDashboard();
-  }
-
-  async function toggleBranch(
-    branch: Branch
-  ) {
-    if (!access.manage_branches) {
-      showNotice(
-        "لا تملك صلاحية إدارة الفروع",
-        "error"
-      );
-      return;
-    }
-
-    const action:
-      BusyAction =
-      `branch_status:${branch.id}`;
-
-    if (isBusy(action)) {
-      return;
-    }
-
-    const nextStatus =
-      !branch.is_active;
-
-    const confirmed =
-      await requestConfirmation(
-        nextStatus
-          ? `هل تريد تفعيل فرع ${branch.branch_name}؟`
-          : `هل تريد تعطيل فرع ${branch.branch_name}؟`,
-        {
-          title:
-            nextStatus
-              ? "تفعيل الفرع"
-              : "تعطيل الفرع",
-
-          confirmLabel:
-            nextStatus
-              ? "تفعيل"
-              : "تعطيل",
-
-          danger:
-            !nextStatus,
-        }
-      );
-
-    if (!confirmed) {
-      return;
-    }
-
-    beginAction(action);
-
-    const response =
-      await apiRequest(
-        `/api/admin-support/branches/${branch.id}`,
-        {
-          method: "PATCH",
-
-          body: JSON.stringify({
-            branch_name:
-              branch.branch_name,
-
-            branch_slug:
-              branch.branch_slug,
-
-            organization_name:
-              branch.organization_name,
-
-            city:
-              branch.city || "",
-
-            commercial_record:
-              branch.commercial_record ||
-              "",
-
-            phone:
-              branch.phone || "",
-
-            notes:
-              branch.notes || "",
-
-            is_active:
-              nextStatus,
-          }),
-        }
-      );
-
-    endAction(action);
-
-    if (!response.ok) {
-      showNotice(
-        response.message,
-        "error"
-      );
-      return;
-    }
-
-    showNotice(
-      response.message,
-      "success"
+    setEditingPermissions(
+      normalizeSupportPermissions(
+        user.permissions
+      )
     );
-
-    await loadDashboard();
-  }
-
-  async function toggleBranchManager(
-    manager: BranchManager
-  ) {
-    if (!access.manage_branches) {
-      showNotice(
-        "لا تملك صلاحية إدارة الفروع",
-        "error"
-      );
-      return;
-    }
-
-    const action:
-      BusyAction =
-      `manager_status:${manager.id}`;
-
-    if (isBusy(action)) {
-      return;
-    }
-
-    const nextStatus =
-      !manager.is_active;
-
-    const confirmed =
-      await requestConfirmation(
-        nextStatus
-          ? `هل تريد تفعيل المدير ${manager.full_name}؟`
-          : `هل تريد تعطيل المدير ${manager.full_name}؟`,
-        {
-          title:
-            nextStatus
-              ? "تفعيل مدير الفرع"
-              : "تعطيل مدير الفرع",
-
-          confirmLabel:
-            nextStatus
-              ? "تفعيل"
-              : "تعطيل",
-
-          danger:
-            !nextStatus,
-        }
-      );
-
-    if (!confirmed) {
-      return;
-    }
-
-    beginAction(action);
-
-    const response =
-      await apiRequest(
-        `/api/admin-support/branch-managers/${manager.id}`,
-        {
-          method: "PATCH",
-
-          body: JSON.stringify({
-            action:
-              "set_active",
-
-            is_active:
-              nextStatus,
-          }),
-        }
-      );
-
-    endAction(action);
-
-    if (!response.ok) {
-      showNotice(
-        response.message,
-        "error"
-      );
-      return;
-    }
-
-    showNotice(
-      response.message,
-      "success"
-    );
-
-    await loadDashboard();
   }
 
   function openPasswordDialog(
     manager: BranchManager
-  ) {
-    if (!access.manage_branches) {
+  ): void {
+    if (
+      !access.manage_branches
+    ) {
       showNotice(
         "لا تملك صلاحية إدارة الفروع",
         "error"
@@ -1721,11 +3214,537 @@ export default function AdminSupportPage() {
     });
   }
 
-  function closePasswordDialog() {
-    setPasswordDialog(null);
+  function closePasswordDialog(): void {
+    setPasswordDialog(
+      null
+    );
   }
 
-  async function submitBranchManagerPassword() {
+  function openVerificationEditor(
+    contract: VerificationContract
+  ): void {
+    setEditingVerificationContractId(
+      contract.contract_id
+    );
+
+    setVerificationPosition(
+      contract.override_position ||
+        contract.effective_position
+    );
+
+    setVerificationReason(
+      contract.override_reason ||
+        ""
+    );
+
+    setVerificationNotes(
+      contract.override_notes ||
+        ""
+    );
+
+    window.setTimeout(
+      () => {
+        document
+          .getElementById(
+            `verification-editor-${contract.contract_id}`
+          )
+          ?.scrollIntoView({
+            behavior:
+              "smooth",
+
+            block:
+              "center",
+          });
+      },
+      50
+    );
+  }
+  async function saveBranch(): Promise<void> {
+    if (!access.manage_branches) {
+      showNotice(
+        "لا تملك صلاحية إدارة الفروع",
+        "error"
+      );
+      return;
+    }
+
+    if (!beginAction("save_branch")) {
+      return;
+    }
+
+    try {
+      const cleanBranchName =
+        branchName.trim();
+
+      const cleanSlug =
+        branchSlug
+          .trim()
+          .toLowerCase();
+
+      const cleanOrganizationName =
+        organizationName.trim();
+
+      const cleanManagerFullName =
+        managerFullName.trim();
+
+      const cleanManagerUsername =
+        managerUsername.trim();
+
+      const cleanManagerPassword =
+        cleanNumericValue(
+          managerPassword,
+          4
+        );
+
+      if (
+        cleanBranchName.length < 2 ||
+        cleanBranchName.length > 100
+      ) {
+        showNotice(
+          "اسم الفرع يجب أن يكون من حرفين إلى 100 حرف",
+          "error"
+        );
+        return;
+      }
+
+      if (
+        !isValidBranchSlug(
+          cleanSlug
+        )
+      ) {
+        showNotice(
+          "رابط الفرع غير صحيح، ويقبل الحروف الإنجليزية الصغيرة والأرقام و _ أو - فقط",
+          "error"
+        );
+        return;
+      }
+
+      if (
+        cleanOrganizationName.length < 2 ||
+        cleanOrganizationName.length > 150
+      ) {
+        showNotice(
+          "اسم المنظمة يجب أن يكون من حرفين إلى 150 حرف",
+          "error"
+        );
+        return;
+      }
+
+      if (
+        branchCity.trim().length > 100
+      ) {
+        showNotice(
+          "اسم المدينة طويل جدًا",
+          "error"
+        );
+        return;
+      }
+
+      if (
+        branchCommercialRecord.trim().length > 30
+      ) {
+        showNotice(
+          "رقم السجل التجاري طويل جدًا",
+          "error"
+        );
+        return;
+      }
+
+      if (
+        branchPhone.trim().length > 20
+      ) {
+        showNotice(
+          "رقم الجوال طويل جدًا",
+          "error"
+        );
+        return;
+      }
+
+      if (
+        branchNotes.trim().length > 1000
+      ) {
+        showNotice(
+          "الملاحظات طويلة جدًا",
+          "error"
+        );
+        return;
+      }
+
+      if (!editingBranchId) {
+        if (
+          cleanManagerFullName.length < 2 ||
+          cleanManagerFullName.length > 100
+        ) {
+          showNotice(
+            "اسم مدير الفرع يجب أن يكون من حرفين إلى 100 حرف",
+            "error"
+          );
+          return;
+        }
+
+        if (
+          !isValidUsername(
+            cleanManagerUsername
+          )
+        ) {
+          showNotice(
+            "اسم مستخدم مدير الفرع يجب أن يكون من 3 إلى 30 حرفًا ويقبل العربي أو الإنجليزي أو الأرقام أو _ فقط",
+            "error"
+          );
+          return;
+        }
+
+        if (
+          !isValidPin(
+            cleanManagerPassword
+          )
+        ) {
+          showNotice(
+            "كلمة مرور مدير الفرع يجب أن تكون 4 أرقام فقط",
+            "error"
+          );
+          return;
+        }
+      }
+
+      const requestBody = {
+        branch_name:
+          cleanBranchName,
+
+        branch_slug:
+          cleanSlug,
+
+        organization_name:
+          cleanOrganizationName,
+
+        city:
+          branchCity.trim(),
+
+        commercial_record:
+          cleanNumericValue(
+            branchCommercialRecord,
+            30
+          ),
+
+        phone:
+          normalizePhoneValue(
+            branchPhone,
+            20
+          ),
+
+        notes:
+          branchNotes.trim(),
+      };
+
+      const result =
+        editingBranchId
+          ? await executeRequest(
+              `/api/admin-support/branches/${editingBranchId}`,
+              {
+                method: "PATCH",
+
+                body: JSON.stringify({
+                  ...requestBody,
+
+                  is_active:
+                    branches.find(
+                      (branch) =>
+                        branch.id ===
+                        editingBranchId
+                    )?.is_active ?? true,
+                }),
+              }
+            )
+          : await executeRequest(
+              "/api/admin-support/branches",
+              {
+                method: "POST",
+
+                body: JSON.stringify({
+                  ...requestBody,
+
+                  manager_full_name:
+                    cleanManagerFullName,
+
+                  manager_username:
+                    cleanManagerUsername,
+
+                  manager_password:
+                    cleanManagerPassword,
+                }),
+              }
+            );
+
+      if (!result.ok) {
+        if (!result.aborted) {
+          showNotice(
+            result.message,
+            "error"
+          );
+        }
+
+        return;
+      }
+
+      const wasEditing =
+        Boolean(
+          editingBranchId
+        );
+
+      resetBranchForm();
+
+      showNotice(
+        result.payload.message ||
+          (
+            wasEditing
+              ? "تم تحديث الفرع بنجاح"
+              : "تم إنشاء الفرع بنجاح"
+          ),
+        "success"
+      );
+
+      await loadDashboard({
+        section: "branches",
+
+        branchesPage:
+          wasEditing
+            ? paginationRef.current
+                .branchesPage
+            : 1,
+
+        managersPage:
+          paginationRef.current
+            .managersPage,
+      });
+    } finally {
+      endAction(
+        "save_branch"
+      );
+    }
+  }
+
+  async function toggleBranch(
+    branch: Branch
+  ): Promise<void> {
+    if (!access.manage_branches) {
+      showNotice(
+        "لا تملك صلاحية إدارة الفروع",
+        "error"
+      );
+      return;
+    }
+
+    const action:
+      BusyAction =
+      `branch_status:${branch.id}`;
+
+    if (!beginAction(action)) {
+      return;
+    }
+
+    try {
+      const nextStatus =
+        !branch.is_active;
+
+      const confirmed =
+        await requestConfirmation(
+          nextStatus
+            ? `هل تريد تفعيل فرع ${branch.branch_name}؟`
+            : `هل تريد تعطيل فرع ${branch.branch_name}؟`,
+          {
+            title:
+              nextStatus
+                ? "تفعيل الفرع"
+                : "تعطيل الفرع",
+
+            confirmLabel:
+              nextStatus
+                ? "تفعيل"
+                : "تعطيل",
+
+            danger:
+              !nextStatus,
+          }
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      const result =
+        await executeRequest(
+          `/api/admin-support/branches/${branch.id}`,
+          {
+            method: "PATCH",
+
+            body: JSON.stringify({
+              branch_name:
+                branch.branch_name,
+
+              branch_slug:
+                branch.branch_slug,
+
+              organization_name:
+                branch.organization_name,
+
+              city:
+                branch.city || "",
+
+              commercial_record:
+                branch.commercial_record ||
+                "",
+
+              phone:
+                branch.phone || "",
+
+              notes:
+                branch.notes || "",
+
+              is_active:
+                nextStatus,
+            }),
+          }
+        );
+
+      if (!result.ok) {
+        if (!result.aborted) {
+          showNotice(
+            result.message,
+            "error"
+          );
+        }
+
+        return;
+      }
+
+      showNotice(
+        result.payload.message ||
+          (
+            nextStatus
+              ? "تم تفعيل الفرع"
+              : "تم تعطيل الفرع"
+          ),
+        "success"
+      );
+
+      await loadDashboard({
+        section: "branches",
+
+        branchesPage:
+          paginationRef.current
+            .branchesPage,
+
+        managersPage:
+          paginationRef.current
+            .managersPage,
+      });
+    } finally {
+      endAction(action);
+    }
+  }
+
+  async function toggleBranchManager(
+    manager: BranchManager
+  ): Promise<void> {
+    if (!access.manage_branches) {
+      showNotice(
+        "لا تملك صلاحية إدارة الفروع",
+        "error"
+      );
+      return;
+    }
+
+    const action:
+      BusyAction =
+      `manager_status:${manager.id}`;
+
+    if (!beginAction(action)) {
+      return;
+    }
+
+    try {
+      const nextStatus =
+        !manager.is_active;
+
+      const confirmed =
+        await requestConfirmation(
+          nextStatus
+            ? `هل تريد تفعيل المدير ${manager.full_name}؟`
+            : `هل تريد تعطيل المدير ${manager.full_name}؟`,
+          {
+            title:
+              nextStatus
+                ? "تفعيل مدير الفرع"
+                : "تعطيل مدير الفرع",
+
+            confirmLabel:
+              nextStatus
+                ? "تفعيل"
+                : "تعطيل",
+
+            danger:
+              !nextStatus,
+          }
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      const result =
+        await executeRequest(
+          `/api/admin-support/branch-managers/${manager.id}`,
+          {
+            method: "PATCH",
+
+            body: JSON.stringify({
+              action:
+                "set_active",
+
+              is_active:
+                nextStatus,
+            }),
+          }
+        );
+
+      if (!result.ok) {
+        if (!result.aborted) {
+          showNotice(
+            result.message,
+            "error"
+          );
+        }
+
+        return;
+      }
+
+      showNotice(
+        result.payload.message ||
+          (
+            nextStatus
+              ? "تم تفعيل مدير الفرع"
+              : "تم تعطيل مدير الفرع"
+          ),
+        "success"
+      );
+
+      await loadDashboard({
+        section: "branches",
+
+        branchesPage:
+          paginationRef.current
+            .branchesPage,
+
+        managersPage:
+          paginationRef.current
+            .managersPage,
+      });
+    } finally {
+      endAction(action);
+    }
+  }
+
+  async function submitBranchManagerPassword(): Promise<void> {
     if (!passwordDialog) {
       return;
     }
@@ -1737,66 +3756,83 @@ export default function AdminSupportPage() {
       BusyAction =
       `manager_password:${manager.id}`;
 
-    if (isBusy(action)) {
+    if (!beginAction(action)) {
       return;
     }
 
-    const cleanPassword =
-      cleanNumericValue(
-        passwordDialog.value,
-        4
-      );
+    try {
+      const cleanPassword =
+        cleanNumericValue(
+          passwordDialog.value,
+          4
+        );
 
-    if (!validatePin(cleanPassword)) {
-      showNotice(
-        "كلمة المرور يجب أن تكون 4 أرقام فقط",
-        "error"
-      );
-      return;
-    }
+      if (
+        !isValidPin(
+          cleanPassword
+        )
+      ) {
+        showNotice(
+          "كلمة المرور يجب أن تكون 4 أرقام فقط",
+          "error"
+        );
+        return;
+      }
 
-    beginAction(action);
+      const result =
+        await executeRequest(
+          `/api/admin-support/branch-managers/${manager.id}`,
+          {
+            method: "PATCH",
 
-    const response =
-      await apiRequest(
-        `/api/admin-support/branch-managers/${manager.id}`,
-        {
-          method: "PATCH",
+            body: JSON.stringify({
+              action:
+                "reset_password",
 
-          body: JSON.stringify({
-            action:
-              "reset_password",
+              new_password:
+                cleanPassword,
+            }),
+          }
+        );
 
-            new_password:
-              cleanPassword,
-          }),
+      if (!result.ok) {
+        if (!result.aborted) {
+          showNotice(
+            result.message,
+            "error"
+          );
         }
-      );
 
-    endAction(action);
+        return;
+      }
 
-    if (!response.ok) {
+      closePasswordDialog();
+
       showNotice(
-        response.message,
-        "error"
+        result.payload.message ||
+          "تم تحديث كلمة المرور بنجاح",
+        "success"
       );
-      return;
+
+      await loadDashboard({
+        section: "branches",
+
+        branchesPage:
+          paginationRef.current
+            .branchesPage,
+
+        managersPage:
+          paginationRef.current
+            .managersPage,
+      });
+    } finally {
+      endAction(action);
     }
-
-    closePasswordDialog();
-
-    showNotice(
-      response.message ||
-        "تم تحديث كلمة المرور بنجاح",
-      "success"
-    );
-
-    await loadDashboard();
   }
 
   async function enterBranch(
     branch: Branch
-  ) {
+  ): Promise<void> {
     if (
       !access.impersonate_branch
     ) {
@@ -1819,79 +3855,62 @@ export default function AdminSupportPage() {
       BusyAction =
       `branch_enter:${branch.id}`;
 
-    if (isBusy(action)) {
+    if (!beginAction(action)) {
       return;
     }
 
-    beginAction(action);
+    try {
+      const result =
+        await executeRequest(
+          "/api/admin-support/impersonate",
+          {
+            method: "POST",
 
-    const response =
-      await apiRequest(
-        "/api/admin-support/impersonate",
-        {
-          method: "POST",
+            body: JSON.stringify({
+              branch_id:
+                branch.id,
+            }),
+          }
+        );
 
-          body: JSON.stringify({
-            branch_id:
-              branch.id,
-          }),
+      if (!result.ok) {
+        if (!result.aborted) {
+          showNotice(
+            result.message,
+            "error"
+          );
         }
-      );
 
-    endAction(action);
+        return;
+      }
 
-    if (
-      !response.ok ||
-      !response.redirect_url
-    ) {
-      showNotice(
-        response.message ||
-          "تعذر الدخول إلى الفرع",
-        "error"
+      const redirectUrl =
+        cleanTextValue(
+          result.payload.redirect_url
+        );
+
+      if (
+        !redirectUrl ||
+        !redirectUrl.startsWith(
+          "/finance/"
+        )
+      ) {
+        showNotice(
+          "رابط الدخول إلى الفرع غير صالح",
+          "error"
+        );
+        return;
+      }
+
+      router.push(
+        redirectUrl
       );
-      return;
+    } finally {
+      endAction(action);
     }
-
-    router.push(
-      response.redirect_url
-    );
   }
 
-  function resetUserForm() {
-    setSupportFullName("");
-    setSupportUsername("");
-    setSupportPassword("");
-    setSupportRole("support");
-
-    setSelectedPermissions(
-      []
-    );
-
-    setShowUserForm(false);
-  }
-
-  function openNewUserForm() {
-    resetBranchForm();
-    closePermissionsEditor();
-
-    setSupportFullName("");
-    setSupportUsername("");
-    setSupportPassword("");
-    setSupportRole("support");
-
-    setSelectedPermissions(
-      []
-    );
-
-    setShowUserForm(true);
-
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
-  }
-
-  async function createSupportUser() {
+  async function createSupportUser(): Promise<void> {
     if (
       !access.manage_support_users
     ) {
@@ -1903,135 +3922,164 @@ export default function AdminSupportPage() {
     }
 
     if (
-      isBusy(
+      !beginAction(
         "create_support_user"
       )
     ) {
       return;
     }
 
-    const cleanFullName =
-      supportFullName.trim();
+    try {
+      const cleanFullName =
+        supportFullName.trim();
 
-    const cleanUsername =
-      supportUsername.trim();
+      const cleanUsername =
+        supportUsername.trim();
 
-    if (!cleanFullName) {
-      showNotice(
-        "اكتب الاسم",
-        "error"
-      );
-      return;
-    }
+      if (
+        cleanFullName.length < 2 ||
+        cleanFullName.length > 100
+      ) {
+        showNotice(
+          "الاسم يجب أن يكون من حرفين إلى 100 حرف",
+          "error"
+        );
+        return;
+      }
 
-    if (
-      cleanFullName.length >
-      100
-    ) {
-      showNotice(
-        "الاسم طويل جدًا",
-        "error"
-      );
-      return;
-    }
+      if (
+        !isValidUsername(
+          cleanUsername
+        )
+      ) {
+        showNotice(
+          "اسم المستخدم يجب أن يكون من 3 إلى 30 حرفًا، ويقبل العربي أو الإنجليزي أو الأرقام أو _ فقط",
+          "error"
+        );
+        return;
+      }
 
-    if (
-      !validateUsername(
-        cleanUsername
-      )
-    ) {
-      showNotice(
-        "اسم المستخدم يجب أن يكون من 3 إلى 30 حرفًا، ويقبل العربي أو الإنجليزي أو الأرقام أو _ فقط",
-        "error"
-      );
-      return;
-    }
+      if (
+        !isValidSupportPassword(
+          supportPassword
+        )
+      ) {
+        showNotice(
+          "كلمة المرور يجب أن تكون من 4 إلى 100 حرف",
+          "error"
+        );
+        return;
+      }
 
-    if (
-      !validateSupportPassword(
-        supportPassword
-      )
-    ) {
-      showNotice(
-        "كلمة المرور يجب أن تكون من 4 إلى 100 حرف",
-        "error"
-      );
-      return;
-    }
+      if (
+        !isSupportRole(
+          supportRole
+        )
+      ) {
+        showNotice(
+          "دور المستخدم غير صحيح",
+          "error"
+        );
+        return;
+      }
 
-    if (
-      supportRole ===
-        "super_admin" &&
-      currentUser?.role !==
+      if (
+        supportRole ===
+          "super_admin" &&
+        currentUser?.role !==
+          "super_admin"
+      ) {
+        showNotice(
+          "إنشاء مدير نظام متاح لمدير النظام فقط",
+          "error"
+        );
+        return;
+      }
+
+      const normalizedPermissions =
+        supportRole ===
         "super_admin"
-    ) {
-      showNotice(
-        "إنشاء مدير نظام متاح لمدير النظام فقط",
-        "error"
-      );
-      return;
-    }
+          ? []
+          : normalizeSupportPermissions(
+              selectedPermissions
+            );
 
-    beginAction(
-      "create_support_user"
-    );
+      const result =
+        await executeRequest(
+          "/api/admin-support/support-users",
+          {
+            method: "POST",
 
-    const response =
-      await apiRequest(
-        "/api/admin-support/support-users",
-        {
-          method: "POST",
+            body: JSON.stringify({
+              full_name:
+                cleanFullName,
 
-          body: JSON.stringify({
-            full_name:
-              cleanFullName,
+              username:
+                cleanUsername,
 
-            username:
-              cleanUsername,
+              password:
+                supportPassword,
 
-            password:
-              supportPassword,
+              role:
+                supportRole,
 
-            role:
-              supportRole,
+              permissions:
+                normalizedPermissions,
+            }),
+          }
+        );
 
-            permissions:
-              selectedPermissions,
-          }),
+      if (!result.ok) {
+        if (!result.aborted) {
+          showNotice(
+            result.message,
+            "error"
+          );
         }
-      );
 
-    endAction(
-      "create_support_user"
-    );
+        return;
+      }
 
-    if (!response.ok) {
+      resetUserForm();
+
       showNotice(
-        response.message,
-        "error"
+        result.payload.message ||
+          "تم إنشاء مستخدم الدعم بنجاح",
+        "success"
       );
-      return;
+
+      await loadDashboard({
+        section:
+          "support_users",
+
+        usersPage: 1,
+      });
+    } finally {
+      endAction(
+        "create_support_user"
+      );
     }
-
-    resetUserForm();
-
-    showNotice(
-      response.message ||
-        "تم إنشاء مستخدم الدعم بنجاح",
-      "success"
-    );
-
-    await loadDashboard();
   }
 
   async function toggleSupportUser(
     user: SupportUser
-  ) {
+  ): Promise<void> {
     if (
       !access.manage_support_users
     ) {
       showNotice(
         "لا تملك صلاحية إدارة مستخدمي الدعم",
+        "error"
+      );
+      return;
+    }
+
+    if (
+      user.id ===
+      currentUser?.id
+    ) {
+      showNotice(
+        "لا يمكنك تعطيل حسابك الحالي",
         "error"
       );
       return;
@@ -2041,131 +4089,92 @@ export default function AdminSupportPage() {
       BusyAction =
       `support_status:${user.id}`;
 
-    if (isBusy(action)) {
+    if (!beginAction(action)) {
       return;
     }
 
-    const nextStatus =
-      !user.is_active;
+    try {
+      const nextStatus =
+        !user.is_active;
 
-    const confirmed =
-      await requestConfirmation(
-        nextStatus
-          ? `هل تريد تفعيل المستخدم ${user.full_name}؟`
-          : `هل تريد تعطيل المستخدم ${user.full_name}؟`,
-        {
-          title:
-            nextStatus
-              ? "تفعيل مستخدم الدعم"
-              : "تعطيل مستخدم الدعم",
+      const confirmed =
+        await requestConfirmation(
+          nextStatus
+            ? `هل تريد تفعيل المستخدم ${user.full_name}؟`
+            : `هل تريد تعطيل المستخدم ${user.full_name}؟`,
+          {
+            title:
+              nextStatus
+                ? "تفعيل مستخدم الدعم"
+                : "تعطيل مستخدم الدعم",
 
-          confirmLabel:
-            nextStatus
-              ? "تفعيل"
-              : "تعطيل",
+            confirmLabel:
+              nextStatus
+                ? "تفعيل"
+                : "تعطيل",
 
-          danger:
-            !nextStatus,
+            danger:
+              !nextStatus,
+          }
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      const result =
+        await executeRequest(
+          `/api/admin-support/support-users/${user.id}`,
+          {
+            method: "PATCH",
+
+            body: JSON.stringify({
+              action:
+                "set_active",
+
+              is_active:
+                nextStatus,
+            }),
+          }
+        );
+
+      if (!result.ok) {
+        if (!result.aborted) {
+          showNotice(
+            result.message,
+            "error"
+          );
         }
-      );
 
-    if (!confirmed) {
-      return;
-    }
+        return;
+      }
 
-    beginAction(action);
-
-    const response =
-      await apiRequest(
-        `/api/admin-support/support-users/${user.id}`,
-        {
-          method: "PATCH",
-
-          body: JSON.stringify({
-            action:
-              "set_active",
-
-            is_active:
-              nextStatus,
-          }),
-        }
-      );
-
-    endAction(action);
-
-    if (!response.ok) {
       showNotice(
-        response.message,
-        "error"
+        result.payload.message ||
+          (
+            nextStatus
+              ? "تم تفعيل المستخدم"
+              : "تم تعطيل المستخدم"
+          ),
+        "success"
       );
-      return;
+
+      await loadDashboard({
+        section:
+          "support_users",
+
+        usersPage:
+          paginationRef.current
+            .usersPage,
+      });
+    } finally {
+      endAction(action);
     }
-
-    showNotice(
-      response.message,
-      "success"
-    );
-
-    await loadDashboard();
-  }
-
-  function openPermissionsEditor(
-    user: SupportUser
-  ) {
-    if (
-      user.role === "super_admin"
-    ) {
-      showNotice(
-        "مدير النظام يملك جميع الصلاحيات تلقائيًا",
-        "info"
-      );
-      return;
-    }
-
-    if (
-      user.id === currentUser?.id
-    ) {
-      showNotice(
-        "لا يمكنك تعديل صلاحيات حسابك الحالي",
-        "error"
-      );
-      return;
-    }
-
-    resetUserForm();
-
-    const allowedPermissions =
-      user.permissions.filter(
-        (
-          permission
-        ): permission is SupportPermission =>
-          SUPPORT_PERMISSIONS.some(
-            (item) =>
-              item.key ===
-              permission
-          )
-      );
-
-    setEditingPermissionsUserId(
-      user.id
-    );
-
-    setEditingPermissions(
-      allowedPermissions
-    );
-  }
-
-  function closePermissionsEditor() {
-    setEditingPermissionsUserId(
-      null
-    );
-
-    setEditingPermissions([]);
   }
 
   async function saveSupportUserPermissions(
     user: SupportUser
-  ) {
+  ): Promise<void> {
     if (
       !access.manage_support_users
     ) {
@@ -2176,106 +4185,107 @@ export default function AdminSupportPage() {
       return;
     }
 
-    const action:
-      BusyAction =
-      `support_permissions:${user.id}`;
-
-    if (isBusy(action)) {
-      return;
-    }
-
-    const confirmed =
-      await requestConfirmation(
-        `هل تريد حفظ صلاحيات المستخدم ${user.full_name}؟ ستنتهي جلسته الحالية إن كان مسجلًا.`,
-        {
-          title:
-            "حفظ صلاحيات المستخدم",
-
-          confirmLabel:
-            "حفظ الصلاحيات",
-        }
-      );
-
-    if (!confirmed) {
-      return;
-    }
-
-    beginAction(action);
-
-    const response =
-      await apiRequest(
-        `/api/admin-support/support-users/${user.id}`,
-        {
-          method: "PATCH",
-
-          body: JSON.stringify({
-            action:
-              "update_permissions",
-
-            permissions:
-              editingPermissions,
-          }),
-        }
-      );
-
-    endAction(action);
-
-    if (!response.ok) {
+    if (
+      user.role ===
+      "super_admin"
+    ) {
       showNotice(
-        response.message,
+        "مدير النظام يملك جميع الصلاحيات تلقائيًا",
+        "info"
+      );
+      return;
+    }
+
+    if (
+      user.id ===
+      currentUser?.id
+    ) {
+      showNotice(
+        "لا يمكنك تعديل صلاحيات حسابك الحالي",
         "error"
       );
       return;
     }
 
-    closePermissionsEditor();
+    const action:
+      BusyAction =
+      `support_permissions:${user.id}`;
 
-    showNotice(
-      response.message ||
-        "تم تحديث الصلاحيات",
-      "success"
-    );
+    if (!beginAction(action)) {
+      return;
+    }
 
-    await loadDashboard();
-  }
+    try {
+      const confirmed =
+        await requestConfirmation(
+          `هل تريد حفظ صلاحيات المستخدم ${user.full_name}؟ ستنتهي جلسته الحالية إن كان مسجلًا.`,
+          {
+            title:
+              "حفظ صلاحيات المستخدم",
 
-  function openVerificationEditor(
-    contract: VerificationContract
-  ) {
-    setEditingVerificationContractId(
-      contract.contract_id
-    );
+            confirmLabel:
+              "حفظ الصلاحيات",
+          }
+        );
 
-    setVerificationPosition(
-      contract.override_position ||
-        contract.effective_position ||
-        "نشط"
-    );
+      if (!confirmed) {
+        return;
+      }
 
-    setVerificationReason(
-      contract.override_reason || ""
-    );
+      const result =
+        await executeRequest(
+          `/api/admin-support/support-users/${user.id}`,
+          {
+            method: "PATCH",
 
-    setVerificationNotes(
-      contract.override_notes || ""
-    );
+            body: JSON.stringify({
+              action:
+                "update_permissions",
 
-    window.setTimeout(() => {
-      document
-        .getElementById(
-          `verification-editor-${contract.contract_id}`
-        )
-        ?.scrollIntoView({
-          behavior: "smooth",
-          block: "center",
-        });
-    }, 50);
+              permissions:
+                normalizeSupportPermissions(
+                  editingPermissions
+                ),
+            }),
+          }
+        );
+
+      if (!result.ok) {
+        if (!result.aborted) {
+          showNotice(
+            result.message,
+            "error"
+          );
+        }
+
+        return;
+      }
+
+      closePermissionsEditor();
+
+      showNotice(
+        result.payload.message ||
+          "تم تحديث الصلاحيات",
+        "success"
+      );
+
+      await loadDashboard({
+        section:
+          "support_users",
+
+        usersPage:
+          paginationRef.current
+            .usersPage,
+      });
+    } finally {
+      endAction(action);
+    }
   }
 
   async function performVerificationSearch(
     searchValue: string,
     mode: "search" | "refresh"
-  ) {
+  ): Promise<boolean> {
     verificationAbortRef.current?.abort();
 
     const controller =
@@ -2297,10 +4307,18 @@ export default function AdminSupportPage() {
         ? "verification_search"
         : "verification_refresh";
 
-    beginAction(action);
+    if (!beginAction(action)) {
+      return false;
+    }
 
-    if (mode === "search") {
-      setVerificationResults([]);
+    if (
+      mode === "search" &&
+      mountedRef.current
+    ) {
+      setVerificationResults(
+        []
+      );
+
       setVerificationSearchPerformed(
         false
       );
@@ -2309,13 +4327,14 @@ export default function AdminSupportPage() {
     }
 
     try {
-      const response =
-        await apiRequest<
+      const result =
+        await executeRequest<
           RawVerificationContract[]
         >(
           "/api/admin-support/verifications/search",
           {
             method: "POST",
+
             signal:
               controller.signal,
 
@@ -2329,18 +4348,19 @@ export default function AdminSupportPage() {
       if (
         controller.signal.aborted ||
         requestSequence !==
-          verificationRequestSequenceRef.current
+          verificationRequestSequenceRef.current ||
+        !mountedRef.current
       ) {
         return false;
       }
 
-      if (!response.ok) {
+      if (!result.ok) {
         if (
-          response.message !==
-          "تم إلغاء الطلب"
+          !result.aborted &&
+          !result.unauthorized
         ) {
           showNotice(
-            response.message,
+            result.message,
             "error"
           );
         }
@@ -2350,7 +4370,7 @@ export default function AdminSupportPage() {
 
       const normalizedResults =
         normalizeVerificationResults(
-          response.data
+          result.payload.data
         );
 
       setVerificationResults(
@@ -2375,7 +4395,7 @@ export default function AdminSupportPage() {
     }
   }
 
-  async function searchVerificationContracts() {
+  async function searchVerificationContracts(): Promise<void> {
     if (
       !access.manage_verification_results
     ) {
@@ -2383,14 +4403,6 @@ export default function AdminSupportPage() {
         "لا تملك صلاحية إدارة نتائج التحقق",
         "error"
       );
-      return;
-    }
-
-    if (
-      isBusy(
-        "verification_search"
-      )
-    ) {
       return;
     }
 
@@ -2418,7 +4430,7 @@ export default function AdminSupportPage() {
     );
   }
 
-  async function refreshVerificationSearch() {
+  async function refreshVerificationSearch(): Promise<boolean> {
     const searchValue =
       cleanNumericValue(
         verificationSearchValue,
@@ -2437,7 +4449,7 @@ export default function AdminSupportPage() {
 
   async function setVerificationOverride(
     contract: VerificationContract
-  ) {
+  ): Promise<void> {
     if (
       !access.manage_verification_results
     ) {
@@ -2452,115 +4464,134 @@ export default function AdminSupportPage() {
       BusyAction =
       `verification_set:${contract.contract_id}`;
 
-    if (isBusy(action)) {
+    if (!beginAction(action)) {
       return;
     }
 
-    const reason =
-      verificationReason.trim();
+    try {
+      const reason =
+        verificationReason.trim();
 
-    const notes =
-      verificationNotes.trim();
+      const notes =
+        verificationNotes.trim();
 
-    if (reason.length < 3) {
-      showNotice(
-        "اكتب سبب التعديل، ويجب ألا يقل عن 3 أحرف",
-        "error"
-      );
-      return;
-    }
+      if (
+        !isVerificationPosition(
+          verificationPosition
+        )
+      ) {
+        showNotice(
+          "حالة التحقق المختارة غير صحيحة",
+          "error"
+        );
+        return;
+      }
 
-    if (reason.length > 500) {
-      showNotice(
-        "سبب التعديل طويل جدًا",
-        "error"
-      );
-      return;
-    }
+      if (
+        reason.length < 3
+      ) {
+        showNotice(
+          "اكتب سبب التعديل، ويجب ألا يقل عن 3 أحرف",
+          "error"
+        );
+        return;
+      }
 
-    if (notes.length > 1000) {
-      showNotice(
-        "الملاحظات طويلة جدًا",
-        "error"
-      );
-      return;
-    }
+      if (
+        reason.length > 500
+      ) {
+        showNotice(
+          "سبب التعديل طويل جدًا",
+          "error"
+        );
+        return;
+      }
 
-    const confirmed =
-      await requestConfirmation(
-        `هل تريد جعل نتيجة العقد رقم ${
-          contract.contract_number ||
-          "-"
-        } تظهر بحالة "${verificationPosition}"؟`,
-        {
-          title:
-            "تعديل نتيجة التحقق",
+      if (
+        notes.length > 1000
+      ) {
+        showNotice(
+          "الملاحظات طويلة جدًا",
+          "error"
+        );
+        return;
+      }
 
-          confirmLabel:
-            `تعيين ${verificationPosition}`,
+      const confirmed =
+        await requestConfirmation(
+          `هل تريد جعل نتيجة العقد رقم ${
+            contract.contract_number ||
+            "-"
+          } تظهر بحالة "${verificationPosition}"؟`,
+          {
+            title:
+              "تعديل نتيجة التحقق",
+
+            confirmLabel:
+              `تعيين ${verificationPosition}`,
+          }
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      const result =
+        await executeRequest(
+          `/api/admin-support/verifications/${contract.contract_id}`,
+          {
+            method: "PATCH",
+
+            body: JSON.stringify({
+              action:
+                "set_override",
+
+              position:
+                verificationPosition,
+
+              reason,
+              notes,
+            }),
+          }
+        );
+
+      if (!result.ok) {
+        if (!result.aborted) {
+          showNotice(
+            result.message,
+            "error"
+          );
         }
+
+        return;
+      }
+
+      const refreshed =
+        await refreshVerificationSearch();
+
+      if (!refreshed) {
+        showNotice(
+          "تم حفظ النتيجة، لكن تعذر تحديث بيانات البحث الحالية",
+          "info"
+        );
+        return;
+      }
+
+      resetVerificationEditor();
+
+      showNotice(
+        result.payload.message ||
+          "تم تحديث نتيجة التحقق",
+        "success"
       );
-
-    if (!confirmed) {
-      return;
-    }
-
-    beginAction(action);
-
-    const response =
-      await apiRequest(
-        `/api/admin-support/verifications/${contract.contract_id}`,
-        {
-          method: "PATCH",
-
-          body: JSON.stringify({
-            action:
-              "set_override",
-
-            position:
-              verificationPosition,
-
-            reason,
-            notes,
-          }),
-        }
-      );
-
-    if (!response.ok) {
+    } finally {
       endAction(action);
-
-      showNotice(
-        response.message,
-        "error"
-      );
-      return;
     }
-
-    const refreshed =
-      await refreshVerificationSearch();
-
-    endAction(action);
-
-    if (!refreshed) {
-      showNotice(
-        "تم حفظ النتيجة، لكن تعذر تحديث بيانات البحث الحالية",
-        "info"
-      );
-      return;
-    }
-
-    resetVerificationEditor();
-
-    showNotice(
-      response.message ||
-        "تم تحديث نتيجة التحقق",
-      "success"
-    );
   }
 
   async function clearVerificationOverride(
     contract: VerificationContract
-  ) {
+  ): Promise<void> {
     if (
       !access.manage_verification_results
     ) {
@@ -2575,145 +4606,255 @@ export default function AdminSupportPage() {
       BusyAction =
       `verification_clear:${contract.contract_id}`;
 
-    if (isBusy(action)) {
+    if (!beginAction(action)) {
       return;
     }
-
-    const reason =
-      verificationReason.trim();
-
-    if (reason.length < 3) {
-      showNotice(
-        "اكتب سبب العودة للوضع التلقائي",
-        "error"
-      );
-      return;
-    }
-
-    if (reason.length > 500) {
-      showNotice(
-        "سبب الإلغاء طويل جدًا",
-        "error"
-      );
-      return;
-    }
-
-    const confirmed =
-      await requestConfirmation(
-        `هل تريد إلغاء تدخل الدعم عن العقد رقم ${
-          contract.contract_number ||
-          "-"
-        } والعودة للحسبة التلقائية؟`,
-        {
-          title:
-            "العودة للوضع التلقائي",
-
-          confirmLabel:
-            "إلغاء تدخل الدعم",
-
-          danger:
-            true,
-        }
-      );
-
-    if (!confirmed) {
-      return;
-    }
-
-    beginAction(action);
-
-    const response =
-      await apiRequest(
-        `/api/admin-support/verifications/${contract.contract_id}`,
-        {
-          method: "PATCH",
-
-          body: JSON.stringify({
-            action:
-              "clear_override",
-
-            reason,
-          }),
-        }
-      );
-
-    if (!response.ok) {
-      endAction(action);
-
-      showNotice(
-        response.message,
-        "error"
-      );
-      return;
-    }
-
-    const refreshed =
-      await refreshVerificationSearch();
-
-    endAction(action);
-
-    if (!refreshed) {
-      showNotice(
-        "تم إلغاء تدخل الدعم، لكن تعذر تحديث بيانات البحث الحالية",
-        "info"
-      );
-      return;
-    }
-
-    resetVerificationEditor();
-
-    showNotice(
-      response.message ||
-        "تمت العودة للوضع التلقائي",
-      "success"
-    );
-  }
-
-  async function logout() {
-    if (isBusy("logout")) {
-      return;
-    }
-
-    const confirmed =
-      await requestConfirmation(
-        "هل تريد تسجيل الخروج من لوحة الدعم الفني؟",
-        {
-          title:
-            "تسجيل الخروج",
-
-          confirmLabel:
-            "تسجيل الخروج",
-        }
-      );
-
-    if (!confirmed) {
-      return;
-    }
-
-    beginAction("logout");
-
-    dashboardAbortRef.current?.abort();
-    verificationAbortRef.current?.abort();
 
     try {
-      await fetch(
-        "/api/admin-support/logout",
-        {
-          method: "POST",
-          credentials: "include",
-          cache: "no-store",
+      const reason =
+        verificationReason.trim();
+
+      if (
+        reason.length < 3
+      ) {
+        showNotice(
+          "اكتب سبب العودة للوضع التلقائي",
+          "error"
+        );
+        return;
+      }
+
+      if (
+        reason.length > 500
+      ) {
+        showNotice(
+          "سبب الإلغاء طويل جدًا",
+          "error"
+        );
+        return;
+      }
+
+      const confirmed =
+        await requestConfirmation(
+          `هل تريد إلغاء تدخل الدعم عن العقد رقم ${
+            contract.contract_number ||
+            "-"
+          } والعودة للحسبة التلقائية؟`,
+          {
+            title:
+              "العودة للوضع التلقائي",
+
+            confirmLabel:
+              "العودة للوضع التلقائي",
+
+            danger:
+              true,
+          }
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      const result =
+        await executeRequest(
+          `/api/admin-support/verifications/${contract.contract_id}`,
+          {
+            method: "PATCH",
+
+            body: JSON.stringify({
+              action:
+                "clear_override",
+
+              reason,
+            }),
+          }
+        );
+
+      if (!result.ok) {
+        if (!result.aborted) {
+          showNotice(
+            result.message,
+            "error"
+          );
         }
-      );
-    } catch (error) {
-      console.error(
-        "Logout request failed:",
-        error
+
+        return;
+      }
+
+      const refreshed =
+        await refreshVerificationSearch();
+
+      if (!refreshed) {
+        showNotice(
+          "تمت العودة للوضع التلقائي، لكن تعذر تحديث بيانات البحث الحالية",
+          "info"
+        );
+        return;
+      }
+
+      resetVerificationEditor();
+
+      showNotice(
+        result.payload.message ||
+          "تمت العودة للوضع التلقائي",
+        "success"
       );
     } finally {
-      clearVerificationWorkspace();
-      endAction("logout");
-      redirectToLogin();
+      endAction(action);
     }
+  }
+
+  async function logout(): Promise<void> {
+    if (
+      !beginAction("logout")
+    ) {
+      return;
+    }
+
+    try {
+      const confirmed =
+        await requestConfirmation(
+          "هل تريد تسجيل الخروج من لوحة الدعم الفني؟",
+          {
+            title:
+              "تسجيل الخروج",
+
+            confirmLabel:
+              "تسجيل الخروج",
+          }
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      dashboardAbortRef.current?.abort();
+
+      verificationAbortRef.current?.abort();
+
+      const result =
+        await executeRequest(
+          "/api/admin-support/logout",
+          {
+            method: "POST",
+          }
+        );
+
+      if (
+        !result.ok &&
+        !result.aborted &&
+        !result.unauthorized
+      ) {
+        showNotice(
+          result.message,
+          "error"
+        );
+      }
+
+      clearVerificationWorkspace();
+
+      redirectToLogin();
+    } finally {
+      endAction("logout");
+    }
+  }
+
+  async function goToBranchesPage(
+    page: number
+  ): Promise<void> {
+    if (
+      page < 1 ||
+      (
+        branchesPagination.total_pages > 0 &&
+        page >
+          branchesPagination.total_pages
+      )
+    ) {
+      return;
+    }
+
+    await loadDashboard({
+      section: "branches",
+
+      branchesPage:
+        page,
+
+      managersPage:
+        paginationRef.current
+          .managersPage,
+    });
+  }
+
+  async function goToManagersPage(
+    page: number
+  ): Promise<void> {
+    if (
+      page < 1 ||
+      (
+        managersPagination.total_pages > 0 &&
+        page >
+          managersPagination.total_pages
+      )
+    ) {
+      return;
+    }
+
+    await loadDashboard({
+      section: "branches",
+
+      branchesPage:
+        paginationRef.current
+          .branchesPage,
+
+      managersPage:
+        page,
+    });
+  }
+
+  async function goToUsersPage(
+    page: number
+  ): Promise<void> {
+    if (
+      page < 1 ||
+      (
+        usersPagination.total_pages > 0 &&
+        page >
+          usersPagination.total_pages
+      )
+    ) {
+      return;
+    }
+
+    await loadDashboard({
+      section:
+        "support_users",
+
+      usersPage:
+        page,
+    });
+  }
+
+  async function goToLogsPage(
+    page: number
+  ): Promise<void> {
+    if (
+      page < 1 ||
+      (
+        logsPagination.total_pages > 0 &&
+        page >
+          logsPagination.total_pages
+      )
+    ) {
+      return;
+    }
+
+    await loadDashboard({
+      section: "logs",
+
+      logsPage:
+        page,
+    });
   }
 
   const activeBranches =
@@ -2729,6 +4870,16 @@ export default function AdminSupportPage() {
   const disabledBranches =
     branches.length -
     activeBranches;
+
+  const activeSupportUsers =
+    useMemo(
+      () =>
+        supportUsers.filter(
+          (user) =>
+            user.is_active
+        ).length,
+      [supportUsers]
+    );
 
   const visibleTabs =
     useMemo(
@@ -2755,8 +4906,25 @@ export default function AdminSupportPage() {
   const dashboardBusy =
     isBusy("dashboard");
 
+  const branchSectionBusy =
+    isBusy(
+      "dashboard_section:branches"
+    );
+
+  const usersSectionBusy =
+    isBusy(
+      "dashboard_section:support_users"
+    );
+
+  const logsSectionBusy =
+    isBusy(
+      "dashboard_section:logs"
+    );
+
   const branchSaveBusy =
-    isBusy("save_branch");
+    isBusy(
+      "save_branch"
+    );
 
   const supportCreateBusy =
     isBusy(
@@ -2775,16 +4943,24 @@ export default function AdminSupportPage() {
 
   const logoutBusy =
     isBusy("logout");
-    if (loading) {
+  if (loading) {
     return (
       <main
         dir="rtl"
-        style={getPageStyle(isCompact)}
+        style={getPageStyle(
+          isCompact
+        )}
       >
-        <section style={loadingCard}>
-          <div style={loadingSpinner} />
+        <section
+          style={loadingCard}
+        >
+          <div
+            style={loadingSpinner}
+          />
 
-          <h1 style={loadingTitle}>
+          <h1
+            style={loadingTitle}
+          >
             جاري تحميل لوحة الدعم الفني
           </h1>
         </section>
@@ -2801,14 +4977,22 @@ export default function AdminSupportPage() {
     return (
       <main
         dir="rtl"
-        style={getPageStyle(isCompact)}
+        style={getPageStyle(
+          isCompact
+        )}
       >
-        <section style={errorCard}>
-          <h1 style={errorTitle}>
+        <section
+          style={errorCard}
+        >
+          <h1
+            style={errorTitle}
+          >
             تعذر تحميل لوحة الدعم
           </h1>
 
-          <p style={errorText}>
+          <p
+            style={errorText}
+          >
             {pageError}
           </p>
 
@@ -2819,9 +5003,18 @@ export default function AdminSupportPage() {
               dashboardBusy
             )}
             onClick={() =>
-              void loadDashboard(true)
+              void loadDashboard({
+                fullLoader: true,
+                section: "all",
+                branchesPage: 1,
+                managersPage: 1,
+                usersPage: 1,
+                logsPage: 1,
+              })
             }
-            disabled={dashboardBusy}
+            disabled={
+              dashboardBusy
+            }
           >
             {dashboardBusy
               ? "جاري المحاولة..."
@@ -2837,11 +5030,15 @@ export default function AdminSupportPage() {
   return (
     <main
       dir="rtl"
-      style={getPageStyle(isCompact)}
+      style={getPageStyle(
+        isCompact
+      )}
     >
       <div
         className="support-shell"
-        style={getShellStyle(isCompact)}
+        style={getShellStyle(
+          isCompact
+        )}
       >
         {!isCompact && (
           <aside
@@ -2851,7 +5048,9 @@ export default function AdminSupportPage() {
             <BrandBox />
 
             <SideNav
-              activeTab={activeTab}
+              activeTab={
+                activeTab
+              }
               setActiveTab={
                 setActiveTab
               }
@@ -2869,7 +5068,9 @@ export default function AdminSupportPage() {
               onClick={() =>
                 void logout()
               }
-              disabled={logoutBusy}
+              disabled={
+                logoutBusy
+              }
             >
               {logoutBusy
                 ? "جاري الخروج..."
@@ -2903,9 +5104,13 @@ export default function AdminSupportPage() {
               style={heroDots}
             />
 
-            <div style={heroContent}>
+            <div
+              style={heroContent}
+            >
               <div>
-                <p style={topLabel}>
+                <p
+                  style={topLabel}
+                >
                   لوحة الدعم الفني
                 </p>
 
@@ -2917,7 +5122,9 @@ export default function AdminSupportPage() {
                   إدارة النظام والفروع
                 </h1>
 
-                <p style={heroSub}>
+                <p
+                  style={heroSub}
+                >
                   مرحبًا{" "}
                   {currentUser?.full_name ||
                     currentUser?.username}
@@ -2948,7 +5155,9 @@ export default function AdminSupportPage() {
 
           {isCompact && (
             <MobileNav
-              activeTab={activeTab}
+              activeTab={
+                activeTab
+              }
               setActiveTab={
                 setActiveTab
               }
@@ -2958,34 +5167,61 @@ export default function AdminSupportPage() {
               onLogout={() =>
                 void logout()
               }
-              disabled={logoutBusy}
+              disabled={
+                logoutBusy
+              }
             />
           )}
 
           {notice && (
             <NoticeBanner
               notice={notice}
-              onClose={closeNotice}
+              onClose={
+                closeNotice
+              }
             />
           )}
 
           {pageError && (
-            <div style={inlineError}>
-              <span>{pageError}</span>
+            <div
+              style={inlineError}
+            >
+              <span>
+                {pageError}
+              </span>
 
               <button
                 type="button"
-                style={
-                  inlineRetryButton
-                }
+                style={inlineRetryButton}
                 onClick={() =>
-                  void loadDashboard()
+                  void loadDashboard({
+                    section:
+                      activeTab ===
+                      "branches"
+                        ? "branches"
+                        : activeTab ===
+                            "branch_managers"
+                          ? "branches"
+                          : activeTab ===
+                              "users"
+                            ? "support_users"
+                            : activeTab ===
+                                "logs"
+                              ? "logs"
+                              : "all",
+                  })
                 }
                 disabled={
-                  dashboardBusy
+                  dashboardBusy ||
+                  branchSectionBusy ||
+                  usersSectionBusy ||
+                  logsSectionBusy
                 }
               >
-                {dashboardBusy
+                {dashboardBusy ||
+                branchSectionBusy ||
+                usersSectionBusy ||
+                logsSectionBusy
                   ? "جاري المحاولة..."
                   : "إعادة المحاولة"}
               </button>
@@ -2999,21 +5235,28 @@ export default function AdminSupportPage() {
             {visibleTabs.branches && (
               <>
                 <Stat
-                  title="كل الفروع"
+                  title="الفروع في الصفحة"
                   value={
                     branches.length
                   }
                 />
 
                 <Stat
-                  title="الفروع النشطة"
+                  title="إجمالي الفروع"
+                  value={
+                    branchesPagination.total
+                  }
+                />
+
+                <Stat
+                  title="النشطة في الصفحة"
                   value={
                     activeBranches
                   }
                 />
 
                 <Stat
-                  title="الفروع المعطلة"
+                  title="المعطلة في الصفحة"
                   value={
                     disabledBranches
                   }
@@ -3023,20 +5266,29 @@ export default function AdminSupportPage() {
 
             {visibleTabs.branchManagers && (
               <Stat
-                title="مدراء الفروع"
+                title="إجمالي مدراء الفروع"
                 value={
-                  branchManagers.length
+                  managersPagination.total
                 }
               />
             )}
 
             {visibleTabs.users && (
-              <Stat
-                title="مستخدمو الدعم"
-                value={
-                  supportUsers.length
-                }
-              />
+              <>
+                <Stat
+                  title="إجمالي مستخدمي الدعم"
+                  value={
+                    usersPagination.total
+                  }
+                />
+
+                <Stat
+                  title="النشطون في الصفحة"
+                  value={
+                    activeSupportUsers
+                  }
+                />
+              </>
             )}
           </section>
 
@@ -3046,8 +5298,12 @@ export default function AdminSupportPage() {
               className="dashboard-grid"
               style={dashboardGrid}
             >
-              <div style={darkCard}>
-                <h2 style={whiteTitle}>
+              <div
+                style={darkCard}
+              >
+                <h2
+                  style={whiteTitle}
+                >
                   لوحة التحكم المركزية
                 </h2>
 
@@ -3127,15 +5383,20 @@ export default function AdminSupportPage() {
               </div>
 
               {visibleTabs.logs && (
-                <div style={panelCard}>
-                  <h2 style={panelTitle}>
+                <div
+                  style={panelCard}
+                >
+                  <h2
+                    style={panelTitle}
+                  >
                     آخر العمليات
                   </h2>
 
                   {logs.length === 0 ? (
-                    <div style={emptyBox}>
-                      لا توجد عمليات حتى
-                      الآن
+                    <div
+                      style={emptyBox}
+                    >
+                      لا توجد عمليات حتى الآن
                     </div>
                   ) : (
                     <div
@@ -3143,29 +5404,31 @@ export default function AdminSupportPage() {
                     >
                       {logs
                         .slice(0, 6)
-                        .map((log) => (
-                          <div
-                            key={log.id}
-                            style={
-                              miniLogItem
-                            }
-                          >
-                            <strong>
-                              {log.action}
-                            </strong>
+                        .map(
+                          (log) => (
+                            <div
+                              key={
+                                log.id
+                              }
+                              style={miniLogItem}
+                            >
+                              <strong>
+                                {log.action}
+                              </strong>
 
-                            <span>
-                              {log.user_name ||
-                                "-"}
-                            </span>
+                              <span>
+                                {log.user_name ||
+                                  "-"}
+                              </span>
 
-                            <small>
-                              {formatDateTime(
-                                log.created_at
-                              )}
-                            </small>
-                          </div>
-                        ))}
+                              <small>
+                                {formatDateTime(
+                                  log.created_at
+                                )}
+                              </small>
+                            </div>
+                          )
+                        )}
                     </div>
                   )}
                 </div>
@@ -3189,9 +5452,10 @@ export default function AdminSupportPage() {
                   {access.manage_branches && (
                     <button
                       type="button"
-                      style={
-                        primaryButton
-                      }
+                      style={getDisabledStyle(
+                        primaryButton,
+                        branchSaveBusy
+                      )}
                       onClick={
                         openNewBranchForm
                       }
@@ -3239,7 +5503,6 @@ export default function AdminSupportPage() {
                                   .value
                               )
                             }
-                            placeholder="مثال: فرع الرياض"
                             disabled={
                               branchSaveBusy
                             }
@@ -3256,12 +5519,10 @@ export default function AdminSupportPage() {
                             value={
                               branchSlug
                             }
-                            maxLength={60}
+                            maxLength={64}
                             dir="ltr"
                             autoCapitalize="none"
-                            spellCheck={
-                              false
-                            }
+                            spellCheck={false}
                             onChange={(
                               event
                             ) =>
@@ -3272,9 +5533,12 @@ export default function AdminSupportPage() {
                                     /[^a-z0-9_-]/g,
                                     ""
                                   )
+                                  .slice(
+                                    0,
+                                    64
+                                  )
                               )
                             }
-                            placeholder="riyadh"
                             disabled={
                               branchSaveBusy
                             }
@@ -3300,7 +5564,6 @@ export default function AdminSupportPage() {
                                   .value
                               )
                             }
-                            placeholder="مثال: مؤسسة سداد وأرقام"
                             disabled={
                               branchSaveBusy
                             }
@@ -3326,7 +5589,6 @@ export default function AdminSupportPage() {
                                   .value
                               )
                             }
-                            placeholder="مثال: حائل"
                             disabled={
                               branchSaveBusy
                             }
@@ -3356,7 +5618,6 @@ export default function AdminSupportPage() {
                                 )
                               )
                             }
-                            placeholder="مثال: 7049981769"
                             disabled={
                               branchSaveBusy
                             }
@@ -3387,7 +5648,6 @@ export default function AdminSupportPage() {
                                 )
                               )
                             }
-                            placeholder="05xxxxxxxx"
                             disabled={
                               branchSaveBusy
                             }
@@ -3398,18 +5658,13 @@ export default function AdminSupportPage() {
                       {!editingBranchId && (
                         <>
                           <div
-                            style={
-                              subFormTitle
-                            }
+                            style={subFormTitle}
                           >
-                            بيانات دخول مدير
-                            الفرع
+                            بيانات دخول مدير الفرع
                           </div>
 
                           <div
-                            style={
-                              formGrid
-                            }
+                            style={formGrid}
                           >
                             <Field
                               id="manager-full-name"
@@ -3417,25 +5672,19 @@ export default function AdminSupportPage() {
                             >
                               <input
                                 id="manager-full-name"
-                                style={
-                                  input
-                                }
+                                style={input}
                                 value={
                                   managerFullName
                                 }
-                                maxLength={
-                                  100
-                                }
+                                maxLength={100}
                                 onChange={(
                                   event
                                 ) =>
                                   setManagerFullName(
-                                    event
-                                      .target
+                                    event.target
                                       .value
                                   )
                                 }
-                                placeholder="مثال: عبدالله البكر"
                                 disabled={
                                   branchSaveBusy
                                 }
@@ -3448,30 +5697,28 @@ export default function AdminSupportPage() {
                             >
                               <input
                                 id="manager-username"
-                                style={
-                                  input
-                                }
+                                style={input}
                                 value={
                                   managerUsername
                                 }
-                                maxLength={
-                                  30
-                                }
+                                maxLength={30}
                                 autoCapitalize="none"
-                                spellCheck={
-                                  false
-                                }
+                                spellCheck={false}
                                 onChange={(
                                   event
                                 ) =>
                                   setManagerUsername(
-                                    event.target.value.replace(
-                                      /[^A-Za-z0-9_\u0600-\u06FF]/g,
-                                      ""
-                                    )
+                                    event.target.value
+                                      .replace(
+                                        /[^A-Za-z0-9_\u0600-\u06FF]/g,
+                                        ""
+                                      )
+                                      .slice(
+                                        0,
+                                        30
+                                      )
                                   )
                                 }
-                                placeholder="admin_riyadh"
                                 disabled={
                                   branchSaveBusy
                                 }
@@ -3484,15 +5731,11 @@ export default function AdminSupportPage() {
                             >
                               <input
                                 id="manager-password"
-                                style={
-                                  input
-                                }
+                                style={input}
                                 type="password"
                                 inputMode="numeric"
                                 autoComplete="new-password"
-                                maxLength={
-                                  4
-                                }
+                                maxLength={4}
                                 value={
                                   managerPassword
                                 }
@@ -3501,14 +5744,12 @@ export default function AdminSupportPage() {
                                 ) =>
                                   setManagerPassword(
                                     cleanNumericValue(
-                                      event
-                                        .target
+                                      event.target
                                         .value,
                                       4
                                     )
                                   )
                                 }
-                                placeholder="••••"
                                 disabled={
                                   branchSaveBusy
                                 }
@@ -3545,7 +5786,6 @@ export default function AdminSupportPage() {
                                 .value
                             )
                           }
-                          placeholder="ملاحظات داخلية للدعم الفني"
                           disabled={
                             branchSaveBusy
                           }
@@ -3577,9 +5817,7 @@ export default function AdminSupportPage() {
 
                         <button
                           type="button"
-                          style={
-                            secondaryButton
-                          }
+                          style={secondaryButton}
                           onClick={
                             resetBranchForm
                           }
@@ -3596,8 +5834,10 @@ export default function AdminSupportPage() {
                 <section
                   style={panelCard}
                 >
-                  {branches.length ===
-                  0 ? (
+                  {branchSectionBusy ? (
+                    <SectionLoading />
+                  ) : branches.length ===
+                    0 ? (
                     <div
                       style={emptyBox}
                     >
@@ -3605,9 +5845,7 @@ export default function AdminSupportPage() {
                     </div>
                   ) : (
                     <div
-                      style={
-                        branchesList
-                      }
+                      style={branchesList}
                     >
                       {branches.map(
                         (branch) => {
@@ -3633,36 +5871,27 @@ export default function AdminSupportPage() {
                               key={
                                 branch.id
                               }
-                              style={
-                                branchRow
-                              }
+                              style={branchRow}
                             >
                               <div
-                                style={
-                                  branchMain
-                                }
+                                style={branchMain}
                               >
                                 <div
-                                  style={
-                                    branchAvatar
-                                  }
+                                  style={branchAvatar}
                                 >
-                                  {branch.branch_name?.slice(
+                                  {branch.branch_name.slice(
                                     0,
                                     1
-                                  ) || "ف"}
+                                  )}
                                 </div>
 
                                 <div
                                   style={{
-                                    minWidth:
-                                      0,
+                                    minWidth: 0,
                                   }}
                                 >
                                   <h3
-                                    style={
-                                      branchTitle
-                                    }
+                                    style={branchTitle}
                                   >
                                     {
                                       branch.branch_name
@@ -3670,46 +5899,40 @@ export default function AdminSupportPage() {
                                   </h3>
 
                                   <p
-                                    style={
-                                      muted
-                                    }
+                                    style={muted}
                                   >
                                     {
                                       branch.organization_name
                                     }
                                   </p>
 
-                                  <p
-                                    style={
-                                      muted
-                                    }
-                                  >
-                                    {branch.city ||
-                                      "المدينة غير محددة"}
-                                  </p>
+                                  {access.manage_branches && (
+                                    <>
+                                      <p
+                                        style={muted}
+                                      >
+                                        {branch.city ||
+                                          "المدينة غير محددة"}
+                                      </p>
+
+                                      <p
+                                        style={muted}
+                                      >
+                                        {branch.commercial_record ||
+                                          "لا يوجد سجل تجاري"}
+                                      </p>
+
+                                      <p
+                                        style={muted}
+                                      >
+                                        {branch.phone ||
+                                          "لا يوجد رقم جوال"}
+                                      </p>
+                                    </>
+                                  )}
 
                                   <p
-                                    style={
-                                      muted
-                                    }
-                                  >
-                                    {branch.commercial_record ||
-                                      "لا يوجد سجل تجاري"}
-                                  </p>
-
-                                  <p
-                                    style={
-                                      muted
-                                    }
-                                  >
-                                    {branch.phone ||
-                                      "لا يوجد رقم جوال"}
-                                  </p>
-
-                                  <p
-                                    style={
-                                      ltrMuted
-                                    }
+                                    style={ltrMuted}
                                   >
                                     /finance/
                                     {
@@ -3732,9 +5955,7 @@ export default function AdminSupportPage() {
                               </span>
 
                               <div
-                                style={
-                                  rowActions
-                                }
+                                style={rowActions}
                               >
                                 {access.impersonate_branch && (
                                   <button
@@ -3770,9 +5991,7 @@ export default function AdminSupportPage() {
                                   <>
                                     <button
                                       type="button"
-                                      style={
-                                        smallButton
-                                      }
+                                      style={smallButton}
                                       onClick={() =>
                                         editBranch(
                                           branch
@@ -3822,6 +6041,27 @@ export default function AdminSupportPage() {
                       )}
                     </div>
                   )}
+
+                  <PaginationControls
+                    pagination={
+                      branchesPagination
+                    }
+                    loading={
+                      branchSectionBusy
+                    }
+                    onPrevious={() =>
+                      void goToBranchesPage(
+                        branchesPagination.page -
+                          1
+                      )
+                    }
+                    onNext={() =>
+                      void goToBranchesPage(
+                        branchesPagination.page +
+                          1
+                      )
+                    }
+                  />
                 </section>
               </>
             )}
@@ -3843,8 +6083,10 @@ export default function AdminSupportPage() {
                 <section
                   style={usersGrid}
                 >
-                  {branchManagers.length ===
-                  0 ? (
+                  {branchSectionBusy ? (
+                    <SectionLoading />
+                  ) : branchManagers.length ===
+                    0 ? (
                     <div
                       style={emptyBox}
                     >
@@ -3879,22 +6121,16 @@ export default function AdminSupportPage() {
                             key={
                               manager.id
                             }
-                            style={
-                              userCard
-                            }
+                            style={userCard}
                           >
                             <div
-                              style={
-                                userIcon
-                              }
+                              style={userIcon}
                             >
                               م
                             </div>
 
                             <h3
-                              style={
-                                userTitle
-                              }
+                              style={userTitle}
                             >
                               {
                                 manager.full_name
@@ -3918,9 +6154,7 @@ export default function AdminSupportPage() {
                             </p>
 
                             <p
-                              style={
-                                ltrMuted
-                              }
+                              style={ltrMuted}
                             >
                               /finance/
                               {branchInfo?.branch_slug ||
@@ -3948,9 +6182,7 @@ export default function AdminSupportPage() {
                             </span>
 
                             <div
-                              style={
-                                rowActions
-                              }
+                              style={rowActions}
                             >
                               <button
                                 type="button"
@@ -3967,11 +6199,7 @@ export default function AdminSupportPage() {
                                   managerBusy
                                 }
                               >
-                                {isBusy(
-                                  passwordAction
-                                )
-                                  ? "جاري التحديث..."
-                                  : "إعادة كلمة المرور"}
+                                إعادة كلمة المرور
                               </button>
 
                               <button
@@ -4008,6 +6236,27 @@ export default function AdminSupportPage() {
                     )
                   )}
                 </section>
+
+                <PaginationControls
+                  pagination={
+                    managersPagination
+                  }
+                  loading={
+                    branchSectionBusy
+                  }
+                  onPrevious={() =>
+                    void goToManagersPage(
+                      managersPagination.page -
+                        1
+                    )
+                  }
+                  onNext={() =>
+                    void goToManagersPage(
+                      managersPagination.page +
+                        1
+                    )
+                  }
+                />
               </>
             )}
 
@@ -4026,7 +6275,10 @@ export default function AdminSupportPage() {
 
                   <button
                     type="button"
-                    style={primaryButton}
+                    style={getDisabledStyle(
+                      primaryButton,
+                      supportCreateBusy
+                    )}
                     onClick={
                       openNewUserForm
                     }
@@ -4045,8 +6297,7 @@ export default function AdminSupportPage() {
                     <h2
                       style={formTitle}
                     >
-                      إضافة مستخدم دعم
-                      فني
+                      إضافة مستخدم دعم فني
                     </h2>
 
                     <div
@@ -4089,17 +6340,20 @@ export default function AdminSupportPage() {
                           }
                           maxLength={30}
                           autoCapitalize="none"
-                          spellCheck={
-                            false
-                          }
+                          spellCheck={false}
                           onChange={(
                             event
                           ) =>
                             setSupportUsername(
-                              event.target.value.replace(
-                                /[^A-Za-z0-9_\u0600-\u06FF]/g,
-                                ""
-                              )
+                              event.target.value
+                                .replace(
+                                  /[^A-Za-z0-9_\u0600-\u06FF]/g,
+                                  ""
+                                )
+                                .slice(
+                                  0,
+                                  30
+                                )
                             )
                           }
                           disabled={
@@ -4147,12 +6401,21 @@ export default function AdminSupportPage() {
                           }
                           onChange={(
                             event
-                          ) =>
-                            setSupportRole(
+                          ) => {
+                            const value =
                               event.target
-                                .value as SupportRole
-                            )
-                          }
+                                .value;
+
+                            if (
+                              isSupportRole(
+                                value
+                              )
+                            ) {
+                              setSupportRole(
+                                value
+                              );
+                            }
+                          }}
                           disabled={
                             supportCreateBusy
                           }
@@ -4175,67 +6438,65 @@ export default function AdminSupportPage() {
                       </Field>
                     </div>
 
-                    <div
-                      style={
-                        permissionsBox
-                      }
-                    >
-                      {SUPPORT_PERMISSIONS.map(
-                        (
-                          permission
-                        ) => (
-                          <label
-                            key={
-                              permission.key
-                            }
-                            style={
-                              permissionItem
-                            }
-                          >
-                            <input
-                              type="checkbox"
-                              checked={selectedPermissions.includes(
+                    {supportRole !==
+                      "super_admin" && (
+                      <div
+                        style={permissionsBox}
+                      >
+                        {SUPPORT_PERMISSIONS.map(
+                          (
+                            permission
+                          ) => (
+                            <label
+                              key={
                                 permission.key
-                              )}
-                              disabled={
-                                supportCreateBusy
                               }
-                              onChange={(
-                                event
-                              ) => {
-                                setSelectedPermissions(
-                                  (
-                                    previous
-                                  ) =>
-                                    event
-                                      .target
-                                      .checked
-                                      ? Array.from(
-                                          new Set(
-                                            [
-                                              ...previous,
-                                              permission.key,
-                                            ]
+                              style={permissionItem}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedPermissions.includes(
+                                  permission.key
+                                )}
+                                disabled={
+                                  supportCreateBusy
+                                }
+                                onChange={(
+                                  event
+                                ) => {
+                                  setSelectedPermissions(
+                                    (
+                                      previous
+                                    ) =>
+                                      event.target
+                                        .checked
+                                        ? Array.from(
+                                            new Set(
+                                              [
+                                                ...previous,
+                                                permission.key,
+                                              ]
+                                            )
                                           )
-                                        )
-                                      : previous.filter(
-                                          (
-                                            value
-                                          ) =>
-                                            value !==
-                                            permission.key
-                                        )
-                                );
-                              }}
-                            />
+                                        : previous.filter(
+                                            (
+                                              value
+                                            ) =>
+                                              value !==
+                                              permission.key
+                                          )
+                                  );
+                                }}
+                              />
 
-                            {
-                              permission.label
-                            }
-                          </label>
-                        )
-                      )}
-                    </div>
+                              {
+                                permission.label
+                              }
+                            </label>
+                          )
+                        )}
+                      </div>
+                    )}
 
                     <div
                       style={buttonsRow}
@@ -4260,9 +6521,7 @@ export default function AdminSupportPage() {
 
                       <button
                         type="button"
-                        style={
-                          secondaryButton
-                        }
+                        style={secondaryButton}
                         onClick={
                           resetUserForm
                         }
@@ -4279,13 +6538,14 @@ export default function AdminSupportPage() {
                 <section
                   style={usersGrid}
                 >
-                  {supportUsers.length ===
-                  0 ? (
+                  {usersSectionBusy ? (
+                    <SectionLoading />
+                  ) : supportUsers.length ===
+                    0 ? (
                     <div
                       style={emptyBox}
                     >
-                      لا يوجد مستخدمو دعم
-                      متاحون
+                      لا يوجد مستخدمو دعم متاحون
                     </div>
                   ) : (
                     supportUsers.map(
@@ -4306,29 +6566,25 @@ export default function AdminSupportPage() {
                             permissionsAction
                           );
 
-                        const permissionsEditorOpen =
+                        const editorOpen =
                           editingPermissionsUserId ===
                           user.id;
 
                         return (
                           <article
-                            key={user.id}
-                            style={
-                              userCard
+                            key={
+                              user.id
                             }
+                            style={userCard}
                           >
                             <div
-                              style={
-                                userIcon
-                              }
+                              style={userIcon}
                             >
                               د
                             </div>
 
                             <h3
-                              style={
-                                userTitle
-                              }
+                              style={userTitle}
                             >
                               {
                                 user.full_name
@@ -4345,9 +6601,7 @@ export default function AdminSupportPage() {
                             </p>
 
                             <p
-                              style={
-                                roleBadge
-                              }
+                              style={roleBadge}
                             >
                               {roleLabel(
                                 user.role
@@ -4367,22 +6621,17 @@ export default function AdminSupportPage() {
                             </span>
 
                             <div
-                              style={
-                                permissionsTags
-                              }
+                              style={permissionsTags}
                             >
                               {user.role ===
                               "super_admin" ? (
                                 <span
-                                  style={
-                                    permissionTag
-                                  }
+                                  style={permissionTag}
                                 >
                                   جميع الصلاحيات
                                 </span>
-                              ) : user
-                                  .permissions
-                                  ?.length ? (
+                              ) : user.permissions.length >
+                                0 ? (
                                 user.permissions.map(
                                   (
                                     permission
@@ -4391,9 +6640,7 @@ export default function AdminSupportPage() {
                                       key={
                                         permission
                                       }
-                                      style={
-                                        permissionTag
-                                      }
+                                      style={permissionTag}
                                     >
                                       {permissionLabel(
                                         permission
@@ -4403,30 +6650,23 @@ export default function AdminSupportPage() {
                                 )
                               ) : (
                                 <span
-                                  style={
-                                    permissionTag
-                                  }
+                                  style={permissionTag}
                                 >
-                                  بدون صلاحيات
-                                  محددة
+                                  بدون صلاحيات محددة
                                 </span>
                               )}
                             </div>
 
-                            {permissionsEditorOpen && (
+                            {editorOpen && (
                               <div
-                                style={
-                                  permissionsEditorBox
-                                }
+                                style={permissionsEditorBox}
                               >
                                 <strong>
                                   تعديل الصلاحيات
                                 </strong>
 
                                 <div
-                                  style={
-                                    permissionsBox
-                                  }
+                                  style={permissionsBox}
                                 >
                                   {SUPPORT_PERMISSIONS.map(
                                     (
@@ -4436,9 +6676,7 @@ export default function AdminSupportPage() {
                                         key={
                                           permission.key
                                         }
-                                        style={
-                                          permissionItem
-                                        }
+                                        style={permissionItem}
                                       >
                                         <input
                                           type="checkbox"
@@ -4455,8 +6693,7 @@ export default function AdminSupportPage() {
                                               (
                                                 previous
                                               ) =>
-                                                event
-                                                  .target
+                                                event.target
                                                   .checked
                                                   ? Array.from(
                                                       new Set(
@@ -4486,9 +6723,7 @@ export default function AdminSupportPage() {
                                 </div>
 
                                 <div
-                                  style={
-                                    buttonsRow
-                                  }
+                                  style={buttonsRow}
                                 >
                                   <button
                                     type="button"
@@ -4516,9 +6751,7 @@ export default function AdminSupportPage() {
 
                                   <button
                                     type="button"
-                                    style={
-                                      smallButton
-                                    }
+                                    style={smallButton}
                                     onClick={
                                       closePermissionsEditor
                                     }
@@ -4533,9 +6766,7 @@ export default function AdminSupportPage() {
                             )}
 
                             <div
-                              style={
-                                rowActions
-                              }
+                              style={rowActions}
                             >
                               {user.role !==
                                 "super_admin" &&
@@ -4543,11 +6774,9 @@ export default function AdminSupportPage() {
                                   currentUser?.id && (
                                   <button
                                     type="button"
-                                    style={
-                                      smallBlueButton
-                                    }
+                                    style={smallBlueButton}
                                     onClick={() =>
-                                      permissionsEditorOpen
+                                      editorOpen
                                         ? closePermissionsEditor()
                                         : openPermissionsEditor(
                                             user
@@ -4557,7 +6786,7 @@ export default function AdminSupportPage() {
                                       userBusy
                                     }
                                   >
-                                    {permissionsEditorOpen
+                                    {editorOpen
                                       ? "إغلاق الصلاحيات"
                                       : "تعديل الصلاحيات"}
                                   </button>
@@ -4587,12 +6816,6 @@ export default function AdminSupportPage() {
                                   user.id ===
                                     currentUser?.id
                                 }
-                                title={
-                                  user.id ===
-                                  currentUser?.id
-                                    ? "لا يمكنك تعطيل حسابك الحالي"
-                                    : undefined
-                                }
                               >
                                 {isBusy(
                                   statusAction
@@ -4612,6 +6835,27 @@ export default function AdminSupportPage() {
                     )
                   )}
                 </section>
+
+                <PaginationControls
+                  pagination={
+                    usersPagination
+                  }
+                  loading={
+                    usersSectionBusy
+                  }
+                  onPrevious={() =>
+                    void goToUsersPage(
+                      usersPagination.page -
+                        1
+                    )
+                  }
+                  onNext={() =>
+                    void goToUsersPage(
+                      usersPagination.page +
+                        1
+                    )
+                  }
+                />
               </>
             )}
 
@@ -4630,15 +6874,11 @@ export default function AdminSupportPage() {
                 </div>
 
                 <section
-                  style={
-                    verificationSearchCard
-                  }
+                  style={verificationSearchCard}
                 >
                   <div
                     className="verification-search-grid"
-                    style={
-                      verificationSearchGrid
-                    }
+                    style={verificationSearchGrid}
                   >
                     <Field
                       id="verification-search"
@@ -4652,7 +6892,6 @@ export default function AdminSupportPage() {
                         }
                         inputMode="numeric"
                         maxLength={30}
-                        placeholder="اكتب رقم الهوية أو رقم العقد"
                         onChange={(
                           event
                         ) =>
@@ -4704,40 +6943,34 @@ export default function AdminSupportPage() {
 
                 {verificationRefreshing && (
                   <div
-                    style={
-                      verificationRefreshingBox
-                    }
+                    style={verificationRefreshingBox}
                   >
                     <div
-                      style={
-                        smallSpinner
-                      }
+                      style={smallSpinner}
                     />
 
                     <span>
-                      جاري تحديث بيانات
-                      النتائج...
+                      جاري تحديث بيانات النتائج...
                     </span>
                   </div>
                 )}
 
                 {!verificationSearchPerformed ? (
-                  <div style={emptyBox}>
-                    لن تظهر أي عقود قبل
-                    إدخال رقم الهوية أو رقم
-                    العقد وتنفيذ البحث.
+                  <div
+                    style={emptyBox}
+                  >
+                    لن تظهر أي عقود قبل إدخال رقم الهوية أو رقم العقد وتنفيذ البحث.
                   </div>
                 ) : verificationResults.length ===
                   0 ? (
-                  <div style={emptyBox}>
-                    لم يتم العثور على نتائج
-                    مطابقة
+                  <div
+                    style={emptyBox}
+                  >
+                    لم يتم العثور على نتائج مطابقة
                   </div>
                 ) : (
                   <section
-                    style={
-                      verificationResultsList
-                    }
+                    style={verificationResultsList}
                   >
                     {verificationResults.map(
                       (contract) => {
@@ -4766,20 +6999,14 @@ export default function AdminSupportPage() {
                             key={
                               contract.contract_id
                             }
-                            style={
-                              verificationCard
-                            }
+                            style={verificationCard}
                           >
                             <div
-                              style={
-                                verificationCardTop
-                              }
+                              style={verificationCardTop}
                             >
                               <div>
                                 <h3
-                                  style={
-                                    verificationTitle
-                                  }
+                                  style={verificationTitle}
                                 >
                                   العقد رقم{" "}
                                   {contract.contract_number ||
@@ -4787,9 +7014,7 @@ export default function AdminSupportPage() {
                                 </h3>
 
                                 <p
-                                  style={
-                                    muted
-                                  }
+                                  style={muted}
                                 >
                                   {
                                     contract.customer_name
@@ -4800,9 +7025,7 @@ export default function AdminSupportPage() {
                                 </p>
 
                                 <p
-                                  style={
-                                    muted
-                                  }
+                                  style={muted}
                                 >
                                   الفرع:{" "}
                                   {
@@ -4812,9 +7035,7 @@ export default function AdminSupportPage() {
                               </div>
 
                               <div
-                                style={
-                                  verificationBadges
-                                }
+                                style={verificationBadges}
                               >
                                 <PositionBadge
                                   label={`التلقائي: ${contract.automatic_position}`}
@@ -4846,9 +7067,7 @@ export default function AdminSupportPage() {
                             </div>
 
                             <div
-                              style={
-                                verificationInfoGrid
-                              }
+                              style={verificationInfoGrid}
                             >
                               <InfoItem
                                 label="مبلغ العقد"
@@ -4903,9 +7122,7 @@ export default function AdminSupportPage() {
 
                             {contract.has_support_override && (
                               <div
-                                style={
-                                  overrideDetailsBox
-                                }
+                                style={overrideDetailsBox}
                               >
                                 <strong>
                                   النتيجة المفروضة:{" "}
@@ -4940,13 +7157,10 @@ export default function AdminSupportPage() {
 
                             {contract.default_declared_at && (
                               <div
-                                style={
-                                  defaultDetailsBox
-                                }
+                                style={defaultDetailsBox}
                               >
                                 <strong>
-                                  يوجد إعلان تعثر
-                                  من الفرع
+                                  يوجد إعلان تعثر من الفرع
                                 </strong>
 
                                 <span>
@@ -4985,15 +7199,11 @@ export default function AdminSupportPage() {
                             )}
 
                             <div
-                              style={
-                                rowActions
-                              }
+                              style={rowActions}
                             >
                               <button
                                 type="button"
-                                style={
-                                  smallBlueButton
-                                }
+                                style={smallBlueButton}
                                 onClick={() =>
                                   editorOpen
                                     ? resetVerificationEditor()
@@ -5015,14 +7225,10 @@ export default function AdminSupportPage() {
                             {editorOpen && (
                               <div
                                 id={`verification-editor-${contract.contract_id}`}
-                                style={
-                                  verificationEditorBox
-                                }
+                                style={verificationEditorBox}
                               >
                                 <div
-                                  style={
-                                    formGrid
-                                  }
+                                  style={formGrid}
                                 >
                                   <Field
                                     id={`verification-position-${contract.contract_id}`}
@@ -5030,9 +7236,7 @@ export default function AdminSupportPage() {
                                   >
                                     <select
                                       id={`verification-position-${contract.contract_id}`}
-                                      style={
-                                        input
-                                      }
+                                      style={input}
                                       value={
                                         verificationPosition
                                       }
@@ -5041,8 +7245,7 @@ export default function AdminSupportPage() {
                                       ) =>
                                         setVerificationPosition(
                                           normalizeVerificationPosition(
-                                            event
-                                              .target
+                                            event.target
                                               .value
                                           )
                                         )
@@ -5071,22 +7274,16 @@ export default function AdminSupportPage() {
                                   >
                                     <input
                                       id={`verification-reason-${contract.contract_id}`}
-                                      style={
-                                        input
-                                      }
+                                      style={input}
                                       value={
                                         verificationReason
                                       }
-                                      maxLength={
-                                        500
-                                      }
-                                      placeholder="سبب داخلي إلزامي"
+                                      maxLength={500}
                                       onChange={(
                                         event
                                       ) =>
                                         setVerificationReason(
-                                          event
-                                            .target
+                                          event.target
                                             .value
                                         )
                                       }
@@ -5099,37 +7296,28 @@ export default function AdminSupportPage() {
 
                                 <div
                                   style={{
-                                    marginTop:
-                                      12,
+                                    marginTop: 12,
                                   }}
                                 >
                                   <label
                                     htmlFor={`verification-notes-${contract.contract_id}`}
-                                    style={
-                                      label
-                                    }
+                                    style={label}
                                   >
                                     ملاحظات داخلية
                                   </label>
 
                                   <textarea
                                     id={`verification-notes-${contract.contract_id}`}
-                                    style={
-                                      textarea
-                                    }
+                                    style={textarea}
                                     value={
                                       verificationNotes
                                     }
-                                    maxLength={
-                                      1000
-                                    }
-                                    placeholder="ملاحظات اختيارية لا تظهر للفروع"
+                                    maxLength={1000}
                                     onChange={(
                                       event
                                     ) =>
                                       setVerificationNotes(
-                                        event
-                                          .target
+                                        event.target
                                           .value
                                       )
                                     }
@@ -5140,9 +7328,7 @@ export default function AdminSupportPage() {
                                 </div>
 
                                 <div
-                                  style={
-                                    buttonsRow
-                                  }
+                                  style={buttonsRow}
                                 >
                                   <button
                                     type="button"
@@ -5194,9 +7380,7 @@ export default function AdminSupportPage() {
 
                                   <button
                                     type="button"
-                                    style={
-                                      smallButton
-                                    }
+                                    style={smallButton}
                                     onClick={
                                       resetVerificationEditor
                                     }
@@ -5235,13 +7419,14 @@ export default function AdminSupportPage() {
                 <section
                   style={panelCard}
                 >
-                  {logs.length ===
-                  0 ? (
+                  {logsSectionBusy ? (
+                    <SectionLoading />
+                  ) : logs.length ===
+                    0 ? (
                     <div
                       style={emptyBox}
                     >
-                      لا توجد سجلات حتى
-                      الآن
+                      لا توجد سجلات حتى الآن
                     </div>
                   ) : (
                     <div
@@ -5250,26 +7435,20 @@ export default function AdminSupportPage() {
                       {logs.map(
                         (log) => (
                           <div
-                            key={log.id}
-                            style={
-                              logRow
+                            key={
+                              log.id
                             }
+                            style={logRow}
                           >
                             <div>
                               <strong
-                                style={
-                                  logAction
-                                }
+                                style={logAction}
                               >
-                                {
-                                  log.action
-                                }
+                                {log.action}
                               </strong>
 
                               <p
-                                style={
-                                  muted
-                                }
+                                style={muted}
                               >
                                 {log.details ||
                                   "-"}
@@ -5277,9 +7456,7 @@ export default function AdminSupportPage() {
                             </div>
 
                             <div
-                              style={
-                                logMeta
-                              }
+                              style={logMeta}
                             >
                               <span>
                                 {log.user_name ||
@@ -5297,6 +7474,27 @@ export default function AdminSupportPage() {
                       )}
                     </div>
                   )}
+
+                  <PaginationControls
+                    pagination={
+                      logsPagination
+                    }
+                    loading={
+                      logsSectionBusy
+                    }
+                    onPrevious={() =>
+                      void goToLogsPage(
+                        logsPagination.page -
+                          1
+                      )
+                    }
+                    onNext={() =>
+                      void goToLogsPage(
+                        logsPagination.page +
+                          1
+                      )
+                    }
+                  />
                 </section>
               </>
             )}
@@ -5315,11 +7513,17 @@ export default function AdminSupportPage() {
               id="confirm-dialog-title"
               style={modalTitle}
             >
-              {confirmState.title}
+              {
+                confirmState.title
+              }
             </h2>
 
-            <p style={modalText}>
-              {confirmState.message}
+            <p
+              style={modalText}
+            >
+              {
+                confirmState.message
+              }
             </p>
 
             <div
@@ -5374,7 +7578,9 @@ export default function AdminSupportPage() {
               إعادة تعيين كلمة المرور
             </h2>
 
-            <p style={modalText}>
+            <p
+              style={modalText}
+            >
               المدير:{" "}
               {
                 passwordDialog.manager
@@ -5396,18 +7602,21 @@ export default function AdminSupportPage() {
                 value={
                   passwordDialog.value
                 }
-                placeholder="4 أرقام"
                 autoFocus
-                onChange={(event) =>
+                onChange={(
+                  event
+                ) =>
                   setPasswordDialog(
-                    (previous) =>
+                    (
+                      previous
+                    ) =>
                       previous
                         ? {
                             ...previous,
+
                             value:
                               cleanNumericValue(
-                                event
-                                  .target
+                                event.target
                                   .value,
                                 4
                               ),
@@ -5415,13 +7624,25 @@ export default function AdminSupportPage() {
                         : previous
                   )
                 }
-                onKeyDown={(event) => {
+                onKeyDown={(
+                  event
+                ) => {
                   if (
-                    event.key === "Enter"
+                    event.key ===
+                    "Enter"
                   ) {
                     event.preventDefault();
 
                     void submitBranchManagerPassword();
+                  }
+
+                  if (
+                    event.key ===
+                    "Escape"
+                  ) {
+                    event.preventDefault();
+
+                    closePasswordDialog();
                   }
                 }}
                 disabled={isBusy(
@@ -5476,6 +7697,7 @@ export default function AdminSupportPage() {
     </main>
   );
 }
+
 function Field({
   id,
   label: fieldLabel,
@@ -5511,17 +7733,13 @@ function InfoItem({
       style={verificationInfoItem}
     >
       <span
-        style={
-          verificationInfoLabel
-        }
+        style={verificationInfoLabel}
       >
         {itemLabel}
       </span>
 
       <strong
-        style={
-          verificationInfoValue
-        }
+        style={verificationInfoValue}
       >
         {value}
       </strong>
@@ -5574,16 +7792,19 @@ function NoticeBanner({
   onClose: () => void;
 }) {
   const noticeStyle =
-    notice.type === "success"
+    notice.type ===
+    "success"
       ? successNotice
-      : notice.type === "error"
+      : notice.type ===
+          "error"
         ? errorNotice
         : infoNotice;
 
   return (
     <div
       role={
-        notice.type === "error"
+        notice.type ===
+        "error"
           ? "alert"
           : "status"
       }
@@ -5592,7 +7813,9 @@ function NoticeBanner({
         ...noticeStyle,
       }}
     >
-      <span>{notice.message}</span>
+      <span>
+        {notice.message}
+      </span>
 
       <button
         type="button"
@@ -5612,25 +7835,121 @@ function ModalOverlay({
   children: ReactNode;
 }) {
   return (
-    <div style={modalOverlay}>
+    <div
+      style={modalOverlay}
+    >
       {children}
+    </div>
+  );
+}
+
+function SectionLoading() {
+  return (
+    <div
+      style={sectionLoadingBox}
+    >
+      <div
+        style={smallSpinner}
+      />
+
+      <span>
+        جاري تحميل البيانات...
+      </span>
+    </div>
+  );
+}
+
+function PaginationControls({
+  pagination,
+  loading,
+  onPrevious,
+  onNext,
+}: {
+  pagination: PaginationState;
+  loading: boolean;
+  onPrevious: () => void;
+  onNext: () => void;
+}) {
+  if (
+    pagination.total_pages <=
+    1
+  ) {
+    return null;
+  }
+
+  const previousDisabled =
+    loading ||
+    pagination.page <= 1;
+
+  const nextDisabled =
+    loading ||
+    pagination.page >=
+      pagination.total_pages;
+
+  return (
+    <div
+      style={paginationRow}
+    >
+      <button
+        type="button"
+        style={getDisabledStyle(
+          smallButton,
+          previousDisabled
+        )}
+        onClick={onPrevious}
+        disabled={
+          previousDisabled
+        }
+      >
+        السابق
+      </button>
+
+      <span
+        style={paginationText}
+      >
+        الصفحة{" "}
+        {pagination.page} من{" "}
+        {pagination.total_pages}
+      </span>
+
+      <button
+        type="button"
+        style={getDisabledStyle(
+          smallBlueButton,
+          nextDisabled
+        )}
+        onClick={onNext}
+        disabled={
+          nextDisabled
+        }
+      >
+        التالي
+      </button>
     </div>
   );
 }
 
 function BrandBox() {
   return (
-    <div style={brandBox}>
-      <div style={brandIcon}>
+    <div
+      style={brandBox}
+    >
+      <div
+        style={brandIcon}
+      >
         د
       </div>
 
       <div>
-        <h2 style={brandTitle}>
+        <h2
+          style={brandTitle}
+        >
           دعم احتساب
         </h2>
 
-        <p style={brandSub}>
+        <p
+          style={brandSub}
+        >
           لوحة التحكم المركزية
         </p>
       </div>
@@ -5658,13 +7977,18 @@ function SideNav({
   };
 }) {
   return (
-    <nav style={nav}>
+    <nav
+      style={nav}
+    >
       <NavButton
         active={
-          activeTab === "overview"
+          activeTab ===
+          "overview"
         }
         onClick={() =>
-          setActiveTab("overview")
+          setActiveTab(
+            "overview"
+          )
         }
       >
         النظرة العامة
@@ -5673,10 +7997,13 @@ function SideNav({
       {visibleTabs.branches && (
         <NavButton
           active={
-            activeTab === "branches"
+            activeTab ===
+            "branches"
           }
           onClick={() =>
-            setActiveTab("branches")
+            setActiveTab(
+              "branches"
+            )
           }
         >
           الفروع
@@ -5702,10 +8029,13 @@ function SideNav({
       {visibleTabs.users && (
         <NavButton
           active={
-            activeTab === "users"
+            activeTab ===
+            "users"
           }
           onClick={() =>
-            setActiveTab("users")
+            setActiveTab(
+              "users"
+            )
           }
         >
           مستخدمو الدعم
@@ -5731,10 +8061,13 @@ function SideNav({
       {visibleTabs.logs && (
         <NavButton
           active={
-            activeTab === "logs"
+            activeTab ===
+            "logs"
           }
           onClick={() =>
-            setActiveTab("logs")
+            setActiveTab(
+              "logs"
+            )
           }
         >
           سجل العمليات
@@ -5793,16 +8126,21 @@ function MobileNav({
   disabled: boolean;
 }) {
   return (
-    <div className="mobile-nav">
+    <div
+      className="mobile-nav"
+    >
       <button
         type="button"
         className={
-          activeTab === "overview"
+          activeTab ===
+          "overview"
             ? "mobile-tab active"
             : "mobile-tab"
         }
         onClick={() =>
-          setActiveTab("overview")
+          setActiveTab(
+            "overview"
+          )
         }
       >
         العامة
@@ -5818,7 +8156,9 @@ function MobileNav({
               : "mobile-tab"
           }
           onClick={() =>
-            setActiveTab("branches")
+            setActiveTab(
+              "branches"
+            )
           }
         >
           الفروع
@@ -5848,12 +8188,15 @@ function MobileNav({
         <button
           type="button"
           className={
-            activeTab === "users"
+            activeTab ===
+            "users"
               ? "mobile-tab active"
               : "mobile-tab"
           }
           onClick={() =>
-            setActiveTab("users")
+            setActiveTab(
+              "users"
+            )
           }
         >
           الدعم
@@ -5883,12 +8226,15 @@ function MobileNav({
         <button
           type="button"
           className={
-            activeTab === "logs"
+            activeTab ===
+            "logs"
               ? "mobile-tab active"
               : "mobile-tab"
           }
           onClick={() =>
-            setActiveTab("logs")
+            setActiveTab(
+              "logs"
+            )
           }
         >
           السجل
@@ -5915,134 +8261,23 @@ function Stat({
   value: number;
 }) {
   return (
-    <div style={statCard}>
-      <span style={statValue}>
+    <div
+      style={statCard}
+    >
+      <span
+        style={statValue}
+      >
         {value}
       </span>
 
-      <span style={statTitle}>
+      <span
+        style={statTitle}
+      >
         {title}
       </span>
     </div>
   );
 }
-
-function roleLabel(
-  role: string
-) {
-  if (
-    role === "super_admin"
-  ) {
-    return "مدير النظام";
-  }
-
-  if (role === "viewer") {
-    return "مشاهدة فقط";
-  }
-
-  return "دعم فني";
-}
-
-function permissionLabel(
-  key: string
-) {
-  return (
-    SUPPORT_PERMISSIONS.find(
-      (permission) =>
-        permission.key === key
-    )?.label || key
-  );
-}
-
-function formatDateTime(
-  date: string
-) {
-  if (!date) {
-    return "-";
-  }
-
-  const parsedDate =
-    new Date(date);
-
-  if (
-    Number.isNaN(
-      parsedDate.getTime()
-    )
-  ) {
-    return "-";
-  }
-
-  return parsedDate.toLocaleString(
-    "ar-SA",
-    {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    }
-  );
-}
-
-function formatDate(
-  date: string | null
-) {
-  if (!date) {
-    return "-";
-  }
-
-  const parsedDate =
-    new Date(date);
-
-  if (
-    Number.isNaN(
-      parsedDate.getTime()
-    )
-  ) {
-    return date;
-  }
-
-  return parsedDate.toLocaleDateString(
-    "ar-SA",
-    {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }
-  );
-}
-
-function formatMoney(
-  value: number
-) {
-  const safeValue =
-    Number.isFinite(value)
-      ? value
-      : 0;
-
-  return `${safeValue.toLocaleString(
-    "ar-SA",
-    {
-      maximumFractionDigits: 2,
-    }
-  )} ر.س`;
-}
-
-function getDisabledStyle(
-  baseStyle: CSSProperties,
-  disabled: boolean
-): CSSProperties {
-  if (!disabled) {
-    return baseStyle;
-  }
-
-  return {
-    ...baseStyle,
-    opacity: 0.55,
-    cursor: "not-allowed",
-  };
-}
-
 function getPageStyle(
   isCompact: boolean
 ): CSSProperties {
@@ -6064,7 +8299,11 @@ function getPageStyle(
     backgroundSize: "cover",
     backgroundPosition: "center",
     backgroundRepeat: "no-repeat",
-    backgroundAttachment: "fixed",
+
+    backgroundAttachment:
+      isCompact
+        ? "scroll"
+        : "fixed",
   };
 }
 
@@ -6079,7 +8318,7 @@ function getShellStyle(
 
     gridTemplateColumns:
       isCompact
-        ? "1fr"
+        ? "minmax(0, 1fr)"
         : "280px minmax(0, 1fr)",
 
     gap: 14,
@@ -6156,6 +8395,10 @@ function GlobalResponsiveStyles() {
         font-family: var(--font-almarai), sans-serif;
       }
 
+      button {
+        -webkit-tap-highlight-color: transparent;
+      }
+
       button:focus-visible,
       input:focus-visible,
       textarea:focus-visible,
@@ -6169,6 +8412,12 @@ function GlobalResponsiveStyles() {
       textarea:disabled,
       select:disabled {
         cursor: not-allowed;
+      }
+
+      input,
+      textarea,
+      select {
+        min-width: 0;
       }
 
       .mobile-nav {
@@ -6257,6 +8506,17 @@ function GlobalResponsiveStyles() {
         .stats-grid {
           grid-template-columns:
             1fr !important;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
         }
       }
     `}</style>
@@ -6738,8 +8998,10 @@ const statTitle:
 const dashboardGrid:
   CSSProperties = {
   display: "grid",
+
   gridTemplateColumns:
     "1fr 1fr",
+
   gap: 12,
 };
 
@@ -7240,6 +9502,34 @@ const emptyBox:
   padding: 18,
   textAlign: "center",
   color: "#64748b",
+};
+
+const sectionLoadingBox:
+  CSSProperties = {
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "center",
+  gap: 10,
+  minHeight: 120,
+  padding: 18,
+  color: "#1d4ed8",
+  fontWeight: 900,
+};
+
+const paginationRow:
+  CSSProperties = {
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "center",
+  gap: 10,
+  flexWrap: "wrap",
+  marginTop: 16,
+};
+
+const paginationText:
+  CSSProperties = {
+  color: "#475569",
+  fontWeight: 900,
 };
 
 const logTable:
