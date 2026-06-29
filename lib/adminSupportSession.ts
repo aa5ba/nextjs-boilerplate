@@ -2,22 +2,69 @@ import "server-only";
 
 import {
   createHmac,
+  randomUUID,
   timingSafeEqual,
 } from "crypto";
 
-export const ADMIN_SUPPORT_COOKIE_NAME =
-  "admin_support_session";
+const IS_PRODUCTION =
+  process.env.NODE_ENV === "production";
 
-export const ADMIN_SUPPORT_IMPERSONATION_COOKIE_NAME =
-  "admin_support_impersonation";
+const TOKEN_VERSION = "v1";
 
-const SESSION_DURATION_SECONDS =
+const ADMIN_SUPPORT_SESSION_KIND =
+  "admin_support_session" as const;
+
+const ADMIN_SUPPORT_IMPERSONATION_KIND =
+  "admin_support_impersonation" as const;
+
+export const ADMIN_SUPPORT_SESSION_DURATION_SECONDS =
   60 * 60 * 8;
 
-const IMPERSONATION_DURATION_SECONDS =
+export const ADMIN_SUPPORT_IMPERSONATION_DURATION_SECONDS =
   60 * 60;
 
+const MAX_CLOCK_SKEW_SECONDS = 60;
+
+const MAX_TOKEN_LENGTH = 8192;
+
+const MAX_ENCODED_PAYLOAD_LENGTH = 6144;
+
+const SHA256_SIGNATURE_LENGTH = 32;
+
+const SHA256_BASE64URL_SIGNATURE_LENGTH = 43;
+
+const BASE64URL_PATTERN =
+  /^[A-Za-z0-9_-]+$/;
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const USERNAME_PATTERN =
+  /^[\p{L}\p{N}._-]{2,50}$/u;
+
+const ROLE_PATTERN =
+  /^[a-z][a-z0-9_]{1,63}$/;
+
+const PERMISSION_KEY_PATTERN =
+  /^[a-z][a-z0-9_]{1,99}$/;
+
+const BRANCH_SLUG_PATTERN =
+  /^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$/;
+
+export const ADMIN_SUPPORT_COOKIE_NAME =
+  IS_PRODUCTION
+    ? "__Host-admin_support_session"
+    : "admin_support_session";
+
+export const ADMIN_SUPPORT_IMPERSONATION_COOKIE_NAME =
+  IS_PRODUCTION
+    ? "__Secure-admin_support_impersonation"
+    : "admin_support_impersonation";
+
 export type AdminSupportSession = {
+  kind: typeof ADMIN_SUPPORT_SESSION_KIND;
+  tokenVersion: typeof TOKEN_VERSION;
+  sessionId: string;
   userId: string;
   username: string;
   fullName: string;
@@ -29,10 +76,14 @@ export type AdminSupportSession = {
 };
 
 export type AdminSupportImpersonationSession = {
-  kind: "admin_support_impersonation";
+  kind: typeof ADMIN_SUPPORT_IMPERSONATION_KIND;
+  tokenVersion: typeof TOKEN_VERSION;
+  impersonationId: string;
+  supportSessionId: string;
   supportUserId: string;
   supportUsername: string;
   supportFullName: string;
+  supportSessionVersion: number;
   branchId: string;
   branchSlug: string;
   branchName: string;
@@ -49,18 +100,20 @@ type CreateAdminSupportSessionInput = {
   sessionVersion: number;
 };
 
-function getSessionSecret() {
-  const secret =
-    process.env.ADMIN_SUPPORT_SESSION_SECRET;
+type CreateAdminSupportImpersonationInput = {
+  supportSessionId: string;
+  supportUserId: string;
+  supportUsername: string;
+  supportFullName: string;
+  supportSessionVersion: number;
+  branchId: string;
+  branchSlug: string;
+  branchName: string;
+};
 
-  if (!secret || secret.length < 32) {
-    throw new Error(
-      "ADMIN_SUPPORT_SESSION_SECRET غير موجود أو قصير جدًا"
-    );
-  }
-
-  return secret;
-}
+type SessionTokenPurpose =
+  | "support-session"
+  | "support-impersonation";
 
 function cleanText(
   value: unknown
@@ -68,6 +121,122 @@ function cleanText(
   return typeof value === "string"
     ? value.trim()
     : "";
+}
+
+function isPlainObject(
+  value: unknown
+): value is Record<string, unknown> {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value)
+  ) {
+    return false;
+  }
+
+  const prototype =
+    Object.getPrototypeOf(value);
+
+  return (
+    prototype === Object.prototype ||
+    prototype === null
+  );
+}
+
+function isValidUuid(
+  value: string
+): boolean {
+  return UUID_PATTERN.test(value);
+}
+
+function normalizeUsername(
+  value: unknown
+): string | null {
+  const username =
+    cleanText(value).toLowerCase();
+
+  if (
+    !USERNAME_PATTERN.test(username)
+  ) {
+    return null;
+  }
+
+  return username;
+}
+
+function normalizeFullName(
+  value: unknown
+): string | null {
+  const fullName =
+    cleanText(value);
+
+  if (
+    fullName.length < 2 ||
+    fullName.length > 150
+  ) {
+    return null;
+  }
+
+  return fullName;
+}
+
+function normalizeRole(
+  value: unknown
+): string | null {
+  const role =
+    cleanText(value).toLowerCase();
+
+  if (!ROLE_PATTERN.test(role)) {
+    return null;
+  }
+
+  return role;
+}
+
+function normalizePermissionKey(
+  value: unknown
+): string | null {
+  const permission =
+    cleanText(value).toLowerCase();
+
+  if (
+    !PERMISSION_KEY_PATTERN.test(
+      permission
+    )
+  ) {
+    return null;
+  }
+
+  return permission;
+}
+
+function normalizePermissions(
+  value: unknown
+): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const permissions =
+    new Set<string>();
+
+  for (const item of value) {
+    const permission =
+      normalizePermissionKey(item);
+
+    if (permission) {
+      permissions.add(permission);
+    }
+
+    if (permissions.size >= 200) {
+      break;
+    }
+  }
+
+  return Array.from(permissions).sort(
+    (first, second) =>
+      first.localeCompare(second)
+  );
 }
 
 function normalizeSessionVersion(
@@ -84,37 +253,238 @@ function normalizeSessionVersion(
   return value;
 }
 
-function normalizePermissions(
+function normalizeUnixTimestamp(
   value: unknown
-): string[] {
-  if (!Array.isArray(value)) {
-    return [];
+): number | null {
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value <= 0
+  ) {
+    return null;
   }
 
-  return Array.from(
-    new Set(
-      value
-        .filter(
-          (
-            permission
-          ): permission is string =>
-            typeof permission === "string"
-        )
-        .map((permission) =>
-          permission.trim()
-        )
-        .filter(
-          (permission) =>
-            permission.length > 0 &&
-            permission.length <= 100
-        )
+  return value;
+}
+
+function normalizeBranchSlug(
+  value: unknown
+): string | null {
+  const branchSlug =
+    cleanText(value).toLowerCase();
+
+  if (
+    branchSlug.length < 1 ||
+    branchSlug.length > 64 ||
+    !BRANCH_SLUG_PATTERN.test(
+      branchSlug
     )
-  ).slice(0, 200);
+  ) {
+    return null;
+  }
+
+  return branchSlug;
+}
+
+function normalizeBranchName(
+  value: unknown
+): string | null {
+  const branchName =
+    cleanText(value);
+
+  if (
+    branchName.length < 1 ||
+    branchName.length > 150
+  ) {
+    return null;
+  }
+
+  return branchName;
+}
+
+function containsWrappingQuotes(
+  value: string
+): boolean {
+  return (
+    (value.startsWith('"') &&
+      value.endsWith('"')) ||
+    (value.startsWith("'") &&
+      value.endsWith("'"))
+  );
+}
+
+function validateSessionSecret(
+  environmentName: string,
+  rawSecret: string
+): Buffer {
+  if (
+    rawSecret !== rawSecret.trim()
+  ) {
+    throw new Error(
+      `${environmentName} يحتوي مسافات زائدة في بدايته أو نهايته`
+    );
+  }
+
+  if (
+    containsWrappingQuotes(
+      rawSecret
+    )
+  ) {
+    throw new Error(
+      `${environmentName} يحتوي علامات اقتباس زائدة`
+    );
+  }
+
+  if (
+    /[\r\n\t]/.test(rawSecret)
+  ) {
+    throw new Error(
+      `${environmentName} يحتوي أسطرًا أو محارف غير صالحة`
+    );
+  }
+
+  const secret =
+    Buffer.from(
+      rawSecret,
+      "utf8"
+    );
+
+  if (secret.byteLength < 32) {
+    throw new Error(
+      `${environmentName} يجب ألا يقل عن 32 بايت`
+    );
+  }
+
+  return secret;
+}
+
+function assertSecretIsNotExposed(
+  environmentName: string,
+  rawSecret: string
+): void {
+  const exposedNames = [
+    "NEXT_PUBLIC_ADMIN_SUPPORT_SESSION_SECRET",
+    "NEXT_PUBLIC_ADMIN_SUPPORT_SESSION_PREVIOUS_SECRET",
+    `NEXT_PUBLIC_${environmentName}`,
+  ];
+
+  for (
+    const exposedName
+    of exposedNames
+  ) {
+    const exposedValue =
+      process.env[exposedName];
+
+    if (
+      exposedValue &&
+      exposedValue.trim()
+    ) {
+      throw new Error(
+        `خطأ أمني: يجب حذف ${exposedName} من متغيرات البيئة العامة`
+      );
+    }
+  }
+
+  const publicKeys = [
+    process.env
+      .NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    process.env
+      .NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+  ]
+    .map((value) =>
+      value?.trim() ?? ""
+    )
+    .filter(Boolean);
+
+  if (
+    publicKeys.includes(rawSecret)
+  ) {
+    throw new Error(
+      `${environmentName} يطابق مفتاحًا عامًا ولا يصلح لتوقيع الجلسات`
+    );
+  }
+}
+
+function getSecretBytes(
+  environmentName:
+    | "ADMIN_SUPPORT_SESSION_SECRET"
+    | "ADMIN_SUPPORT_SESSION_PREVIOUS_SECRET"
+): Buffer | null {
+  const rawSecret =
+    process.env[environmentName];
+
+  if (
+    rawSecret === undefined ||
+    rawSecret === ""
+  ) {
+    return null;
+  }
+
+  assertSecretIsNotExposed(
+    environmentName,
+    rawSecret
+  );
+
+  return validateSessionSecret(
+    environmentName,
+    rawSecret
+  );
+}
+
+function getCurrentSecret(): Buffer {
+  const secret =
+    getSecretBytes(
+      "ADMIN_SUPPORT_SESSION_SECRET"
+    );
+
+  if (!secret) {
+    throw new Error(
+      "ADMIN_SUPPORT_SESSION_SECRET غير موجود"
+    );
+  }
+
+  return secret;
+}
+
+function getVerificationSecrets(): Buffer[] {
+  const currentSecret =
+    getCurrentSecret();
+
+  const previousSecret =
+    getSecretBytes(
+      "ADMIN_SUPPORT_SESSION_PREVIOUS_SECRET"
+    );
+
+  if (
+    previousSecret &&
+    !currentSecret.equals(
+      previousSecret
+    )
+  ) {
+    return [
+      currentSecret,
+      previousSecret,
+    ];
+  }
+
+  return [currentSecret];
+}
+
+function isCanonicalBase64Url(
+  value: string,
+  maximumLength: number
+): boolean {
+  return (
+    value.length > 0 &&
+    value.length <= maximumLength &&
+    BASE64URL_PATTERN.test(value) &&
+    !value.includes("=")
+  );
 }
 
 function toBase64Url(
   value: string
-) {
+): string {
   return Buffer.from(
     value,
     "utf8"
@@ -123,77 +493,203 @@ function toBase64Url(
 
 function fromBase64Url(
   value: string
-) {
-  return Buffer.from(
-    value,
-    "base64url"
-  ).toString("utf8");
+): string | null {
+  if (
+    !isCanonicalBase64Url(
+      value,
+      MAX_ENCODED_PAYLOAD_LENGTH
+    )
+  ) {
+    return null;
+  }
+
+  try {
+    const buffer =
+      Buffer.from(
+        value,
+        "base64url"
+      );
+
+    if (
+      buffer.byteLength === 0 ||
+      buffer.toString(
+        "base64url"
+      ) !== value
+    ) {
+      return null;
+    }
+
+    return buffer.toString("utf8");
+  } catch {
+    return null;
+  }
 }
 
 function createSignature(
-  payload: string
-) {
+  signedContent: string,
+  purpose: SessionTokenPurpose,
+  secret: Buffer
+): string {
   return createHmac(
     "sha256",
-    getSessionSecret()
+    secret
   )
-    .update(payload)
+    .update(
+      `ehtisab:${purpose}:${signedContent}`,
+      "utf8"
+    )
     .digest("base64url");
+}
+
+function decodeSignature(
+  value: string
+): Buffer | null {
+  if (
+    value.length !==
+      SHA256_BASE64URL_SIGNATURE_LENGTH ||
+    !isCanonicalBase64Url(
+      value,
+      SHA256_BASE64URL_SIGNATURE_LENGTH
+    )
+  ) {
+    return null;
+  }
+
+  try {
+    const decoded =
+      Buffer.from(
+        value,
+        "base64url"
+      );
+
+    if (
+      decoded.byteLength !==
+        SHA256_SIGNATURE_LENGTH ||
+      decoded.toString(
+        "base64url"
+      ) !== value
+    ) {
+      return null;
+    }
+
+    return decoded;
+  } catch {
+    return null;
+  }
 }
 
 function signaturesMatch(
   receivedSignature: string,
   expectedSignature: string
-) {
-  try {
-    const received = Buffer.from(
-      receivedSignature,
-      "base64url"
+): boolean {
+  const received =
+    decodeSignature(
+      receivedSignature
     );
 
-    const expected = Buffer.from(
-      expectedSignature,
-      "base64url"
+  const expected =
+    decodeSignature(
+      expectedSignature
     );
 
-    if (
-      received.length !==
-      expected.length
-    ) {
-      return false;
-    }
-
-    return timingSafeEqual(
-      received,
-      expected
-    );
-  } catch {
+  if (
+    !received ||
+    !expected ||
+    received.byteLength !==
+      expected.byteLength
+  ) {
     return false;
   }
+
+  return timingSafeEqual(
+    received,
+    expected
+  );
+}
+
+function hasValidSignature(
+  signedContent: string,
+  receivedSignature: string,
+  purpose: SessionTokenPurpose
+): boolean {
+  const secrets =
+    getVerificationSecrets();
+
+  let valid = false;
+
+  for (const secret of secrets) {
+    const expectedSignature =
+      createSignature(
+        signedContent,
+        purpose,
+        secret
+      );
+
+    const matches =
+      signaturesMatch(
+        receivedSignature,
+        expectedSignature
+      );
+
+    valid = matches || valid;
+  }
+
+  return valid;
 }
 
 function createSignedToken(
-  payload: object
-) {
+  payload: object,
+  purpose: SessionTokenPurpose
+): string {
   const encodedPayload =
     toBase64Url(
       JSON.stringify(payload)
     );
 
+  if (
+    encodedPayload.length >
+    MAX_ENCODED_PAYLOAD_LENGTH
+  ) {
+    throw new Error(
+      "بيانات الجلسة تجاوزت الحد المسموح"
+    );
+  }
+
+  const signedContent =
+    `${TOKEN_VERSION}.${encodedPayload}`;
+
   const signature =
     createSignature(
-      encodedPayload
+      signedContent,
+      purpose,
+      getCurrentSecret()
     );
 
-  return `${encodedPayload}.${signature}`;
+  const token =
+    `${signedContent}.${signature}`;
+
+  if (
+    token.length >
+    MAX_TOKEN_LENGTH
+  ) {
+    throw new Error(
+      "رمز الجلسة تجاوز الحد المسموح"
+    );
+  }
+
+  return token;
 }
 
 function readSignedPayload(
-  token: string | null | undefined
+  token: string | null | undefined,
+  purpose: SessionTokenPurpose
 ): unknown | null {
   if (
-    !token ||
-    token.length > 8192
+    typeof token !== "string" ||
+    token.length === 0 ||
+    token.length >
+      MAX_TOKEN_LENGTH ||
+    token !== token.trim()
   ) {
     return null;
   }
@@ -201,66 +697,83 @@ function readSignedPayload(
   const parts =
     token.split(".");
 
-  if (parts.length !== 2) {
+  if (parts.length !== 3) {
     return null;
   }
 
   const [
+    tokenVersion,
     encodedPayload,
     receivedSignature,
   ] = parts;
 
   if (
-    !encodedPayload ||
-    !receivedSignature
+    tokenVersion !== TOKEN_VERSION ||
+    !isCanonicalBase64Url(
+      encodedPayload,
+      MAX_ENCODED_PAYLOAD_LENGTH
+    ) ||
+    receivedSignature.length !==
+      SHA256_BASE64URL_SIGNATURE_LENGTH
   ) {
     return null;
   }
 
-  const expectedSignature =
-    createSignature(
-      encodedPayload
-    );
+  const signedContent =
+    `${tokenVersion}.${encodedPayload}`;
 
   if (
-    !signaturesMatch(
+    !hasValidSignature(
+      signedContent,
       receivedSignature,
-      expectedSignature
+      purpose
     )
   ) {
     return null;
   }
 
+  const decodedPayload =
+    fromBase64Url(
+      encodedPayload
+    );
+
+  if (!decodedPayload) {
+    return null;
+  }
+
   try {
     return JSON.parse(
-      fromBase64Url(
-        encodedPayload
-      )
+      decodedPayload
     ) as unknown;
   } catch {
     return null;
   }
 }
 
-function hasValidSessionTimes(
-  issuedAt: unknown,
-  expiresAt: unknown,
-  maximumDurationSeconds: number
-) {
-  if (
-    typeof issuedAt !== "number" ||
-    !Number.isSafeInteger(issuedAt) ||
-    typeof expiresAt !== "number" ||
-    !Number.isSafeInteger(expiresAt)
-  ) {
-    return false;
-  }
-
-  const now = Math.floor(
-    Date.now() / 1000
+function hasCanonicalTextValue(
+  rawValue: unknown,
+  normalizedValue: string
+): boolean {
+  return (
+    typeof rawValue === "string" &&
+    rawValue === normalizedValue
   );
+}
 
-  if (issuedAt > now + 60) {
+function hasValidSessionTimes(
+  issuedAt: number,
+  expiresAt: number,
+  maximumDurationSeconds: number
+): boolean {
+  const now =
+    Math.floor(
+      Date.now() / 1000
+    );
+
+  if (
+    issuedAt >
+    now + MAX_CLOCK_SKEW_SECONDS
+  ) {
     return false;
   }
 
@@ -272,9 +785,21 @@ function hasValidSessionTimes(
     return false;
   }
 
+  const duration =
+    expiresAt - issuedAt;
+
   if (
-    expiresAt - issuedAt >
-    maximumDurationSeconds
+    duration <= 0 ||
+    duration >
+      maximumDurationSeconds
+  ) {
+    return false;
+  }
+
+  if (
+    now - issuedAt >
+      maximumDurationSeconds +
+        MAX_CLOCK_SKEW_SECONDS
   ) {
     return false;
   }
@@ -284,20 +809,22 @@ function hasValidSessionTimes(
 
 export function createAdminSupportSessionToken(
   input: CreateAdminSupportSessionInput
-) {
+): string {
   const userId =
     cleanText(input.userId);
 
   const username =
-    cleanText(
+    normalizeUsername(
       input.username
-    ).toLowerCase();
+    );
 
   const fullName =
-    cleanText(input.fullName);
+    normalizeFullName(
+      input.fullName
+    );
 
   const role =
-    cleanText(input.role);
+    normalizeRole(input.role);
 
   const permissions =
     normalizePermissions(
@@ -309,36 +836,68 @@ export function createAdminSupportSessionToken(
       input.sessionVersion
     );
 
-  if (
-    !userId ||
-    !username ||
-    !fullName ||
-    !role ||
-    sessionVersion === null
-  ) {
+  if (!isValidUuid(userId)) {
     throw new Error(
-      "بيانات جلسة الدعم الفني غير مكتملة"
+      "معرف مستخدم الدعم غير صحيح"
     );
   }
 
-  const now = Math.floor(
-    Date.now() / 1000
-  );
+  if (!username) {
+    throw new Error(
+      "اسم مستخدم الدعم غير صحيح"
+    );
+  }
+
+  if (!fullName) {
+    throw new Error(
+      "اسم مستخدم الدعم الكامل غير صحيح"
+    );
+  }
+
+  if (!role) {
+    throw new Error(
+      "دور مستخدم الدعم غير صحيح"
+    );
+  }
+
+  if (sessionVersion === null) {
+    throw new Error(
+      "إصدار جلسة مستخدم الدعم غير صحيح"
+    );
+  }
+
+  const now =
+    Math.floor(
+      Date.now() / 1000
+    );
 
   const session: AdminSupportSession = {
+    kind:
+      ADMIN_SUPPORT_SESSION_KIND,
+
+    tokenVersion:
+      TOKEN_VERSION,
+
+    sessionId:
+      randomUUID(),
+
     userId,
     username,
     fullName,
     role,
     permissions,
     sessionVersion,
+
     issuedAt: now,
+
     expiresAt:
-      now + SESSION_DURATION_SECONDS,
+      now +
+      ADMIN_SUPPORT_SESSION_DURATION_SECONDS,
   };
 
   return createSignedToken(
-    session
+    session,
+    "support-session"
   );
 }
 
@@ -346,140 +905,274 @@ export function verifyAdminSupportSessionToken(
   token: string | null | undefined
 ): AdminSupportSession | null {
   const payload =
-    readSignedPayload(token);
+    readSignedPayload(
+      token,
+      "support-session"
+    );
 
-  if (
-    !payload ||
-    typeof payload !== "object" ||
-    Array.isArray(payload)
-  ) {
+  if (!isPlainObject(payload)) {
     return null;
   }
 
-  const parsed =
-    payload as Partial<AdminSupportSession>;
+  const kind =
+    cleanText(payload.kind);
+
+  const tokenVersion =
+    cleanText(
+      payload.tokenVersion
+    );
+
+  const sessionId =
+    cleanText(
+      payload.sessionId
+    );
 
   const userId =
-    cleanText(parsed.userId);
+    cleanText(
+      payload.userId
+    );
 
   const username =
-    cleanText(
-      parsed.username
-    ).toLowerCase();
+    normalizeUsername(
+      payload.username
+    );
 
   const fullName =
-    cleanText(parsed.fullName);
+    normalizeFullName(
+      payload.fullName
+    );
 
   const role =
-    cleanText(parsed.role);
+    normalizeRole(
+      payload.role
+    );
 
   const sessionVersion =
     normalizeSessionVersion(
-      parsed.sessionVersion
+      payload.sessionVersion
+    );
+
+  const issuedAt =
+    normalizeUnixTimestamp(
+      payload.issuedAt
+    );
+
+  const expiresAt =
+    normalizeUnixTimestamp(
+      payload.expiresAt
     );
 
   if (
-    !userId ||
+    kind !==
+      ADMIN_SUPPORT_SESSION_KIND ||
+    tokenVersion !==
+      TOKEN_VERSION ||
     !username ||
     !fullName ||
     !role ||
+    !hasCanonicalTextValue(
+      payload.kind,
+      kind
+    ) ||
+    !hasCanonicalTextValue(
+      payload.tokenVersion,
+      tokenVersion
+    ) ||
+    !hasCanonicalTextValue(
+      payload.sessionId,
+      sessionId
+    ) ||
+    !hasCanonicalTextValue(
+      payload.userId,
+      userId
+    ) ||
+    !hasCanonicalTextValue(
+      payload.username,
+      username
+    ) ||
+    !hasCanonicalTextValue(
+      payload.fullName,
+      fullName
+    ) ||
+    !hasCanonicalTextValue(
+      payload.role,
+      role
+    ) ||
+    !isValidUuid(sessionId) ||
+    !isValidUuid(userId) ||
     !Array.isArray(
-      parsed.permissions
+      payload.permissions
     ) ||
     sessionVersion === null ||
+    issuedAt === null ||
+    expiresAt === null ||
     !hasValidSessionTimes(
-      parsed.issuedAt,
-      parsed.expiresAt,
-      SESSION_DURATION_SECONDS
+      issuedAt,
+      expiresAt,
+      ADMIN_SUPPORT_SESSION_DURATION_SECONDS
     )
   ) {
     return null;
   }
 
+  const permissions =
+    normalizePermissions(
+      payload.permissions
+    );
+
   return {
+    kind:
+      ADMIN_SUPPORT_SESSION_KIND,
+
+    tokenVersion:
+      TOKEN_VERSION,
+
+    sessionId,
     userId,
     username,
     fullName,
     role,
-    permissions:
-      normalizePermissions(
-        parsed.permissions
-      ),
+    permissions,
     sessionVersion,
-    issuedAt:
-      parsed.issuedAt as number,
-    expiresAt:
-      parsed.expiresAt as number,
+    issuedAt,
+    expiresAt,
   };
 }
 
 export function createAdminSupportImpersonationToken(
-  input: Omit<
-    AdminSupportImpersonationSession,
-    "kind" | "issuedAt" | "expiresAt"
-  >
-) {
+  input: CreateAdminSupportImpersonationInput
+): string {
+  const supportSessionId =
+    cleanText(
+      input.supportSessionId
+    );
+
   const supportUserId =
     cleanText(
       input.supportUserId
     );
 
   const supportUsername =
-    cleanText(
+    normalizeUsername(
       input.supportUsername
     );
 
   const supportFullName =
-    cleanText(
+    normalizeFullName(
       input.supportFullName
+    );
+
+  const supportSessionVersion =
+    normalizeSessionVersion(
+      input.supportSessionVersion
     );
 
   const branchId =
     cleanText(input.branchId);
 
   const branchSlug =
-    cleanText(
+    normalizeBranchSlug(
       input.branchSlug
-    ).toLowerCase();
+    );
 
   const branchName =
-    cleanText(input.branchName);
+    normalizeBranchName(
+      input.branchName
+    );
 
   if (
-    !supportUserId ||
-    !supportUsername ||
-    !supportFullName ||
-    !branchId ||
-    !branchSlug ||
-    !branchName
+    !isValidUuid(
+      supportSessionId
+    )
   ) {
     throw new Error(
-      "بيانات جلسة دخول الفرع غير مكتملة"
+      "معرف جلسة الدعم الأصلية غير صحيح"
     );
   }
 
-  const now = Math.floor(
-    Date.now() / 1000
-  );
+  if (
+    !isValidUuid(
+      supportUserId
+    )
+  ) {
+    throw new Error(
+      "معرف مستخدم الدعم غير صحيح"
+    );
+  }
 
-  const session: AdminSupportImpersonationSession =
-    {
-      kind:
-        "admin_support_impersonation",
-      supportUserId,
-      supportUsername,
-      supportFullName,
-      branchId,
-      branchSlug,
-      branchName,
-      issuedAt: now,
-      expiresAt:
-        now +
-        IMPERSONATION_DURATION_SECONDS,
-    };
+  if (!supportUsername) {
+    throw new Error(
+      "اسم مستخدم الدعم غير صحيح"
+    );
+  }
+
+  if (!supportFullName) {
+    throw new Error(
+      "اسم مستخدم الدعم الكامل غير صحيح"
+    );
+  }
+
+  if (
+    supportSessionVersion === null
+  ) {
+    throw new Error(
+      "إصدار جلسة مستخدم الدعم غير صحيح"
+    );
+  }
+
+  if (!isValidUuid(branchId)) {
+    throw new Error(
+      "معرف الفرع غير صحيح"
+    );
+  }
+
+  if (!branchSlug) {
+    throw new Error(
+      "رابط الفرع غير صحيح"
+    );
+  }
+
+  if (!branchName) {
+    throw new Error(
+      "اسم الفرع غير صحيح"
+    );
+  }
+
+  const now =
+    Math.floor(
+      Date.now() / 1000
+    );
+
+  const session: AdminSupportImpersonationSession = {
+    kind:
+      ADMIN_SUPPORT_IMPERSONATION_KIND,
+
+    tokenVersion:
+      TOKEN_VERSION,
+
+    impersonationId:
+      randomUUID(),
+
+    supportSessionId,
+    supportUserId,
+    supportUsername,
+    supportFullName,
+    supportSessionVersion,
+
+    branchId,
+    branchSlug,
+    branchName,
+
+    issuedAt: now,
+
+    expiresAt:
+      now +
+      ADMIN_SUPPORT_IMPERSONATION_DURATION_SECONDS,
+  };
 
   return createSignedToken(
-    session
+    session,
+    "support-impersonation"
   );
 }
 
@@ -487,58 +1180,144 @@ export function verifyAdminSupportImpersonationToken(
   token: string | null | undefined
 ): AdminSupportImpersonationSession | null {
   const payload =
-    readSignedPayload(token);
+    readSignedPayload(
+      token,
+      "support-impersonation"
+    );
 
-  if (
-    !payload ||
-    typeof payload !== "object" ||
-    Array.isArray(payload)
-  ) {
+  if (!isPlainObject(payload)) {
     return null;
   }
 
-  const parsed =
-    payload as Partial<AdminSupportImpersonationSession>;
+  const kind =
+    cleanText(payload.kind);
+
+  const tokenVersion =
+    cleanText(
+      payload.tokenVersion
+    );
+
+  const impersonationId =
+    cleanText(
+      payload.impersonationId
+    );
+
+  const supportSessionId =
+    cleanText(
+      payload.supportSessionId
+    );
 
   const supportUserId =
     cleanText(
-      parsed.supportUserId
+      payload.supportUserId
     );
 
   const supportUsername =
-    cleanText(
-      parsed.supportUsername
+    normalizeUsername(
+      payload.supportUsername
     );
 
   const supportFullName =
-    cleanText(
-      parsed.supportFullName
+    normalizeFullName(
+      payload.supportFullName
+    );
+
+  const supportSessionVersion =
+    normalizeSessionVersion(
+      payload.supportSessionVersion
     );
 
   const branchId =
-    cleanText(parsed.branchId);
+    cleanText(
+      payload.branchId
+    );
 
   const branchSlug =
-    cleanText(
-      parsed.branchSlug
-    ).toLowerCase();
+    normalizeBranchSlug(
+      payload.branchSlug
+    );
 
   const branchName =
-    cleanText(parsed.branchName);
+    normalizeBranchName(
+      payload.branchName
+    );
+
+  const issuedAt =
+    normalizeUnixTimestamp(
+      payload.issuedAt
+    );
+
+  const expiresAt =
+    normalizeUnixTimestamp(
+      payload.expiresAt
+    );
 
   if (
-    parsed.kind !==
-      "admin_support_impersonation" ||
-    !supportUserId ||
+    kind !==
+      ADMIN_SUPPORT_IMPERSONATION_KIND ||
+    tokenVersion !==
+      TOKEN_VERSION ||
     !supportUsername ||
     !supportFullName ||
-    !branchId ||
     !branchSlug ||
     !branchName ||
+    !hasCanonicalTextValue(
+      payload.kind,
+      kind
+    ) ||
+    !hasCanonicalTextValue(
+      payload.tokenVersion,
+      tokenVersion
+    ) ||
+    !hasCanonicalTextValue(
+      payload.impersonationId,
+      impersonationId
+    ) ||
+    !hasCanonicalTextValue(
+      payload.supportSessionId,
+      supportSessionId
+    ) ||
+    !hasCanonicalTextValue(
+      payload.supportUserId,
+      supportUserId
+    ) ||
+    !hasCanonicalTextValue(
+      payload.supportUsername,
+      supportUsername
+    ) ||
+    !hasCanonicalTextValue(
+      payload.supportFullName,
+      supportFullName
+    ) ||
+    !hasCanonicalTextValue(
+      payload.branchId,
+      branchId
+    ) ||
+    !hasCanonicalTextValue(
+      payload.branchSlug,
+      branchSlug
+    ) ||
+    !hasCanonicalTextValue(
+      payload.branchName,
+      branchName
+    ) ||
+    !isValidUuid(
+      impersonationId
+    ) ||
+    !isValidUuid(
+      supportSessionId
+    ) ||
+    !isValidUuid(
+      supportUserId
+    ) ||
+    !isValidUuid(branchId) ||
+    supportSessionVersion === null ||
+    issuedAt === null ||
+    expiresAt === null ||
     !hasValidSessionTimes(
-      parsed.issuedAt,
-      parsed.expiresAt,
-      IMPERSONATION_DURATION_SECONDS
+      issuedAt,
+      expiresAt,
+      ADMIN_SUPPORT_IMPERSONATION_DURATION_SECONDS
     )
   ) {
     return null;
@@ -546,70 +1325,94 @@ export function verifyAdminSupportImpersonationToken(
 
   return {
     kind:
-      "admin_support_impersonation",
+      ADMIN_SUPPORT_IMPERSONATION_KIND,
+
+    tokenVersion:
+      TOKEN_VERSION,
+
+    impersonationId,
+    supportSessionId,
     supportUserId,
     supportUsername,
     supportFullName,
+    supportSessionVersion,
+
     branchId,
     branchSlug,
     branchName,
-    issuedAt:
-      parsed.issuedAt as number,
-    expiresAt:
-      parsed.expiresAt as number,
+
+    issuedAt,
+    expiresAt,
   };
 }
 
+/**
+ * هذه الدالة تصلح لإظهار أو إخفاء عناصر الواجهة فقط.
+ * لا يجوز استخدامها وحدها لتفويض عمليات API الحساسة.
+ * مسارات الخادم يجب أن تستخدم verifyAdminSupportRequest.
+ */
 export function hasAdminSupportPermission(
   session: AdminSupportSession,
   permission: string
-) {
+): boolean {
   const cleanPermission =
-    cleanText(permission);
+    normalizePermissionKey(
+      permission
+    );
 
   if (!cleanPermission) {
     return false;
   }
 
   return (
-    session.role === "super_admin" ||
+    session.role ===
+      "super_admin" ||
     session.permissions.includes(
       cleanPermission
     )
   );
 }
 
-export const adminSupportCookieOptions = {
-  httpOnly: true,
+export const adminSupportCookieOptions =
+  Object.freeze({
+    httpOnly: true,
+    secure: IS_PRODUCTION,
+    sameSite: "strict" as const,
+    path: "/",
+    maxAge:
+      ADMIN_SUPPORT_SESSION_DURATION_SECONDS,
+    priority: "high" as const,
+  });
 
-  secure:
-    process.env.NODE_ENV ===
-    "production",
-
-  sameSite: "strict" as const,
-
-  path: "/",
-
-  maxAge:
-    SESSION_DURATION_SECONDS,
-
-  priority: "high" as const,
-};
+export const adminSupportCookieDeleteOptions =
+  Object.freeze({
+    httpOnly: true,
+    secure: IS_PRODUCTION,
+    sameSite: "strict" as const,
+    path: "/",
+    maxAge: 0,
+    expires: new Date(0),
+    priority: "high" as const,
+  });
 
 export const adminSupportImpersonationCookieOptions =
-  {
+  Object.freeze({
     httpOnly: true,
-
-    secure:
-      process.env.NODE_ENV ===
-      "production",
-
+    secure: IS_PRODUCTION,
     sameSite: "strict" as const,
-
     path: "/finance",
-
     maxAge:
-      IMPERSONATION_DURATION_SECONDS,
-
+      ADMIN_SUPPORT_IMPERSONATION_DURATION_SECONDS,
     priority: "high" as const,
-  };
+  });
+
+export const adminSupportImpersonationCookieDeleteOptions =
+  Object.freeze({
+    httpOnly: true,
+    secure: IS_PRODUCTION,
+    sameSite: "strict" as const,
+    path: "/finance",
+    maxAge: 0,
+    expires: new Date(0),
+    priority: "high" as const,
+  });
