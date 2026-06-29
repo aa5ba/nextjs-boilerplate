@@ -14,10 +14,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const DEFAULT_PAGE_SIZE = 25;
-const MAX_PAGE_SIZE = 100;
+const BRANCHES_PAGE_SIZE = 15;
+const MANAGERS_PAGE_SIZE = 25;
+const SUPPORT_USERS_PAGE_SIZE = 25;
+const LOGS_PAGE_SIZE = 50;
 
-const DEFAULT_LOGS_PAGE_SIZE = 50;
+const MAX_MANAGERS_PAGE_SIZE = 100;
+const MAX_SUPPORT_USERS_PAGE_SIZE = 100;
 const MAX_LOGS_PAGE_SIZE = 100;
 
 /*
@@ -53,26 +56,15 @@ type PaginationInput = {
   to: number;
 };
 
-function noStoreHeaders(): Record<
-  string,
-  string
-> {
+function noStoreHeaders(): Record<string, string> {
   return {
     "Cache-Control":
       "private, no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
-
     Pragma: "no-cache",
     Expires: "0",
-
-    "X-Content-Type-Options":
-      "nosniff",
-
-    "Referrer-Policy":
-      "no-referrer",
-
-    "X-Frame-Options":
-      "DENY",
-
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "X-Frame-Options": "DENY",
     Vary: "Cookie",
   };
 }
@@ -82,18 +74,16 @@ function createErrorResponse(
   status: number,
   clearCookie = false
 ): NextResponse {
-  const response =
-    NextResponse.json(
-      {
-        ok: false,
-        message,
-      },
-      {
-        status,
-        headers:
-          noStoreHeaders(),
-      }
-    );
+  const response = NextResponse.json(
+    {
+      ok: false,
+      message,
+    },
+    {
+      status,
+      headers: noStoreHeaders(),
+    }
+  );
 
   if (clearCookie) {
     response.cookies.set(
@@ -101,17 +91,13 @@ function createErrorResponse(
       "",
       {
         httpOnly: true,
-
         secure:
           process.env.NODE_ENV ===
           "production",
-
         sameSite: "strict",
         path: "/",
-
         maxAge: 0,
         expires: new Date(0),
-
         priority: "high",
       }
     );
@@ -132,9 +118,7 @@ function parsePositiveInteger(
   const parsed = Number(value);
 
   if (
-    !Number.isSafeInteger(
-      parsed
-    ) ||
+    !Number.isSafeInteger(parsed) ||
     parsed < 1
   ) {
     return fallback;
@@ -146,21 +130,47 @@ function parsePositiveInteger(
   );
 }
 
-function getPagination(
+function getFixedPagination(
+  request: NextRequest,
+  pageKey: string,
+  pageSize: number
+): PaginationInput {
+  const page = parsePositiveInteger(
+    request.nextUrl.searchParams.get(
+      pageKey
+    ),
+    1,
+    Number.MAX_SAFE_INTEGER
+  );
+
+  const from =
+    (page - 1) * pageSize;
+
+  const to =
+    from + pageSize - 1;
+
+  return {
+    page,
+    pageSize,
+    from,
+    to,
+  };
+}
+
+function getFlexiblePagination(
   request: NextRequest,
   pageKey: string,
   pageSizeKey: string,
   defaultPageSize: number,
   maximumPageSize: number
 ): PaginationInput {
-  const page =
-    parsePositiveInteger(
-      request.nextUrl.searchParams.get(
-        pageKey
-      ),
-      1,
-      Number.MAX_SAFE_INTEGER
-    );
+  const page = parsePositiveInteger(
+    request.nextUrl.searchParams.get(
+      pageKey
+    ),
+    1,
+    Number.MAX_SAFE_INTEGER
+  );
 
   const pageSize =
     parsePositiveInteger(
@@ -206,9 +216,7 @@ function getRequestedSection(
 }
 
 function shouldLoadSection(
-  requestedSection:
-    DashboardSection,
-
+  requestedSection: DashboardSection,
   section: Exclude<
     DashboardSection,
     "all"
@@ -224,10 +232,7 @@ function createPermissionsMap(
   rows: PermissionRow[]
 ): Map<string, string[]> {
   const map =
-    new Map<
-      string,
-      string[]
-    >();
+    new Map<string, string[]>();
 
   for (const row of rows) {
     if (
@@ -290,6 +295,26 @@ function calculateTotalPages(
   );
 }
 
+function logSupabaseError(
+  label: string,
+  error: {
+    code?: string | null;
+    message?: string | null;
+    details?: string | null;
+    hint?: string | null;
+  }
+): void {
+  console.error(
+    label,
+    {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+    }
+  );
+}
+
 export async function GET(
   request: NextRequest
 ): Promise<NextResponse> {
@@ -347,48 +372,60 @@ export async function GET(
         request
       );
 
+    /*
+     * الفروع الحالية والمحذوفة:
+     * حجم الصفحة ثابت 15 ولا يعتمد على القيمة القادمة
+     * من الواجهة.
+     */
     const branchesPagination =
-      getPagination(
+      getFixedPagination(
         request,
         "branches_page",
-        "branches_page_size",
-        DEFAULT_PAGE_SIZE,
-        MAX_PAGE_SIZE
+        BRANCHES_PAGE_SIZE
+      );
+
+    const deletedBranchesPagination =
+      getFixedPagination(
+        request,
+        "deleted_branches_page",
+        BRANCHES_PAGE_SIZE
       );
 
     const managersPagination =
-      getPagination(
+      getFlexiblePagination(
         request,
         "managers_page",
         "managers_page_size",
-        DEFAULT_PAGE_SIZE,
-        MAX_PAGE_SIZE
+        MANAGERS_PAGE_SIZE,
+        MAX_MANAGERS_PAGE_SIZE
       );
 
     const supportUsersPagination =
-      getPagination(
+      getFlexiblePagination(
         request,
         "support_users_page",
         "support_users_page_size",
-        DEFAULT_PAGE_SIZE,
-        MAX_PAGE_SIZE
+        SUPPORT_USERS_PAGE_SIZE,
+        MAX_SUPPORT_USERS_PAGE_SIZE
       );
 
     const logsPagination =
-      getPagination(
+      getFlexiblePagination(
         request,
         "logs_page",
         "logs_page_size",
-        DEFAULT_LOGS_PAGE_SIZE,
+        LOGS_PAGE_SIZE,
         MAX_LOGS_PAGE_SIZE
       );
 
     let branches: unknown[] = [];
+    let deletedBranches: unknown[] = [];
     let branchManagers: unknown[] = [];
     let supportUsers: unknown[] = [];
     let logs: unknown[] = [];
 
     let branchesCount = 0;
+    let deletedBranchesCount = 0;
     let branchManagersCount = 0;
     let supportUsersCount = 0;
     let logsCount = 0;
@@ -401,10 +438,11 @@ export async function GET(
       canReadBranches
     ) {
       /*
-       * مستخدم يملك صلاحية الدخول للفروع فقط
-       * يحصل على الحد الأدنى اللازم للدخول.
+       * مستخدم الدخول للفروع فقط يحصل على الحد
+       * الأدنى اللازم. أما مدير الفروع فيحصل
+       * على جميع معلومات الإدارة.
        */
-      const branchSelect =
+      const activeBranchSelect =
         canManageBranches
           ? `
               id,
@@ -415,6 +453,7 @@ export async function GET(
               commercial_record,
               phone,
               is_active,
+              is_deleted,
               notes,
               created_at
             `
@@ -423,19 +462,28 @@ export async function GET(
               branch_name,
               branch_slug,
               organization_name,
-              is_active
+              is_active,
+              is_deleted,
+              created_at
             `;
 
+      /*
+       * الفروع الحالية فقط.
+       */
       const branchesPromise =
         supabaseAdmin
           .from(
             "finance_branches"
           )
           .select(
-            branchSelect,
+            activeBranchSelect,
             {
               count: "exact",
             }
+          )
+          .eq(
+            "is_deleted",
+            false
           )
           .order(
             "created_at",
@@ -449,8 +497,55 @@ export async function GET(
           );
 
       /*
-       * لا تُرسل قائمة مدراء الفروع
-       * إلا لمن يملك صلاحية إدارة الفروع.
+       * الفروع المحذوفة متاحة فقط لمن يملك
+       * صلاحية إدارة الفروع.
+       */
+      const deletedBranchesPromise =
+        canManageBranches
+          ? supabaseAdmin
+              .from(
+                "finance_branches"
+              )
+              .select(
+                `
+                  id,
+                  branch_name,
+                  branch_slug,
+                  organization_name,
+                  city,
+                  commercial_record,
+                  phone,
+                  is_active,
+                  is_deleted,
+                  notes,
+                  created_at,
+                  deleted_at,
+                  deleted_by_user_id,
+                  deleted_by_user_name
+                `,
+                {
+                  count: "exact",
+                }
+              )
+              .eq(
+                "is_deleted",
+                true
+              )
+              .order(
+                "deleted_at",
+                {
+                  ascending: false,
+                  nullsFirst: false,
+                }
+              )
+              .range(
+                deletedBranchesPagination.from,
+                deletedBranchesPagination.to
+              )
+          : null;
+
+      /*
+       * لا تظهر حسابات مديري الفروع المحذوفة.
        */
       const managersPromise =
         canManageBranches
@@ -467,10 +562,11 @@ export async function GET(
                   role,
                   is_active,
                   created_at,
-                  finance_branches (
+                  finance_branches!inner (
                     branch_name,
                     branch_slug,
-                    organization_name
+                    organization_name,
+                    is_deleted
                   )
                 `,
                 {
@@ -480,6 +576,10 @@ export async function GET(
               .eq(
                 "role",
                 BRANCH_MANAGER_ROLE
+              )
+              .eq(
+                "finance_branches.is_deleted",
+                false
               )
               .order(
                 "created_at",
@@ -495,38 +595,24 @@ export async function GET(
 
       const [
         branchesResult,
+        deletedBranchesResult,
         managersResult,
       ] = await Promise.all([
         branchesPromise,
+        deletedBranchesPromise,
         managersPromise,
       ]);
 
       if (
         branchesResult.error
       ) {
-        console.error(
-          "Dashboard branches load failed:",
-          {
-            code:
-              branchesResult.error
-                .code,
-
-            message:
-              branchesResult.error
-                .message,
-
-            details:
-              branchesResult.error
-                .details,
-
-            hint:
-              branchesResult.error
-                .hint,
-          }
+        logSupabaseError(
+          "Dashboard active branches load failed:",
+          branchesResult.error
         );
 
         return createErrorResponse(
-          "تعذر تحميل بيانات الفروع",
+          "تعذر تحميل قائمة الفروع",
           500
         );
       }
@@ -539,30 +625,41 @@ export async function GET(
 
       if (
         canManageBranches &&
+        deletedBranchesResult
+      ) {
+        if (
+          deletedBranchesResult.error
+        ) {
+          logSupabaseError(
+            "Dashboard deleted branches load failed:",
+            deletedBranchesResult.error
+          );
+
+          return createErrorResponse(
+            "تعذر تحميل قائمة الفروع المحذوفة",
+            500
+          );
+        }
+
+        deletedBranches =
+          deletedBranchesResult.data ??
+          [];
+
+        deletedBranchesCount =
+          deletedBranchesResult.count ??
+          0;
+      }
+
+      if (
+        canManageBranches &&
         managersResult
       ) {
         if (
           managersResult.error
         ) {
-          console.error(
+          logSupabaseError(
             "Dashboard managers load failed:",
-            {
-              code:
-                managersResult.error
-                  .code,
-
-              message:
-                managersResult.error
-                  .message,
-
-              details:
-                managersResult.error
-                  .details,
-
-              hint:
-                managersResult.error
-                  .hint,
-            }
+            managersResult.error
           );
 
           return createErrorResponse(
@@ -618,21 +715,9 @@ export async function GET(
       if (
         usersResult.error
       ) {
-        console.error(
+        logSupabaseError(
           "Dashboard support users load failed:",
-          {
-            code:
-              usersResult.error.code,
-
-            message:
-              usersResult.error.message,
-
-            details:
-              usersResult.error.details,
-
-            hint:
-              usersResult.error.hint,
-          }
+          usersResult.error
         );
 
         return createErrorResponse(
@@ -684,25 +769,9 @@ export async function GET(
         if (
           permissionsResult.error
         ) {
-          console.error(
+          logSupabaseError(
             "Dashboard support permissions load failed:",
-            {
-              code:
-                permissionsResult
-                  .error.code,
-
-              message:
-                permissionsResult
-                  .error.message,
-
-              details:
-                permissionsResult
-                  .error.details,
-
-              hint:
-                permissionsResult
-                  .error.hint,
-            }
+            permissionsResult.error
           );
 
           return createErrorResponse(
@@ -775,23 +844,9 @@ export async function GET(
       if (
         logsResult.error
       ) {
-        console.error(
+        logSupabaseError(
           "Dashboard logs load failed:",
-          {
-            code:
-              logsResult.error.code,
-
-            message:
-              logsResult.error
-                .message,
-
-            details:
-              logsResult.error
-                .details,
-
-            hint:
-              logsResult.error.hint,
-          }
+          logsResult.error
         );
 
         return createErrorResponse(
@@ -860,7 +915,16 @@ export async function GET(
         requested_section:
           requestedSection,
 
+        /*
+         * الفروع الحالية فقط.
+         */
         branches,
+
+        /*
+         * الفروع المنقولة إلى قائمة المحذوفة.
+         */
+        deleted_branches:
+          deletedBranches,
 
         branch_managers:
           branchManagers,
@@ -885,6 +949,23 @@ export async function GET(
               calculateTotalPages(
                 branchesCount,
                 branchesPagination.pageSize
+              ),
+          },
+
+          deleted_branches: {
+            page:
+              deletedBranchesPagination.page,
+
+            page_size:
+              deletedBranchesPagination.pageSize,
+
+            total:
+              deletedBranchesCount,
+
+            total_pages:
+              calculateTotalPages(
+                deletedBranchesCount,
+                deletedBranchesPagination.pageSize
               ),
           },
 
@@ -942,8 +1023,7 @@ export async function GET(
       },
       {
         status: 200,
-        headers:
-          noStoreHeaders(),
+        headers: noStoreHeaders(),
       }
     );
   } catch (error) {
@@ -951,15 +1031,11 @@ export async function GET(
       "Admin support dashboard route error:",
       error instanceof Error
         ? {
-            name:
-              error.name,
-
-            message:
-              error.message,
+            name: error.name,
+            message: error.message,
           }
         : {
-            name:
-              "UnknownError",
+            name: "UnknownError",
           }
     );
 
