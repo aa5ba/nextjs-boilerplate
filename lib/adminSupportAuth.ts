@@ -9,17 +9,41 @@ import {
   verifyAdminSupportSessionToken,
 } from "@/lib/adminSupportSession";
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const USERNAME_PATTERN =
+  /^[\p{L}\p{N}._-]{2,50}$/u;
+
+const ROLE_PATTERN =
+  /^[a-z][a-z0-9_]{1,63}$/;
+
+const PERMISSION_KEY_PATTERN =
+  /^[a-z][a-z0-9_]{1,99}$/;
+
+const SUPER_ADMIN_ROLE =
+  "super_admin";
+
 type SupportUserRow = {
-  id: string;
-  full_name: string | null;
-  username: string;
-  role: string;
-  is_active: boolean;
-  session_version: number;
+  id: unknown;
+  full_name: unknown;
+  username: unknown;
+  role: unknown;
+  is_active: unknown;
+  session_version: unknown;
 };
 
 type PermissionRow = {
-  permission_key: string;
+  permission_key: unknown;
+};
+
+type NormalizedSupportUser = {
+  id: string;
+  fullName: string;
+  username: string;
+  role: string;
+  isActive: boolean;
+  sessionVersion: number;
 };
 
 export type VerifiedAdminSupportUser = {
@@ -44,7 +68,23 @@ export type AdminSupportAuthResult =
       clearCookie?: boolean;
     };
 
-function normalizeSessionVersion(value: unknown): number | null {
+function cleanText(
+  value: unknown
+): string {
+  return typeof value === "string"
+    ? value.trim()
+    : "";
+}
+
+function isValidUuid(
+  value: string
+): boolean {
+  return UUID_PATTERN.test(value);
+}
+
+function normalizeSessionVersion(
+  value: unknown
+): number | null {
   if (
     typeof value !== "number" ||
     !Number.isSafeInteger(value) ||
@@ -56,25 +96,187 @@ function normalizeSessionVersion(value: unknown): number | null {
   return value;
 }
 
-function normalizePermissions(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [];
+function normalizeUsername(
+  value: unknown
+): string | null {
+  const username =
+    cleanText(value);
+
+  if (
+    !USERNAME_PATTERN.test(
+      username
+    )
+  ) {
+    return null;
+  }
+
+  return username;
+}
+
+function normalizeRole(
+  value: unknown
+): string | null {
+  const role =
+    cleanText(value).toLowerCase();
+
+  if (
+    !ROLE_PATTERN.test(role)
+  ) {
+    return null;
+  }
+
+  return role;
+}
+
+function normalizeFullName(
+  value: unknown,
+  fallback: string
+): string {
+  const fullName =
+    cleanText(value);
+
+  if (
+    fullName.length < 2 ||
+    fullName.length > 150
+  ) {
+    return fallback;
+  }
+
+  return fullName;
+}
+
+function normalizePermissionKey(
+  value: unknown
+): string | null {
+  const permission =
+    cleanText(value).toLowerCase();
+
+  if (
+    !PERMISSION_KEY_PATTERN.test(
+      permission
+    )
+  ) {
+    return null;
+  }
+
+  return permission;
+}
+
+function normalizePermissions(
+  rows: PermissionRow[]
+): string[] {
+  const permissions =
+    new Set<string>();
+
+  for (const row of rows) {
+    const permission =
+      normalizePermissionKey(
+        row.permission_key
+      );
+
+    if (permission) {
+      permissions.add(permission);
+    }
   }
 
   return Array.from(
-    new Set(
-      value
-        .filter(
-          (permission): permission is string =>
-            typeof permission === "string"
-        )
-        .map((permission) => permission.trim())
-        .filter(
-          (permission) =>
-            permission.length > 0 &&
-            permission.length <= 100
-        )
-    )
+    permissions
+  ).sort((first, second) =>
+    first.localeCompare(second)
+  );
+}
+
+function normalizeSupportUser(
+  value: SupportUserRow | null
+): NormalizedSupportUser | null {
+  if (!value) {
+    return null;
+  }
+
+  const id =
+    cleanText(value.id);
+
+  const username =
+    normalizeUsername(
+      value.username
+    );
+
+  const role =
+    normalizeRole(value.role);
+
+  const sessionVersion =
+    normalizeSessionVersion(
+      value.session_version
+    );
+
+  if (
+    !isValidUuid(id) ||
+    !username ||
+    !role ||
+    typeof value.is_active !==
+      "boolean" ||
+    sessionVersion === null
+  ) {
+    return null;
+  }
+
+  return {
+    id,
+    username,
+    role,
+    isActive:
+      value.is_active,
+    sessionVersion,
+    fullName:
+      normalizeFullName(
+        value.full_name,
+        username
+      ),
+  };
+}
+
+function logSupabaseError(
+  context: string,
+  error: {
+    code?: string;
+    message?: string;
+  }
+): void {
+  console.error(context, {
+    code:
+      typeof error.code ===
+      "string"
+        ? error.code
+        : "UNKNOWN",
+
+    message:
+      typeof error.message ===
+      "string"
+        ? error.message
+        : "Unknown database error",
+  });
+}
+
+function normalizeRequiredPermission(
+  value: string | undefined
+): string | null {
+  if (value === undefined) {
+    return "";
+  }
+
+  return normalizePermissionKey(
+    value
+  );
+}
+
+function userHasPermission(
+  role: string,
+  permissions: readonly string[],
+  permission: string
+): boolean {
+  return (
+    role === SUPER_ADMIN_ROLE ||
+    permissions.includes(permission)
   );
 }
 
@@ -82,28 +284,74 @@ export async function verifyAdminSupportRequest(
   requiredPermission?: string
 ): Promise<AdminSupportAuthResult> {
   try {
-    const cookieStore = await cookies();
+    const normalizedRequiredPermission =
+      normalizeRequiredPermission(
+        requiredPermission
+      );
 
-    const token = cookieStore.get(
-      ADMIN_SUPPORT_COOKIE_NAME
-    )?.value;
+    /*
+     * تمرير مفتاح صلاحية غير صالح يعتبر
+     * خطأ برمجيًا في المسار نفسه، وليس نقص
+     * صلاحية لدى المستخدم.
+     */
+    if (
+      requiredPermission !==
+        undefined &&
+      normalizedRequiredPermission ===
+        null
+    ) {
+      console.error(
+        "Invalid required admin support permission:",
+        {
+          permission:
+            typeof requiredPermission ===
+            "string"
+              ? requiredPermission.slice(
+                  0,
+                  120
+                )
+              : "INVALID_TYPE",
+        }
+      );
 
-    const session = verifyAdminSupportSessionToken(token);
+      return {
+        ok: false,
+        status: 500,
+        message:
+          "تعذر التحقق من صلاحية العملية",
+      };
+    }
+
+    const cookieStore =
+      await cookies();
+
+    const token =
+      cookieStore.get(
+        ADMIN_SUPPORT_COOKIE_NAME
+      )?.value;
+
+    const session =
+      verifyAdminSupportSessionToken(
+        token
+      );
 
     if (!session) {
       return {
         ok: false,
         status: 401,
-        message: "انتهت جلسة الدخول",
+        message:
+          "انتهت جلسة الدخول",
         clearCookie: true,
       };
     }
 
-    const { data: userData, error: userError } =
-      await supabaseAdmin
-        .from("admin_support_users")
-        .select(
-          `
+    const {
+      data: userData,
+      error: userError,
+    } = await supabaseAdmin
+      .from("admin_support_users")
+      .select(
+        `
           id,
           full_name,
           username,
@@ -111,12 +359,15 @@ export async function verifyAdminSupportRequest(
           is_active,
           session_version
         `
-        )
-        .eq("id", session.userId)
-        .maybeSingle();
+      )
+      .eq(
+        "id",
+        session.userId
+      )
+      .maybeSingle();
 
     if (userError) {
-      console.error(
+      logSupabaseError(
         "Admin support user verification failed:",
         userError
       );
@@ -124,28 +375,87 @@ export async function verifyAdminSupportRequest(
       return {
         ok: false,
         status: 500,
-        message: "تعذر التحقق من حساب الدعم",
+        message:
+          "تعذر التحقق من حساب الدعم",
       };
     }
 
-    const user = userData as SupportUserRow | null;
-
-    if (!user || !user.is_active) {
+    if (!userData) {
       return {
         ok: false,
         status: 401,
-        message: "الحساب غير موجود أو غير مفعل",
+        message:
+          "الحساب غير موجود أو غير مفعل",
         clearCookie: true,
       };
     }
 
-    const databaseSessionVersion = normalizeSessionVersion(
-      user.session_version
-    );
+    const user =
+      normalizeSupportUser(
+        userData as SupportUserRow
+      );
+
+    /*
+     * وجود سجل ببيانات غير سليمة يدل على
+     * مشكلة في قاعدة البيانات، لذلك لا
+     * نتعامل معه كحساب عادي.
+     */
+    if (!user) {
+      console.error(
+        "Invalid admin support user database row:",
+        {
+          sessionUserId:
+            session.userId,
+        }
+      );
+
+      return {
+        ok: false,
+        status: 500,
+        message:
+          "بيانات حساب الدعم غير صالحة",
+      };
+    }
+
+    /*
+     * حماية إضافية حتى لو أعادت قاعدة
+     * البيانات سجلًا غير متوقع.
+     */
+    if (
+      user.id !== session.userId
+    ) {
+      console.error(
+        "Admin support session user mismatch:",
+        {
+          sessionUserId:
+            session.userId,
+          databaseUserId:
+            user.id,
+        }
+      );
+
+      return {
+        ok: false,
+        status: 401,
+        message:
+          "جلسة الدخول غير صالحة",
+        clearCookie: true,
+      };
+    }
+
+    if (!user.isActive) {
+      return {
+        ok: false,
+        status: 401,
+        message:
+          "الحساب غير موجود أو غير مفعل",
+        clearCookie: true,
+      };
+    }
 
     if (
-      databaseSessionVersion === null ||
-      databaseSessionVersion !== session.sessionVersion
+      user.sessionVersion !==
+      session.sessionVersion
     ) {
       return {
         ok: false,
@@ -160,12 +470,14 @@ export async function verifyAdminSupportRequest(
       data: permissionData,
       error: permissionError,
     } = await supabaseAdmin
-      .from("admin_support_user_permissions")
+      .from(
+        "admin_support_user_permissions"
+      )
       .select("permission_key")
       .eq("user_id", user.id);
 
     if (permissionError) {
-      console.error(
+      logSupabaseError(
         "Admin support permission verification failed:",
         permissionError
       );
@@ -173,57 +485,71 @@ export async function verifyAdminSupportRequest(
       return {
         ok: false,
         status: 500,
-        message: "تعذر التحقق من صلاحيات المستخدم",
+        message:
+          "تعذر التحقق من صلاحيات المستخدم",
       };
     }
 
-    const permissions = normalizePermissions(
-      (permissionData || []).map(
-        (item) => (item as PermissionRow).permission_key
+    const permissionRows =
+      (permissionData ??
+        []) as PermissionRow[];
+
+    const permissions =
+      normalizePermissions(
+        permissionRows
+      );
+
+    if (
+      normalizedRequiredPermission &&
+      !userHasPermission(
+        user.role,
+        permissions,
+        normalizedRequiredPermission
       )
-    );
-
-    const cleanRequiredPermission =
-      typeof requiredPermission === "string"
-        ? requiredPermission.trim()
-        : "";
-
-    const hasPermission =
-      !cleanRequiredPermission ||
-      user.role === "super_admin" ||
-      permissions.includes(cleanRequiredPermission);
-
-    if (!hasPermission) {
+    ) {
       return {
         ok: false,
         status: 403,
-        message: "لا تملك الصلاحية لتنفيذ هذه العملية",
+        message:
+          "لا تملك الصلاحية لتنفيذ هذه العملية",
       };
     }
 
     return {
       ok: true,
+
       user: {
         id: user.id,
         fullName:
-          user.full_name?.trim() || user.username,
-        username: user.username,
-        role: user.role,
+          user.fullName,
+        username:
+          user.username,
+        role:
+          user.role,
         permissions,
-        sessionVersion: databaseSessionVersion,
+        sessionVersion:
+          user.sessionVersion,
         session,
       },
     };
   } catch (error) {
     console.error(
       "Admin support request verification error:",
-      error
+      error instanceof Error
+        ? {
+            name: error.name,
+            message: error.message,
+          }
+        : {
+            name: "UnknownError",
+          }
     );
 
     return {
       ok: false,
       status: 500,
-      message: "حدث خطأ أثناء التحقق من الجلسة",
+      message:
+        "حدث خطأ أثناء التحقق من الجلسة",
     };
   }
 }
@@ -231,18 +557,19 @@ export async function verifyAdminSupportRequest(
 export function adminSupportHasPermission(
   user: VerifiedAdminSupportUser,
   permission: string
-) {
+): boolean {
   const cleanPermission =
-    typeof permission === "string"
-      ? permission.trim()
-      : "";
+    normalizePermissionKey(
+      permission
+    );
 
   if (!cleanPermission) {
     return false;
   }
 
-  return (
-    user.role === "super_admin" ||
-    user.permissions.includes(cleanPermission)
+  return userHasPermission(
+    user.role,
+    user.permissions,
+    cleanPermission
   );
 }
