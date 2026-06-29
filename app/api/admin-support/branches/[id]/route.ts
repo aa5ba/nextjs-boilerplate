@@ -97,15 +97,30 @@ function cleanNumericText(
 }
 
 function normalizePhone(value: unknown): string {
-  const normalized = normalizeDigits(cleanText(value));
+  const normalized =
+    normalizeDigits(cleanText(value));
 
-  const hasLeadingPlus = normalized.startsWith("+");
+  const hasLeadingPlus =
+    normalized.startsWith("+");
 
   const digits = normalized
     .replace(/\D/g, "")
     .slice(0, hasLeadingPlus ? 19 : 20);
 
-  return hasLeadingPlus ? `+${digits}` : digits;
+  return hasLeadingPlus
+    ? `+${digits}`
+    : digits;
+}
+
+function normalizeBranchSlug(
+  value: unknown
+): string {
+  return normalizeDigits(
+    cleanText(value)
+  )
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "")
+    .slice(0, 64);
 }
 
 function isValidUuid(value: string): boolean {
@@ -123,7 +138,8 @@ function isPlainObject(
     return false;
   }
 
-  const prototype = Object.getPrototypeOf(value);
+  const prototype =
+    Object.getPrototypeOf(value);
 
   return (
     prototype === Object.prototype ||
@@ -136,16 +152,17 @@ function createErrorResponse(
   status: number,
   clearCookie = false
 ): NextResponse {
-  const response = NextResponse.json(
-    {
-      ok: false,
-      message,
-    },
-    {
-      status,
-      headers: noStoreHeaders(),
-    }
-  );
+  const response =
+    NextResponse.json(
+      {
+        ok: false,
+        message,
+      },
+      {
+        status,
+        headers: noStoreHeaders(),
+      }
+    );
 
   if (clearCookie) {
     response.cookies.set(
@@ -154,7 +171,8 @@ function createErrorResponse(
       {
         httpOnly: true,
         secure:
-          process.env.NODE_ENV === "production",
+          process.env.NODE_ENV ===
+          "production",
         sameSite: "strict",
         path: "/",
         maxAge: 0,
@@ -183,11 +201,33 @@ async function readJsonBody(
     return null;
   }
 
-  try {
-    const rawBody = await request.text();
+  const contentLengthHeader =
+    request.headers.get(
+      "content-length"
+    );
+
+  if (contentLengthHeader) {
+    const contentLength =
+      Number(contentLengthHeader);
 
     if (
-      Buffer.byteLength(rawBody, "utf8") >
+      Number.isFinite(contentLength) &&
+      contentLength >
+        MAX_REQUEST_BODY_BYTES
+    ) {
+      return null;
+    }
+  }
+
+  try {
+    const rawBody =
+      await request.text();
+
+    if (
+      Buffer.byteLength(
+        rawBody,
+        "utf8"
+      ) >
       MAX_REQUEST_BODY_BYTES
     ) {
       return null;
@@ -730,9 +770,9 @@ export async function PATCH(
       );
 
     const branchSlug =
-      cleanText(
+      normalizeBranchSlug(
         body.branch_slug
-      ).toLowerCase();
+      );
 
     const organizationName =
       cleanText(
@@ -930,17 +970,14 @@ export async function PATCH(
       );
     }
 
-    const statusMessage =
-      result.is_active
-        ? "تم تفعيل الفرع بنجاح"
-        : "تم تعطيل الفرع بنجاح";
-
     return NextResponse.json(
       {
         ok: true,
 
         message:
-          statusMessage,
+          result.is_active
+            ? "تم تفعيل الفرع بنجاح"
+            : "تم تعطيل الفرع بنجاح",
 
         data: {
           branch_id:
