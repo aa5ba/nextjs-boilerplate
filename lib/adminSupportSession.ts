@@ -23,6 +23,7 @@ export type AdminSupportSession = {
   fullName: string;
   role: string;
   permissions: string[];
+  sessionVersion: number;
   issuedAt: number;
   expiresAt: number;
 };
@@ -39,6 +40,15 @@ export type AdminSupportImpersonationSession = {
   expiresAt: number;
 };
 
+type CreateAdminSupportSessionInput = {
+  userId: string;
+  username: string;
+  fullName: string;
+  role: string;
+  permissions: string[];
+  sessionVersion: number;
+};
+
 function getSessionSecret() {
   const secret =
     process.env.ADMIN_SUPPORT_SESSION_SECRET;
@@ -52,21 +62,77 @@ function getSessionSecret() {
   return secret;
 }
 
-function toBase64Url(value: string) {
+function cleanText(
+  value: unknown
+): string {
+  return typeof value === "string"
+    ? value.trim()
+    : "";
+}
+
+function normalizeSessionVersion(
+  value: unknown
+): number | null {
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value < 0
+  ) {
+    return null;
+  }
+
+  return value;
+}
+
+function normalizePermissions(
+  value: unknown
+): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      value
+        .filter(
+          (
+            permission
+          ): permission is string =>
+            typeof permission === "string"
+        )
+        .map((permission) =>
+          permission.trim()
+        )
+        .filter(
+          (permission) =>
+            permission.length > 0 &&
+            permission.length <= 100
+        )
+    )
+  ).slice(0, 200);
+}
+
+function toBase64Url(
+  value: string
+) {
   return Buffer.from(
     value,
     "utf8"
   ).toString("base64url");
 }
 
-function fromBase64Url(value: string) {
+function fromBase64Url(
+  value: string
+) {
   return Buffer.from(
     value,
     "base64url"
   ).toString("utf8");
 }
 
-function createSignature(payload: string) {
+function createSignature(
+  payload: string
+) {
   return createHmac(
     "sha256",
     getSessionSecret()
@@ -91,7 +157,8 @@ function signaturesMatch(
     );
 
     if (
-      received.length !== expected.length
+      received.length !==
+      expected.length
     ) {
       return false;
     }
@@ -108,13 +175,15 @@ function signaturesMatch(
 function createSignedToken(
   payload: object
 ) {
-  const encodedPayload = toBase64Url(
-    JSON.stringify(payload)
-  );
+  const encodedPayload =
+    toBase64Url(
+      JSON.stringify(payload)
+    );
 
-  const signature = createSignature(
-    encodedPayload
-  );
+  const signature =
+    createSignature(
+      encodedPayload
+    );
 
   return `${encodedPayload}.${signature}`;
 }
@@ -122,11 +191,15 @@ function createSignedToken(
 function readSignedPayload(
   token: string | null | undefined
 ): unknown | null {
-  if (!token) {
+  if (
+    !token ||
+    token.length > 8192
+  ) {
     return null;
   }
 
-  const parts = token.split(".");
+  const parts =
+    token.split(".");
 
   if (parts.length !== 2) {
     return null;
@@ -145,7 +218,9 @@ function readSignedPayload(
   }
 
   const expectedSignature =
-    createSignature(encodedPayload);
+    createSignature(
+      encodedPayload
+    );
 
   if (
     !signaturesMatch(
@@ -158,17 +233,26 @@ function readSignedPayload(
 
   try {
     return JSON.parse(
-      fromBase64Url(encodedPayload)
+      fromBase64Url(
+        encodedPayload
+      )
     ) as unknown;
   } catch {
     return null;
   }
 }
 
-function isNotExpired(
-  expiresAt: unknown
+function hasValidSessionTimes(
+  issuedAt: unknown,
+  expiresAt: unknown,
+  maximumDurationSeconds: number
 ) {
-  if (typeof expiresAt !== "number") {
+  if (
+    typeof issuedAt !== "number" ||
+    !Number.isSafeInteger(issuedAt) ||
+    typeof expiresAt !== "number" ||
+    !Number.isSafeInteger(expiresAt)
+  ) {
     return false;
   }
 
@@ -176,32 +260,86 @@ function isNotExpired(
     Date.now() / 1000
   );
 
-  return expiresAt > now;
+  if (issuedAt > now + 60) {
+    return false;
+  }
+
+  if (expiresAt <= now) {
+    return false;
+  }
+
+  if (expiresAt <= issuedAt) {
+    return false;
+  }
+
+  if (
+    expiresAt - issuedAt >
+    maximumDurationSeconds
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 export function createAdminSupportSessionToken(
-  input: Omit<
-    AdminSupportSession,
-    "issuedAt" | "expiresAt"
-  >
+  input: CreateAdminSupportSessionInput
 ) {
+  const userId =
+    cleanText(input.userId);
+
+  const username =
+    cleanText(
+      input.username
+    ).toLowerCase();
+
+  const fullName =
+    cleanText(input.fullName);
+
+  const role =
+    cleanText(input.role);
+
+  const permissions =
+    normalizePermissions(
+      input.permissions
+    );
+
+  const sessionVersion =
+    normalizeSessionVersion(
+      input.sessionVersion
+    );
+
+  if (
+    !userId ||
+    !username ||
+    !fullName ||
+    !role ||
+    sessionVersion === null
+  ) {
+    throw new Error(
+      "بيانات جلسة الدعم الفني غير مكتملة"
+    );
+  }
+
   const now = Math.floor(
     Date.now() / 1000
   );
 
   const session: AdminSupportSession = {
-    ...input,
-    permissions: Array.isArray(
-      input.permissions
-    )
-      ? input.permissions
-      : [],
+    userId,
+    username,
+    fullName,
+    role,
+    permissions,
+    sessionVersion,
     issuedAt: now,
     expiresAt:
       now + SESSION_DURATION_SECONDS,
   };
 
-  return createSignedToken(session);
+  return createSignedToken(
+    session
+  );
 }
 
 export function verifyAdminSupportSessionToken(
@@ -212,7 +350,8 @@ export function verifyAdminSupportSessionToken(
 
   if (
     !payload ||
-    typeof payload !== "object"
+    typeof payload !== "object" ||
+    Array.isArray(payload)
   ) {
     return null;
   }
@@ -220,34 +359,57 @@ export function verifyAdminSupportSessionToken(
   const parsed =
     payload as Partial<AdminSupportSession>;
 
+  const userId =
+    cleanText(parsed.userId);
+
+  const username =
+    cleanText(
+      parsed.username
+    ).toLowerCase();
+
+  const fullName =
+    cleanText(parsed.fullName);
+
+  const role =
+    cleanText(parsed.role);
+
+  const sessionVersion =
+    normalizeSessionVersion(
+      parsed.sessionVersion
+    );
+
   if (
-    typeof parsed.userId !== "string" ||
-    typeof parsed.username !== "string" ||
-    typeof parsed.fullName !== "string" ||
-    typeof parsed.role !== "string" ||
+    !userId ||
+    !username ||
+    !fullName ||
+    !role ||
     !Array.isArray(
       parsed.permissions
     ) ||
-    typeof parsed.issuedAt !== "number" ||
-    !isNotExpired(parsed.expiresAt)
+    sessionVersion === null ||
+    !hasValidSessionTimes(
+      parsed.issuedAt,
+      parsed.expiresAt,
+      SESSION_DURATION_SECONDS
+    )
   ) {
     return null;
   }
 
   return {
-    userId: parsed.userId,
-    username: parsed.username,
-    fullName: parsed.fullName,
-    role: parsed.role,
+    userId,
+    username,
+    fullName,
+    role,
     permissions:
-      parsed.permissions.filter(
-        (
-          permission
-        ): permission is string =>
-          typeof permission === "string"
+      normalizePermissions(
+        parsed.permissions
       ),
-    issuedAt: parsed.issuedAt,
-    expiresAt: parsed.expiresAt as number,
+    sessionVersion,
+    issuedAt:
+      parsed.issuedAt as number,
+    expiresAt:
+      parsed.expiresAt as number,
   };
 }
 
@@ -257,6 +419,45 @@ export function createAdminSupportImpersonationToken(
     "kind" | "issuedAt" | "expiresAt"
   >
 ) {
+  const supportUserId =
+    cleanText(
+      input.supportUserId
+    );
+
+  const supportUsername =
+    cleanText(
+      input.supportUsername
+    );
+
+  const supportFullName =
+    cleanText(
+      input.supportFullName
+    );
+
+  const branchId =
+    cleanText(input.branchId);
+
+  const branchSlug =
+    cleanText(
+      input.branchSlug
+    ).toLowerCase();
+
+  const branchName =
+    cleanText(input.branchName);
+
+  if (
+    !supportUserId ||
+    !supportUsername ||
+    !supportFullName ||
+    !branchId ||
+    !branchSlug ||
+    !branchName
+  ) {
+    throw new Error(
+      "بيانات جلسة دخول الفرع غير مكتملة"
+    );
+  }
+
   const now = Math.floor(
     Date.now() / 1000
   );
@@ -265,22 +466,21 @@ export function createAdminSupportImpersonationToken(
     {
       kind:
         "admin_support_impersonation",
-      supportUserId:
-        input.supportUserId,
-      supportUsername:
-        input.supportUsername,
-      supportFullName:
-        input.supportFullName,
-      branchId: input.branchId,
-      branchSlug: input.branchSlug,
-      branchName: input.branchName,
+      supportUserId,
+      supportUsername,
+      supportFullName,
+      branchId,
+      branchSlug,
+      branchName,
       issuedAt: now,
       expiresAt:
         now +
         IMPERSONATION_DURATION_SECONDS,
     };
 
-  return createSignedToken(session);
+  return createSignedToken(
+    session
+  );
 }
 
 export function verifyAdminSupportImpersonationToken(
@@ -291,7 +491,8 @@ export function verifyAdminSupportImpersonationToken(
 
   if (
     !payload ||
-    typeof payload !== "object"
+    typeof payload !== "object" ||
+    Array.isArray(payload)
   ) {
     return null;
   }
@@ -299,24 +500,46 @@ export function verifyAdminSupportImpersonationToken(
   const parsed =
     payload as Partial<AdminSupportImpersonationSession>;
 
+  const supportUserId =
+    cleanText(
+      parsed.supportUserId
+    );
+
+  const supportUsername =
+    cleanText(
+      parsed.supportUsername
+    );
+
+  const supportFullName =
+    cleanText(
+      parsed.supportFullName
+    );
+
+  const branchId =
+    cleanText(parsed.branchId);
+
+  const branchSlug =
+    cleanText(
+      parsed.branchSlug
+    ).toLowerCase();
+
+  const branchName =
+    cleanText(parsed.branchName);
+
   if (
     parsed.kind !==
       "admin_support_impersonation" ||
-    typeof parsed.supportUserId !==
-      "string" ||
-    typeof parsed.supportUsername !==
-      "string" ||
-    typeof parsed.supportFullName !==
-      "string" ||
-    typeof parsed.branchId !==
-      "string" ||
-    typeof parsed.branchSlug !==
-      "string" ||
-    typeof parsed.branchName !==
-      "string" ||
-    typeof parsed.issuedAt !==
-      "number" ||
-    !isNotExpired(parsed.expiresAt)
+    !supportUserId ||
+    !supportUsername ||
+    !supportFullName ||
+    !branchId ||
+    !branchSlug ||
+    !branchName ||
+    !hasValidSessionTimes(
+      parsed.issuedAt,
+      parsed.expiresAt,
+      IMPERSONATION_DURATION_SECONDS
+    )
   ) {
     return null;
   }
@@ -324,16 +547,14 @@ export function verifyAdminSupportImpersonationToken(
   return {
     kind:
       "admin_support_impersonation",
-    supportUserId:
-      parsed.supportUserId,
-    supportUsername:
-      parsed.supportUsername,
-    supportFullName:
-      parsed.supportFullName,
-    branchId: parsed.branchId,
-    branchSlug: parsed.branchSlug,
-    branchName: parsed.branchName,
-    issuedAt: parsed.issuedAt,
+    supportUserId,
+    supportUsername,
+    supportFullName,
+    branchId,
+    branchSlug,
+    branchName,
+    issuedAt:
+      parsed.issuedAt as number,
     expiresAt:
       parsed.expiresAt as number,
   };
@@ -343,32 +564,52 @@ export function hasAdminSupportPermission(
   session: AdminSupportSession,
   permission: string
 ) {
+  const cleanPermission =
+    cleanText(permission);
+
+  if (!cleanPermission) {
+    return false;
+  }
+
   return (
     session.role === "super_admin" ||
     session.permissions.includes(
-      permission
+      cleanPermission
     )
   );
 }
 
 export const adminSupportCookieOptions = {
   httpOnly: true,
+
   secure:
     process.env.NODE_ENV ===
     "production",
-  sameSite: "lax" as const,
+
+  sameSite: "strict" as const,
+
   path: "/",
-  maxAge: SESSION_DURATION_SECONDS,
+
+  maxAge:
+    SESSION_DURATION_SECONDS,
+
+  priority: "high" as const,
 };
 
 export const adminSupportImpersonationCookieOptions =
   {
     httpOnly: true,
+
     secure:
       process.env.NODE_ENV ===
       "production",
-    sameSite: "lax" as const,
+
+    sameSite: "strict" as const,
+
     path: "/finance",
+
     maxAge:
       IMPERSONATION_DURATION_SECONDS,
+
+    priority: "high" as const,
   };
