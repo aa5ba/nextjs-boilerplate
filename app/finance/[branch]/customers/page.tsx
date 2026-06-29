@@ -3046,16 +3046,15 @@ function formatVerificationAmount(
       amount
     )
   ) {
-    return "0 ر.س";
+    return "0 SAR";
   }
 
   return `${new Intl.NumberFormat(
-    "ar-SA",
+    "en-US",
     {
-      maximumFractionDigits:
-        2,
+      maximumFractionDigits: 2,
     }
-  ).format(amount)} ر.س`;
+  ).format(amount)} SAR`;
 }
 
 function formatVerificationDate(
@@ -4799,6 +4798,10 @@ const verificationContractFieldValue: CSSProperties = {
   fontWeight: 900,
 
   overflowWrap: "anywhere",
+
+  direction: "ltr",
+  unicodeBidi: "isolate",
+  textAlign: "right",
 
   fontFamily:
     "var(--font-almarai), sans-serif",
