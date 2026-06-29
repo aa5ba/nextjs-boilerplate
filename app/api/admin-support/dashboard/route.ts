@@ -19,13 +19,14 @@ const MANAGERS_PAGE_SIZE = 25;
 const SUPPORT_USERS_PAGE_SIZE = 25;
 const LOGS_PAGE_SIZE = 50;
 
+const MAX_PAGE_NUMBER = 1_000_000;
 const MAX_MANAGERS_PAGE_SIZE = 100;
 const MAX_SUPPORT_USERS_PAGE_SIZE = 100;
 const MAX_LOGS_PAGE_SIZE = 100;
 
 /*
- * يجب أن تتطابق هذه القيمة مع قيد role
- * داخل جدول finance_branch_users.
+ * يجب أن تتطابق هذه القيمة مع قيمة role الفعلية
+ * لمدير الفرع داخل جدول finance_branch_users.
  */
 const BRANCH_MANAGER_ROLE = "مدير فرع";
 
@@ -74,16 +75,18 @@ function createErrorResponse(
   status: number,
   clearCookie = false
 ): NextResponse {
-  const response = NextResponse.json(
-    {
-      ok: false,
-      message,
-    },
-    {
-      status,
-      headers: noStoreHeaders(),
-    }
-  );
+  const response =
+    NextResponse.json(
+      {
+        ok: false,
+        message,
+      },
+      {
+        status,
+        headers:
+          noStoreHeaders(),
+      }
+    );
 
   if (clearCookie) {
     response.cookies.set(
@@ -115,7 +118,8 @@ function parsePositiveInteger(
     return fallback;
   }
 
-  const parsed = Number(value);
+  const parsed =
+    Number(value);
 
   if (
     !Number.isSafeInteger(parsed) ||
@@ -135,13 +139,14 @@ function getFixedPagination(
   pageKey: string,
   pageSize: number
 ): PaginationInput {
-  const page = parsePositiveInteger(
-    request.nextUrl.searchParams.get(
-      pageKey
-    ),
-    1,
-    Number.MAX_SAFE_INTEGER
-  );
+  const page =
+    parsePositiveInteger(
+      request.nextUrl.searchParams.get(
+        pageKey
+      ),
+      1,
+      MAX_PAGE_NUMBER
+    );
 
   const from =
     (page - 1) * pageSize;
@@ -164,13 +169,14 @@ function getFlexiblePagination(
   defaultPageSize: number,
   maximumPageSize: number
 ): PaginationInput {
-  const page = parsePositiveInteger(
-    request.nextUrl.searchParams.get(
-      pageKey
-    ),
-    1,
-    Number.MAX_SAFE_INTEGER
-  );
+  const page =
+    parsePositiveInteger(
+      request.nextUrl.searchParams.get(
+        pageKey
+      ),
+      1,
+      MAX_PAGE_NUMBER
+    );
 
   const pageSize =
     parsePositiveInteger(
@@ -467,9 +473,6 @@ export async function GET(
               created_at
             `;
 
-      /*
-       * الفروع الحالية فقط.
-       */
       const branchesPromise =
         supabaseAdmin
           .from(
@@ -496,10 +499,6 @@ export async function GET(
             branchesPagination.to
           );
 
-      /*
-       * الفروع المحذوفة متاحة فقط لمن يملك
-       * صلاحية إدارة الفروع.
-       */
       const deletedBranchesPromise =
         canManageBranches
           ? supabaseAdmin
@@ -545,7 +544,8 @@ export async function GET(
           : null;
 
       /*
-       * لا تظهر حسابات مديري الفروع المحذوفة.
+       * استخدام !inner يضمن استبعاد مديري
+       * الفروع المحذوفة من النتائج والعدد.
        */
       const managersPromise =
         canManageBranches
@@ -915,14 +915,8 @@ export async function GET(
         requested_section:
           requestedSection,
 
-        /*
-         * الفروع الحالية فقط.
-         */
         branches,
 
-        /*
-         * الفروع المنقولة إلى قائمة المحذوفة.
-         */
         deleted_branches:
           deletedBranches,
 
@@ -1023,7 +1017,8 @@ export async function GET(
       },
       {
         status: 200,
-        headers: noStoreHeaders(),
+        headers:
+          noStoreHeaders(),
       }
     );
   } catch (error) {
@@ -1031,11 +1026,15 @@ export async function GET(
       "Admin support dashboard route error:",
       error instanceof Error
         ? {
-            name: error.name,
-            message: error.message,
+            name:
+              error.name,
+
+            message:
+              error.message,
           }
         : {
-            name: "UnknownError",
+            name:
+              "UnknownError",
           }
     );
 
