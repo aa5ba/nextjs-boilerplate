@@ -11,12 +11,19 @@ const SUPPORT_PERMISSIONS = [
   { key: "impersonate_branch", label: "الدخول للفروع" },
   { key: "view_logs", label: "عرض السجلات" },
   { key: "backup_restore", label: "النسخ والاستعادة" },
+  {
+    key: "manage_verification_results",
+    label: "إدارة نتائج التحقق",
+  },
 ] as const;
 
 const SUPPORT_ROLES = ["support", "viewer", "super_admin"] as const;
 
+const VERIFICATION_POSITIONS = ["نشط", "متأخر", "متعثر"] as const;
+
 type SupportPermission = (typeof SUPPORT_PERMISSIONS)[number]["key"];
 type SupportRole = (typeof SUPPORT_ROLES)[number];
+type VerificationPosition = (typeof VERIFICATION_POSITIONS)[number];
 
 type ScreenType = "mobile" | "tablet" | "desktop";
 
@@ -25,6 +32,7 @@ type TabType =
   | "branches"
   | "branch_managers"
   | "users"
+  | "verifications"
   | "logs";
 
 type CurrentUser = {
@@ -42,6 +50,7 @@ type DashboardAccess = {
   view_logs: boolean;
   system_settings: boolean;
   backup_restore: boolean;
+  manage_verification_results: boolean;
 };
 
 type Branch = {
@@ -95,6 +104,42 @@ type SupportLog = {
   created_at: string;
 };
 
+type VerificationContract = {
+  contract_id: string;
+  contract_number: string | null;
+
+  branch_id: string;
+  branch_name: string;
+  branch_slug: string;
+
+  customer_id: string;
+  customer_name: string;
+  national_id: string;
+  customer_phone: string;
+
+  debt_amount: number;
+  paid_amount: number;
+  remaining_amount: number;
+
+  payment_due_date: string | null;
+  contract_date: string | null;
+  contract_state: string;
+
+  automatic_position: VerificationPosition;
+  effective_position: VerificationPosition;
+
+  has_support_override: boolean;
+  override_position: VerificationPosition | null;
+  override_reason: string | null;
+  override_notes: string | null;
+  override_updated_at: string | null;
+
+  default_declared_at: string | null;
+  default_expires_at: string | null;
+  default_reason: string | null;
+  default_notes: string | null;
+};
+
 type DashboardResponse = {
   ok: boolean;
   message?: string;
@@ -118,11 +163,15 @@ type BusyAction =
   | "save_branch"
   | "logout"
   | "create_support_user"
+  | "verification_search"
   | `branch_status:${string}`
   | `branch_enter:${string}`
   | `manager_status:${string}`
   | `manager_password:${string}`
   | `support_status:${string}`
+  | `support_permissions:${string}`
+  | `verification_set:${string}`
+  | `verification_clear:${string}`
   | null;
 
 const EMPTY_ACCESS: DashboardAccess = {
@@ -132,12 +181,14 @@ const EMPTY_ACCESS: DashboardAccess = {
   view_logs: false,
   system_settings: false,
   backup_restore: false,
+  manage_verification_results: false,
 };
 
 export default function AdminSupportPage() {
   const router = useRouter();
 
   const [screen, setScreen] = useState<ScreenType>("desktop");
+
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [access, setAccess] = useState<DashboardAccess>(EMPTY_ACCESS);
 
@@ -147,6 +198,7 @@ export default function AdminSupportPage() {
   const [logs, setLogs] = useState<SupportLog[]>([]);
 
   const [activeTab, setActiveTab] = useState<TabType>("overview");
+
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState<BusyAction>("dashboard");
   const [pageError, setPageError] = useState("");
@@ -171,9 +223,35 @@ export default function AdminSupportPage() {
   const [supportUsername, setSupportUsername] = useState("");
   const [supportPassword, setSupportPassword] = useState("");
   const [supportRole, setSupportRole] = useState<SupportRole>("support");
+
   const [selectedPermissions, setSelectedPermissions] = useState<
     SupportPermission[]
   >([]);
+
+  const [editingPermissionsUserId, setEditingPermissionsUserId] = useState<
+    string | null
+  >(null);
+
+  const [editingPermissions, setEditingPermissions] = useState<
+    SupportPermission[]
+  >([]);
+
+  const [verificationSearchValue, setVerificationSearchValue] = useState("");
+  const [verificationResults, setVerificationResults] = useState<
+    VerificationContract[]
+  >([]);
+
+  const [verificationSearchPerformed, setVerificationSearchPerformed] =
+    useState(false);
+
+  const [editingVerificationContractId, setEditingVerificationContractId] =
+    useState<string | null>(null);
+
+  const [verificationPosition, setVerificationPosition] =
+    useState<VerificationPosition>("نشط");
+
+  const [verificationReason, setVerificationReason] = useState("");
+  const [verificationNotes, setVerificationNotes] = useState("");
 
   const isMobile = screen === "mobile";
   const isTablet = screen === "tablet";
@@ -308,16 +386,23 @@ export default function AdminSupportPage() {
         }
 
         setCurrentUser(payload.user);
-        setAccess(payload.access);
+        setAccess({
+          ...EMPTY_ACCESS,
+          ...payload.access,
+        });
+
         setBranches(Array.isArray(payload.branches) ? payload.branches : []);
+
         setBranchManagers(
           Array.isArray(payload.branch_managers)
             ? payload.branch_managers
             : []
         );
+
         setSupportUsers(
           Array.isArray(payload.support_users) ? payload.support_users : []
         );
+
         setLogs(Array.isArray(payload.logs) ? payload.logs : []);
       } catch (error) {
         console.error("Dashboard load failed:", error);
@@ -341,12 +426,30 @@ export default function AdminSupportPage() {
         (access.manage_branches || access.impersonate_branch)) ||
       (activeTab === "branch_managers" && access.manage_branches) ||
       (activeTab === "users" && access.manage_support_users) ||
+      (activeTab === "verifications" &&
+        access.manage_verification_results) ||
       (activeTab === "logs" && access.view_logs);
 
     if (!tabAllowed) {
       setActiveTab("overview");
     }
   }, [access, activeTab]);
+
+  function normalizeDigits(value: string) {
+    return value
+      .replace(/[٠-٩]/g, (digit) =>
+        String("٠١٢٣٤٥٦٧٨٩".indexOf(digit))
+      )
+      .replace(/[۰-۹]/g, (digit) =>
+        String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit))
+      );
+  }
+
+  function cleanNumericValue(value: string, maxLength = 30) {
+    return normalizeDigits(value)
+      .replace(/\D/g, "")
+      .slice(0, maxLength);
+  }
 
   function hasPermission(key: SupportPermission) {
     return (
@@ -380,8 +483,7 @@ export default function AdminSupportPage() {
   }
 
   function validateSupportPassword(value: string) {
-    const password = value.trim();
-    return password.length >= 4 && password.length <= 100;
+    return value.length >= 4 && value.length <= 100;
   }
 
   function showMessage(message?: string) {
@@ -476,7 +578,7 @@ export default function AdminSupportPage() {
 
       if (!validateUsername(cleanManagerUsername)) {
         showMessage(
-          "اسم مستخدم مدير الفرع يجب أن يكون من 3 إلى 30 حرفًا، ويقبل العربي أو الإنجليزي أو الأرقام أو _ فقط"
+          "اسم مستخدم مدير الفرع يجب أن يكون من 3 إلى 30 حرفًا"
         );
         return;
       }
@@ -527,6 +629,7 @@ export default function AdminSupportPage() {
     }
 
     resetBranchForm();
+
     showMessage(
       response.message ||
         (editingBranchId ? "تم تحديث الفرع" : "تم إنشاء الفرع")
@@ -544,6 +647,7 @@ export default function AdminSupportPage() {
     if (busyAction) return;
 
     const nextStatus = !branch.is_active;
+
     const confirmed = window.confirm(
       nextStatus
         ? `هل تريد تفعيل فرع ${branch.branch_name}؟`
@@ -591,6 +695,7 @@ export default function AdminSupportPage() {
     if (busyAction) return;
 
     const nextStatus = !manager.is_active;
+
     const confirmed = window.confirm(
       nextStatus
         ? `هل تريد تفعيل المدير ${manager.full_name}؟`
@@ -637,7 +742,7 @@ export default function AdminSupportPage() {
 
     if (newPassword === null) return;
 
-    const cleanPassword = newPassword.trim();
+    const cleanPassword = cleanNumericValue(newPassword, 4);
 
     if (!validatePin(cleanPassword)) {
       showMessage("كلمة المرور يجب أن تكون 4 أرقام فقط");
@@ -719,7 +824,6 @@ export default function AdminSupportPage() {
 
     const cleanFullName = supportFullName.trim();
     const cleanUsername = supportUsername.trim();
-    const cleanPassword = supportPassword.trim();
 
     if (!cleanFullName) {
       showMessage("اكتب الاسم");
@@ -738,15 +842,12 @@ export default function AdminSupportPage() {
       return;
     }
 
-    if (!validateSupportPassword(cleanPassword)) {
+    if (!validateSupportPassword(supportPassword)) {
       showMessage("كلمة المرور يجب أن تكون من 4 إلى 100 حرف");
       return;
     }
 
-    if (
-      supportRole === "super_admin" &&
-      currentUser?.role !== "super_admin"
-    ) {
+    if (supportRole === "super_admin" && currentUser?.role !== "super_admin") {
       showMessage("إنشاء مدير نظام متاح لمدير النظام فقط");
       return;
     }
@@ -758,7 +859,7 @@ export default function AdminSupportPage() {
       body: JSON.stringify({
         full_name: cleanFullName,
         username: cleanUsername,
-        password: cleanPassword,
+        password: supportPassword,
         role: supportRole,
         permissions: selectedPermissions,
       }),
@@ -785,6 +886,7 @@ export default function AdminSupportPage() {
     if (busyAction) return;
 
     const nextStatus = !user.is_active;
+
     const confirmed = window.confirm(
       nextStatus
         ? `هل تريد تفعيل المستخدم ${user.full_name}؟`
@@ -800,6 +902,7 @@ export default function AdminSupportPage() {
       {
         method: "PATCH",
         body: JSON.stringify({
+          action: "set_active",
           is_active: nextStatus,
         }),
       }
@@ -814,6 +917,278 @@ export default function AdminSupportPage() {
 
     showMessage(response.message);
     await loadDashboard();
+  }
+
+  function openPermissionsEditor(user: SupportUser) {
+    if (user.role === "super_admin") {
+      showMessage("مدير النظام يملك جميع الصلاحيات تلقائيًا");
+      return;
+    }
+
+    if (user.id === currentUser?.id) {
+      showMessage("لا يمكنك تعديل صلاحيات حسابك الحالي");
+      return;
+    }
+
+    const allowedPermissions = user.permissions.filter(
+      (permission): permission is SupportPermission =>
+        SUPPORT_PERMISSIONS.some((item) => item.key === permission)
+    );
+
+    setEditingPermissionsUserId(user.id);
+    setEditingPermissions(allowedPermissions);
+  }
+
+  function closePermissionsEditor() {
+    setEditingPermissionsUserId(null);
+    setEditingPermissions([]);
+  }
+
+  async function saveSupportUserPermissions(user: SupportUser) {
+    if (!access.manage_support_users) {
+      showMessage("لا تملك صلاحية إدارة مستخدمي الدعم");
+      return;
+    }
+
+    if (busyAction) return;
+
+    const confirmed = window.confirm(
+      `هل تريد حفظ صلاحيات المستخدم ${user.full_name}؟ ستنتهي جلسته الحالية إن كان مسجلًا.`
+    );
+
+    if (!confirmed) return;
+
+    setBusyAction(`support_permissions:${user.id}`);
+
+    const response = await apiRequest(
+      `/api/admin-support/support-users/${user.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          action: "update_permissions",
+          permissions: editingPermissions,
+        }),
+      }
+    );
+
+    setBusyAction(null);
+
+    if (!response.ok) {
+      showMessage(response.message);
+      return;
+    }
+
+    closePermissionsEditor();
+    showMessage(response.message || "تم تحديث الصلاحيات");
+    await loadDashboard();
+  }
+
+  function resetVerificationEditor() {
+    setEditingVerificationContractId(null);
+    setVerificationPosition("نشط");
+    setVerificationReason("");
+    setVerificationNotes("");
+  }
+
+  function openVerificationEditor(contract: VerificationContract) {
+    setEditingVerificationContractId(contract.contract_id);
+
+    setVerificationPosition(
+      contract.override_position || contract.effective_position || "نشط"
+    );
+
+    setVerificationReason("");
+    setVerificationNotes(contract.override_notes || "");
+
+    setTimeout(() => {
+      document
+        .getElementById(`verification-editor-${contract.contract_id}`)
+        ?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+    }, 50);
+  }
+
+  async function searchVerificationContracts() {
+    if (!access.manage_verification_results) {
+      showMessage("لا تملك صلاحية إدارة نتائج التحقق");
+      return;
+    }
+
+    if (busyAction) return;
+
+    const searchValue = cleanNumericValue(verificationSearchValue, 30);
+
+    if (!searchValue) {
+      showMessage("اكتب رقم الهوية أو رقم العقد");
+      return;
+    }
+
+    setVerificationSearchValue(searchValue);
+    setVerificationSearchPerformed(true);
+    setVerificationResults([]);
+    resetVerificationEditor();
+
+    setBusyAction("verification_search");
+
+    const response = await apiRequest<VerificationContract[]>(
+      "/api/admin-support/verifications/search",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          search_value: searchValue,
+        }),
+      }
+    );
+
+    setBusyAction(null);
+
+    if (!response.ok) {
+      showMessage(response.message);
+      return;
+    }
+
+    setVerificationResults(Array.isArray(response.data) ? response.data : []);
+  }
+
+  async function refreshVerificationSearch() {
+    const searchValue = cleanNumericValue(verificationSearchValue, 30);
+
+    if (!searchValue) return;
+
+    const response = await apiRequest<VerificationContract[]>(
+      "/api/admin-support/verifications/search",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          search_value: searchValue,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      showMessage(response.message);
+      return;
+    }
+
+    setVerificationResults(Array.isArray(response.data) ? response.data : []);
+  }
+
+  async function setVerificationOverride(contract: VerificationContract) {
+    if (!access.manage_verification_results) {
+      showMessage("لا تملك صلاحية إدارة نتائج التحقق");
+      return;
+    }
+
+    if (busyAction) return;
+
+    const reason = verificationReason.trim();
+    const notes = verificationNotes.trim();
+
+    if (reason.length < 3) {
+      showMessage("اكتب سبب التعديل، ويجب ألا يقل عن 3 أحرف");
+      return;
+    }
+
+    if (reason.length > 500) {
+      showMessage("سبب التعديل طويل جدًا");
+      return;
+    }
+
+    if (notes.length > 1000) {
+      showMessage("الملاحظات طويلة جدًا");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `هل تريد جعل نتيجة العقد رقم ${
+        contract.contract_number || "-"
+      } تظهر بحالة "${verificationPosition}"؟`
+    );
+
+    if (!confirmed) return;
+
+    setBusyAction(`verification_set:${contract.contract_id}`);
+
+    const response = await apiRequest(
+      `/api/admin-support/verifications/${contract.contract_id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          action: "set_override",
+          position: verificationPosition,
+          reason,
+          notes,
+        }),
+      }
+    );
+
+    setBusyAction(null);
+
+    if (!response.ok) {
+      showMessage(response.message);
+      return;
+    }
+
+    resetVerificationEditor();
+    showMessage(response.message);
+
+    await refreshVerificationSearch();
+  }
+
+  async function clearVerificationOverride(contract: VerificationContract) {
+    if (!access.manage_verification_results) {
+      showMessage("لا تملك صلاحية إدارة نتائج التحقق");
+      return;
+    }
+
+    if (busyAction) return;
+
+    const reason = verificationReason.trim();
+
+    if (reason.length < 3) {
+      showMessage("اكتب سبب العودة للوضع التلقائي");
+      return;
+    }
+
+    if (reason.length > 500) {
+      showMessage("سبب الإلغاء طويل جدًا");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `هل تريد إلغاء تدخل الدعم عن العقد رقم ${
+        contract.contract_number || "-"
+      } والعودة للحسبة التلقائية؟`
+    );
+
+    if (!confirmed) return;
+
+    setBusyAction(`verification_clear:${contract.contract_id}`);
+
+    const response = await apiRequest(
+      `/api/admin-support/verifications/${contract.contract_id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          action: "clear_override",
+          reason,
+        }),
+      }
+    );
+
+    setBusyAction(null);
+
+    if (!response.ok) {
+      showMessage(response.message);
+      return;
+    }
+
+    resetVerificationEditor();
+    showMessage(response.message);
+
+    await refreshVerificationSearch();
   }
 
   async function logout() {
@@ -847,6 +1222,7 @@ export default function AdminSupportPage() {
       branches: access.manage_branches || access.impersonate_branch,
       branchManagers: access.manage_branches,
       users: access.manage_support_users,
+      verifications: access.manage_verification_results,
       logs: access.view_logs,
     }),
     [access]
@@ -902,10 +1278,7 @@ export default function AdminSupportPage() {
 
             <button
               type="button"
-              style={getDisabledStyle(
-                logoutButton,
-                busyAction === "logout"
-              )}
+              style={getDisabledStyle(logoutButton, busyAction === "logout")}
               onClick={() => void logout()}
               disabled={busyAction !== null}
             >
@@ -1021,6 +1394,16 @@ export default function AdminSupportPage() {
                       onClick={() => setActiveTab("users")}
                     >
                       مستخدمو الدعم
+                    </button>
+                  )}
+
+                  {visibleTabs.verifications && (
+                    <button
+                      type="button"
+                      style={quickButton}
+                      onClick={() => setActiveTab("verifications")}
+                    >
+                      نتائج التحقق
                     </button>
                   )}
 
@@ -1148,7 +1531,7 @@ export default function AdminSupportPage() {
                         inputMode="numeric"
                         onChange={(event) =>
                           setBranchCommercialRecord(
-                            event.target.value.replace(/\D/g, "")
+                            cleanNumericValue(event.target.value, 30)
                           )
                         }
                         placeholder="مثال: 7049981769"
@@ -1165,7 +1548,10 @@ export default function AdminSupportPage() {
                         dir="ltr"
                         onChange={(event) =>
                           setBranchPhone(
-                            event.target.value.replace(/[^\d+]/g, "")
+                            normalizeDigits(event.target.value).replace(
+                              /[^\d+]/g,
+                              ""
+                            )
                           )
                         }
                         placeholder="05xxxxxxxx"
@@ -1222,7 +1608,7 @@ export default function AdminSupportPage() {
                             value={managerPassword}
                             onChange={(event) =>
                               setManagerPassword(
-                                event.target.value.replace(/\D/g, "").slice(0, 4)
+                                cleanNumericValue(event.target.value, 4)
                               )
                             }
                             placeholder="••••"
@@ -1297,9 +1683,7 @@ export default function AdminSupportPage() {
                             </div>
 
                             <div style={{ minWidth: 0 }}>
-                              <h3 style={branchTitle}>
-                                {branch.branch_name}
-                              </h3>
+                              <h3 style={branchTitle}>{branch.branch_name}</h3>
 
                               <p style={muted}>{branch.organization_name}</p>
                               <p style={muted}>
@@ -1367,8 +1751,7 @@ export default function AdminSupportPage() {
                                   onClick={() => void toggleBranch(branch)}
                                   disabled={busyAction !== null}
                                 >
-                                  {busyAction ===
-                                  `branch_status:${branch.id}`
+                                  {busyAction === `branch_status:${branch.id}`
                                     ? "جاري التنفيذ..."
                                     : branch.is_active
                                       ? "تعطيل"
@@ -1399,6 +1782,7 @@ export default function AdminSupportPage() {
                   ) : (
                     branchManagers.map((manager) => {
                       const branchInfo = getBranchRelation(manager);
+
                       const managerBusy =
                         busyAction === `manager_status:${manager.id}` ||
                         busyAction === `manager_password:${manager.id}`;
@@ -1453,13 +1837,10 @@ export default function AdminSupportPage() {
                                   : smallGreenButton,
                                 managerBusy
                               )}
-                              onClick={() =>
-                                void toggleBranchManager(manager)
-                              }
+                              onClick={() => void toggleBranchManager(manager)}
                               disabled={busyAction !== null}
                             >
-                              {busyAction ===
-                              `manager_status:${manager.id}`
+                              {busyAction === `manager_status:${manager.id}`
                                 ? "جاري التنفيذ..."
                                 : manager.is_active
                                   ? "تعطيل"
@@ -1572,10 +1953,7 @@ export default function AdminSupportPage() {
                             setSelectedPermissions((previous) =>
                               event.target.checked
                                 ? Array.from(
-                                    new Set([
-                                      ...previous,
-                                      permission.key,
-                                    ])
+                                    new Set([...previous, permission.key])
                                   )
                                 : previous.filter(
                                     (value) => value !== permission.key
@@ -1622,7 +2000,11 @@ export default function AdminSupportPage() {
                 ) : (
                   supportUsers.map((user) => {
                     const userBusy =
-                      busyAction === `support_status:${user.id}`;
+                      busyAction === `support_status:${user.id}` ||
+                      busyAction === `support_permissions:${user.id}`;
+
+                    const permissionsEditorOpen =
+                      editingPermissionsUserId === user.id;
 
                     return (
                       <article key={user.id} style={userCard}>
@@ -1639,7 +2021,9 @@ export default function AdminSupportPage() {
                         </span>
 
                         <div style={permissionsTags}>
-                          {user.permissions?.length ? (
+                          {user.role === "super_admin" ? (
+                            <span style={permissionTag}>جميع الصلاحيات</span>
+                          ) : user.permissions?.length ? (
                             user.permissions.map((permission) => (
                               <span key={permission} style={permissionTag}>
                                 {permissionLabel(permission)}
@@ -1652,37 +2036,445 @@ export default function AdminSupportPage() {
                           )}
                         </div>
 
-                        <button
-                          type="button"
-                          style={getDisabledStyle(
-                            user.is_active
-                              ? smallDangerButton
-                              : smallGreenButton,
-                            userBusy || user.id === currentUser?.id
-                          )}
-                          onClick={() => void toggleSupportUser(user)}
-                          disabled={
-                            busyAction !== null || user.id === currentUser?.id
-                          }
-                          title={
-                            user.id === currentUser?.id
-                              ? "لا يمكنك تعطيل حسابك الحالي"
-                              : undefined
-                          }
-                        >
-                          {userBusy
-                            ? "جاري التنفيذ..."
-                            : user.id === currentUser?.id
-                              ? "الحساب الحالي"
-                              : user.is_active
-                                ? "تعطيل"
-                                : "تفعيل"}
-                        </button>
+                        {permissionsEditorOpen && (
+                          <div style={permissionsEditorBox}>
+                            <strong>تعديل الصلاحيات</strong>
+
+                            <div style={permissionsBox}>
+                              {SUPPORT_PERMISSIONS.map((permission) => (
+                                <label
+                                  key={permission.key}
+                                  style={permissionItem}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={editingPermissions.includes(
+                                      permission.key
+                                    )}
+                                    disabled={busyAction !== null}
+                                    onChange={(event) => {
+                                      setEditingPermissions((previous) =>
+                                        event.target.checked
+                                          ? Array.from(
+                                              new Set([
+                                                ...previous,
+                                                permission.key,
+                                              ])
+                                            )
+                                          : previous.filter(
+                                              (value) =>
+                                                value !== permission.key
+                                            )
+                                      );
+                                    }}
+                                  />
+
+                                  {permission.label}
+                                </label>
+                              ))}
+                            </div>
+
+                            <div style={buttonsRow}>
+                              <button
+                                type="button"
+                                style={smallGreenButton}
+                                onClick={() =>
+                                  void saveSupportUserPermissions(user)
+                                }
+                                disabled={busyAction !== null}
+                              >
+                                {busyAction ===
+                                `support_permissions:${user.id}`
+                                  ? "جاري الحفظ..."
+                                  : "حفظ الصلاحيات"}
+                              </button>
+
+                              <button
+                                type="button"
+                                style={smallButton}
+                                onClick={closePermissionsEditor}
+                                disabled={busyAction !== null}
+                              >
+                                إلغاء
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        <div style={rowActions}>
+                          {user.role !== "super_admin" &&
+                            user.id !== currentUser?.id && (
+                              <button
+                                type="button"
+                                style={smallBlueButton}
+                                onClick={() =>
+                                  permissionsEditorOpen
+                                    ? closePermissionsEditor()
+                                    : openPermissionsEditor(user)
+                                }
+                                disabled={busyAction !== null}
+                              >
+                                {permissionsEditorOpen
+                                  ? "إغلاق الصلاحيات"
+                                  : "تعديل الصلاحيات"}
+                              </button>
+                            )}
+
+                          <button
+                            type="button"
+                            style={getDisabledStyle(
+                              user.is_active
+                                ? smallDangerButton
+                                : smallGreenButton,
+                              userBusy || user.id === currentUser?.id
+                            )}
+                            onClick={() => void toggleSupportUser(user)}
+                            disabled={
+                              busyAction !== null || user.id === currentUser?.id
+                            }
+                            title={
+                              user.id === currentUser?.id
+                                ? "لا يمكنك تعطيل حسابك الحالي"
+                                : undefined
+                            }
+                          >
+                            {busyAction === `support_status:${user.id}`
+                              ? "جاري التنفيذ..."
+                              : user.id === currentUser?.id
+                                ? "الحساب الحالي"
+                                : user.is_active
+                                  ? "تعطيل"
+                                  : "تفعيل"}
+                          </button>
+                        </div>
                       </article>
                     );
                   })
                 )}
               </section>
+            </>
+          )}
+
+          {activeTab === "verifications" && visibleTabs.verifications && (
+            <>
+              <div style={sectionTop}>
+                <h2 style={sectionTitle}>التحكم بنتائج التحقق</h2>
+              </div>
+
+              <section style={verificationSearchCard}>
+                <div style={verificationSearchGrid}>
+                  <Field label="رقم الهوية أو رقم العقد">
+                    <input
+                      style={input}
+                      value={verificationSearchValue}
+                      inputMode="numeric"
+                      maxLength={30}
+                      placeholder="اكتب رقم الهوية أو رقم العقد"
+                      onChange={(event) =>
+                        setVerificationSearchValue(
+                          cleanNumericValue(event.target.value, 30)
+                        )
+                      }
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          void searchVerificationContracts();
+                        }
+                      }}
+                      disabled={busyAction !== null}
+                    />
+                  </Field>
+
+                  <button
+                    type="button"
+                    style={getDisabledStyle(
+                      primaryButton,
+                      busyAction === "verification_search"
+                    )}
+                    onClick={() => void searchVerificationContracts()}
+                    disabled={busyAction !== null}
+                  >
+                    {busyAction === "verification_search"
+                      ? "جاري البحث..."
+                      : "بحث"}
+                  </button>
+                </div>
+              </section>
+
+              {!verificationSearchPerformed ? (
+                <div style={emptyBox}>
+                  لن تظهر أي عقود قبل إدخال رقم الهوية أو رقم العقد وتنفيذ
+                  البحث.
+                </div>
+              ) : verificationResults.length === 0 ? (
+                <div style={emptyBox}>لم يتم العثور على نتائج مطابقة</div>
+              ) : (
+                <section style={verificationResultsList}>
+                  {verificationResults.map((contract) => {
+                    const editorOpen =
+                      editingVerificationContractId === contract.contract_id;
+
+                    const contractBusy =
+                      busyAction ===
+                        `verification_set:${contract.contract_id}` ||
+                      busyAction ===
+                        `verification_clear:${contract.contract_id}`;
+
+                    return (
+                      <article
+                        key={contract.contract_id}
+                        style={verificationCard}
+                      >
+                        <div style={verificationCardTop}>
+                          <div>
+                            <h3 style={verificationTitle}>
+                              العقد رقم {contract.contract_number || "-"}
+                            </h3>
+
+                            <p style={muted}>
+                              {contract.customer_name} — الهوية:{" "}
+                              {contract.national_id || "-"}
+                            </p>
+
+                            <p style={muted}>
+                              الفرع: {contract.branch_name}
+                            </p>
+                          </div>
+
+                          <div style={verificationBadges}>
+                            <PositionBadge
+                              label={`التلقائي: ${contract.automatic_position}`}
+                              position={contract.automatic_position}
+                            />
+
+                            <PositionBadge
+                              label={`الظاهر: ${contract.effective_position}`}
+                              position={contract.effective_position}
+                              emphasized
+                            />
+
+                            <span
+                              style={
+                                contract.has_support_override
+                                  ? supportOverrideBadge
+                                  : automaticModeBadge
+                              }
+                            >
+                              {contract.has_support_override
+                                ? "تدخل دعم فعال"
+                                : "وضع تلقائي"}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div style={verificationInfoGrid}>
+                          <InfoItem
+                            label="مبلغ العقد"
+                            value={formatMoney(contract.debt_amount)}
+                          />
+
+                          <InfoItem
+                            label="المبلغ المدفوع"
+                            value={formatMoney(contract.paid_amount)}
+                          />
+
+                          <InfoItem
+                            label="المبلغ المتبقي"
+                            value={formatMoney(contract.remaining_amount)}
+                          />
+
+                          <InfoItem
+                            label="تاريخ العقد"
+                            value={formatDate(contract.contract_date)}
+                          />
+
+                          <InfoItem
+                            label="تاريخ الاستحقاق"
+                            value={formatDate(contract.payment_due_date)}
+                          />
+
+                          <InfoItem
+                            label="حالة العقد"
+                            value={contract.contract_state}
+                          />
+
+                          <InfoItem
+                            label="الجوال"
+                            value={contract.customer_phone || "-"}
+                          />
+                        </div>
+
+                        {contract.has_support_override && (
+                          <div style={overrideDetailsBox}>
+                            <strong>
+                              النتيجة المفروضة:{" "}
+                              {contract.override_position || "-"}
+                            </strong>
+
+                            <span>
+                              السبب: {contract.override_reason || "-"}
+                            </span>
+
+                            {contract.override_notes && (
+                              <span>
+                                الملاحظات: {contract.override_notes}
+                              </span>
+                            )}
+
+                            <small>
+                              آخر تحديث:{" "}
+                              {formatDateTime(
+                                contract.override_updated_at || ""
+                              )}
+                            </small>
+                          </div>
+                        )}
+
+                        {contract.default_declared_at && (
+                          <div style={defaultDetailsBox}>
+                            <strong>يوجد إعلان تعثر من الفرع</strong>
+
+                            <span>
+                              تاريخ الإعلان:{" "}
+                              {formatDateTime(contract.default_declared_at)}
+                            </span>
+
+                            <span>
+                              انتهاء التعثر:{" "}
+                              {formatDateTime(
+                                contract.default_expires_at || ""
+                              )}
+                            </span>
+
+                            {contract.default_reason && (
+                              <span>
+                                السبب: {contract.default_reason}
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        <div style={rowActions}>
+                          <button
+                            type="button"
+                            style={smallBlueButton}
+                            onClick={() =>
+                              editorOpen
+                                ? resetVerificationEditor()
+                                : openVerificationEditor(contract)
+                            }
+                            disabled={busyAction !== null}
+                          >
+                            {editorOpen ? "إغلاق التحكم" : "التحكم بالنتيجة"}
+                          </button>
+                        </div>
+
+                        {editorOpen && (
+                          <div
+                            id={`verification-editor-${contract.contract_id}`}
+                            style={verificationEditorBox}
+                          >
+                            <div style={formGrid}>
+                              <Field label="النتيجة التي ستظهر للفروع">
+                                <select
+                                  style={input}
+                                  value={verificationPosition}
+                                  onChange={(event) =>
+                                    setVerificationPosition(
+                                      event.target
+                                        .value as VerificationPosition
+                                    )
+                                  }
+                                  disabled={busyAction !== null}
+                                >
+                                  <option value="نشط">نشط</option>
+                                  <option value="متأخر">متأخر</option>
+                                  <option value="متعثر">متعثر</option>
+                                </select>
+                              </Field>
+
+                              <Field label="سبب التعديل *">
+                                <input
+                                  style={input}
+                                  value={verificationReason}
+                                  maxLength={500}
+                                  placeholder="سبب داخلي إلزامي"
+                                  onChange={(event) =>
+                                    setVerificationReason(event.target.value)
+                                  }
+                                  disabled={busyAction !== null}
+                                />
+                              </Field>
+                            </div>
+
+                            <div style={{ marginTop: 12 }}>
+                              <label style={label}>ملاحظات داخلية</label>
+
+                              <textarea
+                                style={textarea}
+                                value={verificationNotes}
+                                maxLength={1000}
+                                placeholder="ملاحظات اختيارية لا تظهر للفروع"
+                                onChange={(event) =>
+                                  setVerificationNotes(event.target.value)
+                                }
+                                disabled={busyAction !== null}
+                              />
+                            </div>
+
+                            <div style={buttonsRow}>
+                              <button
+                                type="button"
+                                style={getDisabledStyle(
+                                  smallGreenButton,
+                                  contractBusy
+                                )}
+                                onClick={() =>
+                                  void setVerificationOverride(contract)
+                                }
+                                disabled={busyAction !== null}
+                              >
+                                {busyAction ===
+                                `verification_set:${contract.contract_id}`
+                                  ? "جاري الحفظ..."
+                                  : `تعيين ${verificationPosition}`}
+                              </button>
+
+                              {contract.has_support_override && (
+                                <button
+                                  type="button"
+                                  style={getDisabledStyle(
+                                    smallDangerButton,
+                                    contractBusy
+                                  )}
+                                  onClick={() =>
+                                    void clearVerificationOverride(contract)
+                                  }
+                                  disabled={busyAction !== null}
+                                >
+                                  {busyAction ===
+                                  `verification_clear:${contract.contract_id}`
+                                    ? "جاري الإلغاء..."
+                                    : "العودة للوضع التلقائي"}
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                style={smallButton}
+                                onClick={resetVerificationEditor}
+                                disabled={busyAction !== null}
+                              >
+                                إلغاء
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </article>
+                    );
+                  })}
+                </section>
+              )}
             </>
           )}
 
@@ -1738,6 +2530,47 @@ function Field({
   );
 }
 
+function InfoItem({ label: itemLabel, value }: { label: string; value: string }) {
+  return (
+    <div style={verificationInfoItem}>
+      <span style={verificationInfoLabel}>{itemLabel}</span>
+      <strong style={verificationInfoValue}>{value}</strong>
+    </div>
+  );
+}
+
+function PositionBadge({
+  label: badgeLabel,
+  position,
+  emphasized = false,
+}: {
+  label: string;
+  position: VerificationPosition;
+  emphasized?: boolean;
+}) {
+  const base =
+    position === "متعثر"
+      ? defaultPositionBadge
+      : position === "متأخر"
+        ? overduePositionBadge
+        : activePositionBadge;
+
+  return (
+    <span
+      style={{
+        ...base,
+        ...(emphasized
+          ? {
+              boxShadow: "0 0 0 3px rgba(15,23,42,.08)",
+            }
+          : {}),
+      }}
+    >
+      {badgeLabel}
+    </span>
+  );
+}
+
 function BrandBox() {
   return (
     <div style={brandBox}>
@@ -1762,6 +2595,7 @@ function SideNav({
     branches: boolean;
     branchManagers: boolean;
     users: boolean;
+    verifications: boolean;
     logs: boolean;
   };
 }) {
@@ -1798,6 +2632,15 @@ function SideNav({
           onClick={() => setActiveTab("users")}
         >
           مستخدمو الدعم
+        </NavButton>
+      )}
+
+      {visibleTabs.verifications && (
+        <NavButton
+          active={activeTab === "verifications"}
+          onClick={() => setActiveTab("verifications")}
+        >
+          نتائج التحقق
         </NavButton>
       )}
 
@@ -1846,6 +2689,7 @@ function MobileNav({
     branches: boolean;
     branchManagers: boolean;
     users: boolean;
+    verifications: boolean;
     logs: boolean;
   };
   onLogout: () => void;
@@ -1898,6 +2742,20 @@ function MobileNav({
           onClick={() => setActiveTab("users")}
         >
           الدعم
+        </button>
+      )}
+
+      {visibleTabs.verifications && (
+        <button
+          type="button"
+          className={
+            activeTab === "verifications"
+              ? "mobile-tab active"
+              : "mobile-tab"
+          }
+          onClick={() => setActiveTab("verifications")}
+        >
+          التحقق
         </button>
       )}
 
@@ -1963,6 +2821,30 @@ function formatDateTime(date: string) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function formatDate(date: string | null) {
+  if (!date) return "-";
+
+  const parsedDate = new Date(date);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return date;
+  }
+
+  return parsedDate.toLocaleDateString("ar-SA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
+function formatMoney(value: number) {
+  const safeValue = Number.isFinite(value) ? value : 0;
+
+  return `${safeValue.toLocaleString("ar-SA", {
+    maximumFractionDigits: 2,
+  })} ر.س`;
 }
 
 function getDisabledStyle(
@@ -2044,14 +2926,14 @@ function GlobalResponsiveStyles() {
         margin: 0;
         overflow-x: hidden;
       }
-      
-@keyframes support-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
 
-button,
+      @keyframes support-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      button,
       input,
       textarea,
       select {
@@ -2748,6 +3630,14 @@ const permissionTag: CSSProperties = {
   fontWeight: 800,
 };
 
+const permissionsEditorBox: CSSProperties = {
+  marginTop: 8,
+  border: "1px solid #bfdbfe",
+  background: "#eff6ff",
+  borderRadius: 16,
+  padding: 12,
+};
+
 const emptyBox: CSSProperties = {
   background: "#f8fafc",
   border: "1px dashed #cbd5e1",
@@ -2780,4 +3670,155 @@ const logMeta: CSSProperties = {
   display: "grid",
   gap: 4,
   color: "#64748b",
+};
+
+const verificationSearchCard: CSSProperties = {
+  background: "white",
+  border: "1px solid #dbe4f0",
+  borderRadius: 22,
+  padding: 16,
+  marginBottom: 14,
+  boxShadow: "0 8px 18px rgba(15,23,42,.04)",
+};
+
+const verificationSearchGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(220px,1fr) auto",
+  alignItems: "end",
+  gap: 10,
+};
+
+const verificationResultsList: CSSProperties = {
+  display: "grid",
+  gap: 14,
+};
+
+const verificationCard: CSSProperties = {
+  background: "white",
+  border: "1px solid #e2e8f0",
+  borderRadius: 22,
+  padding: 16,
+  boxShadow: "0 8px 18px rgba(15,23,42,.04)",
+};
+
+const verificationCardTop: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  flexWrap: "wrap",
+};
+
+const verificationTitle: CSSProperties = {
+  margin: 0,
+  fontFamily: "var(--font-almarai), sans-serif",
+};
+
+const verificationBadges: CSSProperties = {
+  display: "flex",
+  alignItems: "flex-start",
+  gap: 7,
+  flexWrap: "wrap",
+};
+
+const activePositionBadge: CSSProperties = {
+  display: "inline-block",
+  background: "#dcfce7",
+  color: "#166534",
+  borderRadius: 999,
+  padding: "7px 10px",
+  fontWeight: 900,
+};
+
+const overduePositionBadge: CSSProperties = {
+  display: "inline-block",
+  background: "#fef3c7",
+  color: "#92400e",
+  borderRadius: 999,
+  padding: "7px 10px",
+  fontWeight: 900,
+};
+
+const defaultPositionBadge: CSSProperties = {
+  display: "inline-block",
+  background: "#fee2e2",
+  color: "#991b1b",
+  borderRadius: 999,
+  padding: "7px 10px",
+  fontWeight: 900,
+};
+
+const supportOverrideBadge: CSSProperties = {
+  display: "inline-block",
+  background: "#ede9fe",
+  color: "#5b21b6",
+  borderRadius: 999,
+  padding: "7px 10px",
+  fontWeight: 900,
+};
+
+const automaticModeBadge: CSSProperties = {
+  display: "inline-block",
+  background: "#f1f5f9",
+  color: "#475569",
+  borderRadius: 999,
+  padding: "7px 10px",
+  fontWeight: 900,
+};
+
+const verificationInfoGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))",
+  gap: 10,
+  marginTop: 14,
+  marginBottom: 14,
+};
+
+const verificationInfoItem: CSSProperties = {
+  background: "#f8fafc",
+  border: "1px solid #e2e8f0",
+  borderRadius: 14,
+  padding: 11,
+  display: "grid",
+  gap: 5,
+};
+
+const verificationInfoLabel: CSSProperties = {
+  color: "#64748b",
+  fontSize: 12,
+  fontWeight: 800,
+};
+
+const verificationInfoValue: CSSProperties = {
+  color: "#0f172a",
+  wordBreak: "break-word",
+};
+
+const overrideDetailsBox: CSSProperties = {
+  display: "grid",
+  gap: 7,
+  padding: 12,
+  marginBottom: 12,
+  borderRadius: 15,
+  background: "#f5f3ff",
+  border: "1px solid #ddd6fe",
+  color: "#4c1d95",
+};
+
+const defaultDetailsBox: CSSProperties = {
+  display: "grid",
+  gap: 7,
+  padding: 12,
+  marginBottom: 12,
+  borderRadius: 15,
+  background: "#fff7ed",
+  border: "1px solid #fed7aa",
+  color: "#9a3412",
+};
+
+const verificationEditorBox: CSSProperties = {
+  marginTop: 14,
+  background: "#f8fafc",
+  border: "1px solid #bfdbfe",
+  borderRadius: 18,
+  padding: 14,
 };
