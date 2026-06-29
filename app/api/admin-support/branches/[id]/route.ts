@@ -15,6 +15,7 @@ type RouteContext = {
 };
 
 type UpdateBranchBody = {
+  action?: unknown;
   branch_name?: unknown;
   branch_slug?: unknown;
   organization_name?: unknown;
@@ -34,9 +35,14 @@ type UpdateBranchResult = {
   is_active: boolean;
 };
 
-type DeleteBranchResult = {
-  deleted_branch_id: string;
-  deleted_branch_name: string;
+type ArchiveBranchResult = {
+  archived_branch_id: string;
+  archived_branch_name: string;
+};
+
+type RestoreBranchResult = {
+  restored_branch_id: string;
+  restored_branch_name: string;
 };
 
 type MappedError = {
@@ -46,6 +52,11 @@ type MappedError = {
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const BRANCH_SLUG_PATTERN =
+  /^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$/;
+
+const MAX_REQUEST_BODY_BYTES = 16_384;
 
 function noStoreHeaders(): Record<string, string> {
   return {
@@ -104,10 +115,19 @@ function isValidUuid(value: string): boolean {
 function isPlainObject(
   value: unknown
 ): value is Record<string, unknown> {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value)
+  ) {
+    return false;
+  }
+
+  const prototype = Object.getPrototypeOf(value);
+
   return (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value)
+    prototype === Object.prototype ||
+    prototype === null
   );
 }
 
@@ -133,7 +153,8 @@ function createErrorResponse(
       "",
       {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        secure:
+          process.env.NODE_ENV === "production",
         sameSite: "strict",
         path: "/",
         maxAge: 0,
@@ -150,16 +171,34 @@ async function readJsonBody(
   request: Request
 ): Promise<Record<string, unknown> | null> {
   const contentType =
-    request.headers.get("content-type")?.toLowerCase() ?? "";
+    request.headers
+      .get("content-type")
+      ?.toLowerCase() ?? "";
 
-  if (!contentType.startsWith("application/json")) {
+  if (
+    !contentType.startsWith(
+      "application/json"
+    )
+  ) {
     return null;
   }
 
   try {
-    const parsed: unknown = await request.json();
+    const rawBody = await request.text();
 
-    return isPlainObject(parsed) ? parsed : null;
+    if (
+      Buffer.byteLength(rawBody, "utf8") >
+      MAX_REQUEST_BODY_BYTES
+    ) {
+      return null;
+    }
+
+    const parsed: unknown =
+      JSON.parse(rawBody);
+
+    return isPlainObject(parsed)
+      ? parsed
+      : null;
   } catch {
     return null;
   }
@@ -179,9 +218,27 @@ function getSupabaseErrorText(error: {
   ]
     .filter(
       (value): value is string =>
-        typeof value === "string" && value.length > 0
+        typeof value === "string" &&
+        value.length > 0
     )
     .join(" ");
+}
+
+function logSupabaseError(
+  label: string,
+  error: {
+    code?: string | null;
+    message?: string | null;
+    details?: string | null;
+    hint?: string | null;
+  }
+): void {
+  console.error(label, {
+    code: error.code,
+    message: error.message,
+    details: error.details,
+    hint: error.hint,
+  });
 }
 
 function mapUpdateBranchError(
@@ -198,6 +255,14 @@ function mapUpdateBranchError(
     return {
       message: "الفرع غير موجود",
       status: 404,
+    };
+  }
+
+  if (message.includes("BRANCH_ALREADY_ARCHIVED")) {
+    return {
+      message:
+        "الفرع موجود في قائمة المحذوفة، استعده أولًا قبل تعديله",
+      status: 409,
     };
   }
 
@@ -237,7 +302,11 @@ function mapUpdateBranchError(
     };
   }
 
-  if (message.includes("COMMERCIAL_RECORD_TOO_LONG")) {
+  if (
+    message.includes(
+      "COMMERCIAL_RECORD_TOO_LONG"
+    )
+  ) {
     return {
       message: "رقم السجل التجاري طويل جدًا",
       status: 400,
@@ -258,14 +327,22 @@ function mapUpdateBranchError(
     };
   }
 
-  if (message.includes("BRANCH_SLUG_ALREADY_EXISTS")) {
+  if (
+    message.includes(
+      "BRANCH_SLUG_ALREADY_EXISTS"
+    )
+  ) {
     return {
       message: "رابط الفرع مستخدم مسبقًا",
       status: 409,
     };
   }
 
-  if (message.includes("BRANCH_NAME_ALREADY_EXISTS")) {
+  if (
+    message.includes(
+      "BRANCH_NAME_ALREADY_EXISTS"
+    )
+  ) {
     return {
       message: "اسم الفرع موجود مسبقًا",
       status: 409,
@@ -277,21 +354,24 @@ function mapUpdateBranchError(
     message.includes("23505")
   ) {
     return {
-      message: "يوجد فرع آخر يستخدم البيانات نفسها",
+      message:
+        "يوجد فرع آخر يستخدم البيانات نفسها",
       status: 409,
     };
   }
 
   if (message.includes("23514")) {
     return {
-      message: "إحدى القيم لا تتوافق مع إعدادات النظام",
+      message:
+        "إحدى القيم لا تتوافق مع إعدادات النظام",
       status: 400,
     };
   }
 
   if (message.includes("23503")) {
     return {
-      message: "تعذر ربط بيانات الفرع بالسجلات المطلوبة",
+      message:
+        "تعذر ربط بيانات الفرع بالسجلات المطلوبة",
       status: 400,
     };
   }
@@ -302,24 +382,7 @@ function mapUpdateBranchError(
   };
 }
 
-function extractCount(
-  message: string,
-  errorCode: string
-): number | null {
-  const match = message.match(
-    new RegExp(`${errorCode}:(\\d+)`)
-  );
-
-  if (!match) {
-    return null;
-  }
-
-  const count = Number(match[1]);
-
-  return Number.isFinite(count) ? count : null;
-}
-
-function mapDeleteBranchError(
+function mapArchiveBranchError(
   message: string
 ): MappedError {
   if (message.includes("BRANCH_ID_REQUIRED")) {
@@ -331,8 +394,20 @@ function mapDeleteBranchError(
 
   if (message.includes("BRANCH_NOT_FOUND")) {
     return {
-      message: "الفرع غير موجود أو تم حذفه مسبقًا",
+      message: "الفرع غير موجود",
       status: 404,
+    };
+  }
+
+  if (
+    message.includes(
+      "BRANCH_ALREADY_ARCHIVED"
+    )
+  ) {
+    return {
+      message:
+        "الفرع موجود بالفعل في قائمة الفروع المحذوفة",
+      status: 409,
     };
   }
 
@@ -342,7 +417,8 @@ function mapDeleteBranchError(
     )
   ) {
     return {
-      message: "اكتب اسم الفرع لتأكيد الحذف النهائي",
+      message:
+        "اكتب اسم الفرع لتأكيد نقله إلى المحذوفة",
       status: 400,
     };
   }
@@ -354,104 +430,133 @@ function mapDeleteBranchError(
   ) {
     return {
       message:
-        "اسم الفرع المكتوب لا يطابق اسم الفرع المراد حذفه",
+        "اسم الفرع المكتوب لا يطابق اسم الفرع المراد نقله إلى المحذوفة",
       status: 400,
     };
   }
 
-  const protectedTables: Array<{
-    code: string;
-    label: string;
-  }> = [
-    {
-      code: "BRANCH_HAS_CUSTOMERS",
-      label: "عملاء",
-    },
-    {
-      code: "BRANCH_HAS_CONTRACTS",
-      label: "عقود",
-    },
-    {
-      code: "BRANCH_HAS_PAYMENTS",
-      label: "دفعات",
-    },
-    {
-      code: "BRANCH_HAS_PROMISSORY_NOTES",
-      label: "سندات لأمر",
-    },
-    {
-      code: "BRANCH_HAS_PROMISSORY_NOTE_LOGS",
-      label: "سجلات تعديلات السندات",
-    },
-    {
-      code: "BRANCH_HAS_INSTALLMENTS",
-      label: "أقساط",
-    },
-    {
-      code: "BRANCH_HAS_CUSTOMER_GROUPS",
-      label: "مجموعات عملاء",
-    },
-    {
-      code: "BRANCH_HAS_BLOCKLIST_RECORDS",
-      label: "سجلات حظر عملاء",
-    },
-    {
-      code: "BRANCH_HAS_EXPENSE_INVOICES",
-      label: "فواتير مصروفات",
-    },
-    {
-      code: "BRANCH_HAS_PRODUCTS",
-      label: "منتجات",
-    },
-    {
-      code: "BRANCH_HAS_INVENTORY",
-      label: "مخزون",
-    },
-    {
-      code: "BRANCH_HAS_INVENTORY_MOVEMENTS",
-      label: "حركات مخزون",
-    },
-    {
-      code: "BRANCH_HAS_NOTES",
-      label: "ملاحظات",
-    },
-  ];
-
-  for (const item of protectedTables) {
-    if (message.includes(item.code)) {
-      const count = extractCount(message, item.code);
-
-      return {
-        message:
-          count !== null
-            ? `لا يمكن حذف الفرع لوجود ${item.label} مرتبطة به وعددها ${count}`
-            : `لا يمكن حذف الفرع لوجود ${item.label} مرتبطة به`,
-        status: 409,
-      };
-    }
-  }
-
-  if (message.includes("BRANCH_DELETE_FAILED")) {
-    return {
-      message: "تعذر حذف الفرع",
-      status: 500,
-    };
-  }
-
   if (
-    message.includes("foreign key constraint") ||
-    message.includes("23503")
+    message.includes("23503") ||
+    message.includes(
+      "foreign key constraint"
+    )
   ) {
     return {
       message:
-        "لا يمكن حذف الفرع لوجود بيانات مرتبطة به لم تُحذف بعد",
+        "تعذر نقل الفرع إلى المحذوفة بسبب بيانات مرتبطة",
       status: 409,
     };
   }
 
   return {
-    message: "تعذر حذف الفرع",
+    message:
+      "تعذر نقل الفرع إلى قائمة المحذوفة",
     status: 500,
+  };
+}
+
+function mapRestoreBranchError(
+  message: string
+): MappedError {
+  if (message.includes("BRANCH_ID_REQUIRED")) {
+    return {
+      message: "معرّف الفرع غير موجود",
+      status: 400,
+    };
+  }
+
+  if (message.includes("BRANCH_NOT_FOUND")) {
+    return {
+      message: "الفرع غير موجود",
+      status: 404,
+    };
+  }
+
+  if (
+    message.includes(
+      "BRANCH_NOT_ARCHIVED"
+    )
+  ) {
+    return {
+      message:
+        "الفرع غير موجود في قائمة الفروع المحذوفة",
+      status: 409,
+    };
+  }
+
+  if (
+    message.includes("duplicate key") ||
+    message.includes("23505")
+  ) {
+    return {
+      message:
+        "تعذر استعادة الفرع لأن اسمه أو رابطه مستخدم في فرع آخر",
+      status: 409,
+    };
+  }
+
+  return {
+    message:
+      "تعذر استعادة الفرع",
+    status: 500,
+  };
+}
+
+async function ensureBranchNotDeleted(
+  branchId: string
+): Promise<
+  | {
+      ok: true;
+    }
+  | {
+      ok: false;
+      response: NextResponse;
+    }
+> {
+  const { data, error } =
+    await supabaseAdmin
+      .from("finance_branches")
+      .select("id, is_deleted")
+      .eq("id", branchId)
+      .maybeSingle();
+
+  if (error) {
+    logSupabaseError(
+      "Branch state check failed:",
+      error
+    );
+
+    return {
+      ok: false,
+      response: createErrorResponse(
+        "تعذر التحقق من حالة الفرع",
+        500
+      ),
+    };
+  }
+
+  if (!data) {
+    return {
+      ok: false,
+      response: createErrorResponse(
+        "الفرع غير موجود",
+        404
+      ),
+    };
+  }
+
+  if (data.is_deleted === true) {
+    return {
+      ok: false,
+      response: createErrorResponse(
+        "الفرع موجود في قائمة المحذوفة، استعده أولًا قبل تعديله",
+        409
+      ),
+    };
+  }
+
+  return {
+    ok: true,
   };
 }
 
@@ -460,9 +565,10 @@ export async function PATCH(
   context: RouteContext
 ): Promise<NextResponse> {
   try {
-    const auth = await verifyAdminSupportRequest(
-      "manage_branches"
-    );
+    const auth =
+      await verifyAdminSupportRequest(
+        "manage_branches"
+      );
 
     if (!auth.ok) {
       return createErrorResponse(
@@ -472,17 +578,24 @@ export async function PATCH(
       );
     }
 
-    const { id } = await context.params;
-    const branchId = cleanText(id);
+    const { id } =
+      await context.params;
 
-    if (!branchId || !isValidUuid(branchId)) {
+    const branchId =
+      cleanText(id);
+
+    if (
+      !branchId ||
+      !isValidUuid(branchId)
+    ) {
       return createErrorResponse(
         "معرّف الفرع غير صحيح",
         400
       );
     }
 
-    const rawBody = await readJsonBody(request);
+    const rawBody =
+      await readJsonBody(request);
 
     if (!rawBody) {
       return createErrorResponse(
@@ -491,28 +604,161 @@ export async function PATCH(
       );
     }
 
-    const body = rawBody as UpdateBranchBody;
+    const body =
+      rawBody as UpdateBranchBody;
 
-    const branchName = cleanText(body.branch_name);
+    const action =
+      cleanText(
+        body.action
+      ).toLowerCase();
 
-    const branchSlug = cleanText(
-      body.branch_slug
-    ).toLowerCase();
+    if (action === "restore") {
+      const { data, error } =
+        await supabaseAdmin.rpc(
+          "restore_admin_branch_atomic",
+          {
+            p_branch_id:
+              branchId,
 
-    const organizationName = cleanText(
-      body.organization_name
-    );
+            p_actor_user_id:
+              auth.user.id,
 
-    const city = cleanText(body.city);
+            p_actor_user_name:
+              auth.user.fullName,
+          }
+        );
 
-    const commercialRecord = cleanNumericText(
-      body.commercial_record,
-      30
-    );
+      if (error) {
+        const errorText =
+          getSupabaseErrorText(
+            error
+          );
 
-    const phone = normalizePhone(body.phone);
+        logSupabaseError(
+          "restore_admin_branch_atomic failed:",
+          error
+        );
 
-    const notes = cleanText(body.notes);
+        const mappedError =
+          mapRestoreBranchError(
+            errorText
+          );
+
+        return createErrorResponse(
+          mappedError.message,
+          mappedError.status
+        );
+      }
+
+      const rawResult =
+        Array.isArray(data)
+          ? data[0]
+          : data;
+
+      const result =
+        isPlainObject(
+          rawResult
+        )
+          ? (rawResult as RestoreBranchResult)
+          : null;
+
+      if (
+        !result ||
+        !isValidUuid(
+          result.restored_branch_id
+        ) ||
+        !cleanText(
+          result.restored_branch_name
+        )
+      ) {
+        console.error(
+          "restore_admin_branch_atomic returned invalid data:",
+          data
+        );
+
+        return createErrorResponse(
+          "تم تنفيذ الاستعادة لكن تعذر قراءة نتيجتها",
+          500
+        );
+      }
+
+      return NextResponse.json(
+        {
+          ok: true,
+
+          message:
+            `تمت استعادة فرع ${result.restored_branch_name} بنجاح`,
+
+          data: {
+            restored_branch_id:
+              result.restored_branch_id,
+
+            restored_branch_name:
+              result.restored_branch_name,
+          },
+        },
+        {
+          status: 200,
+          headers:
+            noStoreHeaders(),
+        }
+      );
+    }
+
+    if (
+      action &&
+      action !== "update"
+    ) {
+      return createErrorResponse(
+        "نوع العملية غير مدعوم",
+        400
+      );
+    }
+
+    const branchState =
+      await ensureBranchNotDeleted(
+        branchId
+      );
+
+    if (!branchState.ok) {
+      return branchState.response;
+    }
+
+    const branchName =
+      cleanText(
+        body.branch_name
+      );
+
+    const branchSlug =
+      cleanText(
+        body.branch_slug
+      ).toLowerCase();
+
+    const organizationName =
+      cleanText(
+        body.organization_name
+      );
+
+    const city =
+      cleanText(
+        body.city
+      );
+
+    const commercialRecord =
+      cleanNumericText(
+        body.commercial_record,
+        30
+      );
+
+    const phone =
+      normalizePhone(
+        body.phone
+      );
+
+    const notes =
+      cleanText(
+        body.notes
+      );
 
     if (
       branchName.length < 2 ||
@@ -525,7 +771,7 @@ export async function PATCH(
     }
 
     if (
-      !/^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$/.test(
+      !BRANCH_SLUG_PATTERN.test(
         branchSlug
       )
     ) {
@@ -545,74 +791,107 @@ export async function PATCH(
       );
     }
 
-    if (city.length > 100) {
+    if (
+      city.length > 100
+    ) {
       return createErrorResponse(
         "اسم المدينة طويل جدًا",
         400
       );
     }
 
-    if (commercialRecord.length > 30) {
+    if (
+      commercialRecord.length > 30
+    ) {
       return createErrorResponse(
         "رقم السجل التجاري طويل جدًا",
         400
       );
     }
 
-    if (phone.length > 20) {
+    if (
+      phone.length > 20
+    ) {
       return createErrorResponse(
         "رقم الجوال طويل جدًا",
         400
       );
     }
 
-    if (notes.length > 1000) {
+    if (
+      notes.length > 1000
+    ) {
       return createErrorResponse(
         "الملاحظات طويلة جدًا",
         400
       );
     }
 
-    if (typeof body.is_active !== "boolean") {
+    if (
+      typeof body.is_active !==
+      "boolean"
+    ) {
       return createErrorResponse(
         "حالة الفرع غير صحيحة",
         400
       );
     }
 
-    const { data, error } = await supabaseAdmin.rpc(
-      "update_admin_branch_atomic",
-      {
-        p_branch_id: branchId,
-        p_branch_name: branchName,
-        p_branch_slug: branchSlug,
-        p_organization_name: organizationName,
-        p_city: city || null,
-        p_commercial_record:
-          commercialRecord || null,
-        p_phone: phone || null,
-        p_notes: notes || null,
-        p_is_active: body.is_active,
-        p_actor_user_id: auth.user.id,
-        p_actor_user_name: auth.user.fullName,
-      }
-    );
-
-    if (error) {
-      const errorText = getSupabaseErrorText(error);
-
-      console.error(
-        "update_admin_branch_atomic failed:",
+    const { data, error } =
+      await supabaseAdmin.rpc(
+        "update_admin_branch_atomic",
         {
-          code: error.code,
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
+          p_branch_id:
+            branchId,
+
+          p_branch_name:
+            branchName,
+
+          p_branch_slug:
+            branchSlug,
+
+          p_organization_name:
+            organizationName,
+
+          p_city:
+            city || null,
+
+          p_commercial_record:
+            commercialRecord ||
+            null,
+
+          p_phone:
+            phone || null,
+
+          p_notes:
+            notes || null,
+
+          p_is_active:
+            body.is_active,
+
+          p_actor_user_id:
+            auth.user.id,
+
+          p_actor_user_name:
+            auth.user.fullName,
         }
       );
 
+    if (error) {
+      const errorText =
+        getSupabaseErrorText(
+          error
+        );
+
+      logSupabaseError(
+        "update_admin_branch_atomic failed:",
+        error
+      );
+
       const mappedError =
-        mapUpdateBranchError(errorText);
+        mapUpdateBranchError(
+          errorText
+        );
 
       return createErrorResponse(
         mappedError.message,
@@ -620,19 +899,25 @@ export async function PATCH(
       );
     }
 
-    const rawResult = Array.isArray(data)
-      ? data[0]
-      : data;
+    const rawResult =
+      Array.isArray(data)
+        ? data[0]
+        : data;
 
     const result =
-      isPlainObject(rawResult)
+      isPlainObject(
+        rawResult
+      )
         ? (rawResult as UpdateBranchResult)
         : null;
 
     if (
       !result ||
-      !isValidUuid(result.branch_id) ||
-      typeof result.is_active !== "boolean"
+      !isValidUuid(
+        result.branch_id
+      ) ||
+      typeof result.is_active !==
+        "boolean"
     ) {
       console.error(
         "update_admin_branch_atomic returned invalid data:",
@@ -645,37 +930,47 @@ export async function PATCH(
       );
     }
 
-    const statusMessage = result.is_active
-      ? "تم تفعيل الفرع بنجاح"
-      : "تم تعطيل الفرع بنجاح";
+    const statusMessage =
+      result.is_active
+        ? "تم تفعيل الفرع بنجاح"
+        : "تم تعطيل الفرع بنجاح";
 
     return NextResponse.json(
       {
         ok: true,
-        message: statusMessage,
+
+        message:
+          statusMessage,
+
         data: {
-          branch_id: result.branch_id,
-          is_active: result.is_active,
+          branch_id:
+            result.branch_id,
+
+          is_active:
+            result.is_active,
         },
       },
       {
         status: 200,
-        headers: noStoreHeaders(),
+        headers:
+          noStoreHeaders(),
       }
     );
   } catch (error) {
     console.error(
-      "Admin support branch update route error:",
+      "Admin support branch PATCH route error:",
       error instanceof Error
         ? {
             name: error.name,
             message: error.message,
           }
-        : error
+        : {
+            name: "UnknownError",
+          }
     );
 
     return createErrorResponse(
-      "حدث خطأ غير متوقع أثناء تحديث الفرع",
+      "حدث خطأ غير متوقع أثناء تنفيذ عملية الفرع",
       500
     );
   }
@@ -686,9 +981,10 @@ export async function DELETE(
   context: RouteContext
 ): Promise<NextResponse> {
   try {
-    const auth = await verifyAdminSupportRequest(
-      "manage_branches"
-    );
+    const auth =
+      await verifyAdminSupportRequest(
+        "manage_branches"
+      );
 
     if (!auth.ok) {
       return createErrorResponse(
@@ -698,70 +994,90 @@ export async function DELETE(
       );
     }
 
-    const { id } = await context.params;
-    const branchId = cleanText(id);
+    const { id } =
+      await context.params;
 
-    if (!branchId || !isValidUuid(branchId)) {
+    const branchId =
+      cleanText(id);
+
+    if (
+      !branchId ||
+      !isValidUuid(branchId)
+    ) {
       return createErrorResponse(
         "معرّف الفرع غير صحيح",
         400
       );
     }
 
-    const rawBody = await readJsonBody(request);
+    const rawBody =
+      await readJsonBody(request);
 
     if (!rawBody) {
       return createErrorResponse(
-        "بيانات طلب الحذف غير صحيحة",
+        "بيانات طلب النقل إلى المحذوفة غير صحيحة",
         400
       );
     }
 
-    const body = rawBody as DeleteBranchBody;
+    const body =
+      rawBody as DeleteBranchBody;
 
-    const confirmBranchName = cleanText(
-      body.confirm_branch_name
-    );
+    const confirmBranchName =
+      cleanText(
+        body.confirm_branch_name
+      );
 
     if (!confirmBranchName) {
       return createErrorResponse(
-        "اكتب اسم الفرع لتأكيد الحذف النهائي",
+        "اكتب اسم الفرع لتأكيد نقله إلى المحذوفة",
         400
       );
     }
 
-    if (confirmBranchName.length > 100) {
+    if (
+      confirmBranchName.length >
+      100
+    ) {
       return createErrorResponse(
         "اسم الفرع المكتوب طويل جدًا",
         400
       );
     }
 
-    const { data, error } = await supabaseAdmin.rpc(
-      "delete_admin_test_branch_atomic",
-      {
-        p_branch_id: branchId,
-        p_confirm_branch_name: confirmBranchName,
-        p_actor_user_id: auth.user.id,
-        p_actor_user_name: auth.user.fullName,
-      }
-    );
-
-    if (error) {
-      const errorText = getSupabaseErrorText(error);
-
-      console.error(
-        "delete_admin_test_branch_atomic failed:",
+    const { data, error } =
+      await supabaseAdmin.rpc(
+        "archive_admin_branch_atomic",
         {
-          code: error.code,
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
+          p_branch_id:
+            branchId,
+
+          p_confirm_branch_name:
+            confirmBranchName,
+
+          p_actor_user_id:
+            auth.user.id,
+
+          p_actor_user_name:
+            auth.user.fullName,
         }
       );
 
+    if (error) {
+      const errorText =
+        getSupabaseErrorText(
+          error
+        );
+
+      logSupabaseError(
+        "archive_admin_branch_atomic failed:",
+        error
+      );
+
       const mappedError =
-        mapDeleteBranchError(errorText);
+        mapArchiveBranchError(
+          errorText
+        );
 
       return createErrorResponse(
         mappedError.message,
@@ -769,27 +1085,34 @@ export async function DELETE(
       );
     }
 
-    const rawResult = Array.isArray(data)
-      ? data[0]
-      : data;
+    const rawResult =
+      Array.isArray(data)
+        ? data[0]
+        : data;
 
     const result =
-      isPlainObject(rawResult)
-        ? (rawResult as DeleteBranchResult)
+      isPlainObject(
+        rawResult
+      )
+        ? (rawResult as ArchiveBranchResult)
         : null;
 
     if (
       !result ||
-      !isValidUuid(result.deleted_branch_id) ||
-      !cleanText(result.deleted_branch_name)
+      !isValidUuid(
+        result.archived_branch_id
+      ) ||
+      !cleanText(
+        result.archived_branch_name
+      )
     ) {
       console.error(
-        "delete_admin_test_branch_atomic returned invalid data:",
+        "archive_admin_branch_atomic returned invalid data:",
         data
       );
 
       return createErrorResponse(
-        "تم تنفيذ الحذف لكن تعذر قراءة نتيجته",
+        "تم نقل الفرع إلى المحذوفة لكن تعذر قراءة النتيجة",
         500
       );
     }
@@ -797,32 +1120,39 @@ export async function DELETE(
     return NextResponse.json(
       {
         ok: true,
-        message: `تم حذف فرع ${result.deleted_branch_name} نهائيًا`,
+
+        message:
+          `تم نقل فرع ${result.archived_branch_name} إلى قائمة الفروع المحذوفة`,
+
         data: {
-          deleted_branch_id:
-            result.deleted_branch_id,
-          deleted_branch_name:
-            result.deleted_branch_name,
+          archived_branch_id:
+            result.archived_branch_id,
+
+          archived_branch_name:
+            result.archived_branch_name,
         },
       },
       {
         status: 200,
-        headers: noStoreHeaders(),
+        headers:
+          noStoreHeaders(),
       }
     );
   } catch (error) {
     console.error(
-      "Admin support branch delete route error:",
+      "Admin support branch DELETE route error:",
       error instanceof Error
         ? {
             name: error.name,
             message: error.message,
           }
-        : error
+        : {
+            name: "UnknownError",
+          }
     );
 
     return createErrorResponse(
-      "حدث خطأ غير متوقع أثناء حذف الفرع",
+      "حدث خطأ غير متوقع أثناء نقل الفرع إلى المحذوفة",
       500
     );
   }
