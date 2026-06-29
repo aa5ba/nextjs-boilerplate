@@ -978,6 +978,7 @@ export default function FinanceCustomersPage() {
     };
   }, [
     showVerificationModal,
+  verificationLoading,
   ]);
 
   useEffect(() => {
