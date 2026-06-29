@@ -5,14 +5,25 @@ import {
   adminSupportHasPermission,
   verifyAdminSupportRequest,
 } from "@/lib/adminSupportAuth";
-import {
-  ADMIN_SUPPORT_COOKIE_NAME,
-} from "@/lib/adminSupportSession";
+import { ADMIN_SUPPORT_COOKIE_NAME } from "@/lib/adminSupportSession";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 type PermissionRow = {
   user_id: string;
   permission_key: string;
 };
+
+function noStoreHeaders() {
+  return {
+    "Cache-Control":
+      "no-store, no-cache, must-revalidate, proxy-revalidate",
+    Pragma: "no-cache",
+    Expires: "0",
+    "X-Content-Type-Options": "nosniff",
+  };
+}
 
 function createErrorResponse(
   message: string,
@@ -26,25 +37,19 @@ function createErrorResponse(
     },
     {
       status,
-      headers: {
-        "Cache-Control": "no-store",
-      },
+      headers: noStoreHeaders(),
     }
   );
 
   if (clearCookie) {
-    response.cookies.set(
-      ADMIN_SUPPORT_COOKIE_NAME,
-      "",
-      {
-        httpOnly: true,
-        secure:
-          process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        path: "/",
-        maxAge: 0,
-      }
-    );
+    response.cookies.set(ADMIN_SUPPORT_COOKIE_NAME, "", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      path: "/",
+      maxAge: 0,
+      priority: "high",
+    });
   }
 
   return response;
@@ -88,6 +93,12 @@ export async function GET() {
         "view_logs"
       );
 
+    const canManageVerificationResults =
+      adminSupportHasPermission(
+        currentUser,
+        "manage_verification_results"
+      );
+
     const canReadBranches =
       canManageBranches || canEnterBranches;
 
@@ -97,53 +108,51 @@ export async function GET() {
     let logs: unknown[] = [];
 
     if (canReadBranches) {
-      const [
-        branchesResult,
-        managersResult,
-      ] = await Promise.all([
-        supabaseAdmin
-          .from("finance_branches")
-          .select(
-            `
-            id,
-            branch_name,
-            branch_slug,
-            organization_name,
-            city,
-            commercial_record,
-            phone,
-            is_active,
-            notes,
-            created_at
-          `
-          )
-          .order("created_at", {
-            ascending: false,
-          }),
-
-        supabaseAdmin
-          .from("finance_branch_users")
-          .select(
-            `
-            id,
-            branch_id,
-            full_name,
-            username,
-            role,
-            is_active,
-            created_at,
-            finance_branches (
+      const [branchesResult, managersResult] =
+        await Promise.all([
+          supabaseAdmin
+            .from("finance_branches")
+            .select(
+              `
+              id,
               branch_name,
               branch_slug,
-              organization_name
+              organization_name,
+              city,
+              commercial_record,
+              phone,
+              is_active,
+              notes,
+              created_at
+            `
             )
-          `
-          )
-          .eq("role", "branch_manager")
-          .order("created_at", {
-            ascending: false,
-          }),
-      ]);
+            .order("created_at", {
+              ascending: false,
+            }),
+
+          supabaseAdmin
+            .from("finance_branch_users")
+            .select(
+              `
+              id,
+              branch_id,
+              full_name,
+              username,
+              role,
+              is_active,
+              created_at,
+              finance_branches (
+                branch_name,
+                branch_slug,
+                organization_name
+              )
+            `
+            )
+            .eq("role", "branch_manager")
+            .order("created_at", {
+              ascending: false,
+            }),
+        ]);
 
       if (branchesResult.error) {
         console.error(
@@ -170,39 +179,32 @@ export async function GET() {
       }
 
       branches = branchesResult.data || [];
-      branchManagers =
-        managersResult.data || [];
+      branchManagers = managersResult.data || [];
     }
 
     if (canManageSupportUsers) {
-      const [
-        usersResult,
-        permissionsResult,
-      ] = await Promise.all([
-        supabaseAdmin
-          .from("admin_support_users")
-          .select(
+      const [usersResult, permissionsResult] =
+        await Promise.all([
+          supabaseAdmin
+            .from("admin_support_users")
+            .select(
+              `
+              id,
+              full_name,
+              username,
+              role,
+              is_active,
+              created_at
             `
-            id,
-            full_name,
-            username,
-            role,
-            is_active,
-            created_at
-          `
-          )
-          .order("created_at", {
-            ascending: false,
-          }),
+            )
+            .order("created_at", {
+              ascending: false,
+            }),
 
-        supabaseAdmin
-          .from(
-            "admin_support_user_permissions"
-          )
-          .select(
-            "user_id, permission_key"
-          ),
-      ]);
+          supabaseAdmin
+            .from("admin_support_user_permissions")
+            .select("user_id, permission_key"),
+        ]);
 
       if (usersResult.error) {
         console.error(
@@ -232,20 +234,20 @@ export async function GET() {
         permissionsResult.data || []
       ) as PermissionRow[];
 
-      supportUsers = (
-        usersResult.data || []
-      ).map((user) => ({
-        ...user,
-        permissions: permissionRows
-          .filter(
-            (permission) =>
-              permission.user_id === user.id
-          )
-          .map(
-            (permission) =>
-              permission.permission_key
-          ),
-      }));
+      supportUsers = (usersResult.data || []).map(
+        (user) => ({
+          ...user,
+          permissions: permissionRows
+            .filter(
+              (permission) =>
+                permission.user_id === user.id
+            )
+            .map(
+              (permission) =>
+                permission.permission_key
+            ),
+        })
+      );
     }
 
     if (canViewLogs) {
@@ -292,15 +294,12 @@ export async function GET() {
           full_name: currentUser.fullName,
           username: currentUser.username,
           role: currentUser.role,
-          permissions:
-            currentUser.permissions,
+          permissions: currentUser.permissions,
         },
 
         access: {
-          manage_branches:
-            canManageBranches,
-          impersonate_branch:
-            canEnterBranches,
+          manage_branches: canManageBranches,
+          impersonate_branch: canEnterBranches,
           manage_support_users:
             canManageSupportUsers,
           view_logs: canViewLogs,
@@ -314,6 +313,8 @@ export async function GET() {
               currentUser,
               "backup_restore"
             ),
+          manage_verification_results:
+            canManageVerificationResults,
         },
 
         branches,
@@ -323,9 +324,7 @@ export async function GET() {
       },
       {
         status: 200,
-        headers: {
-          "Cache-Control": "no-store",
-        },
+        headers: noStoreHeaders(),
       }
     );
   } catch (error) {
