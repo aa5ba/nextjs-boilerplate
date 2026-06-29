@@ -15,6 +15,7 @@ type SupportUserRow = {
   username: string;
   role: string;
   is_active: boolean;
+  session_version: number;
 };
 
 type PermissionRow = {
@@ -27,6 +28,7 @@ export type VerifiedAdminSupportUser = {
   username: string;
   role: string;
   permissions: string[];
+  sessionVersion: number;
   session: AdminSupportSession;
 };
 
@@ -42,6 +44,40 @@ export type AdminSupportAuthResult =
       clearCookie?: boolean;
     };
 
+function normalizeSessionVersion(value: unknown): number | null {
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value < 0
+  ) {
+    return null;
+  }
+
+  return value;
+}
+
+function normalizePermissions(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      value
+        .filter(
+          (permission): permission is string =>
+            typeof permission === "string"
+        )
+        .map((permission) => permission.trim())
+        .filter(
+          (permission) =>
+            permission.length > 0 &&
+            permission.length <= 100
+        )
+    )
+  );
+}
+
 export async function verifyAdminSupportRequest(
   requiredPermission?: string
 ): Promise<AdminSupportAuthResult> {
@@ -52,8 +88,7 @@ export async function verifyAdminSupportRequest(
       ADMIN_SUPPORT_COOKIE_NAME
     )?.value;
 
-    const session =
-      verifyAdminSupportSessionToken(token);
+    const session = verifyAdminSupportSessionToken(token);
 
     if (!session) {
       return {
@@ -68,7 +103,14 @@ export async function verifyAdminSupportRequest(
       await supabaseAdmin
         .from("admin_support_users")
         .select(
-          "id, full_name, username, role, is_active"
+          `
+          id,
+          full_name,
+          username,
+          role,
+          is_active,
+          session_version
+        `
         )
         .eq("id", session.userId)
         .maybeSingle();
@@ -97,6 +139,23 @@ export async function verifyAdminSupportRequest(
       };
     }
 
+    const databaseSessionVersion = normalizeSessionVersion(
+      user.session_version
+    );
+
+    if (
+      databaseSessionVersion === null ||
+      databaseSessionVersion !== session.sessionVersion
+    ) {
+      return {
+        ok: false,
+        status: 401,
+        message:
+          "تم تحديث بيانات الحساب، سجّل الدخول مرة أخرى",
+        clearCookie: true,
+      };
+    }
+
     const {
       data: permissionData,
       error: permissionError,
@@ -118,20 +177,21 @@ export async function verifyAdminSupportRequest(
       };
     }
 
-    const permissions = (
-      (permissionData || []) as PermissionRow[]
-    )
-      .map((item) => item.permission_key)
-      .filter(
-        (permission): permission is string =>
-          typeof permission === "string" &&
-          permission.trim().length > 0
-      );
+    const permissions = normalizePermissions(
+      (permissionData || []).map(
+        (item) => (item as PermissionRow).permission_key
+      )
+    );
+
+    const cleanRequiredPermission =
+      typeof requiredPermission === "string"
+        ? requiredPermission.trim()
+        : "";
 
     const hasPermission =
-      !requiredPermission ||
+      !cleanRequiredPermission ||
       user.role === "super_admin" ||
-      permissions.includes(requiredPermission);
+      permissions.includes(cleanRequiredPermission);
 
     if (!hasPermission) {
       return {
@@ -150,6 +210,7 @@ export async function verifyAdminSupportRequest(
         username: user.username,
         role: user.role,
         permissions,
+        sessionVersion: databaseSessionVersion,
         session,
       },
     };
@@ -171,8 +232,17 @@ export function adminSupportHasPermission(
   user: VerifiedAdminSupportUser,
   permission: string
 ) {
+  const cleanPermission =
+    typeof permission === "string"
+      ? permission.trim()
+      : "";
+
+  if (!cleanPermission) {
+    return false;
+  }
+
   return (
     user.role === "super_admin" ||
-    user.permissions.includes(permission)
+    user.permissions.includes(cleanPermission)
   );
 }
