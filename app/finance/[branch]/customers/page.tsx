@@ -47,9 +47,21 @@ const MANAGER_ROLES = [
   "مدير",
 ];
 
-type ScreenType = "mobile" | "tablet" | "desktop";
-type SessionType = "branch_user" | "admin_support" | null;
-type ActionTone = "blue" | "green" | "teal" | "red";
+type ScreenType =
+  | "mobile"
+  | "tablet"
+  | "desktop";
+
+type SessionType =
+  | "branch_user"
+  | "admin_support"
+  | null;
+
+type ActionTone =
+  | "blue"
+  | "green"
+  | "teal"
+  | "red";
 
 type FinanceUser = {
   id: string;
@@ -78,29 +90,62 @@ type CustomerGroup = {
   [key: string]: unknown;
 };
 
+type VerificationContractState =
+  | "ساري"
+  | "مغلق";
+
+type VerificationContractPosition =
+  | "نشط"
+  | "متأخر"
+  | "متعثر";
+
+type VerificationContract = {
+  amount: number;
+  date: string;
+  state: VerificationContractState;
+  position: VerificationContractPosition;
+};
+
+type VerificationCustomer = {
+  fullName: string;
+  nationalId: string;
+};
+
 type VerificationResult = {
-  result_status?: string | null;
-  result_title?: string | null;
-  result_description?: string | null;
-  has_activity?: boolean | null;
-  contracts_count?: number | null;
-  overdue_contracts_count?: number | null;
+  found: boolean;
+  customer: VerificationCustomer | null;
+  contracts: VerificationContract[];
+};
+
+type VerificationApiResponse = {
+  ok?: boolean;
+  message?: string;
+  found?: boolean;
+  customer?: VerificationCustomer | null;
+  contracts?: VerificationContract[];
 };
 
 export default function FinanceCustomersPage() {
   const params = useParams();
   const router = useRouter();
 
-  const branch = String(params.branch ?? "")
+  const branch = String(
+    params.branch ?? ""
+  )
     .trim()
     .toLowerCase();
 
   const [screen, setScreen] =
     useState<ScreenType>("desktop");
 
-  const [authorized, setAuthorized] = useState(false);
-  const [authChecked, setAuthChecked] = useState(false);
-  const [accessDenied, setAccessDenied] = useState(false);
+  const [authorized, setAuthorized] =
+    useState(false);
+
+  const [authChecked, setAuthChecked] =
+    useState(false);
+
+  const [accessDenied, setAccessDenied] =
+    useState(false);
 
   const [sessionType, setSessionType] =
     useState<SessionType>(null);
@@ -111,7 +156,9 @@ export default function FinanceCustomersPage() {
   const [branchId, setBranchId] =
     useState<string | null>(null);
 
-  const [role, setRole] = useState("");
+  const [role, setRole] =
+    useState("");
+
   const [permissions, setPermissions] =
     useState<string[]>([]);
 
@@ -150,7 +197,9 @@ export default function FinanceCustomersPage() {
   const [
     verificationResult,
     setVerificationResult,
-  ] = useState<VerificationResult | null>(null);
+  ] = useState<VerificationResult | null>(
+    null
+  );
 
   const [
     verificationError,
@@ -160,9 +209,14 @@ export default function FinanceCustomersPage() {
   const [logoutLoading, setLogoutLoading] =
     useState(false);
 
-  const isMobile = screen === "mobile";
-  const isTablet = screen === "tablet";
-  const isCompact = isMobile || isTablet;
+  const isMobile =
+    screen === "mobile";
+
+  const isTablet =
+    screen === "tablet";
+
+  const isCompact =
+    isMobile || isTablet;
 
   const isSupportSession =
     sessionType === "admin_support";
@@ -180,17 +234,16 @@ export default function FinanceCustomersPage() {
         return true;
       }
 
-      return permissionKeys.some((permissionKey) =>
-        permissions.includes(permissionKey)
+      return permissionKeys.some(
+        (permissionKey) =>
+          permissions.includes(
+            permissionKey
+          )
       );
     },
     [isManager, permissions]
   );
 
-  /*
-   * الصفحة جاهزة لإدارة الصلاحيات:
-   * كل ميزة لها مفتاح ثابت ومستقل.
-   */
   const canViewPage = hasPermission(
     CUSTOMER_PERMISSIONS.PAGE_VIEW,
     CUSTOMER_PERMISSIONS.CREATE,
@@ -202,284 +255,389 @@ export default function FinanceCustomersPage() {
     CUSTOMER_PERMISSIONS.BLOCKLIST_VIEW
   );
 
-  const canCreateCustomer = hasPermission(
-    CUSTOMER_PERMISSIONS.CREATE
-  );
+  const canCreateCustomer =
+    hasPermission(
+      CUSTOMER_PERMISSIONS.CREATE
+    );
 
-  const canSearchCustomers = hasPermission(
-    CUSTOMER_PERMISSIONS.SEARCH,
-    CUSTOMER_PERMISSIONS.PAGE_VIEW
-  );
+  const canSearchCustomers =
+    hasPermission(
+      CUSTOMER_PERMISSIONS.SEARCH,
+      CUSTOMER_PERMISSIONS.PAGE_VIEW
+    );
 
-  const canViewCustomerList = hasPermission(
-    CUSTOMER_PERMISSIONS.LIST_VIEW,
-    CUSTOMER_PERMISSIONS.PAGE_VIEW
-  );
+  const canViewCustomerList =
+    hasPermission(
+      CUSTOMER_PERMISSIONS.LIST_VIEW,
+      CUSTOMER_PERMISSIONS.PAGE_VIEW
+    );
 
-  const canVerifyCustomers = hasPermission(
-    CUSTOMER_PERMISSIONS.VERIFY
-  );
+  const canVerifyCustomers =
+    hasPermission(
+      CUSTOMER_PERMISSIONS.VERIFY
+    );
 
-  const canViewGroups = hasPermission(
-    CUSTOMER_PERMISSIONS.GROUPS_VIEW,
-    CUSTOMER_PERMISSIONS.GROUPS_MANAGE
-  );
+  const canViewGroups =
+    hasPermission(
+      CUSTOMER_PERMISSIONS.GROUPS_VIEW,
+      CUSTOMER_PERMISSIONS.GROUPS_MANAGE
+    );
 
-  const canManageGroups = hasPermission(
-    CUSTOMER_PERMISSIONS.GROUPS_MANAGE
-  );
+  const canManageGroups =
+    hasPermission(
+      CUSTOMER_PERMISSIONS.GROUPS_MANAGE
+    );
 
-  const canViewBlocklist = hasPermission(
-    CUSTOMER_PERMISSIONS.BLOCKLIST_VIEW
-  );
+  const canViewBlocklist =
+    hasPermission(
+      CUSTOMER_PERMISSIONS.BLOCKLIST_VIEW
+    );
 
   const sortedGroups = useMemo(() => {
-    return [...groups].sort((firstGroup, secondGroup) =>
-      String(firstGroup.name || "").localeCompare(
-        String(secondGroup.name || ""),
-        "ar"
-      )
+    return [...groups].sort(
+      (
+        firstGroup,
+        secondGroup
+      ) =>
+        String(
+          firstGroup.name || ""
+        ).localeCompare(
+          String(
+            secondGroup.name || ""
+          ),
+          "ar"
+        )
     );
   }, [groups]);
 
   const totalPages = Math.max(
     1,
-    Math.ceil(sortedGroups.length / ITEMS_PER_PAGE)
+    Math.ceil(
+      sortedGroups.length /
+        ITEMS_PER_PAGE
+    )
   );
 
   const paginatedGroups = useMemo(() => {
     const startIndex =
-      (currentPage - 1) * ITEMS_PER_PAGE;
+      (currentPage - 1) *
+      ITEMS_PER_PAGE;
 
     return sortedGroups.slice(
       startIndex,
       startIndex + ITEMS_PER_PAGE
     );
-  }, [sortedGroups, currentPage]);
+  }, [
+    sortedGroups,
+    currentPage,
+  ]);
 
-  const applyAuthorizedUser = useCallback(
-    (
-      user: FinanceUser,
-      type: Exclude<SessionType, null>
-    ) => {
-      const nextPermissions = Array.isArray(user.permissions)
-        ? user.permissions.filter(
-            (permission): permission is string =>
-              typeof permission === "string" &&
-              permission.trim().length > 0
+  const applyAuthorizedUser =
+    useCallback(
+      (
+        user: FinanceUser,
+        type: Exclude<
+          SessionType,
+          null
+        >
+      ) => {
+        const nextPermissions =
+          Array.isArray(
+            user.permissions
           )
-        : [];
+            ? user.permissions.filter(
+                (
+                  permission
+                ): permission is string =>
+                  typeof permission ===
+                    "string" &&
+                  permission.trim()
+                    .length > 0
+              )
+            : [];
 
-      setEmployeeName(
-        user.full_name ||
-          user.username ||
-          "الموظف"
-      );
-
-      setBranchId(user.branch_id);
-      setRole(user.role || "");
-      setPermissions(nextPermissions);
-      setSessionType(type);
-      setAuthorized(true);
-    },
-    []
-  );
-
-  const getSupportSession = useCallback(
-    async (
-      isCancelled: () => boolean
-    ): Promise<FinanceUser | null> => {
-      const controller = new AbortController();
-
-      const timeoutId = window.setTimeout(() => {
-        controller.abort();
-      }, SUPPORT_SESSION_TIMEOUT_MS);
-
-      try {
-        const response = await fetch(
-          `/finance/api/support-session?branch=${encodeURIComponent(
-            branch
-          )}`,
-          {
-            method: "GET",
-            credentials: "include",
-            cache: "no-store",
-            signal: controller.signal,
-            headers: {
-              Accept: "application/json",
-            },
-          }
+        setEmployeeName(
+          user.full_name ||
+            user.username ||
+            "الموظف"
         );
 
-        let payload: SupportSessionResponse;
+        setBranchId(
+          user.branch_id
+        );
+
+        setRole(
+          user.role || ""
+        );
+
+        setPermissions(
+          nextPermissions
+        );
+
+        setSessionType(type);
+        setAuthorized(true);
+      },
+      []
+    );
+
+  const getSupportSession =
+    useCallback(
+      async (
+        isCancelled: () => boolean
+      ): Promise<FinanceUser | null> => {
+        const controller =
+          new AbortController();
+
+        const timeoutId =
+          window.setTimeout(() => {
+            controller.abort();
+          }, SUPPORT_SESSION_TIMEOUT_MS);
 
         try {
-          payload =
-            (await response.json()) as SupportSessionResponse;
-        } catch {
-          payload = {
-            ok: false,
-            message:
-              "تعذر قراءة استجابة جلسة الدعم",
-          };
-        }
+          const response =
+            await fetch(
+              `/finance/api/support-session?branch=${encodeURIComponent(
+                branch
+              )}`,
+              {
+                method: "GET",
+                credentials:
+                  "include",
+                cache: "no-store",
+                signal:
+                  controller.signal,
+                headers: {
+                  Accept:
+                    "application/json",
+                },
+              }
+            );
 
-        if (isCancelled()) {
+          let payload:
+            SupportSessionResponse;
+
+          try {
+            payload =
+              (await response.json()) as SupportSessionResponse;
+          } catch {
+            payload = {
+              ok: false,
+              message:
+                "تعذر قراءة استجابة جلسة الدعم",
+            };
+          }
+
+          if (isCancelled()) {
+            return null;
+          }
+
+          if (
+            response.ok &&
+            payload.ok &&
+            payload.session_type ===
+              "admin_support" &&
+            payload.user?.id &&
+            payload.user.branch_id &&
+            payload.user.branch_slug
+          ) {
+            return payload.user;
+          }
+
           return null;
-        }
+        } catch (error) {
+          if (
+            error instanceof DOMException &&
+            error.name ===
+              "AbortError"
+          ) {
+            return null;
+          }
 
-        if (
-          response.ok &&
-          payload.ok &&
-          payload.session_type ===
-            "admin_support" &&
-          payload.user?.id &&
-          payload.user.branch_id &&
-          payload.user.branch_slug
-        ) {
-          return payload.user;
-        }
+          console.error(
+            "Support session verification failed:",
+            error
+          );
 
-        return null;
-      } catch (error) {
-        if (
-          error instanceof DOMException &&
-          error.name === "AbortError"
-        ) {
           return null;
+        } finally {
+          window.clearTimeout(
+            timeoutId
+          );
         }
+      },
+      [branch]
+    );
 
-        console.error(
-          "Support session verification failed:",
-          error
-        );
-
-        return null;
-      } finally {
-        window.clearTimeout(timeoutId);
-      }
-    },
-    [branch]
-  );
-
-  const verifyUserInBackground = useCallback(
-    async (
-      user: FinanceUser,
-      isCancelled: () => boolean
-    ) => {
-      try {
-        const [branchResult, userResult] =
-          await Promise.all([
+  const verifyUserInBackground =
+    useCallback(
+      async (
+        user: FinanceUser,
+        isCancelled: () => boolean
+      ) => {
+        try {
+          const [
+            branchResult,
+            userResult,
+          ] = await Promise.all([
             supabase
-              .from("finance_branches")
+              .from(
+                "finance_branches"
+              )
               .select(
                 "id, branch_slug, branch_name, organization_name, is_active"
               )
-              .eq("id", user.branch_id)
+              .eq(
+                "id",
+                user.branch_id
+              )
               .maybeSingle(),
 
             supabase
-              .from("finance_branch_users")
+              .from(
+                "finance_branch_users"
+              )
               .select(
                 "id, full_name, username, role, branch_id, is_active"
               )
-              .eq("id", user.id)
-              .eq("branch_id", user.branch_id)
+              .eq(
+                "id",
+                user.id
+              )
+              .eq(
+                "branch_id",
+                user.branch_id
+              )
               .maybeSingle(),
           ]);
 
-        if (isCancelled()) {
-          return;
-        }
+          if (isCancelled()) {
+            return;
+          }
 
-        if (branchResult.error) {
-          console.error(
-            "Background branch verification error:",
+          if (
             branchResult.error
-          );
-        }
+          ) {
+            console.error(
+              "Background branch verification error:",
+              branchResult.error
+            );
+          }
 
-        if (userResult.error) {
-          console.error(
-            "Background user verification error:",
+          if (
             userResult.error
+          ) {
+            console.error(
+              "Background user verification error:",
+              userResult.error
+            );
+          }
+
+          if (
+            !branchResult.error &&
+            (
+              !branchResult.data ||
+              branchResult.data
+                .is_active ===
+                false
+            )
+          ) {
+            redirectToFinanceLogin(
+              router,
+              {
+                branchSlug:
+                  branch,
+                preserveReturnPath:
+                  true,
+              }
+            );
+
+            return;
+          }
+
+          if (
+            !userResult.error &&
+            (
+              !userResult.data ||
+              userResult.data
+                .is_active ===
+                false
+            )
+          ) {
+            redirectToFinanceLogin(
+              router,
+              {
+                branchSlug:
+                  branch,
+                preserveReturnPath:
+                  true,
+              }
+            );
+
+            return;
+          }
+
+          if (
+            branchResult.data
+          ) {
+            localStorage.setItem(
+              "finance_branch_name",
+              branchResult.data
+                .branch_name ||
+                ""
+            );
+
+            localStorage.setItem(
+              "finance_organization_name",
+              branchResult.data
+                .organization_name ||
+                ""
+            );
+          }
+
+          if (
+            userResult.data
+          ) {
+            const refreshedEmployeeName =
+              userResult.data
+                .full_name ||
+              userResult.data
+                .username ||
+              user.full_name ||
+              user.username ||
+              "الموظف";
+
+            setEmployeeName(
+              refreshedEmployeeName
+            );
+
+            localStorage.setItem(
+              "finance_user_name",
+              refreshedEmployeeName
+            );
+          }
+        } catch (error) {
+          console.error(
+            "Background session verification failed:",
+            error
           );
         }
-
-        /*
-         * لا يتم تحويل المستخدم عند وجود خطأ شبكة.
-         * التحويل يحدث فقط إذا نجح الاستعلام وأكد أن السجل غير موجود أو معطل.
-         */
-        if (
-          !branchResult.error &&
-          (!branchResult.data ||
-            branchResult.data.is_active === false)
-        ) {
-          redirectToFinanceLogin(router, {
-            branchSlug: branch,
-            preserveReturnPath: true,
-          });
-
-          return;
-        }
-
-        if (
-          !userResult.error &&
-          (!userResult.data ||
-            userResult.data.is_active === false)
-        ) {
-          redirectToFinanceLogin(router, {
-            branchSlug: branch,
-            preserveReturnPath: true,
-          });
-
-          return;
-        }
-
-        if (branchResult.data) {
-          localStorage.setItem(
-            "finance_branch_name",
-            branchResult.data.branch_name || ""
-          );
-
-          localStorage.setItem(
-            "finance_organization_name",
-            branchResult.data.organization_name || ""
-          );
-        }
-
-        if (userResult.data) {
-          const refreshedEmployeeName =
-            userResult.data.full_name ||
-            userResult.data.username ||
-            user.full_name ||
-            user.username ||
-            "الموظف";
-
-          setEmployeeName(refreshedEmployeeName);
-
-          localStorage.setItem(
-            "finance_user_name",
-            refreshedEmployeeName
-          );
-        }
-      } catch (error) {
-        console.error(
-          "Background session verification failed:",
-          error
-        );
-      }
-    },
-    [branch, router]
-  );
+      },
+      [
+        branch,
+        router,
+      ]
+    );
 
   useEffect(() => {
     function updateScreen() {
-      const width = window.innerWidth;
+      const width =
+        window.innerWidth;
 
       if (width < 640) {
         setScreen("mobile");
-      } else if (width < 980) {
+      } else if (
+        width < 980
+      ) {
         setScreen("tablet");
       } else {
         setScreen("desktop");
@@ -503,9 +661,13 @@ export default function FinanceCustomersPage() {
 
   useEffect(() => {
     if (!branch) {
-      redirectToFinanceLogin(router, {
-        preserveReturnPath: true,
-      });
+      redirectToFinanceLogin(
+        router,
+        {
+          preserveReturnPath:
+            true,
+        }
+      );
 
       return;
     }
@@ -514,11 +676,15 @@ export default function FinanceCustomersPage() {
 
     async function initializeSession() {
       const validation =
-        validateFinanceSession(branch);
+        validateFinanceSession(
+          branch
+        );
 
       if (
-        validation.reason === "BRANCH_MISMATCH" &&
-        validation.user?.branch_slug
+        validation.reason ===
+          "BRANCH_MISMATCH" &&
+        validation.user
+          ?.branch_slug
       ) {
         router.replace(
           `/finance/${validation.user.branch_slug}/customers`
@@ -527,68 +693,79 @@ export default function FinanceCustomersPage() {
         return;
       }
 
-      /*
-       * فتح الصفحة مباشرة من الجلسة المحلية الصالحة.
-       */
       if (
         validation.valid &&
         validation.user
       ) {
-        const session = validation.user;
+        const session =
+          validation.user;
 
-        const localUser: FinanceUser = {
-          id: String(session.id || ""),
+        const localUser:
+          FinanceUser = {
+          id: String(
+            session.id || ""
+          ),
 
           branch_id: String(
             session.branch_id || ""
           ),
 
           branch_slug: String(
-            session.branch_slug || branch
+            session.branch_slug ||
+              branch
           )
             .trim()
             .toLowerCase(),
 
           branch_name:
-            session.branch_name || "",
+            session.branch_name ||
+            "",
 
           organization_name:
-            session.organization_name || "",
+            session.organization_name ||
+            "",
 
           full_name:
-            getFinanceEmployeeName(session),
+            getFinanceEmployeeName(
+              session
+            ),
 
           username:
-            session.username || "",
+            session.username ||
+            "",
 
           role:
             session.role || "",
 
           permissions:
-            Array.isArray(session.permissions)
+            Array.isArray(
+              session.permissions
+            )
               ? session.permissions
               : [],
 
           is_active:
-            session.is_active !== false,
+            session.is_active !==
+            false,
         };
 
         if (
           localUser.id &&
           localUser.branch_id
         ) {
-          renewFinanceSession(true);
+          renewFinanceSession(
+            true
+          );
 
           applyAuthorizedUser(
             localUser,
             "branch_user"
           );
 
-          setAuthChecked(true);
+          setAuthChecked(
+            true
+          );
 
-          /*
-           * التحقق في الخلفية دون تعطيل فتح الصفحة.
-           */
           void verifyUserInBackground(
             localUser,
             () => cancelled
@@ -596,37 +773,39 @@ export default function FinanceCustomersPage() {
 
           void getSupportSession(
             () => cancelled
-          ).then((supportUser) => {
-            if (
-              cancelled ||
-              !supportUser
-            ) {
-              return;
-            }
+          ).then(
+            (
+              supportUser
+            ) => {
+              if (
+                cancelled ||
+                !supportUser
+              ) {
+                return;
+              }
 
-            const supportBranchSlug =
-              supportUser.branch_slug
-                .trim()
-                .toLowerCase();
+              const supportBranchSlug =
+                supportUser.branch_slug
+                  .trim()
+                  .toLowerCase();
 
-            if (
-              supportBranchSlug === branch &&
-              supportUser.branch_id
-            ) {
-              applyAuthorizedUser(
-                supportUser,
-                "admin_support"
-              );
+              if (
+                supportBranchSlug ===
+                  branch &&
+                supportUser.branch_id
+              ) {
+                applyAuthorizedUser(
+                  supportUser,
+                  "admin_support"
+                );
+              }
             }
-          });
+          );
 
           return;
         }
       }
 
-      /*
-       * عند عدم وجود جلسة محلية صالحة يتم فحص جلسة الدعم.
-       */
       const supportUser =
         await getSupportSession(
           () => cancelled
@@ -642,7 +821,10 @@ export default function FinanceCustomersPage() {
             .trim()
             .toLowerCase();
 
-        if (supportBranchSlug !== branch) {
+        if (
+          supportBranchSlug !==
+          branch
+        ) {
           router.replace(
             `/finance/${encodeURIComponent(
               supportBranchSlug
@@ -663,10 +845,14 @@ export default function FinanceCustomersPage() {
 
       setAuthChecked(true);
 
-      redirectToFinanceLogin(router, {
-        branchSlug: branch,
-        preserveReturnPath: true,
-      });
+      redirectToFinanceLogin(
+        router,
+        {
+          branchSlug: branch,
+          preserveReturnPath:
+            true,
+        }
+      );
     }
 
     void initializeSession();
@@ -692,10 +878,14 @@ export default function FinanceCustomersPage() {
 
     return installFinanceActivityTracker({
       onExpired: () => {
-        redirectToFinanceLogin(router, {
-          branchSlug: branch,
-          preserveReturnPath: true,
-        });
+        redirectToFinanceLogin(
+          router,
+          {
+            branchSlug: branch,
+            preserveReturnPath:
+              true,
+          }
+        );
       },
     });
   }, [
@@ -710,8 +900,13 @@ export default function FinanceCustomersPage() {
       return;
     }
 
-    setAccessDenied(!canViewPage);
-  }, [authorized, canViewPage]);
+    setAccessDenied(
+      !canViewPage
+    );
+  }, [
+    authorized,
+    canViewPage,
+  ]);
 
   useEffect(() => {
     if (
@@ -719,7 +914,10 @@ export default function FinanceCustomersPage() {
       !branchId ||
       !canViewGroups
     ) {
-      setGroupsLoading(false);
+      setGroupsLoading(
+        false
+      );
+
       return;
     }
 
@@ -740,12 +938,15 @@ export default function FinanceCustomersPage() {
   ]);
 
   useEffect(() => {
-    if (!showVerificationModal) {
+    if (
+      !showVerificationModal
+    ) {
       return;
     }
 
     const previousOverflow =
-      document.body.style.overflow;
+      document.body.style
+        .overflow;
 
     document.body.style.overflow =
       "hidden";
@@ -753,7 +954,10 @@ export default function FinanceCustomersPage() {
     function handleEscape(
       event: KeyboardEvent
     ) {
-      if (event.key === "Escape") {
+      if (
+        event.key ===
+        "Escape"
+      ) {
         closeVerificationModal();
       }
     }
@@ -772,36 +976,50 @@ export default function FinanceCustomersPage() {
         handleEscape
       );
     };
-  }, [showVerificationModal]);
+  }, [
+    showVerificationModal,
+  ]);
 
   useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages);
+    if (
+      currentPage >
+      totalPages
+    ) {
+      setCurrentPage(
+        totalPages
+      );
     }
-  }, [currentPage, totalPages]);
+  }, [
+    currentPage,
+    totalPages,
+  ]);
 
   async function loadGroups(
     currentBranchId: string,
-    isCancelled: () => boolean = () => false
+    isCancelled: () => boolean =
+      () => false
   ) {
     setGroupsLoading(true);
     setGroupsError("");
 
     try {
-      /*
-       * استخدام select("*") لتجنب طلب أعمدة غير موجودة.
-       */
       const { data, error } =
         await supabase
-          .from("finance_customer_groups")
+          .from(
+            "finance_customer_groups"
+          )
           .select("*")
           .eq(
             "branch_id",
             currentBranchId
           )
-          .order("name", {
-            ascending: true,
-          });
+          .order(
+            "name",
+            {
+              ascending:
+                true,
+            }
+          );
 
       if (isCancelled()) {
         return;
@@ -813,10 +1031,6 @@ export default function FinanceCustomersPage() {
           error
         );
 
-        /*
-         * لا نفرغ البيانات القديمة إذا كانت موجودة،
-         * حتى لا تختفي المجموعات بسبب خطأ شبكة مؤقت.
-         */
         setGroupsError(
           "تعذر تحميل مجموعات العملاء. يمكنك إعادة المحاولة."
         );
@@ -825,7 +1039,8 @@ export default function FinanceCustomersPage() {
       }
 
       setGroups(
-        (data || []) as CustomerGroup[]
+        (data ||
+          []) as CustomerGroup[]
       );
 
       setCurrentPage(1);
@@ -835,14 +1050,20 @@ export default function FinanceCustomersPage() {
         error
       );
 
-      if (!isCancelled()) {
+      if (
+        !isCancelled()
+      ) {
         setGroupsError(
           "تعذر تحميل المجموعات بسبب مشكلة في الاتصال."
         );
       }
     } finally {
-      if (!isCancelled()) {
-        setGroupsLoading(false);
+      if (
+        !isCancelled()
+      ) {
+        setGroupsLoading(
+          false
+        );
       }
     }
   }
@@ -858,12 +1079,20 @@ export default function FinanceCustomersPage() {
     const cleanNationalId =
       normalizeDigits(
         verificationNationalId
-      ).replace(/\D/g, "");
+      )
+        .replace(/\D/g, "")
+        .slice(0, 10);
 
     setVerificationError("");
-    setVerificationResult(null);
+    setVerificationResult(
+      null
+    );
 
-    if (cleanNationalId.length !== 10) {
+    if (
+      !/^\d{10}$/.test(
+        cleanNationalId
+      )
+    ) {
       setVerificationError(
         "يرجى إدخال رقم هوية صحيح من 10 أرقام."
       );
@@ -872,37 +1101,155 @@ export default function FinanceCustomersPage() {
     }
 
     try {
-      setVerificationLoading(true);
+      setVerificationLoading(
+        true
+      );
 
-      const { data, error } =
-        await supabase.rpc(
-          "verify_customer_activity_by_national_id",
+      const response =
+        await fetch(
+          "/finance/api/customer-verification",
           {
-            search_national_id:
-              cleanNationalId,
+            method: "POST",
+            credentials:
+              "include",
+            cache: "no-store",
+            headers: {
+              "Content-Type":
+                "application/json",
+              Accept:
+                "application/json",
+            },
+            body: JSON.stringify({
+              nationalId:
+                cleanNationalId,
+            }),
           }
         );
 
-      if (error) {
-        console.error(
-          "Customer verification error:",
-          error
-        );
+      let payload:
+        VerificationApiResponse;
+
+      try {
+        payload =
+          (await response.json()) as VerificationApiResponse;
+      } catch {
+        payload = {
+          ok: false,
+          message:
+            "تعذر قراءة استجابة التحقق.",
+        };
+      }
+
+      if (
+        !response.ok ||
+        !payload.ok
+      ) {
+        if (
+          response.status ===
+          401
+        ) {
+          setVerificationError(
+            payload.message ||
+              "انتهت جلسة تسجيل الدخول، سجل الدخول مرة أخرى."
+          );
+
+          return;
+        }
 
         setVerificationError(
-          "حدث خطأ أثناء التحقق من العميل."
+          payload.message ||
+            "حدث خطأ أثناء التحقق من العميل."
         );
 
         return;
       }
 
-      const result = Array.isArray(data)
-        ? data[0]
-        : data;
+      const found =
+        payload.found ===
+        true;
 
-      setVerificationResult(
-        (result || null) as VerificationResult | null
-      );
+      const contracts =
+        Array.isArray(
+          payload.contracts
+        )
+          ? payload.contracts.filter(
+              (
+                contract
+              ): contract is VerificationContract =>
+                Boolean(
+                  contract &&
+                    typeof contract ===
+                      "object" &&
+                    Number.isFinite(
+                      Number(
+                        contract.amount
+                      )
+                    ) &&
+                    typeof contract.date ===
+                      "string" &&
+                    (
+                      contract.state ===
+                        "ساري" ||
+                      contract.state ===
+                        "مغلق"
+                    ) &&
+                    (
+                      contract.position ===
+                        "نشط" ||
+                      contract.position ===
+                        "متأخر" ||
+                      contract.position ===
+                        "متعثر"
+                    )
+                )
+            )
+          : [];
+
+      const customer =
+        payload.customer &&
+        typeof payload.customer ===
+          "object"
+          ? {
+              fullName:
+                String(
+                  payload.customer
+                    .fullName ||
+                    ""
+                ).trim(),
+
+              nationalId:
+                normalizeDigits(
+                  String(
+                    payload.customer
+                      .nationalId ||
+                      cleanNationalId
+                  )
+                )
+                  .replace(
+                    /\D/g,
+                    ""
+                  )
+                  .slice(
+                    0,
+                    10
+                  ),
+            }
+          : null;
+
+      setVerificationResult({
+        found,
+
+        customer:
+          found &&
+          customer
+            ? customer
+            : null,
+
+        contracts:
+          found
+            ? contracts
+            : [],
+      });
     } catch (error) {
       console.error(
         "Customer verification failed:",
@@ -913,17 +1260,14 @@ export default function FinanceCustomersPage() {
         "تعذر التحقق بسبب مشكلة في الاتصال."
       );
     } finally {
-      setVerificationLoading(false);
+      setVerificationLoading(
+        false
+      );
     }
   }
-
-  async function editGroup(
+    async function editGroup(
     group: CustomerGroup
   ) {
-    /*
-     * التحقق من الصلاحية عند التنفيذ،
-     * وليس فقط عند إظهار الزر.
-     */
     if (
       groupActionLoading ||
       !canManageGroups ||
@@ -932,18 +1276,20 @@ export default function FinanceCustomersPage() {
       return;
     }
 
-    const newName = window.prompt(
-      "اكتب اسم المجموعة الجديد",
-      group.name || ""
-    );
+    const newName =
+      window.prompt(
+        "اكتب اسم المجموعة الجديد",
+        group.name || ""
+      );
 
     if (newName === null) {
       return;
     }
 
-    const cleanName = newName
-      .trim()
-      .replace(/\s+/g, " ");
+    const cleanName =
+      newName
+        .trim()
+        .replace(/\s+/g, " ");
 
     if (!cleanName) {
       window.alert(
@@ -980,12 +1326,20 @@ export default function FinanceCustomersPage() {
 
       const { error } =
         await supabase
-          .from("finance_customer_groups")
+          .from(
+            "finance_customer_groups"
+          )
           .update({
             name: cleanName,
           })
-          .eq("id", group.id)
-          .eq("branch_id", branchId);
+          .eq(
+            "id",
+            group.id
+          )
+          .eq(
+            "branch_id",
+            branchId
+          );
 
       if (error) {
         console.error(
@@ -1000,7 +1354,9 @@ export default function FinanceCustomersPage() {
         return;
       }
 
-      await loadGroups(branchId);
+      await loadGroups(
+        branchId
+      );
     } catch (error) {
       console.error(
         "Edit group failed:",
@@ -1011,16 +1367,15 @@ export default function FinanceCustomersPage() {
         "تعذر تعديل المجموعة بسبب مشكلة في الاتصال."
       );
     } finally {
-      setGroupActionLoading(null);
+      setGroupActionLoading(
+        null
+      );
     }
   }
 
   async function deleteGroup(
     group: CustomerGroup
   ) {
-    /*
-     * التحقق من الصلاحية عند التنفيذ.
-     */
     if (
       groupActionLoading ||
       !canManageGroups ||
@@ -1044,16 +1399,28 @@ export default function FinanceCustomersPage() {
       );
 
       const {
-        data: linkedCustomers,
-        error: linkedCustomersError,
+        data:
+          linkedCustomers,
+        error:
+          linkedCustomersError,
       } = await supabase
-        .from("finance_customers")
+        .from(
+          "finance_customers"
+        )
         .select("id")
-        .eq("branch_id", branchId)
-        .eq("group_id", group.id)
+        .eq(
+          "branch_id",
+          branchId
+        )
+        .eq(
+          "group_id",
+          group.id
+        )
         .limit(1);
 
-      if (linkedCustomersError) {
+      if (
+        linkedCustomersError
+      ) {
         console.error(
           "Linked customers check error:",
           linkedCustomersError
@@ -1067,7 +1434,10 @@ export default function FinanceCustomersPage() {
       }
 
       if (
-        (linkedCustomers || []).length > 0
+        (
+          linkedCustomers ||
+          []
+        ).length > 0
       ) {
         window.alert(
           "لا يمكن حذف المجموعة لأنها مرتبطة بعملاء. انقل العملاء أولًا ثم احذف المجموعة."
@@ -1078,10 +1448,18 @@ export default function FinanceCustomersPage() {
 
       const { error } =
         await supabase
-          .from("finance_customer_groups")
+          .from(
+            "finance_customer_groups"
+          )
           .delete()
-          .eq("id", group.id)
-          .eq("branch_id", branchId);
+          .eq(
+            "id",
+            group.id
+          )
+          .eq(
+            "branch_id",
+            branchId
+          );
 
       if (error) {
         console.error(
@@ -1096,7 +1474,9 @@ export default function FinanceCustomersPage() {
         return;
       }
 
-      await loadGroups(branchId);
+      await loadGroups(
+        branchId
+      );
     } catch (error) {
       console.error(
         "Delete group failed:",
@@ -1107,7 +1487,9 @@ export default function FinanceCustomersPage() {
         "تعذر حذف المجموعة بسبب مشكلة في الاتصال."
       );
     } finally {
-      setGroupActionLoading(null);
+      setGroupActionLoading(
+        null
+      );
     }
   }
 
@@ -1120,7 +1502,9 @@ export default function FinanceCustomersPage() {
       .toLowerCase();
   }
 
-  function go(path: string) {
+  function go(
+    path: string
+  ) {
     router.push(
       `/finance/${branch}/${path}`
     );
@@ -1137,25 +1521,51 @@ export default function FinanceCustomersPage() {
   }
 
   function openVerificationModal() {
-    if (!canVerifyCustomers) {
+    if (
+      !canVerifyCustomers
+    ) {
       return;
     }
 
-    setShowVerificationModal(true);
-    setVerificationNationalId("");
-    setVerificationResult(null);
-    setVerificationError("");
+    setShowVerificationModal(
+      true
+    );
+
+    setVerificationNationalId(
+      ""
+    );
+
+    setVerificationResult(
+      null
+    );
+
+    setVerificationError(
+      ""
+    );
   }
 
   function closeVerificationModal() {
-    if (verificationLoading) {
+    if (
+      verificationLoading
+    ) {
       return;
     }
 
-    setShowVerificationModal(false);
-    setVerificationNationalId("");
-    setVerificationResult(null);
-    setVerificationError("");
+    setShowVerificationModal(
+      false
+    );
+
+    setVerificationNationalId(
+      ""
+    );
+
+    setVerificationResult(
+      null
+    );
+
+    setVerificationError(
+      ""
+    );
   }
 
   async function leaveSupportBranch() {
@@ -1166,10 +1576,12 @@ export default function FinanceCustomersPage() {
         "/finance/api/support-session",
         {
           method: "DELETE",
-          credentials: "include",
+          credentials:
+            "include",
           cache: "no-store",
           headers: {
-            Accept: "application/json",
+            Accept:
+              "application/json",
           },
         }
       );
@@ -1179,31 +1591,47 @@ export default function FinanceCustomersPage() {
         error
       );
     } finally {
-      setLogoutLoading(false);
+      setLogoutLoading(
+        false
+      );
 
-      router.replace("/admin-support");
+      router.replace(
+        "/admin-support"
+      );
+
       router.refresh();
     }
   }
 
   async function logout() {
-    if (logoutLoading) {
+    if (
+      logoutLoading
+    ) {
       return;
     }
 
-    if (isSupportSession) {
+    if (
+      isSupportSession
+    ) {
       await leaveSupportBranch();
       return;
     }
 
-    logoutFinanceUser(router);
+    logoutFinanceUser(
+      router
+    );
   }
 
-  if (!authChecked || !authorized) {
+  if (
+    !authChecked ||
+    !authorized
+  ) {
     return (
       <main
         dir="rtl"
-        style={getPageStyle(isMobile)}
+        style={getPageStyle(
+          isMobile
+        )}
       >
         <div
           style={getContainerStyle(
@@ -1211,18 +1639,41 @@ export default function FinanceCustomersPage() {
           )}
         >
           <header
-            style={getHeroStyle(isMobile)}
+            style={getHeroStyle(
+              isMobile
+            )}
           >
-            <div style={heroCircleOne} />
-            <div style={heroCircleTwo} />
-            <div style={heroCircleThree} />
-            <div style={heroDots} />
+            <div
+              style={
+                heroCircleOne
+              }
+            />
 
             <div
-              style={loadingHeroContent}
+              style={
+                heroCircleTwo
+              }
+            />
+
+            <div
+              style={
+                heroCircleThree
+              }
+            />
+
+            <div
+              style={heroDots}
+            />
+
+            <div
+              style={
+                loadingHeroContent
+              }
             >
               <span
-                style={loadingSpinner}
+                style={
+                  loadingSpinner
+                }
               />
 
               <h1
@@ -1245,7 +1696,9 @@ export default function FinanceCustomersPage() {
     return (
       <main
         dir="rtl"
-        style={getPageStyle(isMobile)}
+        style={getPageStyle(
+          isMobile
+        )}
       >
         <div
           style={getContainerStyle(
@@ -1254,7 +1707,9 @@ export default function FinanceCustomersPage() {
         >
           <PageHeader
             screen={screen}
-            employeeName={employeeName}
+            employeeName={
+              employeeName
+            }
             isSupportSession={
               isSupportSession
             }
@@ -1272,16 +1727,22 @@ export default function FinanceCustomersPage() {
           />
 
           <section
-            style={accessDeniedCard}
+            style={
+              accessDeniedCard
+            }
           >
             <div
-              style={accessDeniedIcon}
+              style={
+                accessDeniedIcon
+              }
             >
               🔒
             </div>
 
             <h2
-              style={accessDeniedTitle}
+              style={
+                accessDeniedTitle
+              }
             >
               ليس لديك صلاحية الدخول إلى قسم العملاء
             </h2>
@@ -1306,7 +1767,9 @@ export default function FinanceCustomersPage() {
   return (
     <main
       dir="rtl"
-      style={getPageStyle(isMobile)}
+      style={getPageStyle(
+        isMobile
+      )}
     >
       <div
         style={getContainerStyle(
@@ -1315,7 +1778,9 @@ export default function FinanceCustomersPage() {
       >
         <PageHeader
           screen={screen}
-          employeeName={employeeName}
+          employeeName={
+            employeeName
+          }
           isSupportSession={
             isSupportSession
           }
@@ -1332,20 +1797,30 @@ export default function FinanceCustomersPage() {
           }
         />
 
-        <section style={managementPanel}>
+        <section
+          style={
+            managementPanel
+          }
+        >
           <SectionTitle
             icon="👥"
             title="إدارة العملاء"
           />
 
-          <div style={managementGrid}>
+          <div
+            style={
+              managementGrid
+            }
+          >
             {canCreateCustomer && (
               <ActionCard
                 title="إنشاء عميل جديد"
                 icon="➕"
                 tone="green"
                 onClick={() =>
-                  go("customers/new")
+                  go(
+                    "customers/new"
+                  )
                 }
               />
             )}
@@ -1356,7 +1831,9 @@ export default function FinanceCustomersPage() {
                 icon="🔍"
                 tone="blue"
                 onClick={() =>
-                  go("customers/search")
+                  go(
+                    "customers/search"
+                  )
                 }
               />
             )}
@@ -1367,7 +1844,9 @@ export default function FinanceCustomersPage() {
                 icon="📋"
                 tone="teal"
                 onClick={() =>
-                  go("customers/list")
+                  go(
+                    "customers/list"
+                  )
                 }
               />
             )}
@@ -1390,7 +1869,11 @@ export default function FinanceCustomersPage() {
             !canSearchCustomers &&
             !canViewCustomerList &&
             !canViewBlocklist && (
-              <div style={emptyActionsBox}>
+              <div
+                style={
+                  emptyActionsBox
+                }
+              >
                 لا توجد أدوات متاحة ضمن صلاحياتك الحالية.
               </div>
             )}
@@ -1398,7 +1881,9 @@ export default function FinanceCustomersPage() {
 
         {canVerifyCustomers && (
           <section
-            style={verificationHighlight}
+            style={
+              verificationHighlight
+            }
           >
             <div
               style={
@@ -1437,8 +1922,14 @@ export default function FinanceCustomersPage() {
         )}
 
         {canViewGroups && (
-          <section style={groupsPanel}>
-            <div style={groupsPanelHeader}>
+          <section
+            style={groupsPanel}
+          >
+            <div
+              style={
+                groupsPanelHeader
+              }
+            >
               <SectionTitle
                 icon="🗂️"
                 title="مجموعات العملاء"
@@ -1449,22 +1940,25 @@ export default function FinanceCustomersPage() {
                   groupsHeaderActions
                 }
               >
-                {groupsError && branchId && (
-                  <button
-                    type="button"
-                    style={retryButton}
-                    onClick={() =>
-                      void loadGroups(
-                        branchId
-                      )
-                    }
-                    disabled={
-                      groupsLoading
-                    }
-                  >
-                    إعادة المحاولة
-                  </button>
-                )}
+                {groupsError &&
+                  branchId && (
+                    <button
+                      type="button"
+                      style={
+                        retryButton
+                      }
+                      onClick={() =>
+                        void loadGroups(
+                          branchId
+                        )
+                      }
+                      disabled={
+                        groupsLoading
+                      }
+                    >
+                      إعادة المحاولة
+                    </button>
+                  )}
 
                 {canManageGroups && (
                   <button
@@ -1494,24 +1988,39 @@ export default function FinanceCustomersPage() {
               </div>
             )}
 
-            <div style={groupsSection}>
+            <div
+              style={
+                groupsSection
+              }
+            >
               {groupsLoading ? (
                 <div
-                  style={emptyGroupCard}
+                  style={
+                    emptyGroupCard
+                  }
                 >
                   جاري تحميل مجموعات العملاء...
                 </div>
-              ) : groups.length === 0 ? (
+              ) : groups.length ===
+                0 ? (
                 <div
-                  style={emptyGroupCard}
+                  style={
+                    emptyGroupCard
+                  }
                 >
                   لا توجد مجموعات عملاء حتى الآن
                 </div>
               ) : (
                 paginatedGroups.map(
-                  (group, index) => {
+                  (
+                    group,
+                    index
+                  ) => {
                     const groupNumberValue =
-                      (currentPage - 1) *
+                      (
+                        currentPage -
+                        1
+                      ) *
                         ITEMS_PER_PAGE +
                       index +
                       1;
@@ -1526,8 +2035,12 @@ export default function FinanceCustomersPage() {
 
                     return (
                       <article
-                        key={group.id}
-                        style={groupCard}
+                        key={
+                          group.id
+                        }
+                        style={
+                          groupCard
+                        }
                       >
                         <button
                           type="button"
@@ -1568,13 +2081,19 @@ export default function FinanceCustomersPage() {
                           </div>
 
                           <span
-                            style={groupName}
+                            style={
+                              groupName
+                            }
                           >
-                            {group.name}
+                            {
+                              group.name
+                            }
                           </span>
 
                           <span
-                            style={groupHint}
+                            style={
+                              groupHint
+                            }
                           >
                             فتح عملاء المجموعة
                           </span>
@@ -1596,11 +2115,9 @@ export default function FinanceCustomersPage() {
                                   group
                                 )
                               }
-                              disabled={
-                                Boolean(
-                                  groupActionLoading
-                                )
-                              }
+                              disabled={Boolean(
+                                groupActionLoading
+                              )}
                             >
                               {editing
                                 ? "جاري التعديل..."
@@ -1617,11 +2134,9 @@ export default function FinanceCustomersPage() {
                                   group
                                 )
                               }
-                              disabled={
-                                Boolean(
-                                  groupActionLoading
-                                )
-                              }
+                              disabled={Boolean(
+                                groupActionLoading
+                              )}
                             >
                               {deleting
                                 ? "جاري الحذف..."
@@ -1638,25 +2153,32 @@ export default function FinanceCustomersPage() {
 
             {totalPages > 1 && (
               <div
-                style={paginationBox}
+                style={
+                  paginationBox
+                }
               >
                 <button
                   type="button"
                   style={{
                     ...paginationButton,
                     opacity:
-                      currentPage === 1
+                      currentPage ===
+                      1
                         ? 0.5
                         : 1,
                   }}
                   disabled={
-                    currentPage === 1
+                    currentPage ===
+                    1
                   }
                   onClick={() =>
                     setCurrentPage(
-                      (page) =>
+                      (
+                        page
+                      ) =>
                         Math.max(
-                          page - 1,
+                          page -
+                            1,
                           1
                         )
                     )
@@ -1666,9 +2188,12 @@ export default function FinanceCustomersPage() {
                 </button>
 
                 <span
-                  style={paginationText}
+                  style={
+                    paginationText
+                  }
                 >
-                  صفحة {currentPage} من{" "}
+                  صفحة{" "}
+                  {currentPage} من{" "}
                   {totalPages}
                 </span>
 
@@ -1688,9 +2213,12 @@ export default function FinanceCustomersPage() {
                   }
                   onClick={() =>
                     setCurrentPage(
-                      (page) =>
+                      (
+                        page
+                      ) =>
                         Math.min(
-                          page + 1,
+                          page +
+                            1,
                           totalPages
                         )
                     )
@@ -1703,7 +2231,11 @@ export default function FinanceCustomersPage() {
           </section>
         )}
 
-        <div style={backWrapper}>
+        <div
+          style={
+            backWrapper
+          }
+        >
           <button
             type="button"
             style={backButton}
@@ -1718,25 +2250,41 @@ export default function FinanceCustomersPage() {
 
       {showVerificationModal && (
         <div
-          style={modalOverlay}
+          style={
+            modalOverlay
+          }
           onMouseDown={
             closeVerificationModal
           }
         >
           <section
-            style={verificationModal}
-            onMouseDown={(event) =>
+            style={
+              verificationModal
+            }
+            onMouseDown={(
+              event
+            ) =>
               event.stopPropagation()
             }
           >
-            <div style={modalHeader}>
-              <h2 style={modalTitle}>
+            <div
+              style={
+                modalHeader
+              }
+            >
+              <h2
+                style={
+                  modalTitle
+                }
+              >
                 التحقق من العميل
               </h2>
 
               <button
                 type="button"
-                style={closeButton}
+                style={
+                  closeButton
+                }
                 onClick={
                   closeVerificationModal
                 }
@@ -1765,7 +2313,10 @@ export default function FinanceCustomersPage() {
                   )
                 }
               >
-                <span>⚖️</span>
+                <span>
+                  ⚖️
+                </span>
+
                 التحقق من ناجز
               </button>
 
@@ -1780,7 +2331,10 @@ export default function FinanceCustomersPage() {
                   )
                 }
               >
-                <span>📊</span>
+                <span>
+                  📊
+                </span>
+
                 التحقق من سمة / ملم
               </button>
             </div>
@@ -1790,11 +2344,17 @@ export default function FinanceCustomersPage() {
                 internalVerificationBox
               }
             >
-              <h3 style={internalTitle}>
+              <h3
+                style={
+                  internalTitle
+                }
+              >
                 أنشطة العميل السابقة
               </h3>
 
-              <label style={label}>
+              <label
+                style={label}
+              >
                 رقم الهوية
               </label>
 
@@ -1802,13 +2362,23 @@ export default function FinanceCustomersPage() {
                 value={
                   verificationNationalId
                 }
-                onChange={(event) =>
+                onChange={(
+                  event
+                ) =>
                   setVerificationNationalId(
                     normalizeDigits(
-                      event.target.value
+                      event
+                        .target
+                        .value
                     )
-                      .replace(/\D/g, "")
-                      .slice(0, 10)
+                      .replace(
+                        /\D/g,
+                        ""
+                      )
+                      .slice(
+                        0,
+                        10
+                      )
                   )
                 }
                 placeholder="أدخل رقم الهوية"
@@ -1818,8 +2388,14 @@ export default function FinanceCustomersPage() {
               />
 
               {verificationError && (
-                <div style={errorBox}>
-                  {verificationError}
+                <div
+                  style={
+                    errorBox
+                  }
+                >
+                  {
+                    verificationError
+                  }
                 </div>
               )}
 
@@ -1827,12 +2403,10 @@ export default function FinanceCustomersPage() {
                 type="button"
                 style={{
                   ...primaryButton,
-
                   opacity:
                     verificationLoading
                       ? 0.7
                       : 1,
-
                   cursor:
                     verificationLoading
                       ? "not-allowed"
@@ -1882,16 +2456,42 @@ function PageHeader({
   onHome: () => void;
   onLogout: () => void;
 }) {
-  const isMobile = screen === "mobile";
+  const isMobile =
+    screen === "mobile";
 
   return (
-    <header style={getHeroStyle(isMobile)}>
-      <div style={heroCircleOne} />
-      <div style={heroCircleTwo} />
-      <div style={heroCircleThree} />
-      <div style={heroDots} />
+    <header
+      style={getHeroStyle(
+        isMobile
+      )}
+    >
+      <div
+        style={
+          heroCircleOne
+        }
+      />
 
-      <div style={getHeroContentStyle(screen)}>
+      <div
+        style={
+          heroCircleTwo
+        }
+      />
+
+      <div
+        style={
+          heroCircleThree
+        }
+      />
+
+      <div
+        style={heroDots}
+      />
+
+      <div
+        style={getHeroContentStyle(
+          screen
+        )}
+      >
         <div
           style={getHeroUserCardStyle(
             screen
@@ -1902,7 +2502,9 @@ function PageHeader({
               screen
             )}
           >
-            <div style={employeeIcon}>
+            <div
+              style={employeeIcon}
+            >
               <UserIcon />
             </div>
 
@@ -1915,7 +2517,11 @@ function PageHeader({
             </div>
 
             {isSupportSession && (
-              <span style={supportBadge}>
+              <span
+                style={
+                  supportBadge
+                }
+              >
                 دخول دعم
               </span>
             )}
@@ -1937,8 +2543,12 @@ function PageHeader({
                     ? 0.65
                     : 1,
               }}
-              onClick={onLogout}
-              disabled={logoutLoading}
+              onClick={
+                onLogout
+              }
+              disabled={
+                logoutLoading
+              }
             >
               <LogoutIcon />
 
@@ -1973,7 +2583,9 @@ function PageHeader({
           )}
         >
           <h1
-            style={getTitleStyle(screen)}
+            style={getTitleStyle(
+              screen
+            )}
           >
             العملاء
           </h1>
@@ -1997,12 +2609,24 @@ function SectionTitle({
   title: string;
 }) {
   return (
-    <div style={sectionTitleRow}>
-      <span style={sectionTitleIcon}>
+    <div
+      style={
+        sectionTitleRow
+      }
+    >
+      <span
+        style={
+          sectionTitleIcon
+        }
+      >
         {icon}
       </span>
 
-      <h2 style={sectionHeading}>
+      <h2
+        style={
+          sectionHeading
+        }
+      >
         {title}
       </h2>
     </div>
@@ -2032,37 +2656,50 @@ function ActionCard({
     blue: {
       background:
         "linear-gradient(135deg,#eff6ff,#ffffff)",
-      border: "#bfdbfe",
-      iconBackground: "#dbeafe",
-      color: "#1d4ed8",
+      border:
+        "#bfdbfe",
+      iconBackground:
+        "#dbeafe",
+      color:
+        "#1d4ed8",
     },
 
     green: {
       background:
         "linear-gradient(135deg,#f0fdf4,#ffffff)",
-      border: "#bbf7d0",
-      iconBackground: "#dcfce7",
-      color: "#15803d",
+      border:
+        "#bbf7d0",
+      iconBackground:
+        "#dcfce7",
+      color:
+        "#15803d",
     },
 
     teal: {
       background:
         "linear-gradient(135deg,#f0fdfa,#ffffff)",
-      border: "#99f6e4",
-      iconBackground: "#ccfbf1",
-      color: "#0f766e",
+      border:
+        "#99f6e4",
+      iconBackground:
+        "#ccfbf1",
+      color:
+        "#0f766e",
     },
 
     red: {
       background:
         "linear-gradient(135deg,#fef2f2,#ffffff)",
-      border: "#fecaca",
-      iconBackground: "#fee2e2",
-      color: "#b91c1c",
+      border:
+        "#fecaca",
+      iconBackground:
+        "#fee2e2",
+      color:
+        "#b91c1c",
     },
   };
 
-  const selectedTone = tones[tone];
+  const selectedTone =
+    tones[tone];
 
   return (
     <button
@@ -2089,7 +2726,11 @@ function ActionCard({
         {icon}
       </span>
 
-      <strong style={actionCardTitle}>
+      <strong
+        style={
+          actionCardTitle
+        }
+      >
         {title}
       </strong>
 
@@ -2111,85 +2752,324 @@ function VerificationResultCard({
 }: {
   result: VerificationResult;
 }) {
-  const status =
-    result.result_status || "";
-
-  const appearance =
-    status === "regular"
-      ? {
-          border: "#bbf7d0",
-          background: "#f0fdf4",
-          icon: "✅",
-          title: "✅ العميل منتظم",
+  if (
+    !result.found ||
+    !result.customer
+  ) {
+    return (
+      <div
+        style={
+          verificationEmptyResult
         }
-      : status === "overdue"
-        ? {
-            border: "#fde68a",
-            background: "#fffbeb",
-            icon: "⚠️",
-            title:
-              result.result_title ||
-              "يوجد تأخر سابق",
+      >
+        <span
+          style={
+            verificationEmptyIcon
           }
-        : status === "no_activity"
-          ? {
-              border: "#bfdbfe",
-              background: "#eff6ff",
-              icon: "ℹ️",
-              title:
-                result.result_title ||
-                "لا توجد أنشطة سابقة",
-            }
-          : {
-              border: "#fecaca",
-              background: "#fef2f2",
-              icon: "❌",
-              title:
-                result.result_title ||
-                "نتيجة التحقق",
-            };
+        >
+          ℹ️
+        </span>
+
+        <strong
+          style={
+            verificationEmptyTitle
+          }
+        >
+          لا توجد أنشطة سابقة
+        </strong>
+      </div>
+    );
+  }
 
   return (
     <div
-      style={{
-        ...resultCard,
-        borderColor:
-          appearance.border,
-        background:
-          appearance.background,
-      }}
+      style={
+        verificationResultsWrapper
+      }
     >
-      <div style={resultIcon}>
-        {appearance.icon}
+      <div
+        style={
+          verificationCustomerHeader
+        }
+      >
+        <div
+          style={
+            verificationCustomerIcon
+          }
+        >
+          👤
+        </div>
+
+        <div
+          style={
+            verificationCustomerInfo
+          }
+        >
+          <strong
+            style={
+              verificationCustomerName
+            }
+          >
+            {result.customer
+              .fullName ||
+              "العميل"}
+          </strong>
+
+          <span
+            style={
+              verificationCustomerNationalId
+            }
+          >
+            رقم الهوية:{" "}
+            {
+              result.customer
+                .nationalId
+            }
+          </span>
+        </div>
       </div>
 
-      <div style={resultContent}>
-        <h3 style={resultTitle}>
-          {appearance.title}
-        </h3>
-
-        <p style={resultDescription}>
-          {result.result_description ||
-            "لا توجد تفاصيل إضافية."}
-        </p>
-
-        {result.has_activity && (
-          <div style={resultMeta}>
-            <span style={resultMetaItem}>
-              عدد الأنشطة:{" "}
-              {result.contracts_count || 0}
-            </span>
-
-            <span style={resultMetaItem}>
-              المتأخرات:{" "}
-              {result.overdue_contracts_count ||
-                0}
-            </span>
-          </div>
-        )}
-      </div>
+      {result.contracts
+        .length === 0 ? (
+        <div
+          style={
+            verificationEmptyContracts
+          }
+        >
+          لا توجد عقود ظاهرة لهذا العميل
+        </div>
+      ) : (
+        <div
+          style={
+            verificationContractsList
+          }
+        >
+          {result.contracts.map(
+            (
+              contract,
+              index
+            ) => (
+              <VerificationContractCard
+                key={`${contract.date}-${contract.amount}-${index}`}
+                contract={
+                  contract
+                }
+              />
+            )
+          )}
+        </div>
+      )}
     </div>
   );
+}
+
+function VerificationContractCard({
+  contract,
+}: {
+  contract:
+    VerificationContract;
+}) {
+  const positionAppearance =
+    getVerificationPositionAppearance(
+      contract.position
+    );
+
+  return (
+    <article
+      style={
+        verificationContractCard
+      }
+    >
+      <div
+        style={
+          verificationContractGrid
+        }
+      >
+        <VerificationContractField
+          label="مبلغ العقد"
+          value={formatVerificationAmount(
+            contract.amount
+          )}
+        />
+
+        <VerificationContractField
+          label="تاريخ العقد"
+          value={formatVerificationDate(
+            contract.date
+          )}
+        />
+
+        <VerificationContractField
+          label="حالة العقد"
+          value={
+            contract.state
+          }
+          valueStyle={{
+            ...verificationStateBadge,
+            ...(contract.state ===
+            "مغلق"
+              ? verificationClosedStateBadge
+              : verificationActiveStateBadge),
+          }}
+        />
+
+        <VerificationContractField
+          label="وضع العقد"
+          value={
+            contract.position
+          }
+          valueStyle={{
+            ...verificationPositionBadge,
+            color:
+              positionAppearance.color,
+            borderColor:
+              positionAppearance.border,
+            background:
+              positionAppearance.background,
+          }}
+        />
+      </div>
+    </article>
+  );
+}
+
+function VerificationContractField({
+  label,
+  value,
+  valueStyle,
+}: {
+  label: string;
+  value: string;
+  valueStyle?:
+    CSSProperties;
+}) {
+  return (
+    <div
+      style={
+        verificationContractField
+      }
+    >
+      <span
+        style={
+          verificationContractFieldLabel
+        }
+      >
+        {label}
+      </span>
+
+      <span
+        style={
+          valueStyle ||
+          verificationContractFieldValue
+        }
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function getVerificationPositionAppearance(
+  position:
+    VerificationContractPosition
+) {
+  if (
+    position ===
+    "متعثر"
+  ) {
+    return {
+      color:
+        "#b91c1c",
+      border:
+        "#fecaca",
+      background:
+        "#fef2f2",
+    };
+  }
+
+  if (
+    position ===
+    "متأخر"
+  ) {
+    return {
+      color:
+        "#a16207",
+      border:
+        "#fde68a",
+      background:
+        "#fffbeb",
+    };
+  }
+
+  return {
+    color:
+      "#15803d",
+    border:
+      "#bbf7d0",
+    background:
+      "#f0fdf4",
+  };
+}
+
+function formatVerificationAmount(
+  value: number
+) {
+  const amount =
+    Number(value);
+
+  if (
+    !Number.isFinite(
+      amount
+    )
+  ) {
+    return "0 ر.س";
+  }
+
+  return `${new Intl.NumberFormat(
+    "ar-SA",
+    {
+      maximumFractionDigits:
+        2,
+    }
+  ).format(amount)} ر.س`;
+}
+
+function formatVerificationDate(
+  value: string
+) {
+  const cleanValue =
+    String(
+      value || ""
+    ).trim();
+
+  if (!cleanValue) {
+    return "—";
+  }
+
+  const date =
+    new Date(
+      `${cleanValue}T00:00:00`
+    );
+
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
+    return cleanValue;
+  }
+
+  return new Intl.DateTimeFormat(
+    "ar-SA",
+    {
+      year:
+        "numeric",
+      month:
+        "2-digit",
+      day:
+        "2-digit",
+    }
+  ).format(date);
 }
 
 function UserIcon() {
@@ -2293,14 +3173,18 @@ function normalizeDigits(
       /[٠-٩]/g,
       (digit) =>
         "٠١٢٣٤٥٦٧٨٩"
-          .indexOf(digit)
+          .indexOf(
+            digit
+          )
           .toString()
     )
     .replace(
       /[۰-۹]/g,
       (digit) =>
         "۰۱۲۳۴۵۶۷۸۹"
-          .indexOf(digit)
+          .indexOf(
+            digit
+          )
           .toString()
     );
 }
@@ -2318,15 +3202,19 @@ function GlobalStyles() {
 
       button,
       input {
-        font-family: var(--font-almarai), sans-serif;
+        font-family:
+          var(--font-almarai),
+          sans-serif;
       }
 
       button {
-        -webkit-tap-highlight-color: transparent;
+        -webkit-tap-highlight-color:
+          transparent;
       }
 
       button:disabled {
-        cursor: not-allowed !important;
+        cursor:
+          not-allowed !important;
         opacity: 0.65;
       }
 
@@ -2338,24 +3226,33 @@ function GlobalStyles() {
       }
 
       .customer-action-card:hover {
-        transform: translateY(-2px);
+        transform:
+          translateY(-2px);
+
         box-shadow:
-          0 14px 28px rgba(15, 23, 42, 0.08) !important;
+          0 14px 28px
+          rgba(
+            15,
+            23,
+            42,
+            0.08
+          ) !important;
       }
 
       .customer-action-card:active {
-        transform: scale(0.985);
+        transform:
+          scale(0.985);
       }
 
       @keyframes customersPageSpin {
         to {
-          transform: rotate(360deg);
+          transform:
+            rotate(360deg);
         }
       }
     `}</style>
   );
 }
-
 function getPageStyle(
   isMobile: boolean
 ): CSSProperties {
@@ -3685,81 +4582,279 @@ const errorBox: CSSProperties = {
   fontWeight: 800,
 };
 
-const resultCard: CSSProperties = {
-  display: "flex",
-
-  alignItems: "flex-start",
-
-  gap: 13,
-
+const verificationEmptyResult: CSSProperties = {
   marginTop: 14,
 
-  padding: 14,
+  minHeight: 86,
 
   border:
-    "1px solid #e2e8f0",
+    "1px solid #bfdbfe",
 
   borderRadius: 17,
+
+  background:
+    "linear-gradient(135deg,#eff6ff,#ffffff)",
+
+  padding: 16,
+
+  display: "flex",
+
+  alignItems: "center",
+  justifyContent: "center",
+
+  flexDirection: "column",
+
+  gap: 8,
+
+  textAlign: "center",
 };
 
-const resultIcon: CSSProperties = {
-  fontSize: 29,
+const verificationEmptyIcon: CSSProperties = {
+  fontSize: 28,
   lineHeight: 1,
-
-  flex: "0 0 auto",
 };
 
-const resultContent: CSSProperties = {
-  minWidth: 0,
-};
+const verificationEmptyTitle: CSSProperties = {
+  color: "#1e40af",
 
-const resultTitle: CSSProperties = {
-  margin: 0,
-
-  color: "#0f172a",
-
-  fontSize: 18,
+  fontSize: 15,
   fontWeight: 900,
 
   fontFamily:
     "var(--font-almarai), sans-serif",
 };
 
-const resultDescription: CSSProperties = {
-  margin: "7px 0 0",
+const verificationResultsWrapper: CSSProperties = {
+  marginTop: 14,
 
+  display: "grid",
+
+  gap: 12,
+};
+
+const verificationCustomerHeader: CSSProperties = {
+  display: "flex",
+
+  alignItems: "center",
+
+  gap: 12,
+
+  padding: 14,
+
+  border:
+    "1px solid #bfdbfe",
+
+  borderRadius: 17,
+
+  background:
+    "linear-gradient(135deg,#eff6ff,#ffffff)",
+};
+
+const verificationCustomerIcon: CSSProperties = {
+  width: 46,
+  height: 46,
+
+  borderRadius: 15,
+
+  background: "#dbeafe",
+
+  display: "flex",
+
+  alignItems: "center",
+  justifyContent: "center",
+
+  fontSize: 22,
+
+  flex: "0 0 auto",
+};
+
+const verificationCustomerInfo: CSSProperties = {
+  minWidth: 0,
+
+  display: "grid",
+
+  gap: 5,
+};
+
+const verificationCustomerName: CSSProperties = {
+  color: "#0f172a",
+
+  fontSize: 17,
+  fontWeight: 900,
+
+  overflowWrap: "anywhere",
+
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const verificationCustomerNationalId: CSSProperties = {
   color: "#475569",
 
   fontSize: 13,
+  fontWeight: 800,
 
-  lineHeight: 1.8,
+  direction: "rtl",
 };
 
-const resultMeta: CSSProperties = {
+const verificationEmptyContracts: CSSProperties = {
+  padding: 16,
+
+  border:
+    "1px dashed #cbd5e1",
+
+  borderRadius: 16,
+
+  background: "#ffffff",
+
+  color: "#64748b",
+
+  textAlign: "center",
+
+  fontSize: 13,
+  fontWeight: 800,
+};
+
+const verificationContractsList: CSSProperties = {
+  display: "grid",
+
+  gap: 10,
+};
+
+const verificationContractCard: CSSProperties = {
+  width: "100%",
+
+  border:
+    "1px solid #dbe3ef",
+
+  borderRadius: 17,
+
+  background:
+    "linear-gradient(145deg,#ffffff,#f8fbff)",
+
+  padding: 14,
+
+  boxShadow:
+    "0 8px 18px rgba(15,23,42,0.04)",
+};
+
+const verificationContractGrid: CSSProperties = {
+  display: "grid",
+
+  gridTemplateColumns:
+    "repeat(2,minmax(0,1fr))",
+
+  gap: 10,
+};
+
+const verificationContractField: CSSProperties = {
+  minWidth: 0,
+
+  minHeight: 68,
+
+  padding: 11,
+
+  border:
+    "1px solid #e2e8f0",
+
+  borderRadius: 14,
+
+  background:
+    "rgba(255,255,255,0.86)",
+
   display: "flex",
 
-  flexWrap: "wrap",
+  flexDirection: "column",
+
+  alignItems: "flex-start",
+  justifyContent: "center",
 
   gap: 7,
-
-  marginTop: 10,
 };
 
-const resultMetaItem: CSSProperties = {
-  padding: "6px 9px",
+const verificationContractFieldLabel: CSSProperties = {
+  color: "#64748b",
+
+  fontSize: 11,
+  fontWeight: 800,
+};
+
+const verificationContractFieldValue: CSSProperties = {
+  color: "#0f172a",
+
+  fontSize: 14,
+  fontWeight: 900,
+
+  overflowWrap: "anywhere",
+
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const verificationStateBadge: CSSProperties = {
+  display: "inline-flex",
+
+  alignItems: "center",
+  justifyContent: "center",
+
+  width: "fit-content",
+
+  minHeight: 29,
+
+  padding: "5px 10px",
 
   borderRadius: 999,
 
-  background:
-    "rgba(255,255,255,0.72)",
-
-  border:
-    "1px solid rgba(148,163,184,0.30)",
-
-  color: "#334155",
+  border: "1px solid",
 
   fontSize: 12,
   fontWeight: 900,
+
+  whiteSpace: "nowrap",
+
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const verificationActiveStateBadge: CSSProperties = {
+  color: "#1d4ed8",
+
+  borderColor: "#bfdbfe",
+
+  background: "#eff6ff",
+};
+
+const verificationClosedStateBadge: CSSProperties = {
+  color: "#475569",
+
+  borderColor: "#cbd5e1",
+
+  background: "#f8fafc",
+};
+
+const verificationPositionBadge: CSSProperties = {
+  display: "inline-flex",
+
+  alignItems: "center",
+  justifyContent: "center",
+
+  width: "fit-content",
+
+  minHeight: 29,
+
+  padding: "5px 10px",
+
+  borderRadius: 999,
+
+  border: "1px solid",
+
+  fontSize: 12,
+  fontWeight: 900,
+
+  whiteSpace: "nowrap",
+
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const accessDeniedCard: CSSProperties = {
