@@ -7,41 +7,114 @@ import {
   verifyAdminSupportSessionToken,
 } from "@/lib/adminSupportSession";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 type SupportUserRow = {
   id: string;
   full_name: string | null;
   username: string;
   role: string;
   is_active: boolean;
+  session_version: number;
 };
 
 type PermissionRow = {
   permission_key: string;
 };
 
+function noStoreHeaders() {
+  return {
+    "Cache-Control":
+      "no-store, no-cache, must-revalidate, proxy-revalidate",
+    Pragma: "no-cache",
+    Expires: "0",
+    "X-Content-Type-Options": "nosniff",
+  };
+}
+
+function clearSessionCookie(response: NextResponse) {
+  response.cookies.set(ADMIN_SUPPORT_COOKIE_NAME, "", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    path: "/",
+    maxAge: 0,
+    priority: "high",
+  });
+
+  return response;
+}
+
+function unauthenticatedResponse(
+  message: string,
+  clearCookie = false
+) {
+  const response = NextResponse.json(
+    {
+      ok: false,
+      authenticated: false,
+      message,
+    },
+    {
+      status: 401,
+      headers: noStoreHeaders(),
+    }
+  );
+
+  return clearCookie
+    ? clearSessionCookie(response)
+    : response;
+}
+
+function normalizeSessionVersion(value: unknown): number | null {
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value < 0
+  ) {
+    return null;
+  }
+
+  return value;
+}
+
+function normalizePermissions(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      value
+        .filter(
+          (permission): permission is string =>
+            typeof permission === "string"
+        )
+        .map((permission) => permission.trim())
+        .filter(
+          (permission) =>
+            permission.length > 0 &&
+            permission.length <= 100
+        )
+    )
+  );
+}
+
 export async function GET() {
   try {
     const cookieStore = await cookies();
+
     const token = cookieStore.get(
       ADMIN_SUPPORT_COOKIE_NAME
     )?.value;
 
-    const session =
-      verifyAdminSupportSessionToken(token);
+    const session = verifyAdminSupportSessionToken(token);
 
     if (!session) {
-      return NextResponse.json(
-        {
-          ok: false,
-          authenticated: false,
-          message: "انتهت جلسة الدخول",
-        },
-        {
-          status: 401,
-          headers: {
-            "Cache-Control": "no-store",
-          },
-        }
+      return unauthenticatedResponse(
+        "انتهت جلسة الدخول",
+        true
       );
     }
 
@@ -49,7 +122,14 @@ export async function GET() {
       await supabaseAdmin
         .from("admin_support_users")
         .select(
-          "id, full_name, username, role, is_active"
+          `
+          id,
+          full_name,
+          username,
+          role,
+          is_active,
+          session_version
+        `
         )
         .eq("id", session.userId)
         .maybeSingle();
@@ -68,56 +148,39 @@ export async function GET() {
         },
         {
           status: 500,
-          headers: {
-            "Cache-Control": "no-store",
-          },
+          headers: noStoreHeaders(),
         }
       );
     }
 
-    const user = userData as
-      | SupportUserRow
-      | null;
+    const user = userData as SupportUserRow | null;
 
     if (!user || !user.is_active) {
-      const response = NextResponse.json(
-        {
-          ok: false,
-          authenticated: false,
-          message: "الحساب غير موجود أو غير مفعل",
-        },
-        {
-          status: 401,
-          headers: {
-            "Cache-Control": "no-store",
-          },
-        }
+      return unauthenticatedResponse(
+        "الحساب غير موجود أو غير مفعل",
+        true
       );
+    }
 
-      response.cookies.set(
-        ADMIN_SUPPORT_COOKIE_NAME,
-        "",
-        {
-          httpOnly: true,
-          secure:
-            process.env.NODE_ENV ===
-            "production",
-          sameSite: "lax",
-          path: "/",
-          maxAge: 0,
-        }
+    const databaseSessionVersion = normalizeSessionVersion(
+      user.session_version
+    );
+
+    if (
+      databaseSessionVersion === null ||
+      databaseSessionVersion !== session.sessionVersion
+    ) {
+      return unauthenticatedResponse(
+        "تم تحديث بيانات الحساب، سجّل الدخول مرة أخرى",
+        true
       );
-
-      return response;
     }
 
     const {
       data: permissionData,
       error: permissionError,
     } = await supabaseAdmin
-      .from(
-        "admin_support_user_permissions"
-      )
+      .from("admin_support_user_permissions")
       .select("permission_key")
       .eq("user_id", user.id);
 
@@ -135,22 +198,16 @@ export async function GET() {
         },
         {
           status: 500,
-          headers: {
-            "Cache-Control": "no-store",
-          },
+          headers: noStoreHeaders(),
         }
       );
     }
 
-    const permissions = (
-      (permissionData || []) as PermissionRow[]
-    )
-      .map((item) => item.permission_key)
-      .filter(
-        (permission): permission is string =>
-          typeof permission === "string" &&
-          permission.trim().length > 0
-      );
+    const permissions = normalizePermissions(
+      ((permissionData || []) as PermissionRow[]).map(
+        (item) => item.permission_key
+      )
+    );
 
     return NextResponse.json(
       {
@@ -159,18 +216,16 @@ export async function GET() {
         user: {
           id: user.id,
           full_name:
-            user.full_name?.trim() ||
-            user.username,
+            user.full_name?.trim() || user.username,
           username: user.username,
           role: user.role,
           permissions,
+          session_version: databaseSessionVersion,
         },
       },
       {
         status: 200,
-        headers: {
-          "Cache-Control": "no-store",
-        },
+        headers: noStoreHeaders(),
       }
     );
   } catch (error) {
@@ -187,9 +242,7 @@ export async function GET() {
       },
       {
         status: 500,
-        headers: {
-          "Cache-Control": "no-store",
-        },
+        headers: noStoreHeaders(),
       }
     );
   }
