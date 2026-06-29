@@ -1,4 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import {
+  NextRequest,
+  NextResponse,
+} from "next/server";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
@@ -13,8 +16,15 @@ export const revalidate = 0;
 
 const DEFAULT_PAGE_SIZE = 25;
 const MAX_PAGE_SIZE = 100;
+
 const DEFAULT_LOGS_PAGE_SIZE = 50;
 const MAX_LOGS_PAGE_SIZE = 100;
+
+/*
+ * يجب أن تتطابق هذه القيمة مع قيد role
+ * داخل جدول finance_branch_users.
+ */
+const BRANCH_MANAGER_ROLE = "مدير فرع";
 
 type PermissionRow = {
   user_id: string;
@@ -43,15 +53,26 @@ type PaginationInput = {
   to: number;
 };
 
-function noStoreHeaders(): Record<string, string> {
+function noStoreHeaders(): Record<
+  string,
+  string
+> {
   return {
     "Cache-Control":
       "private, no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+
     Pragma: "no-cache",
     Expires: "0",
-    "X-Content-Type-Options": "nosniff",
-    "Referrer-Policy": "no-referrer",
-    "X-Frame-Options": "DENY",
+
+    "X-Content-Type-Options":
+      "nosniff",
+
+    "Referrer-Policy":
+      "no-referrer",
+
+    "X-Frame-Options":
+      "DENY",
+
     Vary: "Cookie",
   };
 }
@@ -61,16 +82,18 @@ function createErrorResponse(
   status: number,
   clearCookie = false
 ): NextResponse {
-  const response = NextResponse.json(
-    {
-      ok: false,
-      message,
-    },
-    {
-      status,
-      headers: noStoreHeaders(),
-    }
-  );
+  const response =
+    NextResponse.json(
+      {
+        ok: false,
+        message,
+      },
+      {
+        status,
+        headers:
+          noStoreHeaders(),
+      }
+    );
 
   if (clearCookie) {
     response.cookies.set(
@@ -78,12 +101,17 @@ function createErrorResponse(
       "",
       {
         httpOnly: true,
+
         secure:
-          process.env.NODE_ENV === "production",
+          process.env.NODE_ENV ===
+          "production",
+
         sameSite: "strict",
         path: "/",
+
         maxAge: 0,
         expires: new Date(0),
+
         priority: "high",
       }
     );
@@ -104,13 +132,18 @@ function parsePositiveInteger(
   const parsed = Number(value);
 
   if (
-    !Number.isSafeInteger(parsed) ||
+    !Number.isSafeInteger(
+      parsed
+    ) ||
     parsed < 1
   ) {
     return fallback;
   }
 
-  return Math.min(parsed, maximum);
+  return Math.min(
+    parsed,
+    maximum
+  );
 }
 
 function getPagination(
@@ -120,20 +153,29 @@ function getPagination(
   defaultPageSize: number,
   maximumPageSize: number
 ): PaginationInput {
-  const page = parsePositiveInteger(
-    request.nextUrl.searchParams.get(pageKey),
-    1,
-    Number.MAX_SAFE_INTEGER
-  );
+  const page =
+    parsePositiveInteger(
+      request.nextUrl.searchParams.get(
+        pageKey
+      ),
+      1,
+      Number.MAX_SAFE_INTEGER
+    );
 
-  const pageSize = parsePositiveInteger(
-    request.nextUrl.searchParams.get(pageSizeKey),
-    defaultPageSize,
-    maximumPageSize
-  );
+  const pageSize =
+    parsePositiveInteger(
+      request.nextUrl.searchParams.get(
+        pageSizeKey
+      ),
+      defaultPageSize,
+      maximumPageSize
+    );
 
-  const from = (page - 1) * pageSize;
-  const to = from + pageSize - 1;
+  const from =
+    (page - 1) * pageSize;
+
+  const to =
+    from + pageSize - 1;
 
   return {
     page,
@@ -164,8 +206,13 @@ function getRequestedSection(
 }
 
 function shouldLoadSection(
-  requestedSection: DashboardSection,
-  section: Exclude<DashboardSection, "all">
+  requestedSection:
+    DashboardSection,
+
+  section: Exclude<
+    DashboardSection,
+    "all"
+  >
 ): boolean {
   return (
     requestedSection === "all" ||
@@ -176,35 +223,71 @@ function shouldLoadSection(
 function createPermissionsMap(
   rows: PermissionRow[]
 ): Map<string, string[]> {
-  const map = new Map<string, string[]>();
+  const map =
+    new Map<
+      string,
+      string[]
+    >();
 
   for (const row of rows) {
     if (
-      typeof row.user_id !== "string" ||
-      typeof row.permission_key !== "string"
+      typeof row.user_id !==
+        "string" ||
+      typeof row.permission_key !==
+        "string"
     ) {
       continue;
     }
 
-    const userId = row.user_id.trim();
+    const userId =
+      row.user_id.trim();
+
     const permissionKey =
       row.permission_key.trim();
 
-    if (!userId || !permissionKey) {
+    if (
+      !userId ||
+      !permissionKey
+    ) {
       continue;
     }
 
     const current =
       map.get(userId) ?? [];
 
-    if (!current.includes(permissionKey)) {
-      current.push(permissionKey);
+    if (
+      !current.includes(
+        permissionKey
+      )
+    ) {
+      current.push(
+        permissionKey
+      );
     }
 
-    map.set(userId, current);
+    map.set(
+      userId,
+      current
+    );
   }
 
   return map;
+}
+
+function calculateTotalPages(
+  total: number,
+  pageSize: number
+): number {
+  if (
+    total <= 0 ||
+    pageSize <= 0
+  ) {
+    return 0;
+  }
+
+  return Math.ceil(
+    total / pageSize
+  );
 }
 
 export async function GET(
@@ -222,7 +305,8 @@ export async function GET(
       );
     }
 
-    const currentUser = auth.user;
+    const currentUser =
+      auth.user;
 
     const canManageBranches =
       adminSupportHasPermission(
@@ -259,7 +343,9 @@ export async function GET(
       canEnterBranches;
 
     const requestedSection =
-      getRequestedSection(request);
+      getRequestedSection(
+        request
+      );
 
     const branchesPagination =
       getPagination(
@@ -315,53 +401,63 @@ export async function GET(
       canReadBranches
     ) {
       /*
-       * مستخدم يملك impersonate_branch فقط
-       * يحصل على الحد الأدنى اللازم للدخول إلى الفرع،
-       * ولا يحصل على السجل التجاري أو الهاتف أو الملاحظات.
+       * مستخدم يملك صلاحية الدخول للفروع فقط
+       * يحصل على الحد الأدنى اللازم للدخول.
        */
-      const branchSelect = canManageBranches
-        ? `
-            id,
-            branch_name,
-            branch_slug,
-            organization_name,
-            city,
-            commercial_record,
-            phone,
-            is_active,
-            notes,
-            created_at
-          `
-        : `
-            id,
-            branch_name,
-            branch_slug,
-            organization_name,
-            is_active
-          `;
+      const branchSelect =
+        canManageBranches
+          ? `
+              id,
+              branch_name,
+              branch_slug,
+              organization_name,
+              city,
+              commercial_record,
+              phone,
+              is_active,
+              notes,
+              created_at
+            `
+          : `
+              id,
+              branch_name,
+              branch_slug,
+              organization_name,
+              is_active
+            `;
 
       const branchesPromise =
         supabaseAdmin
-          .from("finance_branches")
-          .select(branchSelect, {
-            count: "exact",
-          })
-          .order("created_at", {
-            ascending: false,
-          })
+          .from(
+            "finance_branches"
+          )
+          .select(
+            branchSelect,
+            {
+              count: "exact",
+            }
+          )
+          .order(
+            "created_at",
+            {
+              ascending: false,
+            }
+          )
           .range(
             branchesPagination.from,
             branchesPagination.to
           );
 
       /*
-       * قائمة مدراء الفروع لا تُرسل لمن يملك
-       * صلاحية الدخول إلى الفرع فقط.
+       * لا تُرسل قائمة مدراء الفروع
+       * إلا لمن يملك صلاحية إدارة الفروع.
        */
       const managersPromise =
         canManageBranches
           ? supabaseAdmin
-              .from("finance_branch_users")
+              .from(
+                "finance_branch_users"
+              )
               .select(
                 `
                   id,
@@ -383,11 +479,14 @@ export async function GET(
               )
               .eq(
                 "role",
-                "branch_manager"
+                BRANCH_MANAGER_ROLE
               )
-              .order("created_at", {
-                ascending: false,
-              })
+              .order(
+                "created_at",
+                {
+                  ascending: false,
+                }
+              )
               .range(
                 managersPagination.from,
                 managersPagination.to
@@ -402,14 +501,27 @@ export async function GET(
         managersPromise,
       ]);
 
-      if (branchesResult.error) {
+      if (
+        branchesResult.error
+      ) {
         console.error(
           "Dashboard branches load failed:",
           {
             code:
-              branchesResult.error.code,
+              branchesResult.error
+                .code,
+
             message:
-              branchesResult.error.message,
+              branchesResult.error
+                .message,
+
+            details:
+              branchesResult.error
+                .details,
+
+            hint:
+              branchesResult.error
+                .hint,
           }
         );
 
@@ -429,14 +541,27 @@ export async function GET(
         canManageBranches &&
         managersResult
       ) {
-        if (managersResult.error) {
+        if (
+          managersResult.error
+        ) {
           console.error(
             "Dashboard managers load failed:",
             {
               code:
-                managersResult.error.code,
+                managersResult.error
+                  .code,
+
               message:
-                managersResult.error.message,
+                managersResult.error
+                  .message,
+
+              details:
+                managersResult.error
+                  .details,
+
+              hint:
+                managersResult.error
+                  .hint,
             }
           );
 
@@ -463,7 +588,9 @@ export async function GET(
     ) {
       const usersResult =
         await supabaseAdmin
-          .from("admin_support_users")
+          .from(
+            "admin_support_users"
+          )
           .select(
             `
               id,
@@ -477,22 +604,34 @@ export async function GET(
               count: "exact",
             }
           )
-          .order("created_at", {
-            ascending: false,
-          })
+          .order(
+            "created_at",
+            {
+              ascending: false,
+            }
+          )
           .range(
             supportUsersPagination.from,
             supportUsersPagination.to
           );
 
-      if (usersResult.error) {
+      if (
+        usersResult.error
+      ) {
         console.error(
           "Dashboard support users load failed:",
           {
             code:
               usersResult.error.code,
+
             message:
               usersResult.error.message,
+
+            details:
+              usersResult.error.details,
+
+            hint:
+              usersResult.error.hint,
           }
         );
 
@@ -509,18 +648,26 @@ export async function GET(
       supportUsersCount =
         usersResult.count ?? 0;
 
-      const userIds = users
-        .map((user) => user.id)
-        .filter(
-          (userId): userId is string =>
-            typeof userId === "string" &&
-            userId.length > 0
-        );
+      const userIds =
+        users
+          .map(
+            (user) => user.id
+          )
+          .filter(
+            (
+              userId
+            ): userId is string =>
+              typeof userId ===
+                "string" &&
+              userId.length > 0
+          );
 
       let permissionRows:
         PermissionRow[] = [];
 
-      if (userIds.length > 0) {
+      if (
+        userIds.length > 0
+      ) {
         const permissionsResult =
           await supabaseAdmin
             .from(
@@ -529,16 +676,32 @@ export async function GET(
             .select(
               "user_id, permission_key"
             )
-            .in("user_id", userIds);
+            .in(
+              "user_id",
+              userIds
+            );
 
-        if (permissionsResult.error) {
+        if (
+          permissionsResult.error
+        ) {
           console.error(
             "Dashboard support permissions load failed:",
             {
               code:
-                permissionsResult.error.code,
+                permissionsResult
+                  .error.code,
+
               message:
-                permissionsResult.error.message,
+                permissionsResult
+                  .error.message,
+
+              details:
+                permissionsResult
+                  .error.details,
+
+              hint:
+                permissionsResult
+                  .error.hint,
             }
           );
 
@@ -558,15 +721,17 @@ export async function GET(
           permissionRows
         );
 
-      supportUsers = users.map(
-        (user) => ({
-          ...user,
-          permissions:
-            permissionsMap.get(
-              user.id
-            ) ?? [],
-        })
-      );
+      supportUsers =
+        users.map(
+          (user) => ({
+            ...user,
+
+            permissions:
+              permissionsMap.get(
+                user.id
+              ) ?? [],
+          })
+        );
     }
 
     if (
@@ -578,7 +743,9 @@ export async function GET(
     ) {
       const logsResult =
         await supabaseAdmin
-          .from("admin_support_logs")
+          .from(
+            "admin_support_logs"
+          )
           .select(
             `
               id,
@@ -594,22 +761,36 @@ export async function GET(
               count: "exact",
             }
           )
-          .order("created_at", {
-            ascending: false,
-          })
+          .order(
+            "created_at",
+            {
+              ascending: false,
+            }
+          )
           .range(
             logsPagination.from,
             logsPagination.to
           );
 
-      if (logsResult.error) {
+      if (
+        logsResult.error
+      ) {
         console.error(
           "Dashboard logs load failed:",
           {
             code:
               logsResult.error.code,
+
             message:
-              logsResult.error.message,
+              logsResult.error
+                .message,
+
+            details:
+              logsResult.error
+                .details,
+
+            hint:
+              logsResult.error.hint,
           }
         );
 
@@ -631,12 +812,18 @@ export async function GET(
         ok: true,
 
         user: {
-          id: currentUser.id,
+          id:
+            currentUser.id,
+
           full_name:
             currentUser.fullName,
+
           username:
             currentUser.username,
-          role: currentUser.role,
+
+          role:
+            currentUser.role,
+
           permissions:
             currentUser.permissions,
         },
@@ -674,73 +861,89 @@ export async function GET(
           requestedSection,
 
         branches,
+
         branch_managers:
           branchManagers,
+
         support_users:
           supportUsers,
+
         logs,
 
         pagination: {
           branches: {
             page:
               branchesPagination.page,
+
             page_size:
               branchesPagination.pageSize,
+
             total:
               branchesCount,
+
             total_pages:
-              Math.ceil(
-                branchesCount /
-                  branchesPagination.pageSize
+              calculateTotalPages(
+                branchesCount,
+                branchesPagination.pageSize
               ),
           },
 
           branch_managers: {
             page:
               managersPagination.page,
+
             page_size:
               managersPagination.pageSize,
+
             total:
               branchManagersCount,
+
             total_pages:
-              Math.ceil(
-                branchManagersCount /
-                  managersPagination.pageSize
+              calculateTotalPages(
+                branchManagersCount,
+                managersPagination.pageSize
               ),
           },
 
           support_users: {
             page:
               supportUsersPagination.page,
+
             page_size:
               supportUsersPagination.pageSize,
+
             total:
               supportUsersCount,
+
             total_pages:
-              Math.ceil(
-                supportUsersCount /
-                  supportUsersPagination.pageSize
+              calculateTotalPages(
+                supportUsersCount,
+                supportUsersPagination.pageSize
               ),
           },
 
           logs: {
             page:
               logsPagination.page,
+
             page_size:
               logsPagination.pageSize,
+
             total:
               logsCount,
+
             total_pages:
-              Math.ceil(
-                logsCount /
-                  logsPagination.pageSize
+              calculateTotalPages(
+                logsCount,
+                logsPagination.pageSize
               ),
           },
         },
       },
       {
         status: 200,
-        headers: noStoreHeaders(),
+        headers:
+          noStoreHeaders(),
       }
     );
   } catch (error) {
@@ -748,10 +951,16 @@ export async function GET(
       "Admin support dashboard route error:",
       error instanceof Error
         ? {
-            name: error.name,
-            message: error.message,
+            name:
+              error.name,
+
+            message:
+              error.message,
           }
-        : "Unknown error"
+        : {
+            name:
+              "UnknownError",
+          }
     );
 
     return createErrorResponse(
