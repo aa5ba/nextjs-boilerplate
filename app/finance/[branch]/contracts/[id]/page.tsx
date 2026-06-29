@@ -191,6 +191,117 @@ export default function FinanceContractDetailsPage() {
   const isTablet = screen === "tablet";
   const isCompact = isMobile || isTablet;
 
+  const loadData = useCallback(
+    async (
+      currentBranchId: string,
+      isCancelled: () => boolean = () => false
+    ) => {
+      if (!currentBranchId) return;
+
+      setDataLoading(true);
+      setPageError("");
+
+      try {
+        const [contractResult, noteResult, paymentsResult] =
+          await Promise.all([
+            supabase
+              .from("finance_contracts")
+              .select(
+                `
+                *,
+                customer:finance_customers!finance_contracts_customer_id_fkey(
+                  id,
+                  full_name,
+                  national_id,
+                  phone,
+                  birth_hijri,
+                  work,
+                  work_name,
+                  address
+                ),
+                guarantor_customer:finance_customers!finance_contracts_guarantor_customer_id_fkey(
+                  id,
+                  full_name,
+                  national_id,
+                  phone,
+                  birth_hijri,
+                  work,
+                  work_name,
+                  address
+                )
+              `
+              )
+              .eq("id", contractId)
+              .eq("branch_id", currentBranchId)
+              .maybeSingle(),
+
+            supabase
+              .from("finance_promissory_notes")
+              .select(
+                "id, note_number, amount, due_date, status"
+              )
+              .eq("contract_id", contractId)
+              .eq("branch_id", currentBranchId)
+              .order("created_at", {
+                ascending: false,
+              })
+              .limit(1)
+              .maybeSingle(),
+
+            supabase
+              .from("finance_payments")
+              .select(
+                "id, payment_amount, payment_type, created_at, is_cancelled, cancelled_at, cancelled_by"
+              )
+              .eq("contract_id", contractId)
+              .eq("branch_id", currentBranchId)
+              .order("created_at", {
+                ascending: false,
+              }),
+          ]);
+
+        if (isCancelled()) return;
+
+        if (contractResult.error) {
+          throw new Error(contractResult.error.message);
+        }
+
+        if (noteResult.error) {
+          throw new Error(noteResult.error.message);
+        }
+
+        if (paymentsResult.error) {
+          throw new Error(paymentsResult.error.message);
+        }
+
+        setContract(
+          (contractResult.data as Contract | null) || null
+        );
+
+        setNote(
+          (noteResult.data as PromissoryNote | null) || null
+        );
+
+        setPayments(
+          (paymentsResult.data as Payment[] | null) || []
+        );
+      } catch (error) {
+        if (isCancelled()) return;
+
+        console.error("Contract details loading error:", error);
+
+        setPageError(
+          getErrorMessage(error, "تعذر تحميل تفاصيل العقد")
+        );
+      } finally {
+        if (!isCancelled()) {
+          setDataLoading(false);
+        }
+      }
+    },
+    [contractId]
+  );
+
   useEffect(() => {
     function updateScreen() {
       const width = window.innerWidth;
@@ -304,7 +415,7 @@ export default function FinanceContractDetailsPage() {
     return () => {
       cancelled = true;
     };
-  }, [branch, contractId, router]);
+  }, [branch, loadData, router]);
 
   useEffect(() => {
     if (!pageReady || typeof window === "undefined") {
@@ -335,11 +446,9 @@ export default function FinanceContractDetailsPage() {
     ];
 
     events.forEach((eventName) => {
-      window.addEventListener(
-        eventName,
-        handleActivity,
-        { passive: true }
-      );
+      window.addEventListener(eventName, handleActivity, {
+        passive: true,
+      });
     });
 
     const timer = window.setInterval(() => {
@@ -349,20 +458,14 @@ export default function FinanceContractDetailsPage() {
         ) || 0
       );
 
-      if (
-        expiresAt > 0 &&
-        Date.now() >= expiresAt
-      ) {
+      if (expiresAt > 0 && Date.now() >= expiresAt) {
         redirectToLogin(true);
       }
     }, 30 * 1000);
 
     return () => {
       events.forEach((eventName) => {
-        window.removeEventListener(
-          eventName,
-          handleActivity
-        );
+        window.removeEventListener(eventName, handleActivity);
       });
 
       window.clearInterval(timer);
@@ -666,156 +769,6 @@ export default function FinanceContractDetailsPage() {
 
     router.replace("/login");
   }
-
-  const loadData = useCallback(
-    async (
-      currentBranchId: string,
-      isCancelled: () => boolean =
-        () => false
-    ) => {
-      if (!currentBranchId) return;
-
-      setDataLoading(true);
-      setPageError("");
-
-      try {
-        const [
-          contractResult,
-          noteResult,
-          paymentsResult,
-        ] = await Promise.all([
-          supabase
-            .from("finance_contracts")
-            .select(
-              `
-              *,
-              customer:finance_customers!finance_contracts_customer_id_fkey(
-                id,
-                full_name,
-                national_id,
-                phone,
-                birth_hijri,
-                work,
-                work_name,
-                address
-              ),
-              guarantor_customer:finance_customers!finance_contracts_guarantor_customer_id_fkey(
-                id,
-                full_name,
-                national_id,
-                phone,
-                birth_hijri,
-                work,
-                work_name,
-                address
-              )
-            `
-            )
-            .eq("id", contractId)
-            .eq(
-              "branch_id",
-              currentBranchId
-            )
-            .maybeSingle(),
-
-          supabase
-            .from(
-              "finance_promissory_notes"
-            )
-            .select(
-              "id, note_number, amount, due_date, status"
-            )
-            .eq(
-              "contract_id",
-              contractId
-            )
-            .eq(
-              "branch_id",
-              currentBranchId
-            )
-            .order("created_at", {
-              ascending: false,
-            })
-            .limit(1)
-            .maybeSingle(),
-
-          supabase
-            .from("finance_payments")
-            .select(
-              "id, payment_amount, payment_type, created_at, is_cancelled, cancelled_at, cancelled_by"
-            )
-            .eq(
-              "contract_id",
-              contractId
-            )
-            .eq(
-              "branch_id",
-              currentBranchId
-            )
-            .order("created_at", {
-              ascending: false,
-            }),
-        ]);
-
-        if (isCancelled()) return;
-
-        if (contractResult.error) {
-          throw new Error(
-            contractResult.error.message
-          );
-        }
-
-        if (noteResult.error) {
-          throw new Error(
-            noteResult.error.message
-          );
-        }
-
-        if (paymentsResult.error) {
-          throw new Error(
-            paymentsResult.error.message
-          );
-        }
-
-        setContract(
-          (contractResult.data as
-            | Contract
-            | null) || null
-        );
-
-        setNote(
-          (noteResult.data as
-            | PromissoryNote
-            | null) || null
-        );
-
-        setPayments(
-          (paymentsResult.data as
-            | Payment[]
-            | null) || []
-        );
-      } catch (error) {
-        if (isCancelled()) return;
-
-        console.error(
-          "Contract details loading error:",
-          error
-        );
-
-        setPageError(
-          getErrorMessage(
-            error,
-            "تعذر تحميل تفاصيل العقد"
-          )
-        );
-      } finally {
-        if (!isCancelled()) {
-          setDataLoading(false);
-        }
-      }
-    },
-    [contractId]
-  );
 
   function retryLoading() {
     if (!branchId) {
@@ -1503,12 +1456,16 @@ export default function FinanceContractDetailsPage() {
   const isCancelledContract = [
     "ملغي",
     "ملغى",
-  ].includes(storedContractStatus);
+  ].includes(
+    storedContractStatus
+  );
 
-  const isClosedContract = [
+  const isStoredClosedContract = [
     "تم السداد",
     "مغلق",
-  ].includes(storedContractStatus);
+  ].includes(
+    storedContractStatus
+  );
 
   const isFullyPaid =
     remainingAmount <= 0 ||
@@ -1547,25 +1504,37 @@ export default function FinanceContractDetailsPage() {
         contractDaysAfterDue >= 7 &&
         remainingAmount > 0 &&
         !isFullyPaid &&
-        !isClosedContract &&
+        !isStoredClosedContract &&
         !isCancelledContract
     );
 
-  const displayedContractStatus = (() => {
+  const displayedContractState = (() => {
     if (isCancelledContract) {
-      return storedContractStatus;
+      return (
+        storedContractStatus ||
+        "ملغي"
+      );
+    }
+
+    if (
+      storedContractStatus ===
+      "مغلق"
+    ) {
+      return "مغلق";
     }
 
     if (
       isFullyPaid ||
-      isClosedContract
+      storedContractStatus ===
+        "تم السداد"
     ) {
-      return storedContractStatus ===
-        "مغلق"
-        ? "مغلق"
-        : "تم السداد";
+      return "تم السداد";
     }
 
+    return "نشط";
+  })();
+
+  const displayedContractPosition = (() => {
     if (hasActiveDefault) {
       return "متعثر";
     }
@@ -1580,6 +1549,10 @@ export default function FinanceContractDetailsPage() {
   const canDeclareDefault =
     Boolean(
       contract &&
+        displayedContractState ===
+          "نشط" &&
+        displayedContractPosition ===
+          "متأخر" &&
         isAutomaticallyLate &&
         !hasActiveDefault
     );
@@ -1604,6 +1577,10 @@ export default function FinanceContractDetailsPage() {
       contract?.guarantor_name
     );
 
+  const canPrintClearanceOrReopen =
+    isFullyPaid ||
+    isStoredClosedContract;
+
   return (
     <main
       dir="rtl"
@@ -1627,13 +1604,55 @@ export default function FinanceContractDetailsPage() {
           }
           status={
             contract ? (
-              <span
-                style={statusStyle(
-                  displayedContractStatus
-                )}
-              >
-                {displayedContractStatus}
-              </span>
+              <div style={headerStatuses}>
+                <div
+                  style={
+                    headerStatusItem
+                  }
+                >
+                  <span
+                    style={
+                      headerStatusLabel
+                    }
+                  >
+                    حالة العقد
+                  </span>
+
+                  <span
+                    style={statusStyle(
+                      displayedContractState
+                    )}
+                  >
+                    {
+                      displayedContractState
+                    }
+                  </span>
+                </div>
+
+                <div
+                  style={
+                    headerStatusItem
+                  }
+                >
+                  <span
+                    style={
+                      headerStatusLabel
+                    }
+                  >
+                    وضع العقد
+                  </span>
+
+                  <span
+                    style={statusStyle(
+                      displayedContractPosition
+                    )}
+                  >
+                    {
+                      displayedContractPosition
+                    }
+                  </span>
+                </div>
+              </div>
             ) : undefined
           }
           onLogout={logout}
@@ -1756,26 +1775,57 @@ export default function FinanceContractDetailsPage() {
                 value={
                   <span
                     style={statusStyle(
-                      displayedContractStatus
+                      displayedContractState
                     )}
                   >
-                    {displayedContractStatus}
+                    {
+                      displayedContractState
+                    }
                   </span>
                 }
               />
 
-              {contractDaysAfterDue !==
-                null &&
-                contractDaysAfterDue >=
-                  7 &&
-                !isFullyPaid &&
-                !isClosedContract &&
-                !isCancelledContract && (
+              <Row
+                label="وضع العقد"
+                value={
+                  <span
+                    style={statusStyle(
+                      displayedContractPosition
+                    )}
+                  >
+                    {
+                      displayedContractPosition
+                    }
+                  </span>
+                }
+              />
+
+              {isAutomaticallyLate &&
+                contractDaysAfterDue !==
+                  null && (
                   <Row
                     label="أيام التأخير"
                     value={`${contractDaysAfterDue} يوم`}
                   />
                 )}
+
+              {hasActiveDefault && (
+                <>
+                  <Row
+                    label="تاريخ إعلان التعثر"
+                    value={formatDate(
+                      contract.default_declared_at
+                    )}
+                  />
+
+                  <Row
+                    label="انتهاء مدة التعثر"
+                    value={formatDate(
+                      contract.default_expires_at
+                    )}
+                  />
+                </>
+              )}
 
               <Row
                 label="نوع التمويل"
@@ -2116,19 +2166,18 @@ export default function FinanceContractDetailsPage() {
             </InfoCard>
 
             <section style={actionsSection}>
-              {!isFullyPaid &&
-                !isClosedContract &&
-                !isCancelledContract && (
-                  <ActionButton
-                    icon="💳"
-                    title="تسجيل سداد"
-                    onClick={() =>
-                      router.push(
-                        `/finance/${branch}/payments/new?contract=${contractId}`
-                      )
-                    }
-                  />
-                )}
+              {displayedContractState ===
+                "نشط" && (
+                <ActionButton
+                  icon="💳"
+                  title="تسجيل سداد"
+                  onClick={() =>
+                    router.push(
+                      `/finance/${branch}/payments/new?contract=${contractId}`
+                    )
+                  }
+                />
+              )}
 
               {canDeclareDefault && (
                 <ActionButton
@@ -2186,7 +2235,7 @@ export default function FinanceContractDetailsPage() {
                 />
               )}
 
-              {isFullyPaid && (
+              {canPrintClearanceOrReopen && (
                 <ActionButton
                   icon="📄"
                   title="طباعة المخالصة"
@@ -2198,7 +2247,7 @@ export default function FinanceContractDetailsPage() {
                 />
               )}
 
-              {isFullyPaid && (
+              {canPrintClearanceOrReopen && (
                 <ActionButton
                   icon="🔄"
                   title={
@@ -2215,24 +2264,23 @@ export default function FinanceContractDetailsPage() {
                 />
               )}
 
-              {!isFullyPaid &&
-                !isClosedContract &&
-                !isCancelledContract && (
-                  <ActionButton
-                    icon="🔒"
-                    title={
-                      closingContract
-                        ? "جاري إغلاق العقد..."
-                        : "إغلاق العقد"
-                    }
-                    onClick={() =>
-                      void closeContract()
-                    }
-                    disabled={
-                      closingContract
-                    }
-                  />
-                )}
+              {displayedContractState ===
+                "نشط" && (
+                <ActionButton
+                  icon="🔒"
+                  title={
+                    closingContract
+                      ? "جاري إغلاق العقد..."
+                      : "إغلاق العقد"
+                  }
+                  onClick={() =>
+                    void closeContract()
+                  }
+                  disabled={
+                    closingContract
+                  }
+                />
+              )}
             </section>
           </>
         )}
@@ -2999,6 +3047,31 @@ const heroDots: CSSProperties = {
   backgroundSize:
     "14px 14px",
   zIndex: 2,
+};
+
+const headerStatuses: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 10,
+  flexWrap: "wrap",
+  direction: "rtl",
+};
+
+const headerStatusItem: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 5,
+};
+
+const headerStatusLabel: CSSProperties = {
+  color:
+    "rgba(255,255,255,0.88)",
+  fontSize: 11,
+  fontWeight: 900,
+  whiteSpace: "nowrap",
 };
 
 const inlineLoadingBox: CSSProperties = {
