@@ -56,6 +56,7 @@ const VERIFICATION_POSITIONS = [
   "متعثر",
 ] as const;
 
+const BRANCHES_PAGE_SIZE = 15;
 const DASHBOARD_PAGE_SIZE = 25;
 const DASHBOARD_LOGS_PAGE_SIZE = 50;
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -67,7 +68,7 @@ const BRANCH_SLUG_PATTERN =
   /^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$/;
 
 const USERNAME_PATTERN =
-  /^[A-Za-z0-9_\u0600-\u06FF]{3,30}$/;
+  /^[A-Za-z0-9_]{3,30}$/;
 
 type SupportPermission =
   (typeof SUPPORT_PERMISSIONS)[number]["key"];
@@ -97,6 +98,10 @@ type DashboardSection =
   | "support_users"
   | "logs";
 
+type BranchListMode =
+  | "active"
+  | "deleted";
+
 type CurrentUser = {
   id: string;
   full_name: string;
@@ -124,8 +129,12 @@ type Branch = {
   commercial_record: string | null;
   phone: string | null;
   is_active: boolean;
+  is_deleted: boolean;
   notes: string | null;
   created_at: string;
+  deleted_at: string | null;
+  deleted_by_user_id: string | null;
+  deleted_by_user_name: string | null;
 };
 
 type SupportUser = {
@@ -250,6 +259,7 @@ type PaginationState = {
 
 type DashboardPagination = {
   branches: PaginationState;
+  deleted_branches: PaginationState;
   branch_managers: PaginationState;
   support_users: PaginationState;
   logs: PaginationState;
@@ -265,6 +275,7 @@ type DashboardResponse = {
   access?: DashboardAccess;
 
   branches?: unknown;
+  deleted_branches?: unknown;
   branch_managers?: unknown;
   support_users?: unknown;
   logs?: unknown;
@@ -301,6 +312,11 @@ type PasswordDialogState = {
   value: string;
 } | null;
 
+type ArchiveDialogState = {
+  branch: Branch;
+  value: string;
+} | null;
+
 type BusyAction =
   | "dashboard"
   | "save_branch"
@@ -311,6 +327,8 @@ type BusyAction =
   | `dashboard_section:${DashboardSection}`
   | `branch_status:${string}`
   | `branch_enter:${string}`
+  | `branch_archive:${string}`
+  | `branch_restore:${string}`
   | `manager_status:${string}`
   | `manager_password:${string}`
   | `support_status:${string}`
@@ -336,6 +354,7 @@ type RequestResult<T> =
 
 type PaginationReference = {
   branchesPage: number;
+  deletedBranchesPage: number;
   managersPage: number;
   usersPage: number;
   logsPage: number;
@@ -349,6 +368,13 @@ const EMPTY_ACCESS: DashboardAccess = {
   system_settings: false,
   backup_restore: false,
   manage_verification_results: false,
+};
+
+const EMPTY_BRANCHES_PAGINATION: PaginationState = {
+  page: 1,
+  page_size: BRANCHES_PAGE_SIZE,
+  total: 0,
+  total_pages: 0,
 };
 
 const EMPTY_PAGINATION: PaginationState = {
@@ -484,7 +510,7 @@ function isValidUsername(
 function isValidPin(
   value: string
 ): boolean {
-  return /^\d{4}$/.test(value);
+  return /^\d{4,8}$/.test(value);
 }
 
 function isValidSupportPassword(
@@ -767,6 +793,11 @@ function normalizeBranch(
         value.is_active
       ),
 
+    is_deleted:
+      normalizeBoolean(
+        value.is_deleted
+      ),
+
     notes:
       nullableTextValue(
         value.notes
@@ -775,6 +806,21 @@ function normalizeBranch(
     created_at:
       normalizeDateText(
         value.created_at
+      ),
+
+    deleted_at:
+      nullableTextValue(
+        value.deleted_at
+      ),
+
+    deleted_by_user_id:
+      nullableTextValue(
+        value.deleted_by_user_id
+      ),
+
+    deleted_by_user_name:
+      nullableTextValue(
+        value.deleted_by_user_name
       ),
   };
 }
@@ -1536,7 +1582,21 @@ function buildDashboardUrl(
   searchParams.set(
     "branches_page_size",
     String(
-      DASHBOARD_PAGE_SIZE
+      BRANCHES_PAGE_SIZE
+    )
+  );
+
+  searchParams.set(
+    "deleted_branches_page",
+    String(
+      pagination.deletedBranchesPage
+    )
+  );
+
+  searchParams.set(
+    "deleted_branches_page_size",
+    String(
+      BRANCHES_PAGE_SIZE
     )
   );
 
@@ -1745,6 +1805,7 @@ export default function AdminSupportPage() {
   const paginationRef =
     useRef<PaginationReference>({
       branchesPage: 1,
+      deletedBranchesPage: 1,
       managersPage: 1,
       usersPage: 1,
       logsPage: 1,
@@ -1783,6 +1844,20 @@ export default function AdminSupportPage() {
     useState<Branch[]>([]);
 
   const [
+    deletedBranches,
+    setDeletedBranches,
+  ] =
+    useState<Branch[]>([]);
+
+  const [
+    branchListMode,
+    setBranchListMode,
+  ] =
+    useState<BranchListMode>(
+      "active"
+    );
+
+  const [
     branchManagers,
     setBranchManagers,
   ] =
@@ -1802,7 +1877,15 @@ export default function AdminSupportPage() {
     setBranchesPagination,
   ] =
     useState<PaginationState>(
-      EMPTY_PAGINATION
+      EMPTY_BRANCHES_PAGINATION
+    );
+
+  const [
+    deletedBranchesPagination,
+    setDeletedBranchesPagination,
+  ] =
+    useState<PaginationState>(
+      EMPTY_BRANCHES_PAGINATION
     );
 
   const [
@@ -1870,6 +1953,14 @@ export default function AdminSupportPage() {
     setPasswordDialog,
   ] =
     useState<PasswordDialogState>(
+      null
+    );
+
+  const [
+    archiveDialog,
+    setArchiveDialog,
+  ] =
+    useState<ArchiveDialogState>(
       null
     );
 
@@ -2585,6 +2676,25 @@ export default function AdminSupportPage() {
           if (
             normalizedAccess.manage_branches
           ) {
+            setDeletedBranches(
+              normalizeBranches(
+                payload.deleted_branches
+              )
+            );
+
+            const nextDeletedBranchesPagination =
+              normalizePaginationState(
+                pagination.deleted_branches,
+                BRANCHES_PAGE_SIZE
+              );
+
+            setDeletedBranchesPagination(
+              nextDeletedBranchesPagination
+            );
+
+            paginationRef.current.deletedBranchesPage =
+              nextDeletedBranchesPagination.page;
+
             setBranchManagers(
               normalizeBranchManagers(
                 payload.branch_managers
@@ -2604,6 +2714,17 @@ export default function AdminSupportPage() {
             paginationRef.current.managersPage =
               nextManagersPagination.page;
           } else {
+            setDeletedBranches(
+              []
+            );
+
+            setDeletedBranchesPagination(
+              EMPTY_BRANCHES_PAGINATION
+            );
+
+            paginationRef.current.deletedBranchesPage =
+              1;
+
             setBranchManagers(
               []
             );
@@ -2678,6 +2799,7 @@ export default function AdminSupportPage() {
           fullLoader?: boolean;
           section?: DashboardSection;
           branchesPage?: number;
+          deletedBranchesPage?: number;
           managersPage?: number;
           usersPage?: number;
           logsPage?: number;
@@ -2734,6 +2856,11 @@ export default function AdminSupportPage() {
               options?.branchesPage ??
               paginationRef.current
                 .branchesPage,
+
+            deletedBranchesPage:
+              options?.deletedBranchesPage ??
+              paginationRef.current
+                .deletedBranchesPage,
 
             managersPage:
               options?.managersPage ??
@@ -2890,6 +3017,9 @@ export default function AdminSupportPage() {
       branchesPage:
         branchesPagination.page,
 
+      deletedBranchesPage:
+        deletedBranchesPagination.page,
+
       managersPage:
         managersPagination.page,
 
@@ -2901,6 +3031,7 @@ export default function AdminSupportPage() {
     };
   }, [
     branchesPagination.page,
+    deletedBranchesPagination.page,
     managersPagination.page,
     usersPagination.page,
     logsPagination.page,
@@ -2911,6 +3042,7 @@ export default function AdminSupportPage() {
       fullLoader: true,
       section: "all",
       branchesPage: 1,
+      deletedBranchesPage: 1,
       managersPage: 1,
       usersPage: 1,
       logsPage: 1,
@@ -3288,12 +3420,16 @@ export default function AdminSupportPage() {
         managerFullName.trim();
 
       const cleanManagerUsername =
-        managerUsername.trim();
+        normalizeDigits(
+          managerUsername
+        )
+          .trim()
+          .toLowerCase();
 
       const cleanManagerPassword =
         cleanNumericValue(
           managerPassword,
-          4
+          8
         );
 
       if (
@@ -3388,7 +3524,7 @@ export default function AdminSupportPage() {
           )
         ) {
           showNotice(
-            "اسم مستخدم مدير الفرع يجب أن يكون من 3 إلى 30 حرفًا ويقبل العربي أو الإنجليزي أو الأرقام أو _ فقط",
+            "اسم مستخدم مدير الفرع يجب أن يكون من 3 إلى 30 خانة، ويقبل الحروف الإنجليزية والأرقام و _ فقط",
             "error"
           );
           return;
@@ -3400,7 +3536,7 @@ export default function AdminSupportPage() {
           )
         ) {
           showNotice(
-            "كلمة مرور مدير الفرع يجب أن تكون 4 أرقام فقط",
+            "كلمة مرور مدير الفرع يجب أن تكون من 4 إلى 8 أرقام",
             "error"
           );
           return;
@@ -3511,6 +3647,10 @@ export default function AdminSupportPage() {
             ? paginationRef.current
                 .branchesPage
             : 1,
+
+        deletedBranchesPage:
+          paginationRef.current
+            .deletedBranchesPage,
 
         managersPage:
           paginationRef.current
@@ -3634,9 +3774,191 @@ export default function AdminSupportPage() {
           paginationRef.current
             .branchesPage,
 
+        deletedBranchesPage:
+          paginationRef.current
+            .deletedBranchesPage,
+
         managersPage:
           paginationRef.current
             .managersPage,
+      });
+    } finally {
+      endAction(action);
+    }
+  }
+
+  function openArchiveDialog(
+    branch: Branch
+  ): void {
+    if (!access.manage_branches) {
+      showNotice(
+        "لا تملك صلاحية إدارة الفروع",
+        "error"
+      );
+      return;
+    }
+
+    setArchiveDialog({
+      branch,
+      value: "",
+    });
+  }
+
+  function closeArchiveDialog(): void {
+    setArchiveDialog(
+      null
+    );
+  }
+
+  async function archiveBranch(): Promise<void> {
+    if (!archiveDialog) {
+      return;
+    }
+
+    const branch =
+      archiveDialog.branch;
+
+    const action:
+      BusyAction =
+      `branch_archive:${branch.id}`;
+
+    if (!beginAction(action)) {
+      return;
+    }
+
+    try {
+      const confirmationName =
+        archiveDialog.value.trim();
+
+      if (
+        confirmationName !==
+        branch.branch_name
+      ) {
+        showNotice(
+          "اكتب اسم الفرع مطابقًا لتأكيد نقله إلى المحذوفة",
+          "error"
+        );
+        return;
+      }
+
+      const result =
+        await executeRequest(
+          `/api/admin-support/branches/${branch.id}`,
+          {
+            method: "DELETE",
+
+            body: JSON.stringify({
+              confirm_branch_name:
+                confirmationName,
+            }),
+          }
+        );
+
+      if (!result.ok) {
+        if (!result.aborted) {
+          showNotice(
+            result.message,
+            "error"
+          );
+        }
+
+        return;
+      }
+
+      closeArchiveDialog();
+
+      showNotice(
+        result.payload.message ||
+          "تم نقل الفرع إلى قائمة المحذوفة",
+        "success"
+      );
+
+      setBranchListMode(
+        "active"
+      );
+
+      await loadDashboard({
+        section: "branches",
+        branchesPage: 1,
+        deletedBranchesPage: 1,
+        managersPage: 1,
+      });
+    } finally {
+      endAction(action);
+    }
+  }
+
+  async function restoreBranch(
+    branch: Branch
+  ): Promise<void> {
+    if (!access.manage_branches) {
+      showNotice(
+        "لا تملك صلاحية إدارة الفروع",
+        "error"
+      );
+      return;
+    }
+
+    const action:
+      BusyAction =
+      `branch_restore:${branch.id}`;
+
+    if (!beginAction(action)) {
+      return;
+    }
+
+    try {
+      const confirmed =
+        await requestConfirmation(
+          `هل تريد استعادة فرع ${branch.branch_name}؟ سيعود معطلًا حتى تقوم بتفعيله.`,
+          {
+            title:
+              "استعادة الفرع",
+
+            confirmLabel:
+              "استعادة",
+          }
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      const result =
+        await executeRequest(
+          `/api/admin-support/branches/${branch.id}`,
+          {
+            method: "PATCH",
+
+            body: JSON.stringify({
+              action:
+                "restore",
+            }),
+          }
+        );
+
+      if (!result.ok) {
+        if (!result.aborted) {
+          showNotice(
+            result.message,
+            "error"
+          );
+        }
+
+        return;
+      }
+
+      showNotice(
+        result.payload.message ||
+          "تمت استعادة الفرع بنجاح",
+        "success"
+      );
+
+      await loadDashboard({
+        section: "branches",
+        branchesPage: 1,
+        deletedBranchesPage: 1,
+        managersPage: 1,
       });
     } finally {
       endAction(action);
@@ -3735,6 +4057,10 @@ export default function AdminSupportPage() {
           paginationRef.current
             .branchesPage,
 
+        deletedBranchesPage:
+          paginationRef.current
+            .deletedBranchesPage,
+
         managersPage:
           paginationRef.current
             .managersPage,
@@ -3764,7 +4090,7 @@ export default function AdminSupportPage() {
       const cleanPassword =
         cleanNumericValue(
           passwordDialog.value,
-          4
+          8
         );
 
       if (
@@ -3773,7 +4099,7 @@ export default function AdminSupportPage() {
         )
       ) {
         showNotice(
-          "كلمة المرور يجب أن تكون 4 أرقام فقط",
+          "كلمة المرور يجب أن تكون من 4 إلى 8 أرقام",
           "error"
         );
         return;
@@ -3820,6 +4146,10 @@ export default function AdminSupportPage() {
         branchesPage:
           paginationRef.current
             .branchesPage,
+
+        deletedBranchesPage:
+          paginationRef.current
+            .deletedBranchesPage,
 
         managersPage:
           paginationRef.current
@@ -4780,6 +5110,40 @@ export default function AdminSupportPage() {
       branchesPage:
         page,
 
+      deletedBranchesPage:
+        paginationRef.current
+          .deletedBranchesPage,
+
+      managersPage:
+        paginationRef.current
+          .managersPage,
+    });
+  }
+
+  async function goToDeletedBranchesPage(
+    page: number
+  ): Promise<void> {
+    if (
+      page < 1 ||
+      (
+        deletedBranchesPagination.total_pages > 0 &&
+        page >
+          deletedBranchesPagination.total_pages
+      )
+    ) {
+      return;
+    }
+
+    await loadDashboard({
+      section: "branches",
+
+      branchesPage:
+        paginationRef.current
+          .branchesPage,
+
+      deletedBranchesPage:
+        page,
+
       managersPage:
         paginationRef.current
           .managersPage,
@@ -5007,6 +5371,7 @@ export default function AdminSupportPage() {
                 fullLoader: true,
                 section: "all",
                 branchesPage: 1,
+                deletedBranchesPage: 1,
                 managersPage: 1,
                 usersPage: 1,
                 logsPage: 1,
@@ -5443,13 +5808,23 @@ export default function AdminSupportPage() {
                 <div
                   style={sectionTop}
                 >
-                  <h2
-                    style={sectionTitle}
-                  >
-                    إدارة الفروع
-                  </h2>
+                  <div>
+                    <h2
+                      style={sectionTitle}
+                    >
+                      إدارة الفروع
+                    </h2>
 
-                  {access.manage_branches && (
+                    <p
+                      style={sectionHint}
+                    >
+                      عرض خفيف ومنظم، 15 فرعًا في كل صفحة
+                    </p>
+                  </div>
+
+                  {access.manage_branches &&
+                    branchListMode ===
+                      "active" && (
                     <button
                       type="button"
                       style={getDisabledStyle(
@@ -5468,8 +5843,66 @@ export default function AdminSupportPage() {
                   )}
                 </div>
 
+                {access.manage_branches && (
+                  <div
+                    style={branchTabs}
+                  >
+                    <button
+                      type="button"
+                      style={
+                        branchListMode ===
+                        "active"
+                          ? branchTabActive
+                          : branchTab
+                      }
+                      onClick={() => {
+                        setBranchListMode(
+                          "active"
+                        );
+                        resetBranchForm();
+                      }}
+                    >
+                      الفروع الحالية
+                      <span
+                        style={branchTabCount}
+                      >
+                        {
+                          branchesPagination.total
+                        }
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      style={
+                        branchListMode ===
+                        "deleted"
+                          ? branchTabActive
+                          : branchTab
+                      }
+                      onClick={() => {
+                        setBranchListMode(
+                          "deleted"
+                        );
+                        resetBranchForm();
+                      }}
+                    >
+                      الفروع المحذوفة
+                      <span
+                        style={branchTabCount}
+                      >
+                        {
+                          deletedBranchesPagination.total
+                        }
+                      </span>
+                    </button>
+                  </div>
+                )}
+
                 {showBranchForm &&
-                  access.manage_branches && (
+                  access.manage_branches &&
+                  branchListMode ===
+                    "active" && (
                     <section
                       style={formCard}
                     >
@@ -5527,7 +5960,10 @@ export default function AdminSupportPage() {
                               event
                             ) =>
                               setBranchSlug(
-                                event.target.value
+                                normalizeDigits(
+                                  event.target
+                                    .value
+                                )
                                   .toLowerCase()
                                   .replace(
                                     /[^a-z0-9_-]/g,
@@ -5693,7 +6129,7 @@ export default function AdminSupportPage() {
 
                             <Field
                               id="manager-username"
-                              label="اسم المستخدم *"
+                              label="اسم المستخدم الإنجليزي *"
                             >
                               <input
                                 id="manager-username"
@@ -5702,15 +6138,20 @@ export default function AdminSupportPage() {
                                   managerUsername
                                 }
                                 maxLength={30}
+                                dir="ltr"
                                 autoCapitalize="none"
                                 spellCheck={false}
                                 onChange={(
                                   event
                                 ) =>
                                   setManagerUsername(
-                                    event.target.value
+                                    normalizeDigits(
+                                      event.target
+                                        .value
+                                    )
+                                      .toLowerCase()
                                       .replace(
-                                        /[^A-Za-z0-9_\u0600-\u06FF]/g,
+                                        /[^a-z0-9_]/g,
                                         ""
                                       )
                                       .slice(
@@ -5727,7 +6168,7 @@ export default function AdminSupportPage() {
 
                             <Field
                               id="manager-password"
-                              label="كلمة المرور 4 أرقام *"
+                              label="كلمة المرور من 4 إلى 8 أرقام *"
                             >
                               <input
                                 id="manager-password"
@@ -5735,7 +6176,8 @@ export default function AdminSupportPage() {
                                 type="password"
                                 inputMode="numeric"
                                 autoComplete="new-password"
-                                maxLength={4}
+                                minLength={4}
+                                maxLength={8}
                                 value={
                                   managerPassword
                                 }
@@ -5746,7 +6188,7 @@ export default function AdminSupportPage() {
                                     cleanNumericValue(
                                       event.target
                                         .value,
-                                      4
+                                      8
                                     )
                                   )
                                 }
@@ -5832,38 +6274,265 @@ export default function AdminSupportPage() {
                   )}
 
                 <section
-                  style={panelCard}
+                  style={compactPanelCard}
                 >
                   {branchSectionBusy ? (
                     <SectionLoading />
-                  ) : branches.length ===
+                  ) : branchListMode ===
+                      "active" ? (
+                    branches.length ===
+                    0 ? (
+                      <div
+                        style={emptyBox}
+                      >
+                        لا توجد فروع حالية
+                      </div>
+                    ) : (
+                      <div
+                        style={branchesList}
+                      >
+                        {branches.map(
+                          (branch) => {
+                            const statusAction:
+                              BusyAction =
+                              `branch_status:${branch.id}`;
+
+                            const enterAction:
+                              BusyAction =
+                              `branch_enter:${branch.id}`;
+
+                            const archiveAction:
+                              BusyAction =
+                              `branch_archive:${branch.id}`;
+
+                            const branchBusy =
+                              isBusy(
+                                statusAction
+                              ) ||
+                              isBusy(
+                                enterAction
+                              ) ||
+                              isBusy(
+                                archiveAction
+                              );
+
+                            return (
+                              <article
+                                className="branch-row"
+                                key={
+                                  branch.id
+                                }
+                                style={branchRow}
+                              >
+                                <div
+                                  style={branchMain}
+                                >
+                                  <div
+                                    style={branchAvatar}
+                                  >
+                                    {branch.branch_name.slice(
+                                      0,
+                                      1
+                                    )}
+                                  </div>
+
+                                  <div
+                                    style={branchDetails}
+                                  >
+                                    <h3
+                                      style={branchTitle}
+                                    >
+                                      {
+                                        branch.branch_name
+                                      }
+                                    </h3>
+
+                                    <div
+                                      style={branchMetaLine}
+                                    >
+                                      <span>
+                                        <strong>
+                                          الفرع:
+                                        </strong>{" "}
+                                        <bdi
+                                          dir="ltr"
+                                        >
+                                          {
+                                            branch.branch_slug
+                                          }
+                                        </bdi>
+                                      </span>
+
+                                      <span
+                                        style={metaDivider}
+                                      >
+                                        •
+                                      </span>
+
+                                      <span>
+                                        <strong>
+                                          المنظمة:
+                                        </strong>{" "}
+                                        {
+                                          branch.organization_name
+                                        }
+                                      </span>
+
+                                      {branch.city && (
+                                        <>
+                                          <span
+                                            style={metaDivider}
+                                          >
+                                            •
+                                          </span>
+
+                                          <span>
+                                            <strong>
+                                              المدينة:
+                                            </strong>{" "}
+                                            {
+                                              branch.city
+                                            }
+                                          </span>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <span
+                                  style={
+                                    branch.is_active
+                                      ? activeBadge
+                                      : inactiveBadge
+                                  }
+                                >
+                                  {branch.is_active
+                                    ? "نشط"
+                                    : "معطل"}
+                                </span>
+
+                                <div
+                                  style={rowActions}
+                                >
+                                  {access.impersonate_branch && (
+                                    <button
+                                      type="button"
+                                      style={getDisabledStyle(
+                                        compactBlueButton,
+                                        isBusy(
+                                          enterAction
+                                        ) ||
+                                          !branch.is_active
+                                      )}
+                                      onClick={() =>
+                                        void enterBranch(
+                                          branch
+                                        )
+                                      }
+                                      disabled={
+                                        isBusy(
+                                          enterAction
+                                        ) ||
+                                        !branch.is_active
+                                      }
+                                    >
+                                      {isBusy(
+                                        enterAction
+                                      )
+                                        ? "دخول..."
+                                        : "دخول"}
+                                    </button>
+                                  )}
+
+                                  {access.manage_branches && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        style={compactButton}
+                                        onClick={() =>
+                                          editBranch(
+                                            branch
+                                          )
+                                        }
+                                        disabled={
+                                          branchBusy ||
+                                          branchSaveBusy
+                                        }
+                                      >
+                                        تعديل
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        style={getDisabledStyle(
+                                          branch.is_active
+                                            ? compactWarningButton
+                                            : compactGreenButton,
+                                          isBusy(
+                                            statusAction
+                                          )
+                                        )}
+                                        onClick={() =>
+                                          void toggleBranch(
+                                            branch
+                                          )
+                                        }
+                                        disabled={isBusy(
+                                          statusAction
+                                        )}
+                                      >
+                                        {isBusy(
+                                          statusAction
+                                        )
+                                          ? "تنفيذ..."
+                                          : branch.is_active
+                                            ? "تعطيل"
+                                            : "تفعيل"}
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        style={getDisabledStyle(
+                                          compactDangerButton,
+                                          branchBusy
+                                        )}
+                                        onClick={() =>
+                                          openArchiveDialog(
+                                            branch
+                                          )
+                                        }
+                                        disabled={
+                                          branchBusy
+                                        }
+                                      >
+                                        حذف
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </article>
+                            );
+                          }
+                        )}
+                      </div>
+                    )
+                  ) : deletedBranches.length ===
                     0 ? (
                     <div
                       style={emptyBox}
                     >
-                      لا توجد فروع متاحة
+                      لا توجد فروع في قائمة المحذوفة
                     </div>
                   ) : (
                     <div
                       style={branchesList}
                     >
-                      {branches.map(
+                      {deletedBranches.map(
                         (branch) => {
-                          const statusAction:
+                          const restoreAction:
                             BusyAction =
-                            `branch_status:${branch.id}`;
-
-                          const enterAction:
-                            BusyAction =
-                            `branch_enter:${branch.id}`;
-
-                          const branchBusy =
-                            isBusy(
-                              statusAction
-                            ) ||
-                            isBusy(
-                              enterAction
-                            );
+                            `branch_restore:${branch.id}`;
 
                           return (
                             <article
@@ -5871,24 +6540,19 @@ export default function AdminSupportPage() {
                               key={
                                 branch.id
                               }
-                              style={branchRow}
+                              style={deletedBranchRow}
                             >
                               <div
                                 style={branchMain}
                               >
                                 <div
-                                  style={branchAvatar}
+                                  style={deletedBranchAvatar}
                                 >
-                                  {branch.branch_name.slice(
-                                    0,
-                                    1
-                                  )}
+                                  ×
                                 </div>
 
                                 <div
-                                  style={{
-                                    minWidth: 0,
-                                  }}
+                                  style={branchDetails}
                                 >
                                   <h3
                                     style={branchTitle}
@@ -5898,142 +6562,85 @@ export default function AdminSupportPage() {
                                     }
                                   </h3>
 
-                                  <p
-                                    style={muted}
+                                  <div
+                                    style={branchMetaLine}
                                   >
-                                    {
-                                      branch.organization_name
-                                    }
-                                  </p>
-
-                                  {access.manage_branches && (
-                                    <>
-                                      <p
-                                        style={muted}
+                                    <span>
+                                      <strong>
+                                        الفرع:
+                                      </strong>{" "}
+                                      <bdi
+                                        dir="ltr"
                                       >
-                                        {branch.city ||
-                                          "المدينة غير محددة"}
-                                      </p>
+                                        {
+                                          branch.branch_slug
+                                        }
+                                      </bdi>
+                                    </span>
 
-                                      <p
-                                        style={muted}
-                                      >
-                                        {branch.commercial_record ||
-                                          "لا يوجد سجل تجاري"}
-                                      </p>
+                                    <span
+                                      style={metaDivider}
+                                    >
+                                      •
+                                    </span>
 
-                                      <p
-                                        style={muted}
-                                      >
-                                        {branch.phone ||
-                                          "لا يوجد رقم جوال"}
-                                      </p>
-                                    </>
-                                  )}
+                                    <span>
+                                      <strong>
+                                        المنظمة:
+                                      </strong>{" "}
+                                      {
+                                        branch.organization_name
+                                      }
+                                    </span>
+                                  </div>
 
-                                  <p
-                                    style={ltrMuted}
+                                  <div
+                                    style={deletedMetaLine}
                                   >
-                                    /finance/
-                                    {
-                                      branch.branch_slug
-                                    }
-                                  </p>
+                                    حُذف بواسطة:{" "}
+                                    {branch.deleted_by_user_name ||
+                                      "-"}{" "}
+                                    —{" "}
+                                    {formatDateTime(
+                                      branch.deleted_at ||
+                                        ""
+                                    )}
+                                  </div>
                                 </div>
                               </div>
 
                               <span
-                                style={
-                                  branch.is_active
-                                    ? activeBadge
-                                    : inactiveBadge
-                                }
+                                style={deletedBadge}
                               >
-                                {branch.is_active
-                                  ? "نشط"
-                                  : "معطل"}
+                                محذوف
                               </span>
 
                               <div
                                 style={rowActions}
                               >
-                                {access.impersonate_branch && (
-                                  <button
-                                    type="button"
-                                    style={getDisabledStyle(
-                                      smallBlueButton,
-                                      isBusy(
-                                        enterAction
-                                      ) ||
-                                        !branch.is_active
-                                    )}
-                                    onClick={() =>
-                                      void enterBranch(
-                                        branch
-                                      )
-                                    }
-                                    disabled={
-                                      isBusy(
-                                        enterAction
-                                      ) ||
-                                      !branch.is_active
-                                    }
-                                  >
-                                    {isBusy(
-                                      enterAction
+                                <button
+                                  type="button"
+                                  style={getDisabledStyle(
+                                    compactGreenButton,
+                                    isBusy(
+                                      restoreAction
                                     )
-                                      ? "جاري الدخول..."
-                                      : "دخول"}
-                                  </button>
-                                )}
-
-                                {access.manage_branches && (
-                                  <>
-                                    <button
-                                      type="button"
-                                      style={smallButton}
-                                      onClick={() =>
-                                        editBranch(
-                                          branch
-                                        )
-                                      }
-                                      disabled={
-                                        branchBusy ||
-                                        branchSaveBusy
-                                      }
-                                    >
-                                      تعديل
-                                    </button>
-
-                                    <button
-                                      type="button"
-                                      style={getDisabledStyle(
-                                        branch.is_active
-                                          ? smallDangerButton
-                                          : smallGreenButton,
-                                        isBusy(
-                                          statusAction
-                                        )
-                                      )}
-                                      onClick={() =>
-                                        void toggleBranch(
-                                          branch
-                                        )
-                                      }
-                                      disabled={isBusy(
-                                        statusAction
-                                      )}
-                                    >
-                                      {isBusy(
-                                        statusAction
-                                      )
-                                        ? "جاري التنفيذ..."
-                                        : branch.is_active
-                                          ? "تعطيل"
-                                          : "تفعيل"}
-                                    </button>
-                                  </>
-                                )}
+                                  )}
+                                  onClick={() =>
+                                    void restoreBranch(
+                                      branch
+                                    )
+                                  }
+                                  disabled={isBusy(
+                                    restoreAction
+                                  )}
+                                >
+                                  {isBusy(
+                                    restoreAction
+                                  )
+                                    ? "استعادة..."
+                                    : "استعادة"}
+                                </button>
                               </div>
                             </article>
                           );
@@ -6042,26 +6649,50 @@ export default function AdminSupportPage() {
                     </div>
                   )}
 
-                  <PaginationControls
-                    pagination={
-                      branchesPagination
-                    }
-                    loading={
-                      branchSectionBusy
-                    }
-                    onPrevious={() =>
-                      void goToBranchesPage(
-                        branchesPagination.page -
-                          1
-                      )
-                    }
-                    onNext={() =>
-                      void goToBranchesPage(
-                        branchesPagination.page +
-                          1
-                      )
-                    }
-                  />
+                  {branchListMode ===
+                  "active" ? (
+                    <PaginationControls
+                      pagination={
+                        branchesPagination
+                      }
+                      loading={
+                        branchSectionBusy
+                      }
+                      onPrevious={() =>
+                        void goToBranchesPage(
+                          branchesPagination.page -
+                            1
+                        )
+                      }
+                      onNext={() =>
+                        void goToBranchesPage(
+                          branchesPagination.page +
+                            1
+                        )
+                      }
+                    />
+                  ) : (
+                    <PaginationControls
+                      pagination={
+                        deletedBranchesPagination
+                      }
+                      loading={
+                        branchSectionBusy
+                      }
+                      onPrevious={() =>
+                        void goToDeletedBranchesPage(
+                          deletedBranchesPagination.page -
+                            1
+                        )
+                      }
+                      onNext={() =>
+                        void goToDeletedBranchesPage(
+                          deletedBranchesPagination.page +
+                            1
+                        )
+                      }
+                    />
+                  )}
                 </section>
               </>
             )}
@@ -7590,7 +8221,7 @@ export default function AdminSupportPage() {
 
             <Field
               id="manager-new-password"
-              label="كلمة المرور الجديدة"
+              label="كلمة المرور الجديدة من 4 إلى 8 أرقام"
             >
               <input
                 id="manager-new-password"
@@ -7598,7 +8229,8 @@ export default function AdminSupportPage() {
                 type="password"
                 inputMode="numeric"
                 autoComplete="new-password"
-                maxLength={4}
+                minLength={4}
+                maxLength={8}
                 value={
                   passwordDialog.value
                 }
@@ -7618,7 +8250,7 @@ export default function AdminSupportPage() {
                               cleanNumericValue(
                                 event.target
                                   .value,
-                                4
+                                8
                               ),
                           }
                         : previous
@@ -7684,6 +8316,138 @@ export default function AdminSupportPage() {
                 }
                 disabled={isBusy(
                   `manager_password:${passwordDialog.manager.id}`
+                )}
+              >
+                إلغاء
+              </button>
+            </div>
+          </section>
+        </ModalOverlay>
+      )}
+
+      {archiveDialog && (
+        <ModalOverlay>
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="archive-dialog-title"
+            style={modalCard}
+          >
+            <h2
+              id="archive-dialog-title"
+              style={modalTitle}
+            >
+              نقل الفرع إلى المحذوفة
+            </h2>
+
+            <p
+              style={modalText}
+            >
+              اكتب اسم الفرع كما هو للتأكيد:
+              <strong>
+                {" "}
+                {
+                  archiveDialog.branch
+                    .branch_name
+                }
+              </strong>
+            </p>
+
+            <Field
+              id="archive-branch-name"
+              label="اسم الفرع للتأكيد"
+            >
+              <input
+                id="archive-branch-name"
+                style={input}
+                value={
+                  archiveDialog.value
+                }
+                autoFocus
+                maxLength={100}
+                onChange={(
+                  event
+                ) =>
+                  setArchiveDialog(
+                    (
+                      previous
+                    ) =>
+                      previous
+                        ? {
+                            ...previous,
+                            value:
+                              event.target
+                                .value,
+                          }
+                        : previous
+                  )
+                }
+                onKeyDown={(
+                  event
+                ) => {
+                  if (
+                    event.key ===
+                    "Enter"
+                  ) {
+                    event.preventDefault();
+                    void archiveBranch();
+                  }
+
+                  if (
+                    event.key ===
+                    "Escape"
+                  ) {
+                    event.preventDefault();
+                    closeArchiveDialog();
+                  }
+                }}
+                disabled={isBusy(
+                  `branch_archive:${archiveDialog.branch.id}`
+                )}
+              />
+            </Field>
+
+            <div
+              style={modalButtonsRow}
+            >
+              <button
+                type="button"
+                style={getDisabledStyle(
+                  smallDangerButton,
+                  isBusy(
+                    `branch_archive:${archiveDialog.branch.id}`
+                  ) ||
+                    archiveDialog.value.trim() !==
+                      archiveDialog.branch
+                        .branch_name
+                )}
+                onClick={() =>
+                  void archiveBranch()
+                }
+                disabled={
+                  isBusy(
+                    `branch_archive:${archiveDialog.branch.id}`
+                  ) ||
+                  archiveDialog.value.trim() !==
+                    archiveDialog.branch
+                      .branch_name
+                }
+              >
+                {isBusy(
+                  `branch_archive:${archiveDialog.branch.id}`
+                )
+                  ? "جاري النقل..."
+                  : "نقل إلى المحذوفة"}
+              </button>
+
+              <button
+                type="button"
+                style={smallButton}
+                onClick={
+                  closeArchiveDialog
+                }
+                disabled={isBusy(
+                  `branch_archive:${archiveDialog.branch.id}`
                 )}
               >
                 إلغاء
@@ -8319,7 +9083,7 @@ function getShellStyle(
     gridTemplateColumns:
       isCompact
         ? "minmax(0, 1fr)"
-        : "280px minmax(0, 1fr)",
+        : "240px minmax(0, 1fr)",
 
     gap: 14,
   };
@@ -8341,7 +9105,7 @@ function getHeroStyle(
       isMobile ? 20 : 24,
 
     padding:
-      isMobile ? 18 : 24,
+      isMobile ? 15 : 18,
 
     marginBottom: 14,
 
@@ -8357,7 +9121,7 @@ function getHeroTitleStyle(
     margin: "6px 0",
 
     fontSize:
-      isMobile ? 25 : 32,
+      isMobile ? 23 : 28,
 
     lineHeight: 1.4,
 
@@ -8480,6 +9244,10 @@ function GlobalResponsiveStyles() {
         .branch-row {
           grid-template-columns: 1fr !important;
           align-items: stretch !important;
+        }
+
+        .branch-row > span {
+          justify-self: start;
         }
       }
 
@@ -8616,7 +9384,7 @@ const sidePanel:
     "1px solid rgba(148,163,184,.18)",
 
   borderRadius: 26,
-  padding: 16,
+  padding: 13,
   color: "white",
 
   position: "sticky",
@@ -8658,7 +9426,7 @@ const brandIcon:
 const brandTitle:
   CSSProperties = {
   margin: 0,
-  fontSize: 20,
+  fontSize: 17,
 };
 
 const brandSub:
@@ -8736,7 +9504,7 @@ const mainPanel:
     "1px solid rgba(226,232,240,.92)",
 
   borderRadius: 26,
-  padding: 16,
+  padding: 13,
 
   backdropFilter:
     "blur(10px)",
@@ -8959,10 +9727,10 @@ const statsGrid:
   display: "grid",
 
   gridTemplateColumns:
-    "repeat(auto-fit,minmax(170px,1fr))",
+    "repeat(auto-fit,minmax(145px,1fr))",
 
-  gap: 12,
-  marginBottom: 14,
+  gap: 9,
+  marginBottom: 12,
 };
 
 const statCard:
@@ -8972,8 +9740,8 @@ const statCard:
   border:
     "1px solid #e2e8f0",
 
-  borderRadius: 20,
-  padding: 18,
+  borderRadius: 15,
+  padding: 12,
 
   boxShadow:
     "0 8px 18px rgba(15,23,42,.04)",
@@ -8982,7 +9750,7 @@ const statCard:
 const statValue:
   CSSProperties = {
   display: "block",
-  fontSize: 34,
+  fontSize: 26,
   fontWeight: 900,
   color: "#2563eb",
 };
@@ -9054,8 +9822,8 @@ const panelCard:
   border:
     "1px solid #e2e8f0",
 
-  borderRadius: 22,
-  padding: 16,
+  borderRadius: 16,
+  padding: 12,
 
   boxShadow:
     "0 8px 18px rgba(15,23,42,.04)",
@@ -9224,7 +9992,7 @@ const buttonsRow:
 const branchesList:
   CSSProperties = {
   display: "grid",
-  gap: 10,
+  gap: 7,
 };
 
 const branchRow:
@@ -9233,14 +10001,14 @@ const branchRow:
     "1px solid #e2e8f0",
 
   background: "#ffffff",
-  borderRadius: 18,
-  padding: 14,
+  borderRadius: 12,
+  padding: 10,
   display: "grid",
 
   gridTemplateColumns:
     "minmax(0,1fr) auto auto",
 
-  gap: 12,
+  gap: 9,
   alignItems: "center",
 };
 
@@ -9254,9 +10022,9 @@ const branchMain:
 
 const branchAvatar:
   CSSProperties = {
-  width: 48,
-  height: 48,
-  borderRadius: 16,
+  width: 38,
+  height: 38,
+  borderRadius: 11,
   background: "#dbeafe",
   color: "#1d4ed8",
 
@@ -9272,6 +10040,7 @@ const branchAvatar:
 const branchTitle:
   CSSProperties = {
   margin: 0,
+  fontSize: 15,
 
   fontFamily:
     "var(--font-almarai), sans-serif",
@@ -9299,7 +10068,7 @@ const activeBadge:
   borderRadius: 999,
 
   padding:
-    "6px 10px",
+    "5px 8px",
 
   fontWeight: 900,
   width: "fit-content",
@@ -9313,7 +10082,7 @@ const inactiveBadge:
   borderRadius: 999,
 
   padding:
-    "6px 10px",
+    "5px 8px",
 
   fontWeight: 900,
   width: "fit-content",
@@ -9322,7 +10091,7 @@ const inactiveBadge:
 const rowActions:
   CSSProperties = {
   display: "flex",
-  gap: 7,
+  gap: 5,
   flexWrap: "wrap",
 };
 
@@ -9564,6 +10333,164 @@ const logMeta:
   display: "grid",
   gap: 4,
   color: "#64748b",
+};
+
+const sectionHint:
+  CSSProperties = {
+  margin: "5px 0 0",
+  color: "#64748b",
+  fontSize: 13,
+};
+
+const branchTabs:
+  CSSProperties = {
+  display: "flex",
+  gap: 7,
+  flexWrap: "wrap",
+  marginBottom: 10,
+};
+
+const branchTab:
+  CSSProperties = {
+  border: "1px solid #dbe4f0",
+  background: "#ffffff",
+  color: "#475569",
+  borderRadius: 10,
+  padding: "8px 11px",
+  fontSize: 13,
+  fontWeight: 900,
+  cursor: "pointer",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 7,
+};
+
+const branchTabActive:
+  CSSProperties = {
+  ...branchTab,
+  color: "#ffffff",
+  borderColor: "transparent",
+  background:
+    "linear-gradient(135deg,#1d4ed8,#0ea5e9)",
+};
+
+const branchTabCount:
+  CSSProperties = {
+  minWidth: 22,
+  height: 22,
+  padding: "0 6px",
+  borderRadius: 999,
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  background: "rgba(255,255,255,.18)",
+  fontSize: 11,
+};
+
+const compactPanelCard:
+  CSSProperties = {
+  background: "rgba(255,255,255,.92)",
+  border: "1px solid #e2e8f0",
+  borderRadius: 16,
+  padding: 10,
+  boxShadow:
+    "0 6px 16px rgba(15,23,42,.035)",
+};
+
+const branchDetails:
+  CSSProperties = {
+  minWidth: 0,
+  display: "grid",
+  gap: 5,
+};
+
+const branchMetaLine:
+  CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 7,
+  flexWrap: "wrap",
+  color: "#64748b",
+  fontSize: 13,
+  lineHeight: 1.7,
+};
+
+const metaDivider:
+  CSSProperties = {
+  color: "#cbd5e1",
+};
+
+const deletedMetaLine:
+  CSSProperties = {
+  color: "#94a3b8",
+  fontSize: 12,
+};
+
+const deletedBranchRow:
+  CSSProperties = {
+  ...branchRow,
+  background: "#fffafa",
+  borderColor: "#fecaca",
+};
+
+const deletedBranchAvatar:
+  CSSProperties = {
+  ...branchAvatar,
+  background: "#fee2e2",
+  color: "#991b1b",
+};
+
+const deletedBadge:
+  CSSProperties = {
+  ...inactiveBadge,
+  background: "#f1f5f9",
+  color: "#475569",
+};
+
+const compactButton:
+  CSSProperties = {
+  border: "1px solid #dbe4f0",
+  background: "#f8fafc",
+  color: "#334155",
+  borderRadius: 8,
+  padding: "7px 9px",
+  fontSize: 12,
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
+const compactBlueButton:
+  CSSProperties = {
+  ...compactButton,
+  color: "#ffffff",
+  borderColor: "transparent",
+  background:
+    "linear-gradient(135deg,#2563eb,#0ea5e9)",
+};
+
+const compactGreenButton:
+  CSSProperties = {
+  ...compactButton,
+  color: "#ffffff",
+  borderColor: "transparent",
+  background:
+    "linear-gradient(135deg,#16a34a,#15803d)",
+};
+
+const compactWarningButton:
+  CSSProperties = {
+  ...compactButton,
+  color: "#92400e",
+  borderColor: "#fde68a",
+  background: "#fef3c7",
+};
+
+const compactDangerButton:
+  CSSProperties = {
+  ...compactButton,
+  color: "#991b1b",
+  borderColor: "#fecaca",
+  background: "#fee2e2",
 };
 
 const verificationSearchCard:
