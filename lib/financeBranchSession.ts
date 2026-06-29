@@ -14,18 +14,25 @@ const TOKEN_VERSION = "v1";
 const SESSION_KIND =
   "finance_branch_session" as const;
 
-const FINANCE_BRANCH_SESSION_DURATION_SECONDS =
+export const FINANCE_BRANCH_SESSION_DURATION_SECONDS =
   60 * 60 * 3;
 
 const MAX_CLOCK_SKEW_SECONDS = 60;
 
 const MAX_TOKEN_LENGTH = 4096;
 
+const MAX_ENCODED_PAYLOAD_LENGTH = 3072;
+
+const SHA256_BASE64URL_SIGNATURE_LENGTH = 43;
+
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const BRANCH_SLUG_PATTERN =
   /^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$/;
+
+const BASE64URL_PATTERN =
+  /^[A-Za-z0-9_-]+$/;
 
 export const FINANCE_BRANCH_SESSION_COOKIE_NAME =
   IS_PRODUCTION
@@ -62,10 +69,20 @@ function cleanText(
 function isPlainObject(
   value: unknown
 ): value is Record<string, unknown> {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value)
+  ) {
+    return false;
+  }
+
+  const prototype =
+    Object.getPrototypeOf(value);
+
   return (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value)
+    prototype === Object.prototype ||
+    prototype === null
   );
 }
 
@@ -119,16 +136,43 @@ function normalizeUnixTimestamp(
   return value;
 }
 
-function getSecretBytes(
-  environmentName:
-    | "FINANCE_BRANCH_SESSION_SECRET"
-    | "FINANCE_BRANCH_SESSION_PREVIOUS_SECRET"
-): Buffer | null {
-  const rawSecret =
-    process.env[environmentName];
+function hasWrappingQuotes(
+  value: string
+): boolean {
+  return (
+    (value.startsWith('"') &&
+      value.endsWith('"')) ||
+    (value.startsWith("'") &&
+      value.endsWith("'"))
+  );
+}
 
-  if (!rawSecret) {
-    return null;
+function validateSessionSecret(
+  environmentName: string,
+  rawSecret: string
+): Buffer {
+  if (
+    rawSecret !== rawSecret.trim()
+  ) {
+    throw new Error(
+      `${environmentName} يحتوي مسافات زائدة في بدايته أو نهايته`
+    );
+  }
+
+  if (
+    hasWrappingQuotes(rawSecret)
+  ) {
+    throw new Error(
+      `${environmentName} يحتوي علامات اقتباس زائدة`
+    );
+  }
+
+  if (
+    /[\r\n\t]/.test(rawSecret)
+  ) {
+    throw new Error(
+      `${environmentName} يحتوي أسطرًا أو محارف غير صالحة`
+    );
   }
 
   const secret = Buffer.from(
@@ -143,6 +187,81 @@ function getSecretBytes(
   }
 
   return secret;
+}
+
+function assertSecretIsNotPublic(
+  environmentName: string,
+  rawSecret: string
+): void {
+  const publicEnvironmentNames = [
+    `NEXT_PUBLIC_${environmentName}`,
+    "NEXT_PUBLIC_FINANCE_BRANCH_SESSION_SECRET",
+    "NEXT_PUBLIC_FINANCE_BRANCH_SESSION_PREVIOUS_SECRET",
+  ];
+
+  for (
+    const publicEnvironmentName
+    of publicEnvironmentNames
+  ) {
+    const exposedValue =
+      process.env[
+        publicEnvironmentName
+      ];
+
+    if (
+      exposedValue &&
+      exposedValue.trim()
+    ) {
+      throw new Error(
+        `خطأ أمني: يجب حذف ${publicEnvironmentName} من متغيرات البيئة العامة`
+      );
+    }
+  }
+
+  const publicValues = [
+    process.env
+      .NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    process.env
+      .NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+  ]
+    .map((value) =>
+      value?.trim() ?? ""
+    )
+    .filter(Boolean);
+
+  if (
+    publicValues.includes(rawSecret)
+  ) {
+    throw new Error(
+      `${environmentName} يطابق مفتاحًا عامًا ولا يصلح لتوقيع الجلسات`
+    );
+  }
+}
+
+function getSecretBytes(
+  environmentName:
+    | "FINANCE_BRANCH_SESSION_SECRET"
+    | "FINANCE_BRANCH_SESSION_PREVIOUS_SECRET"
+): Buffer | null {
+  const rawSecret =
+    process.env[environmentName];
+
+  if (
+    rawSecret === undefined ||
+    rawSecret === ""
+  ) {
+    return null;
+  }
+
+  assertSecretIsNotPublic(
+    environmentName,
+    rawSecret
+  );
+
+  return validateSessionSecret(
+    environmentName,
+    rawSecret
+  );
 }
 
 function getCurrentSecret(): Buffer {
@@ -170,7 +289,9 @@ function getVerificationSecrets(): Buffer[] {
 
   if (
     previousSecret &&
-    !currentSecret.equals(previousSecret)
+    !currentSecret.equals(
+      previousSecret
+    )
   ) {
     return [
       currentSecret,
@@ -179,6 +300,18 @@ function getVerificationSecrets(): Buffer[] {
   }
 
   return [currentSecret];
+}
+
+function isCanonicalBase64Url(
+  value: string,
+  maxLength: number
+): boolean {
+  return (
+    value.length > 0 &&
+    value.length <= maxLength &&
+    BASE64URL_PATTERN.test(value) &&
+    !value.includes("=")
+  );
 }
 
 function toBase64Url(
@@ -191,13 +324,43 @@ function toBase64Url(
 }
 
 function fromBase64Url(
-  value: string
+  value: string,
+  maxLength: number
 ): string | null {
-  try {
-    return Buffer.from(
+  if (
+    !isCanonicalBase64Url(
       value,
-      "base64url"
-    ).toString("utf8");
+      maxLength
+    )
+  ) {
+    return null;
+  }
+
+  try {
+    const decodedBuffer =
+      Buffer.from(
+        value,
+        "base64url"
+      );
+
+    if (
+      decodedBuffer.length === 0
+    ) {
+      return null;
+    }
+
+    const reEncoded =
+      decodedBuffer.toString(
+        "base64url"
+      );
+
+    if (reEncoded !== value) {
+      return null;
+    }
+
+    return decodedBuffer.toString(
+      "utf8"
+    );
   } catch {
     return null;
   }
@@ -218,37 +381,69 @@ function createSignature(
     .digest("base64url");
 }
 
+function decodeSignature(
+  value: string
+): Buffer | null {
+  if (
+    value.length !==
+      SHA256_BASE64URL_SIGNATURE_LENGTH ||
+    !isCanonicalBase64Url(
+      value,
+      SHA256_BASE64URL_SIGNATURE_LENGTH
+    )
+  ) {
+    return null;
+  }
+
+  try {
+    const decoded =
+      Buffer.from(
+        value,
+        "base64url"
+      );
+
+    if (
+      decoded.byteLength !== 32 ||
+      decoded.toString(
+        "base64url"
+      ) !== value
+    ) {
+      return null;
+    }
+
+    return decoded;
+  } catch {
+    return null;
+  }
+}
+
 function signaturesMatch(
   receivedSignature: string,
   expectedSignature: string
 ): boolean {
-  try {
-    const received = Buffer.from(
-      receivedSignature,
-      "base64url"
+  const received =
+    decodeSignature(
+      receivedSignature
     );
 
-    const expected = Buffer.from(
-      expectedSignature,
-      "base64url"
+  const expected =
+    decodeSignature(
+      expectedSignature
     );
 
-    if (
-      received.byteLength !== 32 ||
-      expected.byteLength !== 32 ||
-      received.byteLength !==
-        expected.byteLength
-    ) {
-      return false;
-    }
-
-    return timingSafeEqual(
-      received,
-      expected
-    );
-  } catch {
+  if (
+    !received ||
+    !expected ||
+    received.byteLength !==
+      expected.byteLength
+  ) {
     return false;
   }
+
+  return timingSafeEqual(
+    received,
+    expected
+  );
 }
 
 function hasValidSignature(
@@ -287,6 +482,15 @@ function createSignedToken(
       JSON.stringify(payload)
     );
 
+  if (
+    encodedPayload.length >
+    MAX_ENCODED_PAYLOAD_LENGTH
+  ) {
+    throw new Error(
+      "بيانات جلسة موظف الفرع تجاوزت الحد المسموح"
+    );
+  }
+
   const signedContent =
     `${TOKEN_VERSION}.${encodedPayload}`;
 
@@ -296,25 +500,41 @@ function createSignedToken(
       getCurrentSecret()
     );
 
-  return `${signedContent}.${signature}`;
+  const token =
+    `${signedContent}.${signature}`;
+
+  if (
+    token.length >
+    MAX_TOKEN_LENGTH
+  ) {
+    throw new Error(
+      "رمز جلسة موظف الفرع تجاوز الحد المسموح"
+    );
+  }
+
+  return token;
 }
 
 function readSignedPayload(
   token: string | null | undefined
 ): unknown | null {
-  const cleanToken =
-    cleanText(token);
+  if (
+    typeof token !== "string"
+  ) {
+    return null;
+  }
 
   if (
-    !cleanToken ||
-    cleanToken.length >
-      MAX_TOKEN_LENGTH
+    token.length === 0 ||
+    token.length >
+      MAX_TOKEN_LENGTH ||
+    token !== token.trim()
   ) {
     return null;
   }
 
   const parts =
-    cleanToken.split(".");
+    token.split(".");
 
   if (parts.length !== 3) {
     return null;
@@ -328,8 +548,12 @@ function readSignedPayload(
 
   if (
     tokenVersion !== TOKEN_VERSION ||
-    !encodedPayload ||
-    !receivedSignature
+    !isCanonicalBase64Url(
+      encodedPayload,
+      MAX_ENCODED_PAYLOAD_LENGTH
+    ) ||
+    receivedSignature.length !==
+      SHA256_BASE64URL_SIGNATURE_LENGTH
   ) {
     return null;
   }
@@ -347,7 +571,10 @@ function readSignedPayload(
   }
 
   const decodedPayload =
-    fromBase64Url(encodedPayload);
+    fromBase64Url(
+      encodedPayload,
+      MAX_ENCODED_PAYLOAD_LENGTH
+    );
 
   if (!decodedPayload) {
     return null;
@@ -360,6 +587,16 @@ function readSignedPayload(
   } catch {
     return null;
   }
+}
+
+function hasCanonicalTextValue(
+  rawValue: unknown,
+  normalizedValue: string
+): boolean {
+  return (
+    typeof rawValue === "string" &&
+    rawValue === normalizedValue
+  );
 }
 
 function hasValidSessionTimes(
@@ -385,9 +622,21 @@ function hasValidSessionTimes(
     return false;
   }
 
+  const duration =
+    expiresAt - issuedAt;
+
   if (
-    expiresAt - issuedAt >
-    FINANCE_BRANCH_SESSION_DURATION_SECONDS
+    duration >
+      FINANCE_BRANCH_SESSION_DURATION_SECONDS ||
+    duration <= 0
+  ) {
+    return false;
+  }
+
+  if (
+    now - issuedAt >
+      FINANCE_BRANCH_SESSION_DURATION_SECONDS +
+        MAX_CLOCK_SKEW_SECONDS
   ) {
     return false;
   }
@@ -517,6 +766,30 @@ export function verifyFinanceBranchSessionToken(
   if (
     kind !== SESSION_KIND ||
     tokenVersion !== TOKEN_VERSION ||
+    !hasCanonicalTextValue(
+      payload.kind,
+      kind
+    ) ||
+    !hasCanonicalTextValue(
+      payload.tokenVersion,
+      tokenVersion
+    ) ||
+    !hasCanonicalTextValue(
+      payload.sessionId,
+      sessionId
+    ) ||
+    !hasCanonicalTextValue(
+      payload.userId,
+      userId
+    ) ||
+    !hasCanonicalTextValue(
+      payload.branchId,
+      branchId
+    ) ||
+    !hasCanonicalTextValue(
+      payload.branchSlug,
+      branchSlug
+    ) ||
     !isValidUuid(sessionId) ||
     !isValidUuid(userId) ||
     !isValidUuid(branchId) ||
@@ -548,32 +821,21 @@ export function verifyFinanceBranchSessionToken(
 export const financeBranchSessionCookieOptions =
   Object.freeze({
     httpOnly: true,
-
     secure: IS_PRODUCTION,
-
     sameSite: "strict" as const,
-
     path: "/",
-
     maxAge:
       FINANCE_BRANCH_SESSION_DURATION_SECONDS,
-
     priority: "high" as const,
   });
 
 export const financeBranchSessionDeleteCookieOptions =
   Object.freeze({
     httpOnly: true,
-
     secure: IS_PRODUCTION,
-
     sameSite: "strict" as const,
-
     path: "/",
-
     maxAge: 0,
-
     expires: new Date(0),
-
     priority: "high" as const,
   });
