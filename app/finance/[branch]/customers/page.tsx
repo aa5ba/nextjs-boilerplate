@@ -3070,30 +3070,19 @@ function formatVerificationDate(
     return "—";
   }
 
-  const date =
-    new Date(
-      `${cleanValue}T00:00:00`
+  const dateMatch =
+    cleanValue.match(
+      /^(\d{4})-(\d{2})-(\d{2})/
     );
 
-  if (
-    Number.isNaN(
-      date.getTime()
-    )
-  ) {
+  if (!dateMatch) {
     return cleanValue;
   }
 
-  return new Intl.DateTimeFormat(
-    "ar-SA",
-    {
-      year:
-        "numeric",
-      month:
-        "2-digit",
-      day:
-        "2-digit",
-    }
-  ).format(date);
+  const [, year, month, day] =
+    dateMatch;
+
+  return `${day}/${month}/${year}`;
 }
 
 function UserIcon() {
