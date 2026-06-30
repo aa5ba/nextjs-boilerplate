@@ -4336,4 +4336,7 @@ const cancelModalButton: CSSProperties = {
   borderRadius: 11,
   background: "#f8fafc",
   color: "#475569",
-  padding: "12px 14p
+  padding: "12px 14px",
+  fontWeight: 900,
+  cursor: "pointer",
+};
