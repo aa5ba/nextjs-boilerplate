@@ -58,6 +58,13 @@ type ActivityLog = {
   created_at?: string | null;
 };
 
+type SupabaseRpcError = {
+  code?: string;
+  message?: string;
+  details?: string;
+  hint?: string;
+};
+
 export default function FinanceCustomerProfilePage() {
   const params = useParams();
   const router = useRouter();
@@ -109,6 +116,9 @@ export default function FinanceCustomerProfilePage() {
     useState(false);
 
   const [saving, setSaving] =
+    useState(false);
+
+  const [deleting, setDeleting] =
     useState(false);
 
   const [fullName, setFullName] =
@@ -647,7 +657,10 @@ export default function FinanceCustomerProfilePage() {
   }
 
   async function saveCustomer() {
-    if (saving) {
+    if (
+      saving ||
+      deleting
+    ) {
       return;
     }
 
@@ -779,6 +792,83 @@ export default function FinanceCustomerProfilePage() {
     }
   }
 
+  async function deleteCustomer() {
+    if (
+      deleting ||
+      saving
+    ) {
+      return;
+    }
+
+    if (
+      !branchId ||
+      !customer
+    ) {
+      alert(
+        "تعذر تحديد بيانات العميل أو الفرع"
+      );
+      return;
+    }
+
+    const customerName =
+      customer.full_name?.trim() ||
+      "هذا العميل";
+
+    const confirmed =
+      window.confirm(
+        `هل أنت متأكد من حذف ملف العميل "${customerName}"؟\n\nلن يتم الحذف إذا كان العميل مرتبطًا بعقود أو سندات.`
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setDeleting(true);
+
+      const { error } =
+        await supabase.rpc(
+          "delete_customer_atomic",
+          {
+            p_branch_id:
+              branchId.trim(),
+
+            p_customer_id:
+              customerId,
+
+            p_employee_name:
+              employeeName ||
+              "الموظف",
+          }
+        );
+
+      if (error) {
+        throw new Error(
+          getCustomerDeleteErrorMessage(
+            error as SupabaseRpcError
+          )
+        );
+      }
+
+      alert(
+        "تم حذف العميل بنجاح"
+      );
+
+      router.push(
+        `/finance/${branch}/customers`
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "تعذر حذف العميل";
+
+      alert(message);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   function getCustomerUpdateErrorMessage(
     message: string
   ) {
@@ -802,6 +892,71 @@ export default function FinanceCustomerProfilePage() {
     return (
       message ||
       "تعذر حفظ بيانات العميل"
+    );
+  }
+
+  function getCustomerDeleteErrorMessage(
+    error: SupabaseRpcError
+  ) {
+    const combinedMessage = [
+      error.message,
+      error.details,
+      error.hint,
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    if (
+      combinedMessage.includes(
+        "CUSTOMER_HAS_CONTRACTS"
+      )
+    ) {
+      return "لا يمكن حذف العميل لوجود عقود مرتبطة به";
+    }
+
+    if (
+      combinedMessage.includes(
+        "CUSTOMER_HAS_NOTES"
+      )
+    ) {
+      return "لا يمكن حذف العميل لوجود سندات مرتبطة به";
+    }
+
+    if (
+      combinedMessage.includes(
+        "CUSTOMER_NOT_FOUND"
+      )
+    ) {
+      return "العميل غير موجود أو لا يتبع هذا الفرع";
+    }
+
+    if (
+      combinedMessage.includes(
+        "BRANCH_REQUIRED"
+      )
+    ) {
+      return "تعذر تحديد الفرع";
+    }
+
+    if (
+      combinedMessage.includes(
+        "CUSTOMER_REQUIRED"
+      )
+    ) {
+      return "تعذر تحديد العميل";
+    }
+
+    if (
+      combinedMessage.includes(
+        "CUSTOMER_DELETE_FAILED"
+      )
+    ) {
+      return "تعذر حذف العميل من قاعدة البيانات";
+    }
+
+    return (
+      combinedMessage ||
+      "تعذر حذف العميل"
     );
   }
 
@@ -1024,17 +1179,50 @@ export default function FinanceCustomerProfilePage() {
             </h2>
 
             {!editing && (
-              <button
-                type="button"
+              <div
                 style={
-                  editMiniButton
-                }
-                onClick={() =>
-                  setEditing(true)
+                  customerActions
                 }
               >
-                تعديل البيانات
-              </button>
+                <button
+                  type="button"
+                  style={
+                    editMiniButton
+                  }
+                  onClick={() =>
+                    setEditing(true)
+                  }
+                  disabled={deleting}
+                >
+                  تعديل البيانات
+                </button>
+
+                <button
+                  type="button"
+                  style={{
+                    ...deleteMiniButton,
+                    opacity:
+                      deleting
+                        ? 0.65
+                        : 1,
+                    cursor:
+                      deleting
+                        ? "not-allowed"
+                        : "pointer",
+                  }}
+                  onClick={
+                    deleteCustomer
+                  }
+                  disabled={
+                    deleting ||
+                    saving
+                  }
+                >
+                  {deleting
+                    ? "جاري الحذف..."
+                    : "حذف العميل"}
+                </button>
+              </div>
             )}
           </div>
 
@@ -1146,7 +1334,10 @@ export default function FinanceCustomerProfilePage() {
                 type="button"
                 style={saveButton}
                 onClick={saveCustomer}
-                disabled={saving}
+                disabled={
+                  saving ||
+                  deleting
+                }
               >
                 {saving
                   ? "جاري الحفظ..."
@@ -1161,7 +1352,10 @@ export default function FinanceCustomerProfilePage() {
                 onClick={
                   cancelEditing
                 }
-                disabled={saving}
+                disabled={
+                  saving ||
+                  deleting
+                }
               >
                 إلغاء التعديل
               </button>
@@ -2360,6 +2554,13 @@ const cardHeader: CSSProperties = {
   flexWrap: "wrap",
 };
 
+const customerActions: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  flexWrap: "wrap",
+};
+
 const sectionTitle: CSSProperties = {
   margin: 0,
   fontSize: 22,
@@ -2456,6 +2657,22 @@ const editMiniButton: CSSProperties = {
   cursor: "pointer",
   boxShadow:
     "0 5px 12px rgba(37,99,235,0.18)",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const deleteMiniButton: CSSProperties = {
+  border: "none",
+  background:
+    "linear-gradient(135deg,#ef4444,#b91c1c)",
+  color: "#ffffff",
+  borderRadius: 11,
+  padding: "9px 13px",
+  fontSize: 13,
+  fontWeight: 900,
+  cursor: "pointer",
+  boxShadow:
+    "0 5px 12px rgba(185,28,28,0.18)",
   fontFamily:
     "var(--font-almarai), sans-serif",
 };
