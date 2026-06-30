@@ -984,12 +984,7 @@ function ContractsList({
 
 function InvestorStatement({
   investor,
-  summary,
   contracts,
-  overdueContracts,
-  paidContracts,
-  activeContracts,
-  closedContracts,
   onPrint,
 }: {
   investor: Investor;
@@ -1001,119 +996,310 @@ function InvestorStatement({
   closedContracts: ContractItem[];
   onPrint: () => void;
 }) {
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
+  const hasInvalidDateRange = Boolean(
+    dateFrom && dateTo && dateFrom > dateTo
+  );
+
+  const filteredContracts = useMemo(() => {
+    if (hasInvalidDateRange) return [];
+
+    return contracts.filter((contract) =>
+      isContractWithinDateRange(contract, dateFrom, dateTo)
+    );
+  }, [contracts, dateFrom, dateTo, hasInvalidDateRange]);
+
+  const filteredOverdueContracts = useMemo(
+    () =>
+      filteredContracts.filter(
+        (contract) => getContractStatus(contract) === "overdue"
+      ),
+    [filteredContracts]
+  );
+
+  const filteredPaidContracts = useMemo(
+    () =>
+      filteredContracts.filter(
+        (contract) => getContractStatus(contract) === "paid"
+      ),
+    [filteredContracts]
+  );
+
+  const filteredActiveContracts = useMemo(
+    () =>
+      filteredContracts.filter(
+        (contract) => getContractStatus(contract) === "active"
+      ),
+    [filteredContracts]
+  );
+
+  const filteredClosedContracts = useMemo(
+    () =>
+      filteredContracts.filter(
+        (contract) => getContractStatus(contract) === "closed"
+      ),
+    [filteredContracts]
+  );
+
+  const filteredSummary = useMemo<InvestorSummary>(
+    () => ({
+      totalContracts: filteredContracts.length,
+      totalDebt: sumValues(filteredContracts, "debt_amount"),
+      totalPaid: sumValues(filteredContracts, "paid_amount"),
+      totalRemaining: sumValues(filteredContracts, "remaining_amount"),
+      totalInstallments: sumValues(filteredContracts, "installment_amount"),
+      overdueCount: filteredOverdueContracts.length,
+      paidCount: filteredPaidContracts.length,
+      activeCount: filteredActiveContracts.length,
+      closedCount: filteredClosedContracts.length,
+    }),
+    [
+      filteredContracts,
+      filteredOverdueContracts,
+      filteredPaidContracts,
+      filteredActiveContracts,
+      filteredClosedContracts,
+    ]
+  );
+
+  const periodLabel =
+    dateFrom || dateTo
+      ? `الفترة: من ${dateFrom ? formatDateOnly(dateFrom) : "البداية"} إلى ${
+          dateTo ? formatDateOnly(dateTo) : "اليوم"
+        }`
+      : "الفترة: جميع التواريخ";
+
+  function resetDateRange() {
+    setDateFrom("");
+    setDateTo("");
+  }
+
+  function handlePrint() {
+    if (hasInvalidDateRange) return;
+    onPrint();
+  }
+
   return (
     <section className="print-area" style={statementBox}>
-      <div className="no-print" style={statementActions}>
-        <button
-          type="button"
-          className="interactive-button"
-          style={printButton}
-          onClick={onPrint}
-        >
-          <PrintIcon />
-          <span>طباعة الكشف الشامل</span>
-        </button>
-      </div>
+      <div className="no-print statement-controls" style={statementControls}>
+        <div style={statementDateFilters}>
+          <div style={dateFieldBox}>
+            <label htmlFor="statement-date-from" style={dateFieldLabel}>
+              من تاريخ
+            </label>
+            <input
+              id="statement-date-from"
+              type="date"
+              inputMode="numeric"
+              dir="ltr"
+              lang="en"
+              value={dateFrom}
+              max={dateTo || undefined}
+              onChange={(event) => setDateFrom(event.target.value)}
+              style={dateInput}
+            />
+          </div>
 
-      <div style={statementHeader}>
-        <h2 style={statementTitle}>الكشف الشامل للمستثمر</h2>
+          <div style={dateFieldBox}>
+            <label htmlFor="statement-date-to" style={dateFieldLabel}>
+              إلى تاريخ
+            </label>
+            <input
+              id="statement-date-to"
+              type="date"
+              inputMode="numeric"
+              dir="ltr"
+              lang="en"
+              value={dateTo}
+              min={dateFrom || undefined}
+              onChange={(event) => setDateTo(event.target.value)}
+              style={dateInput}
+            />
+          </div>
 
-        <div style={statementDate}>
-          تاريخ التقرير: {formatDateOnly(new Date().toISOString())}
+          <button
+            type="button"
+            className="interactive-button"
+            style={resetDateButton}
+            onClick={resetDateRange}
+            disabled={!dateFrom && !dateTo}
+          >
+            مسح التواريخ
+          </button>
+        </div>
+
+        {hasInvalidDateRange && (
+          <div role="alert" style={dateRangeError}>
+            يجب أن يكون تاريخ البداية أقدم من تاريخ النهاية أو مساويًا له.
+          </div>
+        )}
+
+        <div style={statementActions}>
+          <button
+            type="button"
+            className="interactive-button"
+            style={{
+              ...printButton,
+              opacity: hasInvalidDateRange ? 0.55 : 1,
+            }}
+            onClick={handlePrint}
+            disabled={hasInvalidDateRange}
+          >
+            <PrintIcon />
+            <span>طباعة الكشف الشامل</span>
+          </button>
         </div>
       </div>
 
-      <div style={statementInvestorBox}>
-        <p>
-          <strong>اسم المستثمر:</strong> {investor.investor_name}
-        </p>
-        <p>
-          <strong>الجوال:</strong> {investor.phone || "-"}
-        </p>
-        <p>
-          <strong>النوع:</strong>{" "}
-          {investor.is_primary ? "المستثمر الرئيسي" : "مستثمر"}
-        </p>
-      </div>
-
-      <div className="statement-grid" style={statementGrid}>
-        <StatementItem title="إجمالي العقود" value={summary.totalContracts} />
-        <StatementItem title="النشطة" value={activeContracts.length} />
-        <StatementItem title="المتأخرة" value={overdueContracts.length} />
-        <StatementItem title="المسددة" value={paidContracts.length} />
-        <StatementItem title="المغلقة" value={closedContracts.length} />
-        <StatementItem
-          title="إجمالي المديونية"
-          value={formatMoney(summary.totalDebt)}
-        />
-        <StatementItem
-          title="إجمالي المدفوع"
-          value={formatMoney(summary.totalPaid)}
-        />
-        <StatementItem
-          title="إجمالي المتبقي"
-          value={formatMoney(summary.totalRemaining)}
-        />
-      </div>
-
-      <div style={statementSection}>
-        <h3 style={statementMiniTitle}>العقود المتأخرة</h3>
-
-        {overdueContracts.length === 0 ? (
-          <div style={emptyBox}>لا توجد عقود متأخرة.</div>
-        ) : (
-          <div style={statementTable}>
-            <div style={statementTableHeader}>
-              <span>رقم العقد</span>
-              <span>العميل</span>
-              <span>الجوال</span>
-              <span>المتبقي</span>
-              <span>الاستحقاق</span>
-              <span>أيام التأخير</span>
+      <div className="print-document">
+        <header className="print-header" style={statementHeader}>
+          <div>
+            <h2 style={statementTitle}>الكشف الشامل للمستثمر</h2>
+            <div className="print-period" style={statementPeriod}>
+              {periodLabel}
             </div>
-
-            {overdueContracts.map((contract) => (
-              <div key={contract.id} style={statementTableRow}>
-                <span>{contract.contract_number || "-"}</span>
-                <span>{contract.customer_name || "-"}</span>
-                <span dir="ltr">{contract.customer_phone || "-"}</span>
-                <span>{formatMoney(contract.remaining_amount)}</span>
-                <span>{formatDateOnly(contract.payment_due_date)}</span>
-                <span>{getOverdueDays(contract.payment_due_date)}</span>
-              </div>
-            ))}
           </div>
-        )}
-      </div>
 
-      <div style={statementSection}>
-        <h3 style={statementMiniTitle}>جميع عقود المستثمر</h3>
+          <div style={statementDate}>
+            تاريخ التقرير: {formatDateOnly(new Date().toISOString())}
+          </div>
+        </header>
 
-        {contracts.length === 0 ? (
-          <div style={emptyBox}>لا توجد عقود.</div>
-        ) : (
-          <div style={statementTable}>
-            <div style={statementTableHeader}>
-              <span>رقم العقد</span>
-              <span>العميل</span>
-              <span>المنتج</span>
-              <span>المديونية</span>
-              <span>المدفوع</span>
-              <span>المتبقي</span>
+        <section className="print-keep-together" style={statementInvestorBox}>
+          <p>
+            <strong>اسم المستثمر:</strong> {investor.investor_name}
+          </p>
+          <p>
+            <strong>الجوال:</strong> {investor.phone || "-"}
+          </p>
+          <p>
+            <strong>النوع:</strong>{" "}
+            {investor.is_primary ? "المستثمر الرئيسي" : "مستثمر"}
+          </p>
+        </section>
+
+        <section
+          className="statement-grid print-keep-together"
+          style={statementGrid}
+        >
+          <StatementItem
+            title="إجمالي العقود"
+            value={filteredSummary.totalContracts}
+          />
+          <StatementItem
+            title="النشطة"
+            value={filteredActiveContracts.length}
+          />
+          <StatementItem
+            title="المتأخرة"
+            value={filteredOverdueContracts.length}
+          />
+          <StatementItem
+            title="المسددة"
+            value={filteredPaidContracts.length}
+          />
+          <StatementItem
+            title="المغلقة"
+            value={filteredClosedContracts.length}
+          />
+          <StatementItem
+            title="إجمالي المديونية"
+            value={formatMoney(filteredSummary.totalDebt)}
+          />
+          <StatementItem
+            title="إجمالي المدفوع"
+            value={formatMoney(filteredSummary.totalPaid)}
+          />
+          <StatementItem
+            title="إجمالي المتبقي"
+            value={formatMoney(filteredSummary.totalRemaining)}
+          />
+        </section>
+
+        <section className="print-section" style={statementSection}>
+          <h3 className="print-section-title" style={statementMiniTitle}>
+            العقود المتأخرة
+          </h3>
+
+          {filteredOverdueContracts.length === 0 ? (
+            <div className="print-empty" style={emptyBox}>
+              لا توجد عقود متأخرة ضمن الفترة المحددة.
             </div>
+          ) : (
+            <div className="print-table-wrapper" style={statementTable}>
+              <table className="print-table">
+                <thead>
+                  <tr>
+                    <th>رقم العقد</th>
+                    <th>العميل</th>
+                    <th>الجوال</th>
+                    <th>المتبقي</th>
+                    <th>الاستحقاق</th>
+                    <th>أيام التأخير</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredOverdueContracts.map((contract) => (
+                    <tr key={contract.id}>
+                      <td>{contract.contract_number || "-"}</td>
+                      <td>{contract.customer_name || "-"}</td>
+                      <td dir="ltr">{contract.customer_phone || "-"}</td>
+                      <td>{formatMoney(contract.remaining_amount)}</td>
+                      <td>{formatDateOnly(contract.payment_due_date)}</td>
+                      <td>{getOverdueDays(contract.payment_due_date)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
 
-            {contracts.map((contract) => (
-              <div key={contract.id} style={statementTableRow}>
-                <span>{contract.contract_number || "-"}</span>
-                <span>{contract.customer_name || "-"}</span>
-                <span>{contract.product_name || "-"}</span>
-                <span>{formatMoney(contract.debt_amount)}</span>
-                <span>{formatMoney(contract.paid_amount)}</span>
-                <span>{formatMoney(contract.remaining_amount)}</span>
-              </div>
-            ))}
-          </div>
-        )}
+        <section className="print-section" style={statementSection}>
+          <h3 className="print-section-title" style={statementMiniTitle}>
+            جميع عقود المستثمر
+          </h3>
+
+          {filteredContracts.length === 0 ? (
+            <div className="print-empty" style={emptyBox}>
+              لا توجد عقود ضمن الفترة المحددة.
+            </div>
+          ) : (
+            <div className="print-table-wrapper" style={statementTable}>
+              <table className="print-table">
+                <thead>
+                  <tr>
+                    <th>رقم العقد</th>
+                    <th>العميل</th>
+                    <th>تاريخ العقد</th>
+                    <th>المديونية</th>
+                    <th>المدفوع</th>
+                    <th>المتبقي</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredContracts.map((contract) => (
+                    <tr key={contract.id}>
+                      <td>{contract.contract_number || "-"}</td>
+                      <td>{contract.customer_name || "-"}</td>
+                      <td>{formatDateOnly(getContractReferenceDate(contract))}</td>
+                      <td>{formatMoney(contract.debt_amount)}</td>
+                      <td>{formatMoney(contract.paid_amount)}</td>
+                      <td>{formatMoney(contract.remaining_amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        <footer className="print-footer">
+          <span>{investor.investor_name}</span>
+          <span>{periodLabel}</span>
+        </footer>
       </div>
     </section>
   );
@@ -1652,7 +1838,7 @@ function getContractStatus(contract: ContractItem) {
     return "paid";
   }
 
-  if (remaining > 0 && getOverdueDays(contract.payment_due_date) > OVERDUE_GRACE_DAYS) {
+  if (remaining > 0 && getOverdueDays(contract.payment_due_date) >= OVERDUE_GRACE_DAYS) {
     return "overdue";
   }
 
@@ -1693,6 +1879,42 @@ function parseDateOnly(value: string) {
   date.setHours(0, 0, 0, 0);
 
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function getContractReferenceDate(contract: ContractItem) {
+  return (
+    contract.contract_issue_date_gregorian ||
+    contract.contract_date_gregorian ||
+    contract.created_at ||
+    null
+  );
+}
+
+function isContractWithinDateRange(
+  contract: ContractItem,
+  dateFrom: string,
+  dateTo: string
+) {
+  if (!dateFrom && !dateTo) return true;
+
+  const referenceDateValue = getContractReferenceDate(contract);
+  if (!referenceDateValue) return false;
+
+  const referenceDate = parseDateOnly(referenceDateValue);
+  if (!referenceDate) return false;
+
+  const fromDate = dateFrom ? parseDateOnly(dateFrom) : null;
+  const toDate = dateTo ? parseDateOnly(dateTo) : null;
+
+  if (fromDate && referenceDate.getTime() < fromDate.getTime()) {
+    return false;
+  }
+
+  if (toDate && referenceDate.getTime() > toDate.getTime()) {
+    return false;
+  }
+
+  return true;
 }
 
 function getTabTitle(tab: InvestorTab) {
@@ -2107,7 +2329,53 @@ function GlobalResponsiveStyles() {
         }
       }
 
+      .print-table-wrapper {
+        width: 100%;
+        overflow-x: auto;
+      }
+
+      .print-table {
+        width: 100%;
+        min-width: 760px;
+        border-collapse: collapse;
+        table-layout: fixed;
+        direction: rtl;
+      }
+
+      .print-table th,
+      .print-table td {
+        border: 1px solid #e2e8f0;
+        padding: 9px 8px;
+        text-align: center;
+        vertical-align: middle;
+        font-size: 12px;
+        line-height: 1.5;
+        overflow-wrap: anywhere;
+      }
+
+      .print-table th {
+        background: #f1f5f9;
+        color: #0f172a;
+        font-weight: 900;
+      }
+
+      .print-footer {
+        display: none;
+      }
+
       @media print {
+        html,
+        body {
+          width: 210mm !important;
+          min-height: 297mm !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #ffffff !important;
+          overflow: visible !important;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+
         body * {
           visibility: hidden !important;
         }
@@ -2119,30 +2387,142 @@ function GlobalResponsiveStyles() {
 
         .print-area {
           position: absolute !important;
-          top: 0 !important;
-          right: 0 !important;
-          left: 0 !important;
+          inset: 0 auto auto 0 !important;
           width: 100% !important;
           max-width: none !important;
+          margin: 0 !important;
+          padding: 0 !important;
           background: #ffffff !important;
-          box-shadow: none !important;
-          border: none !important;
-          padding: 4mm !important;
+          border: 0 !important;
           border-radius: 0 !important;
+          box-shadow: none !important;
+          overflow: visible !important;
         }
 
-        .no-print {
+        .print-document {
+          width: 100% !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          color: #000000 !important;
+          background: #ffffff !important;
+          font-family: var(--font-almarai), sans-serif !important;
+          direction: rtl !important;
+        }
+
+        .no-print,
+        .statement-controls {
           display: none !important;
         }
 
-        .print-area > div,
-        .print-area article {
-          break-inside: avoid;
+        .print-header,
+        .print-keep-together,
+        .print-section-title,
+        .print-empty {
+          break-inside: avoid !important;
+          page-break-inside: avoid !important;
+        }
+
+        .print-header {
+          margin: 0 0 4mm !important;
+          padding: 0 0 3mm !important;
+          border-bottom: 1.2pt solid #0f172a !important;
+        }
+
+        .print-period {
+          margin-top: 1.5mm !important;
+          font-size: 9pt !important;
+        }
+
+        .statement-grid {
+          display: grid !important;
+          grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+          gap: 2mm !important;
+          margin-bottom: 4mm !important;
+        }
+
+        .statement-grid > * {
+          min-height: 17mm !important;
+          padding: 2.5mm !important;
+          border: 0.7pt solid #cbd5e1 !important;
+          border-radius: 2mm !important;
+          break-inside: avoid !important;
+          page-break-inside: avoid !important;
+        }
+
+        .print-section {
+          margin-top: 4mm !important;
+          break-before: auto !important;
+          page-break-before: auto !important;
+        }
+
+        .print-section-title {
+          margin: 0 0 2.5mm !important;
+          padding: 0 0 1.5mm !important;
+          border-bottom: 0.8pt solid #cbd5e1 !important;
+          font-size: 11pt !important;
+        }
+
+        .print-table-wrapper {
+          width: 100% !important;
+          overflow: visible !important;
+        }
+
+        .print-table {
+          width: 100% !important;
+          min-width: 0 !important;
+          table-layout: fixed !important;
+          border-collapse: collapse !important;
+          border-spacing: 0 !important;
+          direction: rtl !important;
+        }
+
+        .print-table thead {
+          display: table-header-group !important;
+        }
+
+        .print-table tbody {
+          display: table-row-group !important;
+        }
+
+        .print-table tr {
+          break-inside: avoid !important;
+          page-break-inside: avoid !important;
+        }
+
+        .print-table th,
+        .print-table td {
+          border: 0.65pt solid #94a3b8 !important;
+          padding: 1.8mm 1.3mm !important;
+          font-size: 8.5pt !important;
+          line-height: 1.35 !important;
+          text-align: center !important;
+          vertical-align: middle !important;
+          overflow-wrap: anywhere !important;
+          word-break: normal !important;
+        }
+
+        .print-table th {
+          background: #eaf1fb !important;
+          color: #0f172a !important;
+          font-weight: 900 !important;
+        }
+
+        .print-footer {
+          display: flex !important;
+          justify-content: space-between !important;
+          gap: 4mm !important;
+          margin-top: 4mm !important;
+          padding-top: 2mm !important;
+          border-top: 0.6pt solid #cbd5e1 !important;
+          color: #475569 !important;
+          font-size: 8pt !important;
+          break-inside: avoid !important;
+          page-break-inside: avoid !important;
         }
 
         @page {
-          size: A4;
-          margin: 8mm;
+          size: A4 portrait;
+          margin: 10mm 9mm 10mm 9mm;
         }
       }
 
@@ -2766,6 +3146,70 @@ const statementBox: CSSProperties = {
   padding: 16,
 };
 
+const statementControls: CSSProperties = {
+  display: "grid",
+  gap: 12,
+  marginBottom: 16,
+  padding: 14,
+  background: "#f8fafc",
+  border: "1px solid #e2e8f0",
+  borderRadius: 16,
+};
+
+const statementDateFilters: CSSProperties = {
+  display: "flex",
+  alignItems: "flex-end",
+  gap: 10,
+  flexWrap: "wrap",
+};
+
+const dateFieldBox: CSSProperties = {
+  display: "grid",
+  gap: 6,
+  minWidth: 185,
+  flex: "1 1 185px",
+};
+
+const dateFieldLabel: CSSProperties = {
+  color: "#334155",
+  fontSize: 13,
+  fontWeight: 900,
+};
+
+const dateInput: CSSProperties = {
+  width: "100%",
+  minHeight: 45,
+  border: "1px solid #cbd5e1",
+  borderRadius: 12,
+  padding: "9px 11px",
+  background: "#ffffff",
+  color: "#0f172a",
+  fontSize: 15,
+  fontWeight: 800,
+  fontFamily: "var(--font-almarai), sans-serif",
+};
+
+const resetDateButton: CSSProperties = {
+  minHeight: 45,
+  border: "1px solid #cbd5e1",
+  borderRadius: 12,
+  padding: "9px 14px",
+  background: "#ffffff",
+  color: "#475569",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
+const dateRangeError: CSSProperties = {
+  padding: "10px 12px",
+  border: "1px solid #fecaca",
+  borderRadius: 12,
+  background: "#fff1f2",
+  color: "#b91c1c",
+  fontSize: 13,
+  fontWeight: 900,
+};
+
 const statementActions: CSSProperties = {
   display: "flex",
   justifyContent: "flex-end",
@@ -2799,6 +3243,13 @@ const statementTitle: CSSProperties = {
   margin: 0,
   color: "#0f172a",
   fontFamily: "var(--font-almarai), sans-serif",
+};
+
+const statementPeriod: CSSProperties = {
+  marginTop: 7,
+  color: "#475569",
+  fontSize: 13,
+  fontWeight: 800,
 };
 
 const statementDate: CSSProperties = {
@@ -2850,27 +3301,6 @@ const statementMiniTitle: CSSProperties = {
 const statementTable: CSSProperties = {
   width: "100%",
   overflowX: "auto",
-};
-
-const statementTableHeader: CSSProperties = {
-  minWidth: 760,
-  display: "grid",
-  gridTemplateColumns: "130px 150px 130px 120px 120px 110px",
-  gap: 10,
-  background: "#f1f5f9",
-  color: "#0f172a",
-  padding: 11,
-  borderRadius: 10,
-  fontWeight: 900,
-};
-
-const statementTableRow: CSSProperties = {
-  minWidth: 760,
-  display: "grid",
-  gridTemplateColumns: "130px 150px 130px 120px 120px 110px",
-  gap: 10,
-  padding: 11,
-  borderBottom: "1px solid #e2e8f0",
 };
 
 const backWrapper: CSSProperties = {
