@@ -80,6 +80,11 @@ type SelectOption = {
   disabled?: boolean;
 };
 
+type ContractType =
+  | ""
+  | "عقد بيع"
+  | "عقد تقسيط";
+
 const MAX_CONTRACT_CREATE_ATTEMPTS = 5;
 
 const SESSION_DURATION_MS =
@@ -167,8 +172,8 @@ export default function NewRequestPage() {
   const [address, setAddress] =
     useState("");
 
-  const [financeType, setFinanceType] =
-    useState("");
+  const [contractType, setContractType] =
+    useState<ContractType>("");
 
   const [investorId, setInvestorId] =
     useState("");
@@ -200,11 +205,6 @@ export default function NewRequestPage() {
 
   const [debtAmount, setDebtAmount] =
     useState("");
-
-  const [
-    hasDeferredPayments,
-    setHasDeferredPayments,
-  ] = useState(false);
 
   const [
     installmentAmount,
@@ -268,6 +268,9 @@ export default function NewRequestPage() {
 
   const isCompact =
     isMobile || isTablet;
+
+  const isInstallmentContract =
+    contractType === "عقد تقسيط";
 
   const investorOptions:
     SelectOption[] =
@@ -1157,8 +1160,11 @@ export default function NewRequestPage() {
       return "رقم الجوال يجب أن يكون 10 أرقام ويبدأ بـ 05";
     }
 
-    if (!financeType.trim()) {
-      return "يرجى إدخال نوع التمويل";
+    if (
+      contractType !== "عقد بيع" &&
+      contractType !== "عقد تقسيط"
+    ) {
+      return "يرجى اختيار نوع العقد";
     }
 
     if (!investorId) {
@@ -1177,15 +1183,23 @@ export default function NewRequestPage() {
       return "يرجى إدخال مبلغ استحقاق صحيح";
     }
 
-    if (hasDeferredPayments) {
+    if (isInstallmentContract) {
       if (
         deferredPayment <= 0
       ) {
-        return "يرجى إدخال قيمة دفعة آجلة صحيحة";
+        return "يرجى إدخال قيمة دفعة صحيحة";
       }
 
       if (deferredCount <= 0) {
-        return "يرجى إدخال عدد دفعات آجلة صحيح";
+        return "يرجى إدخال عدد دفعات صحيح";
+      }
+
+      if (
+        !Number.isInteger(
+          deferredCount
+        )
+      ) {
+        return "عدد الدفعات يجب أن يكون رقمًا صحيحًا";
       }
     }
 
@@ -1445,14 +1459,14 @@ export default function NewRequestPage() {
       toNumber(debtAmount);
 
     const deferredPayment =
-      hasDeferredPayments
+      isInstallmentContract
         ? toNumber(
             installmentAmount
           )
         : 0;
 
     const deferredCount =
-      hasDeferredPayments
+      isInstallmentContract
         ? toNumber(
             deferredPaymentsCount
           )
@@ -1577,7 +1591,7 @@ export default function NewRequestPage() {
           address.trim(),
 
         p_finance_type:
-          financeType.trim(),
+          contractType,
 
         p_investor_id:
           selectedInvestor.id,
@@ -1611,7 +1625,7 @@ export default function NewRequestPage() {
           debt,
 
         p_has_deferred_payments:
-          hasDeferredPayments,
+          isInstallmentContract,
 
         p_installment_amount:
           deferredPayment,
@@ -1620,7 +1634,9 @@ export default function NewRequestPage() {
           deferredCount,
 
         p_payment_type:
-          "تاريخ استحقاق",
+          isInstallmentContract
+            ? "دفعات شهرية"
+            : "دفعة آجلة واحدة",
 
         p_payment_due_date:
           paymentDueDate,
@@ -2136,15 +2152,35 @@ export default function NewRequestPage() {
             بيانات العقد والسند
           </h2>
 
-          <Field label="نوع التمويل">
-            <input
-              style={input}
-              value={financeType}
-              onChange={(event) =>
-                setFinanceType(
-                  event.target.value
-                )
-              }
+          <Field label="نوع العقد">
+            <CustomSelect
+              value={contractType}
+              placeholder="اختر نوع العقد"
+              options={[
+                {
+                  value: "عقد بيع",
+                  label: "عقد بيع",
+                },
+                {
+                  value: "عقد تقسيط",
+                  label: "عقد تقسيط",
+                },
+              ]}
+              onChange={(value) => {
+                const nextContractType =
+                  value as ContractType;
+
+                setContractType(
+                  nextContractType
+                );
+
+                if (
+                  nextContractType !==
+                  "عقد تقسيط"
+                ) {
+                  resetDeferredPaymentsFields();
+                }
+              }}
             />
           </Field>
 
@@ -2163,44 +2199,9 @@ export default function NewRequestPage() {
             />
           </Field>
 
-          <Field label="هل يوجد دفعات آجلة؟">
-            <CustomSelect
-              value={
-                hasDeferredPayments
-                  ? "yes"
-                  : "no"
-              }
-              placeholder="اختر"
-              options={[
-                {
-                  value: "no",
-                  label:
-                    "بدون دفعات",
-                },
-                {
-                  value: "yes",
-                  label:
-                    "يوجد دفعات",
-                },
-              ]}
-              onChange={(value) => {
-                const nextValue =
-                  value === "yes";
-
-                setHasDeferredPayments(
-                  nextValue
-                );
-
-                if (!nextValue) {
-                  resetDeferredPaymentsFields();
-                }
-              }}
-            />
-          </Field>
-
-          {hasDeferredPayments && (
+          {isInstallmentContract && (
             <>
-              <Field label="قيمة الدفعة الآجلة">
+              <Field label="قيمة الدفعة">
                 <input
                   style={input}
                   inputMode="decimal"
@@ -2217,7 +2218,7 @@ export default function NewRequestPage() {
                 />
               </Field>
 
-              <Field label="عدد الدفعات الآجلة">
+              <Field label="عدد الدفعات">
                 <input
                   style={input}
                   inputMode="numeric"
@@ -2236,13 +2237,23 @@ export default function NewRequestPage() {
             </>
           )}
 
-          <Field label="تاريخ الاستحقاق بالميلادي">
+          <Field
+            label={
+              isInstallmentContract
+                ? "تاريخ أول دفعة بالميلادي"
+                : "تاريخ الاستحقاق بالميلادي"
+            }
+          >
             <ProfessionalDatePicker
               value={paymentDueDate}
               onChange={
                 setPaymentDueDate
               }
-              placeholder="اختر تاريخ الاستحقاق"
+              placeholder={
+                isInstallmentContract
+                  ? "اختر تاريخ أول دفعة"
+                  : "اختر تاريخ الاستحقاق"
+              }
             />
           </Field>
 
@@ -3865,6 +3876,7 @@ const input:
   background: "#ffffff",
   color: "#0f172a",
   outline: "none",
+  boxSizing: "border-box",
   fontFamily:
     "var(--font-almarai), sans-serif",
 };
