@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import type { CSSProperties } from "react";
@@ -34,6 +35,7 @@ type FinanceUser = {
   permissions?: string[];
   investor_id?: string | null;
   is_active?: boolean;
+  session_version?: number;
   last_login_at?: string | null;
   logged_at?: string;
   support_user_id?: string;
@@ -133,7 +135,124 @@ type DrawerGroup = {
   links: DrawerLink[];
 };
 
-const SUPPORT_SESSION_TIMEOUT_MS = 1200;
+const SUPPORT_SESSION_TIMEOUT_MS = 5000;
+const DASHBOARD_COUNTS_CACHE_TTL_MS =
+  5 * 60 * 1000;
+
+type DashboardCountsCache = {
+  customersCount: number;
+  contractsCount: number;
+  cachedAt: number;
+};
+
+function getDashboardCountsCacheKey(
+  branchId: string
+) {
+  return `finance_dashboard_counts_${branchId}`;
+}
+
+function readDashboardCountsCache(
+  branchId: string
+): DashboardCountsCache | null {
+  if (
+    typeof window === "undefined" ||
+    !branchId
+  ) {
+    return null;
+  }
+
+  try {
+    const raw = window.sessionStorage.getItem(
+      getDashboardCountsCacheKey(
+        branchId
+      )
+    );
+
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(
+      raw
+    ) as Partial<DashboardCountsCache>;
+
+    const customersCount = Number(
+      parsed.customersCount
+    );
+
+    const contractsCount = Number(
+      parsed.contractsCount
+    );
+
+    const cachedAt = Number(
+      parsed.cachedAt
+    );
+
+    if (
+      !Number.isFinite(
+        customersCount
+      ) ||
+      !Number.isFinite(
+        contractsCount
+      ) ||
+      !Number.isFinite(
+        cachedAt
+      ) ||
+      Date.now() - cachedAt >
+        DASHBOARD_COUNTS_CACHE_TTL_MS
+    ) {
+      window.sessionStorage.removeItem(
+        getDashboardCountsCacheKey(
+          branchId
+        )
+      );
+
+      return null;
+    }
+
+    return {
+      customersCount,
+      contractsCount,
+      cachedAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeDashboardCountsCache(
+  branchId: string,
+  customersCount: number,
+  contractsCount: number
+) {
+  if (
+    typeof window === "undefined" ||
+    !branchId
+  ) {
+    return;
+  }
+
+  try {
+    const cache: DashboardCountsCache = {
+      customersCount,
+      contractsCount,
+      cachedAt: Date.now(),
+    };
+
+    window.sessionStorage.setItem(
+      getDashboardCountsCacheKey(
+        branchId
+      ),
+      JSON.stringify(cache)
+    );
+  } catch {
+    // التخزين المؤقت تحسين اختياري ولا يعطل الصفحة عند فشله.
+  }
+}
+
+
+const BRANCH_SLUG_PATTERN =
+  /^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$/;
 
 const MANAGER_ROLES = [
   "main_admin",
@@ -219,7 +338,7 @@ const sections: MainSection[] = [
     permission: "notes",
   },
   {
-    title: "الصلاحيات",
+    title: "إدارة الموظفين والصلاحيات",
     path: "permissions",
     icon: "🔐",
     color: "#334155",
@@ -351,7 +470,7 @@ const drawerGroups: DrawerGroup[] = [
         permission: "expenses",
       },
       {
-        title: "إدارة الصلاحيات",
+        title: "إدارة الموظفين والصلاحيات",
         path: "permissions",
         icon: "🔐",
         permission: "permissions",
@@ -405,10 +524,10 @@ export default function FinancePage() {
     useState<string[]>([]);
 
   const [customersCount, setCustomersCount] =
-    useState(0);
+    useState<number | null>(null);
 
   const [contractsCount, setContractsCount] =
-    useState(0);
+    useState<number | null>(null);
 
   const [alerts, setAlerts] =
     useState<AlertItem[]>([]);
@@ -428,6 +547,9 @@ export default function FinancePage() {
   const [menuOpen, setMenuOpen] =
     useState(false);
 
+  const searchRequestIdRef =
+    useRef(0);
+
   const isMobile = screen === "mobile";
   const isTablet = screen === "tablet";
   const isCompact = isMobile || isTablet;
@@ -445,10 +567,18 @@ export default function FinancePage() {
         return [];
       }
 
-      return value.filter(
-        (item): item is string =>
-          typeof item === "string" &&
-          item.trim().length > 0
+      return Array.from(
+        new Set(
+          value
+            .filter(
+              (item): item is string =>
+                typeof item === "string"
+            )
+            .map((item) =>
+              item.trim()
+            )
+            .filter(Boolean)
+        )
       );
     },
     []
@@ -459,13 +589,25 @@ export default function FinancePage() {
       user: FinanceUser,
       type: Exclude<SessionType, null>
     ) => {
-      const userRoles =
+      const baseRoles =
         Array.isArray(user.roles) &&
         user.roles.length > 0
           ? normalizeStringArray(user.roles)
           : user.role
-            ? [user.role]
+            ? normalizeStringArray([
+                user.role,
+              ])
             : [];
+
+      const userRoles =
+        type === "admin_support"
+          ? Array.from(
+              new Set([
+                ...baseRoles,
+                "support_impersonation",
+              ])
+            )
+          : baseRoles;
 
       const userPermissions =
         normalizeStringArray(
@@ -478,6 +620,21 @@ export default function FinancePage() {
       );
 
       setBranchId(user.branch_id);
+
+      const cachedCounts =
+        readDashboardCountsCache(
+          user.branch_id
+        );
+
+      setCustomersCount(
+        cachedCounts?.customersCount ??
+          null
+      );
+
+      setContractsCount(
+        cachedCounts?.contractsCount ??
+          null
+      );
 
       setEmployeeName(
         user.full_name ||
@@ -614,7 +771,7 @@ export default function FinancePage() {
                 "finance_branch_users"
               )
               .select(
-                "id, full_name, username, role, branch_id, is_active"
+                "id, full_name, username, role, permissions, branch_id, is_active, session_version"
               )
               .eq("id", user.id)
               .eq(
@@ -670,6 +827,26 @@ export default function FinancePage() {
             return;
           }
 
+          if (
+            !userResult.error &&
+            userResult.data &&
+            typeof user.session_version ===
+              "number" &&
+            typeof userResult.data
+              .session_version ===
+              "number" &&
+            userResult.data
+              .session_version !==
+              user.session_version
+          ) {
+            redirectToFinanceLogin(router, {
+              branchSlug: branch,
+              preserveReturnPath: true,
+            });
+
+            return;
+          }
+
           if (branchResult.data) {
             const refreshedOrganizationName =
               branchResult.data
@@ -701,8 +878,29 @@ export default function FinancePage() {
               user.username ||
               "الموظف";
 
+            const refreshedRole =
+              typeof userResult.data.role ===
+                "string"
+                ? userResult.data.role.trim()
+                : "";
+
+            const refreshedPermissions =
+              normalizeStringArray(
+                userResult.data.permissions
+              );
+
             setEmployeeName(
               refreshedEmployeeName
+            );
+
+            setRoles(
+              refreshedRole
+                ? [refreshedRole]
+                : []
+            );
+
+            setPermissions(
+              refreshedPermissions
             );
 
             localStorage.setItem(
@@ -717,7 +915,11 @@ export default function FinancePage() {
           );
         }
       },
-      [branch, router]
+      [
+        branch,
+        normalizeStringArray,
+        router,
+      ]
     );
 
   useEffect(() => {
@@ -784,7 +986,12 @@ export default function FinancePage() {
   }, [menuOpen]);
 
   useEffect(() => {
-    if (!branch) {
+    if (
+      !branch ||
+      !BRANCH_SLUG_PATTERN.test(
+        branch
+      )
+    ) {
       redirectToFinanceLogin(router, {
         preserveReturnPath: true,
       });
@@ -858,9 +1065,9 @@ export default function FinancePage() {
           role:
             session.role || "",
 
-         roles: session.role
-  ? [session.role]
-  : [],
+          roles: session.role
+            ? [session.role]
+            : [],
 
           permissions:
             Array.isArray(
@@ -876,6 +1083,12 @@ export default function FinancePage() {
           is_active:
             session.is_active !==
             false,
+
+          session_version:
+            typeof session.session_version ===
+              "number"
+              ? session.session_version
+              : undefined,
 
           last_login_at:
             session.last_login_at ||
@@ -914,6 +1127,9 @@ export default function FinancePage() {
                 .toLowerCase();
 
             if (
+              BRANCH_SLUG_PATTERN.test(
+                supportBranchSlug
+              ) &&
               supportBranchSlug ===
                 branch &&
               supportUser.branch_id
@@ -945,9 +1161,20 @@ export default function FinancePage() {
             .toLowerCase();
 
         if (
-          supportBranchSlug !==
-            branch ||
+          !BRANCH_SLUG_PATTERN.test(
+            supportBranchSlug
+          ) ||
           !supportUser.branch_id
+        ) {
+          redirectToFinanceLogin(router, {
+            preserveReturnPath: true,
+          });
+
+          return;
+        }
+
+        if (
+          supportBranchSlug !== branch
         ) {
           router.replace(
             `/finance/${encodeURIComponent(
@@ -1022,13 +1249,36 @@ export default function FinancePage() {
 
     void loadDashboardData(
       safeBranchId,
+      {
+        canViewCustomers:
+          hasPermission(
+            "customers"
+          ),
+        canViewContracts:
+          hasPermission(
+            "contracts"
+          ),
+        canViewInventory:
+          hasPermission(
+            "inventory"
+          ),
+        canViewActivities:
+          hasPermission(
+            "workflow"
+          ),
+      },
       () => cancelled
     );
 
     return () => {
       cancelled = true;
     };
-  }, [authorized, branchId]);
+  }, [
+    authorized,
+    branchId,
+    permissions,
+    roles,
+  ]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -1054,8 +1304,8 @@ export default function FinancePage() {
     setRoles([]);
     setSearchText("");
     setSearchResults([]);
-    setCustomersCount(0);
-    setContractsCount(0);
+    setCustomersCount(null);
+    setContractsCount(null);
     setAlerts([]);
     setLatestActivities([]);
     setMenuOpen(false);
@@ -1120,56 +1370,100 @@ export default function FinancePage() {
 
   async function loadDashboardData(
     currentBranchId: string,
+    access: {
+      canViewCustomers: boolean;
+      canViewContracts: boolean;
+      canViewInventory: boolean;
+      canViewActivities: boolean;
+    },
     isCancelled: () => boolean = () => false
   ) {
-    await Promise.allSettled([
+    const tasks: Promise<void>[] = [
       loadCounts(
         currentBranchId,
+        access,
         isCancelled
       ),
+    ];
 
-      loadAlerts(
-        currentBranchId,
-        isCancelled
-      ),
+    if (access.canViewInventory) {
+      tasks.push(
+        loadAlerts(
+          currentBranchId,
+          isCancelled
+        )
+      );
+    } else {
+      setAlerts([]);
+    }
 
-      loadLatestActivities(
-        currentBranchId,
-        isCancelled
-      ),
-    ]);
+    if (access.canViewActivities) {
+      tasks.push(
+        loadLatestActivities(
+          currentBranchId,
+          isCancelled
+        )
+      );
+    } else {
+      setLatestActivities([]);
+    }
+
+    await Promise.allSettled(tasks);
   }
 
   async function loadCounts(
     currentBranchId: string,
+    access: {
+      canViewCustomers: boolean;
+      canViewContracts: boolean;
+    },
     isCancelled: () => boolean = () => false
   ) {
     try {
+      const customersRequest =
+        access.canViewCustomers
+          ? supabase
+              .from(
+                "finance_customers"
+              )
+              .select("id", {
+                count: "exact",
+                head: true,
+              })
+              .eq(
+                "branch_id",
+                currentBranchId
+              )
+          : Promise.resolve({
+              count: 0,
+              error: null,
+            });
+
+      const contractsRequest =
+        access.canViewContracts
+          ? supabase
+              .from(
+                "finance_contracts"
+              )
+              .select("id", {
+                count: "exact",
+                head: true,
+              })
+              .eq(
+                "branch_id",
+                currentBranchId
+              )
+          : Promise.resolve({
+              count: 0,
+              error: null,
+            });
+
       const [
         customersResult,
         contractsResult,
       ] = await Promise.all([
-        supabase
-          .from("finance_customers")
-          .select("id", {
-            count: "exact",
-            head: true,
-          })
-          .eq(
-            "branch_id",
-            currentBranchId
-          ),
-
-        supabase
-          .from("finance_contracts")
-          .select("id", {
-            count: "exact",
-            head: true,
-          })
-          .eq(
-            "branch_id",
-            currentBranchId
-          ),
+        customersRequest,
+        contractsRequest,
       ]);
 
       if (isCancelled()) {
@@ -1190,13 +1484,46 @@ export default function FinancePage() {
         );
       }
 
-      setCustomersCount(
-        customersResult.count || 0
-      );
+      const nextCustomersCount =
+        access.canViewCustomers
+          ? customersResult.error
+            ? customersCount
+            : customersResult.count ?? 0
+          : 0;
 
-      setContractsCount(
-        contractsResult.count || 0
-      );
+      const nextContractsCount =
+        access.canViewContracts
+          ? contractsResult.error
+            ? contractsCount
+            : contractsResult.count ?? 0
+          : 0;
+
+      if (
+        nextCustomersCount !== null
+      ) {
+        setCustomersCount(
+          nextCustomersCount
+        );
+      }
+
+      if (
+        nextContractsCount !== null
+      ) {
+        setContractsCount(
+          nextContractsCount
+        );
+      }
+
+      if (
+        nextCustomersCount !== null &&
+        nextContractsCount !== null
+      ) {
+        writeDashboardCountsCache(
+          currentBranchId,
+          nextCustomersCount,
+          nextContractsCount
+        );
+      }
     } catch (error) {
       console.error(
         "Counts loading failed:",
@@ -1443,6 +1770,7 @@ export default function FinancePage() {
       !branchId ||
       query.length < 2
     ) {
+      searchRequestIdRef.current += 1;
       setSearchResults([]);
       setSearchLoading(false);
       return;
@@ -1452,15 +1780,22 @@ export default function FinancePage() {
       branchId;
 
     const safeQuery = query
-      .replace(/[(),.%]/g, " ")
+      .replace(
+        /[(),.%*"'\\:{}\[\]]/g,
+        " "
+      )
       .replace(/\s+/g, " ")
       .trim();
 
     if (safeQuery.length < 2) {
+      searchRequestIdRef.current += 1;
       setSearchResults([]);
       setSearchLoading(false);
       return;
     }
+
+    const requestId =
+      ++searchRequestIdRef.current;
 
     setSearchLoading(true);
 
@@ -1577,6 +1912,13 @@ export default function FinancePage() {
         (investorsResult.data ||
           []) as InvestorSearchRow[];
 
+      if (
+        requestId !==
+        searchRequestIdRef.current
+      ) {
+        return;
+      }
+
       const customers: SearchResult[] =
         customerRows.map((item) => ({
           id: String(item.id),
@@ -1646,15 +1988,40 @@ export default function FinancePage() {
 
       setSearchResults([]);
     } finally {
-      setSearchLoading(false);
+      if (
+        requestId ===
+        searchRequestIdRef.current
+      ) {
+        setSearchLoading(false);
+      }
     }
   }
 
   function go(path: string) {
+    const safePath =
+      path.trim();
+
+    if (
+      !safePath ||
+      safePath.startsWith("/") ||
+      safePath.includes("..") ||
+      safePath.includes("\\") ||
+      !BRANCH_SLUG_PATTERN.test(
+        branch
+      )
+    ) {
+      console.error(
+        "Blocked unsafe finance navigation path:",
+        path
+      );
+
+      return;
+    }
+
     setMenuOpen(false);
 
     router.push(
-      `/finance/${branch}/${path}`
+      `/finance/${branch}/${safePath}`
     );
   }
 
@@ -2325,7 +2692,7 @@ function StatCard({
   onClick,
 }: {
   title: string;
-  value: number;
+  value: number | null;
   icon: string;
   color: string;
   onClick: () => void;
@@ -2336,7 +2703,8 @@ function StatCard({
       style={statCard}
       onClick={onClick}
       className="finance-stat-card"
-      aria-label={`فتح ${title}`}
+      aria-label={`فتح قائمة ${title}`}
+      aria-busy={value === null}
     >
       <div
         style={{
@@ -2353,7 +2721,9 @@ function StatCard({
 
       <div style={statContent}>
         <div style={statValue}>
-          {value}
+          {value === null
+            ? "..."
+            : value}
         </div>
 
         <div style={statTitle}>
