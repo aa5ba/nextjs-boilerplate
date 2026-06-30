@@ -21,13 +21,17 @@ const MANAGER_ROLES = new Set([
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-const CLOSED_STATUSES = new Set([
+const PAID_STATUSES = new Set([
   "تم السداد",
   "مسدد",
   "مغلق",
-  "ملغي",
   "paid",
   "closed",
+]);
+
+const CANCELLED_STATUSES = new Set([
+  "ملغي",
+  "ملغى",
   "cancelled",
   "canceled",
 ]);
@@ -80,6 +84,8 @@ type FinanceBranchUserRow = {
 type FinanceBranchRow = {
   id: string;
   branch_slug: string;
+  branch_name: string | null;
+  organization_name: string | null;
   is_active: boolean | null;
 };
 
@@ -88,6 +94,18 @@ type FollowUpNoteOwnerRow = {
   branch_id: string;
   contract_id?: string;
   created_by_user_id: string;
+};
+
+type SupportSessionApiResponse = {
+  ok?: boolean;
+  session_type?: "admin_support";
+  user?: {
+    id?: string;
+    full_name?: string | null;
+    username?: string | null;
+    name?: string | null;
+    role?: string | null;
+  };
 };
 
 function json(
@@ -156,30 +174,6 @@ function getTodaySaudiDate() {
   ).format(new Date());
 }
 
-function subtractDays(
-  isoDate: string,
-  days: number
-) {
-  const [year, month, day] =
-    isoDate.split("-").map(Number);
-
-  const date = new Date(
-    Date.UTC(
-      year,
-      month - 1,
-      day
-    )
-  );
-
-  date.setUTCDate(
-    date.getUTCDate() - days
-  );
-
-  return date
-    .toISOString()
-    .slice(0, 10);
-}
-
 function calculateDaysLate(
   dueDate: string | null,
   todayIso: string
@@ -213,6 +207,343 @@ function calculateDaysLate(
   );
 }
 
+
+function chunkArray<T>(
+  values: T[],
+  size: number
+) {
+  const chunks: T[][] = [];
+
+  for (
+    let index = 0;
+    index < values.length;
+    index += size
+  ) {
+    chunks.push(
+      values.slice(
+        index,
+        index + size
+      )
+    );
+  }
+
+  return chunks;
+}
+
+async function authorizeSupportSession(
+  request: NextRequest,
+  branchSlug: string
+) {
+  const normalizedBranchSlug =
+    cleanText(
+      branchSlug,
+      120
+    ).toLowerCase();
+
+  try {
+    const endpoint = new URL(
+      "/finance/api/support-session",
+      request.url
+    );
+
+    endpoint.searchParams.set(
+      "branch",
+      normalizedBranchSlug
+    );
+
+    const cookieHeader =
+      request.headers.get("cookie") ??
+      "";
+
+    const response = await fetch(
+      endpoint,
+      {
+        method: "GET",
+        cache: "no-store",
+        headers: {
+          Accept:
+            "application/json",
+          cookie: cookieHeader,
+        },
+      }
+    );
+
+    const payload =
+      (await response
+        .json()
+        .catch(
+          () => ({})
+        )) as SupportSessionApiResponse;
+
+    if (
+      !response.ok ||
+      !payload.ok ||
+      payload.session_type !==
+        "admin_support" ||
+      !payload.user?.id
+    ) {
+      return null;
+    }
+
+    const {
+      data: branchData,
+      error: branchError,
+    } = await supabaseAdmin
+      .from("finance_branches")
+      .select(
+        "id,branch_slug,branch_name,organization_name,is_active"
+      )
+      .eq(
+        "branch_slug",
+        normalizedBranchSlug
+      )
+      .maybeSingle();
+
+    if (
+      branchError ||
+      !branchData ||
+      branchData.is_active === false
+    ) {
+      return null;
+    }
+
+    const branchRow =
+      branchData as unknown as FinanceBranchRow;
+
+    return {
+      ok: true as const,
+      branchId:
+        branchRow.id,
+      userId:
+        cleanText(
+          payload.user.id,
+          120
+        ),
+      userName:
+        cleanText(
+          payload.user.full_name ??
+            payload.user.name ??
+            payload.user.username ??
+            "الدعم الفني",
+          160
+        ),
+      organizationName:
+        cleanText(
+          branchRow.organization_name ??
+            branchRow.branch_name ??
+            "",
+          200
+        ),
+      role:
+        "main_admin",
+      sessionType:
+        "admin_support" as const,
+    };
+  } catch (error) {
+    console.error(
+      "Follow-up support authorization error:",
+      error
+    );
+
+    return null;
+  }
+}
+
+async function fetchAllContractsForBranch(
+  branchId: string
+) {
+  const pageSize = 1000;
+  const result: FollowUpContractRow[] =
+    [];
+
+  for (
+    let from = 0;
+    ;
+    from += pageSize
+  ) {
+    const {
+      data,
+      error,
+    } = await supabaseAdmin
+      .from("finance_contracts")
+      .select(
+        "id,branch_id,contract_number,customer_id,investor_id,investor_name,remaining_amount,debt_amount,payment_amount,payment_due_date,contract_status"
+      )
+      .eq(
+        "branch_id",
+        branchId
+      )
+      .not(
+        "payment_due_date",
+        "is",
+        null
+      )
+      .order(
+        "payment_due_date",
+        {
+          ascending: true,
+        }
+      )
+      .range(
+        from,
+        from + pageSize - 1
+      );
+
+    if (error) {
+      throw new Error(
+        error.message
+      );
+    }
+
+    const batch =
+      Array.isArray(data)
+        ? (data as unknown as FollowUpContractRow[])
+        : [];
+
+    result.push(...batch);
+
+    if (
+      batch.length <
+      pageSize
+    ) {
+      break;
+    }
+  }
+
+  return result;
+}
+
+async function fetchCustomersByIds(
+  branchId: string,
+  customerIds: string[]
+) {
+  const result: CustomerRow[] =
+    [];
+
+  for (
+    const ids of chunkArray(
+      customerIds,
+      500
+    )
+  ) {
+    const {
+      data,
+      error,
+    } = await supabaseAdmin
+      .from(
+        "finance_customers"
+      )
+      .select(
+        "id,full_name,phone,national_id"
+      )
+      .eq(
+        "branch_id",
+        branchId
+      )
+      .in(
+        "id",
+        ids
+      );
+
+    if (error) {
+      throw new Error(
+        error.message
+      );
+    }
+
+    if (
+      Array.isArray(data)
+    ) {
+      result.push(
+        ...(data as unknown as CustomerRow[])
+      );
+    }
+  }
+
+  return result;
+}
+
+async function fetchNotesByContractIds(
+  branchId: string,
+  contractIds: string[]
+) {
+  const result: FollowUpNoteRow[] =
+    [];
+  const pageSize = 1000;
+
+  for (
+    const ids of chunkArray(
+      contractIds,
+      300
+    )
+  ) {
+    for (
+      let from = 0;
+      ;
+      from += pageSize
+    ) {
+      const {
+        data,
+        error,
+      } = await supabaseAdmin
+        .from(
+          "finance_followup_notes"
+        )
+        .select(
+          "id,branch_id,contract_id,customer_id,investor_id,note_text,created_by_user_id,created_by_name,created_at,updated_at"
+        )
+        .eq(
+          "branch_id",
+          branchId
+        )
+        .in(
+          "contract_id",
+          ids
+        )
+        .order(
+          "created_at",
+          {
+            ascending: false,
+          }
+        )
+        .range(
+          from,
+          from + pageSize - 1
+        );
+
+      if (error) {
+        throw new Error(
+          error.message
+        );
+      }
+
+      const batch =
+        Array.isArray(data)
+          ? (data as unknown as FollowUpNoteRow[])
+          : [];
+
+      result.push(...batch);
+
+      if (
+        batch.length <
+        pageSize
+      ) {
+        break;
+      }
+    }
+  }
+
+  return result.sort(
+    (first, second) =>
+      new Date(
+        second.created_at
+      ).getTime() -
+      new Date(
+        first.created_at
+      ).getTime()
+  );
+}
+
 async function authorize(
   request: NextRequest,
   branchSlug: string
@@ -235,6 +566,16 @@ async function authorize(
       error
     );
 
+    const supportAuth =
+      await authorizeSupportSession(
+        request,
+        branchSlug
+      );
+
+    if (supportAuth) {
+      return supportAuth;
+    }
+
     return {
       ok: false as const,
       response: json(
@@ -250,6 +591,16 @@ async function authorize(
   }
 
   if (!session) {
+    const supportAuth =
+      await authorizeSupportSession(
+        request,
+        branchSlug
+      );
+
+    if (supportAuth) {
+      return supportAuth;
+    }
+
     return {
       ok: false as const,
       response: json(
@@ -295,7 +646,7 @@ async function authorize(
     supabaseAdmin
       .from("finance_branches")
       .select(
-        "id,branch_slug,is_active"
+        "id,branch_slug,branch_name,organization_name,is_active"
       )
       .eq(
         "id",
@@ -455,6 +806,13 @@ async function authorize(
           "الموظف",
         160
       ),
+    organizationName:
+      cleanText(
+        branchRow.organization_name ??
+          branchRow.branch_name ??
+          "",
+        200
+      ),
     role,
   };
 }
@@ -518,23 +876,19 @@ async function ensureContractAccess(
       contract.contract_status
     );
 
-  const isClosed =
-    CLOSED_STATUSES.has(status);
+  const isCancelled =
+    CANCELLED_STATUSES.has(status);
 
-  if (
-    remainingAmount <= 0 ||
-    isClosed ||
-    daysLate < 7
-  ) {
+  if (isCancelled) {
     return {
       ok: false as const,
       response: json(
         {
           ok: false,
           code:
-            "CONTRACT_NOT_OVERDUE",
+            "CONTRACT_CANCELLED",
           message:
-            "لا يمكن إضافة متابعة لأن العقد غير متأخر 7 أيام كاملة أو لا يوجد عليه مبلغ متبقٍ",
+            "لا يمكن إضافة متابعة لعقد ملغي",
         },
         409
       ),
@@ -587,68 +941,21 @@ export async function GET(
     const today =
       getTodaySaudiDate();
 
-    const overdueCutoff =
-      subtractDays(
-        today,
-        7
-      );
-
-    const {
-      data: contractsData,
-      error: contractsError,
-    } = await supabaseAdmin
-      .from("finance_contracts")
-      .select(
-        "id,branch_id,contract_number,customer_id,investor_id,investor_name,remaining_amount,debt_amount,payment_amount,payment_due_date,contract_status"
-      )
-      .eq(
-        "branch_id",
-        auth.branchId
-      )
-      .gt(
-        "remaining_amount",
-        0
-      )
-      .not(
-        "payment_due_date",
-        "is",
-        null
-      )
-      .lte(
-        "payment_due_date",
-        overdueCutoff
-      )
-      .order(
-        "payment_due_date",
-        {
-          ascending: true,
-        }
-      )
-      .limit(2000);
-
-    if (contractsError) {
-      throw new Error(
-        contractsError.message
-      );
-    }
-
     const contracts =
       (
-        Array.isArray(
-          contractsData
+        await fetchAllContractsForBranch(
+          auth.branchId
         )
-          ? contractsData
-          : []
       ).filter((row) => {
         const status =
           normalizeStatus(
             row.contract_status
           );
 
-        return !CLOSED_STATUSES.has(
+        return !CANCELLED_STATUSES.has(
           status
         );
-      }) as unknown as FollowUpContractRow[];
+      });
 
     const customerIds =
       Array.from(
@@ -673,86 +980,21 @@ export async function GET(
           contract.id
       );
 
-    let customers: CustomerRow[] =
-      [];
-
-    if (
+    const customers =
       customerIds.length > 0
-    ) {
-      const {
-        data,
-        error,
-      } = await supabaseAdmin
-        .from(
-          "finance_customers"
-        )
-        .select(
-          "id,full_name,phone,national_id"
-        )
-        .eq(
-          "branch_id",
-          auth.branchId
-        )
-        .in(
-          "id",
-          customerIds
-        );
+        ? await fetchCustomersByIds(
+            auth.branchId,
+            customerIds
+          )
+        : [];
 
-      if (error) {
-        throw new Error(
-          error.message
-        );
-      }
-
-      customers =
-        Array.isArray(data)
-          ? (data as unknown as CustomerRow[])
-          : [];
-    }
-
-    let notes: FollowUpNoteRow[] =
-      [];
-
-    if (
+    const notes =
       contractIds.length > 0
-    ) {
-      const {
-        data,
-        error,
-      } = await supabaseAdmin
-        .from(
-          "finance_followup_notes"
-        )
-        .select(
-          "id,branch_id,contract_id,customer_id,investor_id,note_text,created_by_user_id,created_by_name,created_at,updated_at"
-        )
-        .eq(
-          "branch_id",
-          auth.branchId
-        )
-        .in(
-          "contract_id",
-          contractIds
-        )
-        .order(
-          "created_at",
-          {
-            ascending: false,
-          }
-        )
-        .limit(5000);
-
-      if (error) {
-        throw new Error(
-          error.message
-        );
-      }
-
-      notes =
-        Array.isArray(data)
-          ? (data as unknown as FollowUpNoteRow[])
-          : [];
-    }
+        ? await fetchNotesByContractIds(
+            auth.branchId,
+            contractIds
+          )
+        : [];
 
     const customerMap =
       new Map(
@@ -811,6 +1053,26 @@ export async function GET(
               today
             );
 
+          const remainingAmount =
+            normalizeMoney(
+              contract.remaining_amount
+            );
+
+          const normalizedContractStatus =
+            normalizeStatus(
+              contract.contract_status
+            );
+
+          const followUpStatus =
+            remainingAmount <= 0 ||
+            PAID_STATUSES.has(
+              normalizedContractStatus
+            )
+              ? "paid"
+              : daysLate >= 1
+                ? "overdue"
+                : "not_due";
+
           return {
             id: contract.id,
             contract_id:
@@ -833,9 +1095,7 @@ export async function GET(
             investor_name:
               contract.investor_name,
             remaining_amount:
-              normalizeMoney(
-                contract.remaining_amount
-              ),
+              remainingAmount,
             debt_amount:
               normalizeMoney(
                 contract.debt_amount
@@ -848,6 +1108,8 @@ export async function GET(
               contract.payment_due_date,
             contract_status:
               contract.contract_status,
+            follow_up_status:
+              followUpStatus,
             days_late:
               daysLate,
             latest_note:
@@ -857,21 +1119,21 @@ export async function GET(
             notes_count:
               contractNotes.length,
           };
-        })
-        .filter(
-          (row) =>
-            row.days_late >= 7 &&
-            row.remaining_amount >
-              0
-        );
+        });
 
     return json({
       ok: true,
       branch_id:
         auth.branchId,
+      organization_name:
+        auth.organizationName,
       server_date: today,
       overdue_count:
-        rows.length,
+        rows.filter(
+          (row) =>
+            row.follow_up_status ===
+            "overdue"
+        ).length,
       rows,
     });
   } catch (error) {
