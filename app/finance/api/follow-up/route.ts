@@ -491,7 +491,7 @@ async function ensureContractAccess(
   }
 
   const contract =
-    data as FollowUpContractRow;
+    data as unknown as FollowUpContractRow;
 
   const today =
     getTodaySaudiDate();
