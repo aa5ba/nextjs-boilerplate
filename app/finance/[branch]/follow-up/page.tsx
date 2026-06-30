@@ -6,9 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type {
-  CSSProperties,
-} from "react";
+import type { CSSProperties } from "react";
 import {
   useParams,
   useRouter,
@@ -27,6 +25,22 @@ type ScreenType =
   | "mobile"
   | "tablet"
   | "desktop";
+
+type NoteFilter =
+  | "all"
+  | "with-note"
+  | "without-note";
+
+type DelayFilter =
+  | "all"
+  | "7-15"
+  | "16-30"
+  | "31-60"
+  | "61-plus";
+
+type NoteModalMode =
+  | "create"
+  | "edit";
 
 type FollowUpNote = {
   id: string;
@@ -58,6 +72,7 @@ type FollowUpRow = {
   contract_status?: string | null;
   days_late: number;
   latest_note?: FollowUpNote | null;
+  notes: FollowUpNote[];
   notes_count: number;
 };
 
@@ -71,9 +86,12 @@ type FollowUpApiResponse = {
   note?: unknown;
 };
 
-type NoteModalMode =
-  | "create"
-  | "edit";
+type SupportSessionResponse = {
+  ok?: boolean;
+  message?: string;
+  session_type?: "admin_support";
+  user?: FinanceSessionUser;
+};
 
 const BRANCH_SLUG_PATTERN =
   /^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$/;
@@ -90,27 +108,21 @@ const MANAGER_ROLES = new Set([
 
 const ITEMS_PER_PAGE = 25;
 
-function normalizeDigits(
-  value: string
-) {
+function normalizeDigits(value: string) {
   return value
-    .replace(
-      /[٠-٩]/g,
-      (digit) =>
-        String(
-          "٠١٢٣٤٥٦٧٨٩".indexOf(
-            digit
-          )
+    .replace(/[٠-٩]/g, (digit) =>
+      String(
+        "٠١٢٣٤٥٦٧٨٩".indexOf(
+          digit
         )
+      )
     )
-    .replace(
-      /[۰-۹]/g,
-      (digit) =>
-        String(
-          "۰۱۲۳۴۵۶۷۸۹".indexOf(
-            digit
-          )
+    .replace(/[۰-۹]/g, (digit) =>
+      String(
+        "۰۱۲۳۴۵۶۷۸۹".indexOf(
+          digit
         )
+      )
     );
 }
 
@@ -120,6 +132,72 @@ function cleanPhone(
   return normalizeDigits(
     String(value ?? "")
   ).replace(/\D/g, "");
+}
+
+function normalizeNote(
+  value: unknown
+): FollowUpNote | null {
+  if (
+    !value ||
+    typeof value !== "object"
+  ) {
+    return null;
+  }
+
+  const note =
+    value as Record<string, unknown>;
+
+  const id =
+    String(note.id ?? "").trim();
+
+  const contractId =
+    String(
+      note.contract_id ?? ""
+    ).trim();
+
+  if (!id || !contractId) {
+    return null;
+  }
+
+  return {
+    id,
+    branch_id:
+      String(
+        note.branch_id ?? ""
+      ),
+    contract_id:
+      contractId,
+    customer_id:
+      note.customer_id
+        ? String(note.customer_id)
+        : null,
+    investor_id:
+      note.investor_id
+        ? String(note.investor_id)
+        : null,
+    note_text:
+      String(
+        note.note_text ?? ""
+      ).slice(0, 2000),
+    created_by_user_id:
+      String(
+        note.created_by_user_id ??
+          ""
+      ),
+    created_by_name:
+      String(
+        note.created_by_name ??
+          ""
+      ),
+    created_at:
+      String(
+        note.created_at ?? ""
+      ),
+    updated_at:
+      note.updated_at
+        ? String(note.updated_at)
+        : null,
+  };
 }
 
 function normalizeRow(
@@ -134,79 +212,40 @@ function normalizeRow(
         >)
       : {};
 
-  const latestNoteValue =
-    row.latest_note &&
-    typeof row.latest_note ===
-      "object"
-      ? (row.latest_note as Record<
-          string,
-          unknown
-        >)
-      : null;
+  const notes =
+    Array.isArray(row.notes)
+      ? row.notes
+          .map(normalizeNote)
+          .filter(
+            (
+              note
+            ): note is FollowUpNote =>
+              Boolean(note)
+          )
+      : [];
 
-  const latestNote: FollowUpNote | null =
-    latestNoteValue
-      ? {
-          id: String(
-            latestNoteValue.id ??
-              ""
-          ),
-          branch_id: String(
-            latestNoteValue.branch_id ??
-              ""
-          ),
-          contract_id: String(
-            latestNoteValue.contract_id ??
-              ""
-          ),
-          customer_id:
-            latestNoteValue.customer_id
-              ? String(
-                  latestNoteValue.customer_id
-                )
-              : null,
-          investor_id:
-            latestNoteValue.investor_id
-              ? String(
-                  latestNoteValue.investor_id
-                )
-              : null,
-          note_text: String(
-            latestNoteValue.note_text ??
-              ""
-          ).slice(0, 2000),
-          created_by_user_id: String(
-            latestNoteValue.created_by_user_id ??
-              ""
-          ),
-          created_by_name: String(
-            latestNoteValue.created_by_name ??
-              ""
-          ),
-          created_at: String(
-            latestNoteValue.created_at ??
-              ""
-          ),
-          updated_at:
-            latestNoteValue.updated_at
-              ? String(
-                  latestNoteValue.updated_at
-                )
-              : null,
-        }
-      : null;
+  const latestNote =
+    normalizeNote(
+      row.latest_note
+    ) ??
+    notes[0] ??
+    null;
 
-  return {
-    id: String(
-      row.id ??
-        row.contract_id ??
-        ""
-    ),
-    contract_id: String(
+  const contractId =
+    String(
       row.contract_id ??
         row.id ??
         ""
-    ),
+    );
+
+  return {
+    id:
+      String(
+        row.id ??
+          contractId
+      ),
+    contract_id:
+      contractId,
     contract_number:
       row.contract_number
         ? String(
@@ -251,18 +290,15 @@ function normalizeRow(
         : null,
     remaining_amount:
       Number(
-        row.remaining_amount ??
-          0
+        row.remaining_amount ?? 0
       ) || 0,
     debt_amount:
       Number(
-        row.debt_amount ??
-          0
+        row.debt_amount ?? 0
       ) || 0,
     payment_amount:
       Number(
-        row.payment_amount ??
-          0
+        row.payment_amount ?? 0
       ) || 0,
     payment_due_date:
       row.payment_due_date
@@ -278,16 +314,16 @@ function normalizeRow(
         : null,
     days_late:
       Number(
-        row.days_late ??
-          0
+        row.days_late ?? 0
       ) || 0,
     latest_note:
       latestNote,
+    notes,
     notes_count:
       Number(
         row.notes_count ??
-          0
-      ) || 0,
+          notes.length
+      ) || notes.length,
   };
 }
 
@@ -307,8 +343,7 @@ function getErrorMessage(
 ) {
   if (
     error &&
-    typeof error ===
-      "object" &&
+    typeof error === "object" &&
     "message" in error &&
     typeof error.message ===
       "string"
@@ -322,9 +357,7 @@ function getErrorMessage(
   return fallback;
 }
 
-function formatMoney(
-  value: number
-) {
+function formatMoney(value: number) {
   return new Intl.NumberFormat(
     "ar-SA",
     {
@@ -334,11 +367,27 @@ function formatMoney(
   ).format(value);
 }
 
-function formatDate(
+function formatGregorianDate(
   value?: string | null
 ) {
   if (!value) {
     return "-";
+  }
+
+  const raw =
+    value.slice(0, 10);
+
+  const parts =
+    raw.split("-");
+
+  if (
+    parts.length === 3 &&
+    parts.every(Boolean)
+  ) {
+    const [year, month, day] =
+      parts;
+
+    return `${day}/${month}/${year}`;
   }
 
   const date =
@@ -349,12 +398,13 @@ function formatDate(
       date.getTime()
     )
   ) {
-    return value;
+    return "-";
   }
 
   return new Intl.DateTimeFormat(
-    "ar-SA",
+    "en-GB",
     {
+      timeZone: "Asia/Riyadh",
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
@@ -362,7 +412,7 @@ function formatDate(
   ).format(date);
 }
 
-function formatDateTime(
+function formatGregorianDateTime(
   value?: string | null
 ) {
   if (!value) {
@@ -377,19 +427,60 @@ function formatDateTime(
       date.getTime()
     )
   ) {
-    return value;
+    return "-";
   }
 
-  return new Intl.DateTimeFormat(
-    "ar-SA",
-    {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    }
-  ).format(date);
+  const formatted =
+    new Intl.DateTimeFormat(
+      "en-GB",
+      {
+        timeZone:
+          "Asia/Riyadh",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      }
+    ).format(date);
+
+  return formatted.replace(
+    ",",
+    " -"
+  );
+}
+
+function matchesDelayFilter(
+  daysLate: number,
+  filter: DelayFilter
+) {
+  if (filter === "7-15") {
+    return (
+      daysLate >= 7 &&
+      daysLate <= 15
+    );
+  }
+
+  if (filter === "16-30") {
+    return (
+      daysLate >= 16 &&
+      daysLate <= 30
+    );
+  }
+
+  if (filter === "31-60") {
+    return (
+      daysLate >= 31 &&
+      daysLate <= 60
+    );
+  }
+
+  if (filter === "61-plus") {
+    return daysLate >= 61;
+  }
+
+  return true;
 }
 
 export default function FollowUpPage() {
@@ -422,6 +513,15 @@ export default function FollowUpPage() {
     );
 
   const [
+    sessionType,
+    setSessionType,
+  ] = useState<
+    "branch_user" |
+    "admin_support" |
+    null
+  >(null);
+
+  const [
     employeeName,
     setEmployeeName,
   ] = useState("الموظف");
@@ -432,8 +532,10 @@ export default function FollowUpPage() {
   const [loading, setLoading] =
     useState(true);
 
-  const [refreshing, setRefreshing] =
-    useState(false);
+  const [
+    refreshing,
+    setRefreshing,
+  ] = useState(false);
 
   const [search, setSearch] =
     useState("");
@@ -446,9 +548,18 @@ export default function FollowUpPage() {
   const [
     noteFilter,
     setNoteFilter,
-  ] = useState<
-    "all" | "with-note" | "without-note"
-  >("all");
+  ] =
+    useState<NoteFilter>(
+      "all"
+    );
+
+  const [
+    delayFilter,
+    setDelayFilter,
+  ] =
+    useState<DelayFilter>(
+      "all"
+    );
 
   const [
     currentPage,
@@ -461,23 +572,39 @@ export default function FollowUpPage() {
   ] = useState("");
 
   const [
-    modalOpen,
-    setModalOpen,
+    actionsRow,
+    setActionsRow,
+  ] =
+    useState<FollowUpRow | null>(
+      null
+    );
+
+  const [
+    notesRow,
+    setNotesRow,
+  ] =
+    useState<FollowUpRow | null>(
+      null
+    );
+
+  const [
+    noteModalOpen,
+    setNoteModalOpen,
   ] = useState(false);
 
   const [
-    modalMode,
-    setModalMode,
+    noteModalMode,
+    setNoteModalMode,
   ] =
     useState<NoteModalMode>(
       "create"
     );
 
   const [
-    selectedRow,
-    setSelectedRow,
+    selectedNote,
+    setSelectedNote,
   ] =
-    useState<FollowUpRow | null>(
+    useState<FollowUpNote | null>(
       null
     );
 
@@ -492,9 +619,12 @@ export default function FollowUpPage() {
   ] = useState(false);
 
   const [
-    deletingNote,
-    setDeletingNote,
-  ] = useState(false);
+    deletingNoteId,
+    setDeletingNoteId,
+  ] =
+    useState<string | null>(
+      null
+    );
 
   const [
     logoutLoading,
@@ -513,12 +643,17 @@ export default function FollowUpPage() {
   const isCompact =
     isMobile || isTablet;
 
+  const isSupportSession =
+    sessionType ===
+    "admin_support";
+
   const currentUserId =
     String(
       sessionUser?.id ?? ""
     );
 
   const isManager =
+    isSupportSession ||
     MANAGER_ROLES.has(
       String(
         sessionUser?.role ?? ""
@@ -541,24 +676,33 @@ export default function FollowUpPage() {
                 Boolean(value)
             )
         )
-      ).sort(
-        (a, b) =>
-          a.localeCompare(
-            b,
-            "ar"
-          )
+      ).sort((a, b) =>
+        a.localeCompare(
+          b,
+          "ar"
+        )
       );
     }, [rows]);
 
   const filteredRows =
     useMemo(() => {
       const query =
-        normalizeDigits(search)
+        normalizeDigits(
+          search
+        )
           .trim()
           .toLowerCase();
 
       return rows.filter(
         (row) => {
+          const allNotesText =
+            row.notes
+              .map(
+                (note) =>
+                  note.note_text
+              )
+              .join(" ");
+
           const searchValues =
             [
               row.contract_number,
@@ -566,8 +710,7 @@ export default function FollowUpPage() {
               row.customer_phone,
               row.customer_national_id,
               row.investor_name,
-              row.latest_note
-                ?.note_text,
+              allNotesText,
             ]
               .map((value) =>
                 normalizeDigits(
@@ -598,7 +741,7 @@ export default function FollowUpPage() {
           if (
             noteFilter ===
               "with-note" &&
-            !row.latest_note
+            row.notes_count === 0
           ) {
             return false;
           }
@@ -606,7 +749,16 @@ export default function FollowUpPage() {
           if (
             noteFilter ===
               "without-note" &&
-            row.latest_note
+            row.notes_count > 0
+          ) {
+            return false;
+          }
+
+          if (
+            !matchesDelayFilter(
+              row.days_late,
+              delayFilter
+            )
           ) {
             return false;
           }
@@ -619,6 +771,7 @@ export default function FollowUpPage() {
       search,
       investorFilter,
       noteFilter,
+      delayFilter,
     ]);
 
   const totalPages =
@@ -660,9 +813,13 @@ export default function FollowUpPage() {
     useMemo(() => {
       return filteredRows.filter(
         (row) =>
-          !row.latest_note
+          row.notes_count === 0
       ).length;
     }, [filteredRows]);
+
+  const withNotesCount =
+    filteredRows.length -
+    withoutNotesCount;
 
   useEffect(() => {
     function updateScreen() {
@@ -718,74 +875,153 @@ export default function FollowUpPage() {
       return;
     }
 
-    const validation =
-      validateFinanceSession(
-        branch
-      );
+    let cancelled = false;
 
-    if (
-      !validation.valid ||
-      !validation.user
-    ) {
-      redirectToFinanceLogin(
-        router,
-        {
-          branchSlug: branch,
-          preserveReturnPath:
-            true,
+    async function initializeSession() {
+      const validation =
+        validateFinanceSession(
+          branch
+        );
+
+      if (
+        validation.valid &&
+        validation.user
+      ) {
+        const user =
+          validation.user;
+
+        const permissions =
+          Array.isArray(
+            user.permissions
+          )
+            ? user.permissions
+            : [];
+
+        const allowed =
+          MANAGER_ROLES.has(
+            String(
+              user.role ?? ""
+            ).trim()
+          ) ||
+          permissions.includes(
+            "follow_up"
+          );
+
+        if (!allowed) {
+          window.alert(
+            "لا تملك صلاحية الدخول إلى المتابعة والتواصل"
+          );
+
+          router.replace(
+            `/finance/${branch}`
+          );
+
+          return;
         }
-      );
 
-      return;
+        if (cancelled) {
+          return;
+        }
+
+        setSessionUser(user);
+        setSessionType(
+          "branch_user"
+        );
+
+        setEmployeeName(
+          getFinanceEmployeeName(
+            user
+          )
+        );
+
+        setAuthChecked(true);
+        return;
+      }
+
+      try {
+        const response =
+          await fetch(
+            `/finance/api/support-session?branch=${encodeURIComponent(
+              branch
+            )}`,
+            {
+              method: "GET",
+              credentials:
+                "include",
+              cache: "no-store",
+              headers: {
+                Accept:
+                  "application/json",
+              },
+            }
+          );
+
+        const payload =
+          (await response
+            .json()
+            .catch(
+              () => ({})
+            )) as SupportSessionResponse;
+
+        if (cancelled) {
+          return;
+        }
+
+        if (
+          response.ok &&
+          payload.ok &&
+          payload.session_type ===
+            "admin_support" &&
+          payload.user
+        ) {
+          setSessionUser(
+            payload.user
+          );
+
+          setSessionType(
+            "admin_support"
+          );
+
+          setEmployeeName(
+            getFinanceEmployeeName(
+              payload.user
+            )
+          );
+
+          setAuthChecked(true);
+          return;
+        }
+      } catch (error) {
+        console.error(
+          "Support session verification failed:",
+          error
+        );
+      }
+
+      if (!cancelled) {
+        redirectToFinanceLogin(
+          router,
+          {
+            branchSlug: branch,
+            preserveReturnPath:
+              true,
+          }
+        );
+      }
     }
 
-    const user =
-      validation.user;
+    void initializeSession();
 
-    const permissions =
-      Array.isArray(
-        user.permissions
-      )
-        ? user.permissions
-        : [];
-
-    const allowed =
-      MANAGER_ROLES.has(
-        String(
-          user.role ?? ""
-        ).trim()
-      ) ||
-      permissions.includes(
-        "follow_up"
-      );
-
-    if (!allowed) {
-      window.alert(
-        "لا تملك صلاحية الدخول إلى المتابعة والتواصل"
-      );
-
-      router.replace(
-        `/finance/${branch}`
-      );
-
-      return;
-    }
-
-    setSessionUser(user);
-
-    setEmployeeName(
-      getFinanceEmployeeName(
-        user
-      )
-    );
-
-    setAuthChecked(true);
+    return () => {
+      cancelled = true;
+    };
   }, [branch, router]);
 
   useEffect(() => {
     if (
       !authChecked ||
-      !sessionUser
+      !sessionUser ||
+      isSupportSession
     ) {
       return;
     }
@@ -857,6 +1093,7 @@ export default function FollowUpPage() {
     branch,
     router,
     sessionUser?.id,
+    isSupportSession,
   ]);
 
   useEffect(() => {
@@ -884,10 +1121,32 @@ export default function FollowUpPage() {
     search,
     investorFilter,
     noteFilter,
+    delayFilter,
   ]);
 
   useEffect(() => {
-    if (!modalOpen) {
+    if (
+      currentPage >
+      totalPages
+    ) {
+      setCurrentPage(
+        totalPages
+      );
+    }
+  }, [
+    currentPage,
+    totalPages,
+  ]);
+
+  useEffect(() => {
+    const anyModalOpen =
+      Boolean(
+        actionsRow ||
+        notesRow ||
+        noteModalOpen
+      );
+
+    if (!anyModalOpen) {
       return;
     }
 
@@ -901,11 +1160,19 @@ export default function FollowUpPage() {
       event: KeyboardEvent
     ) {
       if (
-        event.key === "Escape" &&
-        !savingNote &&
-        !deletingNote
+        event.key !== "Escape" ||
+        savingNote ||
+        deletingNoteId
       ) {
-        closeModal();
+        return;
+      }
+
+      if (noteModalOpen) {
+        closeNoteModal();
+      } else if (notesRow) {
+        setNotesRow(null);
+      } else {
+        setActionsRow(null);
       }
     }
 
@@ -924,23 +1191,11 @@ export default function FollowUpPage() {
       );
     };
   }, [
-    modalOpen,
+    actionsRow,
+    notesRow,
+    noteModalOpen,
     savingNote,
-    deletingNote,
-  ]);
-
-  useEffect(() => {
-    if (
-      currentPage >
-      totalPages
-    ) {
-      setCurrentPage(
-        totalPages
-      );
-    }
-  }, [
-    currentPage,
-    totalPages,
+    deletingNoteId,
   ]);
 
   function handleApiSessionError(
@@ -965,6 +1220,8 @@ export default function FollowUpPage() {
         router,
         {
           branchSlug: branch,
+          preserveReturnPath:
+            true,
         }
       );
 
@@ -1009,7 +1266,7 @@ export default function FollowUpPage() {
           {
             method: "GET",
             credentials:
-              "same-origin",
+              "include",
             cache: "no-store",
             headers: {
               Accept:
@@ -1050,14 +1307,17 @@ export default function FollowUpPage() {
         );
       }
 
-      setRows(
+      const normalizedRows =
         Array.isArray(
           payload.rows
         )
           ? payload.rows.map(
               normalizeRow
             )
-          : []
+          : [];
+
+      setRows(
+        normalizedRows
       );
 
       setServerDate(
@@ -1066,6 +1326,19 @@ export default function FollowUpPage() {
             ""
         )
       );
+
+      if (notesRow) {
+        const refreshedNotesRow =
+          normalizedRows.find(
+            (row) =>
+              row.contract_id ===
+              notesRow.contract_id
+          ) ?? null;
+
+        setNotesRow(
+          refreshedNotesRow
+        );
+      }
 
       return true;
     } catch (error) {
@@ -1104,58 +1377,6 @@ export default function FollowUpPage() {
     }
   }
 
-  function openCreateNote(
-    row: FollowUpRow
-  ) {
-    setSelectedRow(row);
-    setModalMode("create");
-    setNoteText("");
-    setModalOpen(true);
-  }
-
-  function openEditNote(
-    row: FollowUpRow
-  ) {
-    if (
-      !row.latest_note ||
-      !canManageNote(
-        row.latest_note
-      )
-    ) {
-      window.alert(
-        "لا يمكنك تعديل هذه الملاحظة"
-      );
-
-      return;
-    }
-
-    setSelectedRow(row);
-    setModalMode("edit");
-
-    setNoteText(
-      row.latest_note.note_text
-    );
-
-    setModalOpen(true);
-  }
-
-  function closeModal(
-    force = false
-  ) {
-    if (
-      !force &&
-      (savingNote ||
-        deletingNote)
-    ) {
-      return;
-    }
-
-    setModalOpen(false);
-    setSelectedRow(null);
-    setNoteText("");
-    setModalMode("create");
-  }
-
   function canManageNote(
     note?: FollowUpNote | null
   ) {
@@ -1170,8 +1391,58 @@ export default function FollowUpPage() {
     );
   }
 
+  function openCreateNote(
+    row: FollowUpRow
+  ) {
+    setActionsRow(null);
+    setSelectedNote(null);
+    setNoteModalMode("create");
+    setNoteText("");
+    setNotesRow(row);
+    setNoteModalOpen(true);
+  }
+
+  function openEditNote(
+    row: FollowUpRow,
+    note: FollowUpNote
+  ) {
+    if (!canManageNote(note)) {
+      window.alert(
+        "لا يمكنك تعديل هذه الملاحظة"
+      );
+
+      return;
+    }
+
+    setActionsRow(null);
+    setSelectedNote(note);
+    setNoteModalMode("edit");
+    setNoteText(
+      note.note_text
+    );
+    setNotesRow(row);
+    setNoteModalOpen(true);
+  }
+
+  function closeNoteModal(
+    force = false
+  ) {
+    if (
+      !force &&
+      (savingNote ||
+        deletingNoteId)
+    ) {
+      return;
+    }
+
+    setNoteModalOpen(false);
+    setSelectedNote(null);
+    setNoteText("");
+    setNoteModalMode("create");
+  }
+
   async function saveNote() {
-    if (!selectedRow) {
+    if (!notesRow) {
       return;
     }
 
@@ -1179,15 +1450,20 @@ export default function FollowUpPage() {
       noteText.trim();
 
     if (
-      normalizedText.length <
-        2 ||
-      normalizedText.length >
-        2000
+      normalizedText.length < 2 ||
+      normalizedText.length > 2000
     ) {
       window.alert(
-        "اكتب ملاحظة متابعة صحيحة"
+        "اكتب ملاحظة متابعة صحيحة من حرفين إلى 2000 حرف"
       );
 
+      return;
+    }
+
+    if (
+      noteModalMode === "edit" &&
+      !selectedNote
+    ) {
       return;
     }
 
@@ -1199,12 +1475,13 @@ export default function FollowUpPage() {
           "/finance/api/follow-up",
           {
             method:
-              modalMode ===
+              noteModalMode ===
               "edit"
                 ? "PATCH"
                 : "POST",
             credentials:
-              "same-origin",
+              "include",
+            cache: "no-store",
             headers: {
               "Content-Type":
                 "application/json",
@@ -1212,21 +1489,19 @@ export default function FollowUpPage() {
                 "application/json",
             },
             body: JSON.stringify(
-              modalMode ===
+              noteModalMode ===
                 "edit"
                 ? {
                     branch,
                     noteId:
-                      selectedRow
-                        .latest_note
-                        ?.id,
+                      selectedNote?.id,
                     noteText:
                       normalizedText,
                   }
                 : {
                     branch,
                     contractId:
-                      selectedRow.contract_id,
+                      notesRow.contract_id,
                     noteText:
                       normalizedText,
                   }
@@ -1258,16 +1533,16 @@ export default function FollowUpPage() {
         );
       }
 
-      window.alert(
-        payload.message ||
-          "تم حفظ ملاحظة المتابعة"
-      );
-
-      closeModal(true);
+      closeNoteModal(true);
 
       await loadRows(
         () => false,
         true
+      );
+
+      window.alert(
+        payload.message ||
+          "تم حفظ ملاحظة المتابعة"
       );
     } catch (error) {
       console.error(
@@ -1286,20 +1561,10 @@ export default function FollowUpPage() {
     }
   }
 
-  async function deleteNote() {
-    const note =
-      selectedRow?.latest_note;
-
-    if (
-      !selectedRow ||
-      !note
-    ) {
-      return;
-    }
-
-    if (
-      !canManageNote(note)
-    ) {
+  async function deleteNote(
+    note: FollowUpNote
+  ) {
+    if (!canManageNote(note)) {
       window.alert(
         "لا يمكنك حذف هذه الملاحظة"
       );
@@ -1317,7 +1582,9 @@ export default function FollowUpPage() {
     }
 
     try {
-      setDeletingNote(true);
+      setDeletingNoteId(
+        note.id
+      );
 
       const response =
         await fetch(
@@ -1329,7 +1596,8 @@ export default function FollowUpPage() {
           {
             method: "DELETE",
             credentials:
-              "same-origin",
+              "include",
+            cache: "no-store",
             headers: {
               Accept:
                 "application/json",
@@ -1361,16 +1629,14 @@ export default function FollowUpPage() {
         );
       }
 
-      window.alert(
-        payload.message ||
-          "تم حذف ملاحظة المتابعة"
-      );
-
-      closeModal(true);
-
       await loadRows(
         () => false,
         true
+      );
+
+      window.alert(
+        payload.message ||
+          "تم حذف ملاحظة المتابعة"
       );
     } catch (error) {
       console.error(
@@ -1385,12 +1651,15 @@ export default function FollowUpPage() {
         )
       );
     } finally {
-      setDeletingNote(false);
+      setDeletingNoteId(null);
     }
   }
 
   function normalizeSaudiPhone(
-    value: string | null | undefined
+    value:
+      | string
+      | null
+      | undefined
   ) {
     let phone =
       cleanPhone(value);
@@ -1433,7 +1702,7 @@ export default function FollowUpPage() {
       )
     ) {
       window.alert(
-        "لا يوجد رقم جوال مسجل لهذا العميل"
+        "رقم الجوال المسجل غير صحيح"
       );
 
       return;
@@ -1452,20 +1721,19 @@ export default function FollowUpPage() {
       "_blank",
       "noopener,noreferrer"
     );
+
+    setActionsRow(null);
   }
 
   function callCustomer(
     row: FollowUpRow
   ) {
     const phone =
-      cleanPhone(
+      normalizeSaudiPhone(
         row.customer_phone
       );
 
     if (
-      !/^0?5\d{8}$/.test(
-        phone
-      ) &&
       !/^9665\d{8}$/.test(
         phone
       )
@@ -1478,7 +1746,46 @@ export default function FollowUpPage() {
     }
 
     window.location.href =
-      `tel:${phone}`;
+      `tel:+${phone}`;
+  }
+
+  function openNotesHistory(
+    row: FollowUpRow
+  ) {
+    setActionsRow(null);
+    setNotesRow(row);
+  }
+
+  function openContract(
+    row: FollowUpRow
+  ) {
+    setActionsRow(null);
+
+    router.push(
+      `/finance/${branch}/contracts/${encodeURIComponent(
+        row.contract_id
+      )}`
+    );
+  }
+
+  function openCustomer(
+    row: FollowUpRow
+  ) {
+    if (!row.customer_id) {
+      window.alert(
+        "لا يوجد ملف عميل مرتبط بهذا العقد"
+      );
+
+      return;
+    }
+
+    setActionsRow(null);
+
+    router.push(
+      `/finance/${branch}/customers/${encodeURIComponent(
+        row.customer_id
+      )}`
+    );
   }
 
   async function logout() {
@@ -1489,6 +1796,42 @@ export default function FollowUpPage() {
     setLogoutLoading(true);
 
     try {
+      if (
+        isSupportSession
+      ) {
+        try {
+          await fetch(
+            "/finance/api/support-session",
+            {
+              method: "DELETE",
+              credentials:
+                "include",
+              cache: "no-store",
+              headers: {
+                Accept:
+                  "application/json",
+              },
+            }
+          );
+        } catch (error) {
+          console.error(
+            "Support session logout failed:",
+            error
+          );
+        }
+
+        setAuthChecked(false);
+        setSessionUser(null);
+        setSessionType(null);
+
+        router.replace(
+          "/admin-support"
+        );
+
+        router.refresh();
+        return;
+      }
+
       logoutFinanceUser(
         router
       );
@@ -1511,8 +1854,7 @@ export default function FollowUpPage() {
         <div
           style={loadingBox}
         >
-          جاري تحميل المتابعة
-          والتواصل...
+          جاري تحميل المتابعة والتواصل...
         </div>
 
         <GlobalStyles />
@@ -1537,21 +1879,10 @@ export default function FollowUpPage() {
             isMobile
           )}
         >
-          <div
-            style={heroCircleOne}
-          />
-
-          <div
-            style={heroCircleTwo}
-          />
-
-          <div
-            style={heroCircleThree}
-          />
-
-          <div
-            style={heroDots}
-          />
+          <div style={heroCircleOne} />
+          <div style={heroCircleTwo} />
+          <div style={heroCircleThree} />
+          <div style={heroDots} />
 
           <div
             style={getHeroContentStyle(
@@ -1582,6 +1913,16 @@ export default function FollowUpPage() {
                   {employeeName}
                 </div>
 
+                {isSupportSession && (
+                  <span
+                    style={
+                      supportBadge
+                    }
+                  >
+                    دخول دعم
+                  </span>
+                )}
+
                 {!isMobile && (
                   <div
                     style={
@@ -1598,10 +1939,6 @@ export default function FollowUpPage() {
                       logoutLoading
                         ? 0.65
                         : 1,
-                    cursor:
-                      logoutLoading
-                        ? "not-allowed"
-                        : "pointer",
                   }}
                   onClick={() =>
                     void logout()
@@ -1615,7 +1952,9 @@ export default function FollowUpPage() {
                   <span>
                     {logoutLoading
                       ? "جاري الخروج..."
-                      : "تسجيل الخروج"}
+                      : isSupportSession
+                        ? "العودة للوحة الدعم"
+                        : "تسجيل الخروج"}
                   </span>
                 </button>
               </div>
@@ -1664,68 +2003,41 @@ export default function FollowUpPage() {
         <section
           style={statsGrid}
         >
-          <div style={statCard}>
-            <span
-              style={statLabel}
-            >
-              العقود المتأخرة
-            </span>
+          <StatCard
+            label="العقود المتأخرة"
+            value={String(
+              filteredRows.length
+            )}
+          />
 
-            <strong
-              style={statValue}
-            >
-              {
-                filteredRows.length
-              }
-            </strong>
-          </div>
+          <StatCard
+            label="إجمالي المتبقي"
+            value={`${formatMoney(
+              totalRemaining
+            )} ر.س`}
+          />
 
-          <div style={statCard}>
-            <span
-              style={statLabel}
-            >
-              إجمالي المتبقي
-            </span>
+          <StatCard
+            label="بلا ملاحظة متابعة"
+            value={String(
+              withoutNotesCount
+            )}
+          />
 
-            <strong
-              style={statValue}
-            >
-              {formatMoney(
-                totalRemaining
-              )}{" "}
-              ر.س
-            </strong>
-          </div>
+          <StatCard
+            label="تمت متابعتها"
+            value={String(
+              withNotesCount
+            )}
+          />
 
-          <div style={statCard}>
-            <span
-              style={statLabel}
-            >
-              بلا ملاحظة متابعة
-            </span>
-
-            <strong
-              style={statValue}>
-              {
-                withoutNotesCount
-              }
-            </strong>
-          </div>
-
-          <div style={statCard}>
-            <span
-              style={statLabel}
-            >
-              تاريخ النظام
-            </span>
-
-            <strong
-              style={statDateValue}
-            >
-              {serverDate ||
-                "-"}
-            </strong>
-          </div>
+          <StatCard
+            label="تاريخ النظام"
+            value={formatGregorianDate(
+              serverDate
+            )}
+            compact
+          />
         </section>
 
         <section
@@ -1734,38 +2046,25 @@ export default function FollowUpPage() {
           <div
             style={filterGrid}
           >
-            <div
-              style={fieldBox}
+            <Field
+              label="البحث"
             >
-              <label
-                style={labelStyle}
-              >
-                البحث
-              </label>
-
               <input
                 className="follow-up-input"
                 style={input}
                 value={search}
                 onChange={(event) =>
                   setSearch(
-                    event.target
-                      .value
+                    event.target.value
                   )
                 }
-                placeholder="الاسم، الجوال، الهوية، رقم العقد أو الملاحظة"
+                placeholder="الاسم، الجوال، الهوية، العقد، المستثمر أو نص الملاحظة"
               />
-            </div>
+            </Field>
 
-            <div
-              style={fieldBox}
+            <Field
+              label="المستثمر"
             >
-              <label
-                style={labelStyle}
-              >
-                المستثمر
-              </label>
-
               <select
                 className="follow-up-input"
                 style={input}
@@ -1774,8 +2073,7 @@ export default function FollowUpPage() {
                 }
                 onChange={(event) =>
                   setInvestorFilter(
-                    event.target
-                      .value
+                    event.target.value
                   )
                 }
               >
@@ -1794,17 +2092,11 @@ export default function FollowUpPage() {
                   )
                 )}
               </select>
-            </div>
+            </Field>
 
-            <div
-              style={fieldBox}
+            <Field
+              label="حالة المتابعة"
             >
-              <label
-                style={labelStyle}
-              >
-                حالة المتابعة
-              </label>
-
               <select
                 className="follow-up-input"
                 style={input}
@@ -1812,10 +2104,7 @@ export default function FollowUpPage() {
                 onChange={(event) =>
                   setNoteFilter(
                     event.target
-                      .value as
-                      | "all"
-                      | "with-note"
-                      | "without-note"
+                      .value as NoteFilter
                   )
                 }
               >
@@ -1824,24 +2113,54 @@ export default function FollowUpPage() {
                 </option>
 
                 <option value="with-note">
-                  يوجد ملاحظة
+                  يوجد ملاحظات
                 </option>
 
                 <option value="without-note">
-                  بدون ملاحظة
+                  بدون ملاحظات
                 </option>
               </select>
-            </div>
+            </Field>
+
+            <Field
+              label="مدة التأخير"
+            >
+              <select
+                className="follow-up-input"
+                style={input}
+                value={delayFilter}
+                onChange={(event) =>
+                  setDelayFilter(
+                    event.target
+                      .value as DelayFilter
+                  )
+                }
+              >
+                <option value="all">
+                  جميع المدد
+                </option>
+
+                <option value="7-15">
+                  من 7 إلى 15 يومًا
+                </option>
+
+                <option value="16-30">
+                  من 16 إلى 30 يومًا
+                </option>
+
+                <option value="31-60">
+                  من 31 إلى 60 يومًا
+                </option>
+
+                <option value="61-plus">
+                  أكثر من 60 يومًا
+                </option>
+              </select>
+            </Field>
 
             <button
               type="button"
-              style={{
-                ...refreshButton,
-                opacity:
-                  refreshing
-                    ? 0.65
-                    : 1,
-              }}
+              style={refreshButton}
               disabled={
                 refreshing
               }
@@ -1859,14 +2178,15 @@ export default function FollowUpPage() {
           </div>
         </section>
 
-        <section style={tableCard}>
+        <section
+          style={tableCard}
+        >
           {filteredRows.length ===
           0 ? (
             <div
               style={emptyBox}
             >
-              لا توجد عقود متأخرة
-              مطابقة للبحث الحالي.
+              لا توجد عقود متأخرة مطابقة للفلاتر الحالية.
             </div>
           ) : isMobile ? (
             <div
@@ -1901,10 +2221,7 @@ export default function FollowUpPage() {
                           lateBadge
                         }
                       >
-                        {
-                          row.days_late
-                        }{" "}
-                        يوم
+                        {row.days_late} يوم
                       </span>
                     </div>
 
@@ -1929,8 +2246,8 @@ export default function FollowUpPage() {
                       />
 
                       <InfoItem
-                        label="الاستحقاق"
-                        value={formatDate(
+                        label="الاستحقاق الميلادي"
+                        value={formatGregorianDate(
                           row.payment_due_date
                         )}
                       />
@@ -1950,129 +2267,32 @@ export default function FollowUpPage() {
                           "-"
                         }
                       />
-                    </div>
 
-                    <div
-                      style={
-                        notePreviewBox
-                      }
-                    >
-                      <div
-                        style={
-                          notePreviewHeader
-                        }
-                      >
-                        <strong>
-                          آخر ملاحظة
-                        </strong>
-
-                        <span>
-                          {row.notes_count}{" "}
-                          ملاحظة
-                        </span>
-                      </div>
-
-                      <p
-                        style={
-                          notePreviewText
-                        }
-                      >
-                        {row.latest_note
-                          ?.note_text ||
-                          "لا توجد ملاحظة متابعة"}
-                      </p>
-
-                      {row.latest_note && (
-                        <div
-                          style={
-                            noteMeta
-                          }
-                        >
-                          {
-                            row.latest_note
-                              .created_by_name
-                          }{" "}
-                          -{" "}
-                          {formatDateTime(
-                            row.latest_note
-                              .updated_at ||
-                              row.latest_note
-                                .created_at
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    <div
-                      style={
-                        actionButtons
-                      }
-                    >
-                      <button
-                        type="button"
-                        style={
-                          addNoteButton
-                        }
-                        onClick={() =>
-                          openCreateNote(
-                            row
-                          )
-                        }
-                        disabled={
-                          savingNote ||
-                          deletingNote
-                        }
-                      >
-                        إضافة متابعة
-                      </button>
-
-                      {row.latest_note &&
-                        canManageNote(
-                          row.latest_note
-                        ) && (
-                          <button
-                            type="button"
-                            style={
-                              editNoteButton
-                            }
-                            onClick={() =>
-                              openEditNote(
-                                row
-                              )
-                            }
-                          >
-                            تعديل
-                          </button>
+                      <InfoItem
+                        label="عدد الملاحظات"
+                        value={String(
+                          row.notes_count
                         )}
-
-                      <button
-                        type="button"
-                        style={
-                          whatsappButton
-                        }
-                        onClick={() =>
-                          openWhatsApp(
-                            row
-                          )
-                        }
-                      >
-                        واتساب
-                      </button>
-
-                      <button
-                        type="button"
-                        style={
-                          callButton
-                        }
-                        onClick={() =>
-                          callCustomer(
-                            row
-                          )
-                        }
-                      >
-                        اتصال
-                      </button>
+                      />
                     </div>
+
+                    <LatestNoteBox
+                      row={row}
+                    />
+
+                    <button
+                      type="button"
+                      style={
+                        actionsButton
+                      }
+                      onClick={() =>
+                        setActionsRow(
+                          row
+                        )
+                      }
+                    >
+                      إجراءات التواصل
+                    </button>
                   </article>
                 )
               )}
@@ -2088,52 +2308,32 @@ export default function FollowUpPage() {
               >
                 <thead>
                   <tr>
-                    <th
-                      style={th}
-                    >
+                    <th style={th}>
                       العقد
                     </th>
-
-                    <th
-                      style={th}
-                    >
+                    <th style={th}>
                       العميل
                     </th>
-
-                    <th
-                      style={th}
-                    >
+                    <th style={th}>
                       الجوال
                     </th>
-
-                    <th
-                      style={th}
-                    >
+                    <th style={th}>
+                      المستثمر
+                    </th>
+                    <th style={th}>
                       المتبقي
                     </th>
-
-                    <th
-                      style={th}
-                    >
-                      الاستحقاق
+                    <th style={th}>
+                      الاستحقاق الميلادي
                     </th>
-
-                    <th
-                      style={th}
-                    >
+                    <th style={th}>
                       التأخير
                     </th>
-
-                    <th
-                      style={th}
-                    >
+                    <th style={th}>
                       آخر ملاحظة
                     </th>
-
-                    <th
-                      style={th}
-                    >
-                      التواصل
+                    <th style={th}>
+                      الإجراءات
                     </th>
                   </tr>
                 </thead>
@@ -2146,27 +2346,14 @@ export default function FollowUpPage() {
                           row.contract_id
                         }
                       >
-                        <td
-                          style={td}
-                        >
+                        <td style={td}>
                           <strong>
                             {row.contract_number ||
                               "-"}
                           </strong>
-
-                          <div
-                            style={
-                              smallMutedText
-                            }
-                          >
-                            {row.investor_name ||
-                              "-"}
-                          </div>
                         </td>
 
-                        <td
-                          style={td}
-                        >
+                        <td style={td}>
                           <strong>
                             {row.customer_name ||
                               "-"}
@@ -2182,16 +2369,17 @@ export default function FollowUpPage() {
                           </div>
                         </td>
 
-                        <td
-                          style={td}
-                        >
+                        <td style={td}>
                           {row.customer_phone ||
                             "-"}
                         </td>
 
-                        <td
-                          style={td}
-                        >
+                        <td style={td}>
+                          {row.investor_name ||
+                            "-"}
+                        </td>
+
+                        <td style={td}>
                           <strong
                             style={
                               amountText
@@ -2199,175 +2387,51 @@ export default function FollowUpPage() {
                           >
                             {formatMoney(
                               row.remaining_amount
-                            )}{" "}
-                            ر.س
+                            )} ر.س
                           </strong>
                         </td>
 
-                        <td
-                          style={td}
-                        >
-                          {formatDate(
+                        <td style={td}>
+                          {formatGregorianDate(
                             row.payment_due_date
                           )}
                         </td>
 
-                        <td
-                          style={td}
-                        >
+                        <td style={td}>
                           <span
                             style={
                               lateBadge
                             }
                           >
-                            {
-                              row.days_late
-                            }{" "}
-                            يوم
+                            {row.days_late} يوم
                           </span>
                         </td>
 
                         <td
                           style={{
                             ...td,
-                            minWidth:
-                              260,
+                            minWidth: 270,
                           }}
                         >
-                          {row.latest_note ? (
-                            <>
-                              <div
-                                style={
-                                  desktopNoteText
-                                }
-                              >
-                                {
-                                  row.latest_note
-                                    .note_text
-                                }
-                              </div>
-
-                              <div
-                                style={
-                                  noteMeta
-                                }
-                              >
-                                {
-                                  row.latest_note
-                                    .created_by_name
-                                }{" "}
-                                -{" "}
-                                {formatDateTime(
-                                  row.latest_note
-                                    .updated_at ||
-                                    row.latest_note
-                                      .created_at
-                                )}
-                              </div>
-
-                              <div
-                                style={
-                                  noteInlineActions
-                                }
-                              >
-                                <button
-                                  type="button"
-                                  style={
-                                    addNoteMiniButton
-                                  }
-                                  onClick={() =>
-                                    openCreateNote(
-                                      row
-                                    )
-                                  }
-                                  disabled={
-                                    savingNote ||
-                                    deletingNote
-                                  }
-                                >
-                                  إضافة
-                                </button>
-
-                                {canManageNote(
-                                  row.latest_note
-                                ) && (
-                                  <button
-                                    type="button"
-                                    style={
-                                      editNoteMiniButton
-                                    }
-                                    onClick={() =>
-                                      openEditNote(
-                                        row
-                                      )
-                                    }
-                                    disabled={
-                                      savingNote ||
-                                      deletingNote
-                                    }
-                                  >
-                                    تعديل
-                                  </button>
-                                )}
-                              </div>
-                            </>
-                          ) : (
-                            <button
-                              type="button"
-                              style={
-                                addNoteMiniButton
-                              }
-                              onClick={() =>
-                                openCreateNote(
-                                  row
-                                )
-                              }
-                              disabled={
-                                savingNote ||
-                                deletingNote
-                              }
-                            >
-                              إضافة ملاحظة
-                            </button>
-                          )}
+                          <LatestNoteBox
+                            row={row}
+                          />
                         </td>
 
-                        <td
-                          style={td}
-                        >
-                          <div
+                        <td style={td}>
+                          <button
+                            type="button"
                             style={
-                              tableActionButtons
+                              actionsButton
+                            }
+                            onClick={() =>
+                              setActionsRow(
+                                row
+                              )
                             }
                           >
-                            <button
-                              type="button"
-                              style={
-                                whatsappButton
-                              }
-                              onClick={() =>
-                                openWhatsApp(
-                                  row
-                                )
-                              }
-                            >
-                              واتساب
-                            </button>
-
-                            <button
-                              type="button"
-                              style={
-                                callButton
-                              }
-                              onClick={() =>
-                                callCustomer(
-                                  row
-                                )
-                              }
-                            >
-                              اتصال
-                            </button>
-                          </div>
+                            إجراءات التواصل
+                          </button>
                         </td>
                       </tr>
                     )
@@ -2410,8 +2474,7 @@ export default function FollowUpPage() {
                   paginationText
                 }
               >
-                صفحة {currentPage} من{" "}
-                {totalPages}
+                صفحة {currentPage} من {totalPages}
               </span>
 
               <button
@@ -2454,70 +2517,276 @@ export default function FollowUpPage() {
         </div>
       </div>
 
-      {modalOpen &&
-        selectedRow && (
+      {actionsRow && (
+        <ModalOverlay
+          onClose={() =>
+            setActionsRow(null)
+          }
+        >
+          <div
+            style={modalCard}
+          >
+            <ModalHeader
+              title="إجراءات التواصل"
+              subtitle={`${actionsRow.customer_name || "-"} - العقد ${actionsRow.contract_number || "-"}`}
+              onClose={() =>
+                setActionsRow(null)
+              }
+            />
+
+            <div
+              style={
+                actionMenuList
+              }
+            >
+              <ActionMenuButton
+                label="اتصال"
+                onClick={() =>
+                  callCustomer(
+                    actionsRow
+                  )
+                }
+              />
+
+              <ActionMenuButton
+                label="واتساب"
+                onClick={() =>
+                  openWhatsApp(
+                    actionsRow
+                  )
+                }
+              />
+
+              <ActionMenuButton
+                label="إضافة ملاحظة متابعة"
+                onClick={() =>
+                  openCreateNote(
+                    actionsRow
+                  )
+                }
+              />
+
+              <ActionMenuButton
+                label={`عرض سجل الملاحظات (${actionsRow.notes_count})`}
+                onClick={() =>
+                  openNotesHistory(
+                    actionsRow
+                  )
+                }
+              />
+
+              {actionsRow.latest_note &&
+                canManageNote(
+                  actionsRow.latest_note
+                ) && (
+                  <ActionMenuButton
+                    label="تعديل آخر ملاحظة"
+                    onClick={() =>
+                      openEditNote(
+                        actionsRow,
+                        actionsRow.latest_note as FollowUpNote
+                      )
+                    }
+                  />
+                )}
+
+              <ActionMenuButton
+                label="فتح تفاصيل العقد"
+                onClick={() =>
+                  openContract(
+                    actionsRow
+                  )
+                }
+              />
+
+              <ActionMenuButton
+                label="فتح ملف العميل"
+                onClick={() =>
+                  openCustomer(
+                    actionsRow
+                  )
+                }
+              />
+            </div>
+          </div>
+        </ModalOverlay>
+      )}
+
+      {notesRow && (
+        <ModalOverlay
+          onClose={() =>
+            !noteModalOpen &&
+            setNotesRow(null)
+          }
+        >
           <div
             style={
-              modalOverlay
+              notesModalCard
             }
-            onMouseDown={() =>
-              closeModal()
+          >
+            <ModalHeader
+              title="سجل الملاحظات"
+              subtitle={`${notesRow.customer_name || "-"} - العقد ${notesRow.contract_number || "-"}`}
+              onClose={() =>
+                setNotesRow(null)
+              }
+            />
+
+            <button
+              type="button"
+              style={
+                addNoteHistoryButton
+              }
+              onClick={() =>
+                openCreateNote(
+                  notesRow
+                )
+              }
+            >
+              إضافة ملاحظة متابعة
+            </button>
+
+            {notesRow.notes.length ===
+            0 ? (
+              <div
+                style={emptyBox}
+              >
+                لا توجد ملاحظات متابعة لهذا العقد.
+              </div>
+            ) : (
+              <div
+                style={
+                  notesVerticalList
+                }
+              >
+                {notesRow.notes.map(
+                  (note) => (
+                    <article
+                      key={note.id}
+                      style={
+                        noteHistoryCard
+                      }
+                    >
+                      <p
+                        style={
+                          noteHistoryText
+                        }
+                      >
+                        {note.note_text}
+                      </p>
+
+                      <div
+                        style={
+                          noteHistoryMeta
+                        }
+                      >
+                        <span>
+                          بواسطة:{" "}
+                          {note.created_by_name ||
+                            "-"}
+                        </span>
+
+                        <span>
+                          الإنشاء:{" "}
+                          {formatGregorianDateTime(
+                            note.created_at
+                          )}
+                        </span>
+
+                        {note.updated_at && (
+                          <span>
+                            التعديل:{" "}
+                            {formatGregorianDateTime(
+                              note.updated_at
+                            )}
+                          </span>
+                        )}
+                      </div>
+
+                      {canManageNote(
+                        note
+                      ) && (
+                        <div
+                          style={
+                            noteHistoryActions
+                          }
+                        >
+                          <button
+                            type="button"
+                            style={
+                              editNoteButton
+                            }
+                            disabled={
+                              savingNote ||
+                              Boolean(
+                                deletingNoteId
+                              )
+                            }
+                            onClick={() =>
+                              openEditNote(
+                                notesRow,
+                                note
+                              )
+                            }
+                          >
+                            تعديل
+                          </button>
+
+                          <button
+                            type="button"
+                            style={
+                              deleteNoteButton
+                            }
+                            disabled={
+                              savingNote ||
+                              Boolean(
+                                deletingNoteId
+                              )
+                            }
+                            onClick={() =>
+                              void deleteNote(
+                                note
+                              )
+                            }
+                          >
+                            {deletingNoteId ===
+                            note.id
+                              ? "جاري الحذف..."
+                              : "حذف"}
+                          </button>
+                        </div>
+                      )}
+                    </article>
+                  )
+                )}
+              </div>
+            )}
+          </div>
+        </ModalOverlay>
+      )}
+
+      {noteModalOpen &&
+        notesRow && (
+          <ModalOverlay
+            onClose={() =>
+              closeNoteModal()
             }
           >
             <div
-              style={
-                getModalCardStyle(
-                  isMobile
-                )
-              }
-              onMouseDown={(
-                event
-              ) =>
-                event.stopPropagation()
-              }
+              style={modalCard}
             >
-              <div
-                style={
-                  modalHeader
+              <ModalHeader
+                title={
+                  noteModalMode ===
+                  "edit"
+                    ? "تعديل ملاحظة المتابعة"
+                    : "إضافة ملاحظة متابعة"
                 }
-              >
-                <div>
-                  <h2
-                    style={
-                      modalTitle
-                    }
-                  >
-                    {modalMode ===
-                    "edit"
-                      ? "تعديل ملاحظة المتابعة"
-                      : "إضافة ملاحظة متابعة"}
-                  </h2>
-
-                  <div
-                    style={
-                      modalSubtitle
-                    }
-                  >
-                    {selectedRow.customer_name ||
-                      "-"}{" "}
-                    - العقد{" "}
-                    {selectedRow.contract_number ||
-                      "-"}
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  style={
-                    closeModalButton
-                  }
-                  onClick={() =>
-                    closeModal()
-                  }
-                >
-                  ×
-                </button>
-              </div>
+                subtitle={`${notesRow.customer_name || "-"} - العقد ${notesRow.contract_number || "-"}`}
+                onClose={() =>
+                  closeNoteModal()
+                }
+              />
 
               <textarea
                 className="follow-up-input"
@@ -2527,11 +2796,10 @@ export default function FollowUpPage() {
                 value={noteText}
                 onChange={(event) =>
                   setNoteText(
-                    event.target
-                      .value.slice(
-                        0,
-                        2000
-                      )
+                    event.target.value.slice(
+                      0,
+                      2000
+                    )
                   )
                 }
                 rows={7}
@@ -2554,16 +2822,14 @@ export default function FollowUpPage() {
               >
                 <button
                   type="button"
-                  style={{
-                    ...saveModalButton,
-                    opacity:
-                      savingNote
-                        ? 0.65
-                        : 1,
-                  }}
+                  style={
+                    saveModalButton
+                  }
                   disabled={
                     savingNote ||
-                    deletingNote
+                    Boolean(
+                      deletingNoteId
+                    )
                   }
                   onClick={() =>
                     void saveNote()
@@ -2574,35 +2840,6 @@ export default function FollowUpPage() {
                     : "حفظ الملاحظة"}
                 </button>
 
-                {modalMode ===
-                  "edit" &&
-                  selectedRow.latest_note &&
-                  canManageNote(
-                    selectedRow.latest_note
-                  ) && (
-                    <button
-                      type="button"
-                      style={{
-                        ...deleteModalButton,
-                        opacity:
-                          deletingNote
-                            ? 0.65
-                            : 1,
-                      }}
-                      disabled={
-                        savingNote ||
-                        deletingNote
-                      }
-                      onClick={() =>
-                        void deleteNote()
-                      }
-                    >
-                      {deletingNote
-                        ? "جاري الحذف..."
-                        : "حذف الملاحظة"}
-                    </button>
-                  )}
-
                 <button
                   type="button"
                   style={
@@ -2610,21 +2847,125 @@ export default function FollowUpPage() {
                   }
                   disabled={
                     savingNote ||
-                    deletingNote
+                    Boolean(
+                      deletingNoteId
+                    )
                   }
                   onClick={() =>
-                    closeModal()
+                    closeNoteModal()
                   }
                 >
                   إلغاء
                 </button>
               </div>
             </div>
-          </div>
+          </ModalOverlay>
         )}
 
       <GlobalStyles />
     </main>
+  );
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div style={fieldBox}>
+      <label style={labelStyle}>
+        {label}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  compact = false,
+}: {
+  label: string;
+  value: string;
+  compact?: boolean;
+}) {
+  return (
+    <div style={statCard}>
+      <span style={statLabel}>
+        {label}
+      </span>
+
+      <strong
+        style={
+          compact
+            ? statDateValue
+            : statValue
+        }
+      >
+        {value}
+      </strong>
+    </div>
+  );
+}
+
+function LatestNoteBox({
+  row,
+}: {
+  row: FollowUpRow;
+}) {
+  if (!row.latest_note) {
+    return (
+      <div
+        style={
+          noLatestNote
+        }
+      >
+        لا توجد ملاحظة متابعة
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={
+        latestNoteBox
+      }
+    >
+      <div
+        style={
+          latestNoteText
+        }
+      >
+        {row.latest_note.note_text}
+      </div>
+
+      <div
+        style={
+          latestNoteMeta
+        }
+      >
+        {row.latest_note.created_by_name ||
+          "-"}{" "}
+        -{" "}
+        {formatGregorianDateTime(
+          row.latest_note.updated_at ||
+            row.latest_note.created_at
+        )}
+      </div>
+
+      <div
+        style={
+          latestNoteCount
+        }
+      >
+        إجمالي الملاحظات:{" "}
+        {row.notes_count}
+      </div>
+    </div>
   );
 }
 
@@ -2650,349 +2991,84 @@ function InfoItem({
   );
 }
 
-function GlobalStyles() {
+function ModalOverlay({
+  children,
+  onClose,
+}: {
+  children: React.ReactNode;
+  onClose: () => void;
+}) {
   return (
-    <style jsx global>{`
-      * {
-        box-sizing: border-box;
-      }
-
-      html,
-      body {
-        margin: 0;
-        overflow-x: hidden;
-      }
-
-      button,
-      input,
-      select,
-      textarea {
-        font-family: var(--font-almarai), sans-serif;
-      }
-
-      .follow-up-input {
-        transition:
-          border-color 0.18s ease,
-          box-shadow 0.18s ease,
-          background 0.18s ease;
-      }
-
-      .follow-up-input:focus {
-        outline: none !important;
-        border-color: #3b82f6 !important;
-        box-shadow:
-          0 0 0 4px rgba(59, 130, 246, 0.11) !important;
-        background: #ffffff !important;
-      }
-
-      button:disabled {
-        opacity: 0.5 !important;
-        cursor: not-allowed !important;
-      }
-
-      @media (max-width: 979px) {
-        table {
-          min-width: 1050px;
+    <div
+      style={modalOverlay}
+      onMouseDown={onClose}
+    >
+      <div
+        onMouseDown={(event) =>
+          event.stopPropagation()
         }
-      }
-    `}</style>
+      >
+        {children}
+      </div>
+    </div>
   );
 }
 
-function getPageStyle(
-  isMobile: boolean
-): CSSProperties {
-  return {
-    minHeight: "100vh",
-    backgroundColor: "#f6f9ff",
-    backgroundImage: `
-      radial-gradient(circle at 12% 18%, rgba(59,130,246,0.16) 0, transparent 28%),
-      radial-gradient(circle at 88% 12%, rgba(168,85,247,0.10) 0, transparent 25%),
-      radial-gradient(circle at 80% 88%, rgba(34,197,94,0.10) 0, transparent 28%),
-      linear-gradient(rgba(246,249,255,0.72),rgba(246,249,255,0.82)),
-      url('/backgrounds/v13-finance-bg-1.png')
-    `,
-    backgroundSize: "cover",
-    backgroundPosition:
-      "center",
-    backgroundAttachment:
-      isMobile
-        ? "scroll"
-        : "fixed",
-    padding: isMobile
-      ? 10
-      : 18,
-    fontFamily:
-      "var(--font-almarai), sans-serif",
-    overflowX: "hidden",
-  };
+function ModalHeader({
+  title,
+  subtitle,
+  onClose,
+}: {
+  title: string;
+  subtitle: string;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      style={modalHeader}
+    >
+      <div>
+        <h2
+          style={modalTitle}
+        >
+          {title}
+        </h2>
+
+        <div
+          style={modalSubtitle}
+        >
+          {subtitle}
+        </div>
+      </div>
+
+      <button
+        type="button"
+        style={closeModalButton}
+        onClick={onClose}
+      >
+        ×
+      </button>
+    </div>
+  );
 }
 
-function getContainerStyle(
-  isCompact: boolean
-): CSSProperties {
-  return {
-    width: "100%",
-    maxWidth: isCompact
-      ? 980
-      : 1320,
-    margin: "auto",
-  };
-}
-
-function getHeroStyle(
-  isMobile: boolean
-): CSSProperties {
-  return {
-    position: "relative",
-    minHeight: isMobile
-      ? "auto"
-      : 160,
-    borderRadius: isMobile
-      ? 20
-      : 24,
-    padding: isMobile
-      ? "18px 14px"
-      : "22px 26px",
-    marginBottom: 14,
-    overflow: "hidden",
-    border: "none",
-    background:
-      "radial-gradient(circle at 15% 18%, rgba(255,255,255,0.08) 0, transparent 24%), radial-gradient(circle at 86% 18%, rgba(255,255,255,0.11) 0, transparent 26%), linear-gradient(105deg,#071c48 0%,#0a327d 30%,#0d65d9 60%,#23a8e4 82%,#6edce4 100%)",
-    isolation: "isolate",
-  };
-}
-
-function getHeroContentStyle(
-  screen: ScreenType
-): CSSProperties {
-  if (
-    screen === "mobile"
-  ) {
-    return {
-      position: "relative",
-      zIndex: 3,
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "stretch",
-      justifyContent:
-        "center",
-      gap: 16,
-      direction: "rtl",
-    };
-  }
-
-  if (
-    screen === "tablet"
-  ) {
-    return {
-      position: "relative",
-      zIndex: 3,
-      display: "grid",
-      gridTemplateColumns:
-        "1fr",
-      justifyItems: "center",
-      alignItems: "center",
-      gap: 18,
-      direction: "rtl",
-    };
-  }
-
-  return {
-    position: "relative",
-    zIndex: 3,
-    minHeight: 116,
-    display: "grid",
-    gridTemplateColumns:
-      "minmax(250px,315px) 1fr minmax(220px,315px)",
-    alignItems: "center",
-    gap: 16,
-    direction: "ltr",
-  };
-}
-
-function getHeroUserCardStyle(
-  screen: ScreenType
-): CSSProperties {
-  if (
-    screen === "mobile"
-  ) {
-    return {
-      width: "100%",
-      display: "grid",
-      gap: 12,
-      direction: "rtl",
-      justifyItems: "center",
-      order: 2,
-    };
-  }
-
-  if (
-    screen === "tablet"
-  ) {
-    return {
-      width: "100%",
-      maxWidth: 520,
-      display: "grid",
-      gap: 14,
-      direction: "rtl",
-      justifyItems: "center",
-      order: 2,
-    };
-  }
-
-  return {
-    width: "100%",
-    maxWidth: 315,
-    display: "grid",
-    gap: 24,
-    direction: "ltr",
-    justifySelf: "start",
-  };
-}
-
-function getEmployeeTopRowStyle(
-  screen: ScreenType
-): CSSProperties {
-  return {
-    minHeight: 42,
-    display: "flex",
-    alignItems: "center",
-    justifyContent:
-      screen === "desktop"
-        ? "flex-start"
-        : "center",
-    flexWrap: "wrap",
-    gap: 12,
-    direction:
-      screen === "desktop"
-        ? "ltr"
-        : "rtl",
-    color: "#ffffff",
-    width: "100%",
-  };
-}
-
-function getEmployeeNameStyle(
-  isMobile: boolean
-): CSSProperties {
-  return {
-    color: "#ffffff",
-    fontSize: isMobile
-      ? 15
-      : 17,
-    fontWeight: 900,
-    whiteSpace: "nowrap",
-    direction: "rtl",
-  };
-}
-
-function getMainWorkstationButtonStyle(
-  isMobile: boolean
-): CSSProperties {
-  return {
-    width: isMobile
-      ? "100%"
-      : 220,
-    maxWidth: isMobile
-      ? 280
-      : 220,
-    height: 44,
-    border: "none",
-    background:
-      "linear-gradient(135deg,#72e77d,#22c55e 58%,#16a34a)",
-    color: "#ffffff",
-    borderRadius: 999,
-    padding: "0 18px",
-    fontSize: 14,
-    fontWeight: 900,
-    cursor: "pointer",
-    boxShadow:
-      "0 8px 18px rgba(22,163,74,0.20)",
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent:
-      "center",
-    gap: 9,
-    whiteSpace: "nowrap",
-    direction: "rtl",
-  };
-}
-
-function getHeroTitleBoxStyle(
-  screen: ScreenType
-): CSSProperties {
-  return {
-    position: "relative",
-    zIndex: 4,
-    display: "flex",
-    alignItems: "center",
-    justifyContent:
-      "center",
-    textAlign: "center",
-    direction: "rtl",
-    pointerEvents: "none",
-    order:
-      screen === "desktop"
-        ? 0
-        : 1,
-  };
-}
-
-function getTitleStyle(
-  screen: ScreenType
-): CSSProperties {
-  return {
-    margin: 0,
-    color: "#ffffff",
-    fontSize:
-      screen === "mobile"
-        ? 24
-        : screen === "tablet"
-          ? 28
-          : 30,
-    lineHeight: 1.4,
-    fontWeight: 900,
-    letterSpacing:
-      "-0.4px",
-    textShadow:
-      "0 5px 14px rgba(15,23,42,0.14)",
-    fontFamily:
-      "var(--font-almarai), sans-serif",
-  };
-}
-
-function getHeroActionBoxStyle(
-  screen: ScreenType
-): CSSProperties {
-  return {
-    display:
-      screen === "desktop"
-        ? "flex"
-        : "none",
-  };
-}
-
-function getModalCardStyle(
-  isMobile: boolean
-): CSSProperties {
-  return {
-    width: isMobile
-      ? "calc(100% - 20px)"
-      : "min(620px,calc(100% - 36px))",
-    maxHeight:
-      "calc(100vh - 30px)",
-    overflowY: "auto",
-    background: "#ffffff",
-    borderRadius: 20,
-    border:
-      "1px solid #d9e3f5",
-    boxShadow:
-      "0 26px 80px rgba(15,23,42,0.28)",
-    padding: isMobile
-      ? 16
-      : 22,
-  };
+function ActionMenuButton({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      style={actionMenuButton}
+      onClick={onClick}
+    >
+      {label}
+      <span>‹</span>
+    </button>
+  );
 }
 
 function UserIcon() {
@@ -3088,6 +3164,337 @@ function HomeIcon() {
   );
 }
 
+function GlobalStyles() {
+  return (
+    <style jsx global>{`
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        overflow-x: hidden;
+      }
+
+      button,
+      input,
+      select,
+      textarea {
+        font-family: var(--font-almarai), sans-serif;
+      }
+
+      .follow-up-input {
+        transition:
+          border-color 0.18s ease,
+          box-shadow 0.18s ease,
+          background 0.18s ease;
+      }
+
+      .follow-up-input:focus {
+        outline: none !important;
+        border-color: #3b82f6 !important;
+        box-shadow:
+          0 0 0 4px rgba(59,130,246,0.11) !important;
+        background: #ffffff !important;
+      }
+
+      button:disabled {
+        opacity: 0.5 !important;
+        cursor: not-allowed !important;
+      }
+    `}</style>
+  );
+}
+
+function getPageStyle(
+  isMobile: boolean
+): CSSProperties {
+  return {
+    minHeight: "100vh",
+    backgroundColor:
+      "#f6f9ff",
+    backgroundImage: `
+      radial-gradient(circle at 12% 18%, rgba(59,130,246,0.16) 0, transparent 28%),
+      radial-gradient(circle at 88% 12%, rgba(168,85,247,0.10) 0, transparent 25%),
+      radial-gradient(circle at 80% 88%, rgba(34,197,94,0.10) 0, transparent 28%),
+      linear-gradient(rgba(246,249,255,0.72),rgba(246,249,255,0.82)),
+      url('/backgrounds/v13-finance-bg-1.png')
+    `,
+    backgroundSize:
+      "cover",
+    backgroundPosition:
+      "center",
+    backgroundAttachment:
+      isMobile
+        ? "scroll"
+        : "fixed",
+    padding:
+      isMobile
+        ? 10
+        : 18,
+    fontFamily:
+      "var(--font-almarai), sans-serif",
+  };
+}
+
+function getContainerStyle(
+  isCompact: boolean
+): CSSProperties {
+  return {
+    width: "100%",
+    maxWidth:
+      isCompact
+        ? 980
+        : 1320,
+    margin: "auto",
+  };
+}
+
+function getHeroStyle(
+  isMobile: boolean
+): CSSProperties {
+  return {
+    position: "relative",
+    minHeight:
+      isMobile
+        ? "auto"
+        : 160,
+    borderRadius:
+      isMobile
+        ? 20
+        : 24,
+    padding:
+      isMobile
+        ? "18px 14px"
+        : "22px 26px",
+    marginBottom: 14,
+    overflow: "hidden",
+    border: "none",
+    background:
+      "radial-gradient(circle at 15% 18%, rgba(255,255,255,0.08) 0, transparent 24%), radial-gradient(circle at 86% 18%, rgba(255,255,255,0.11) 0, transparent 26%), linear-gradient(105deg,#071c48 0%,#0a327d 30%,#0d65d9 60%,#23a8e4 82%,#6edce4 100%)",
+    isolation: "isolate",
+  };
+}
+
+function getHeroContentStyle(
+  screen: ScreenType
+): CSSProperties {
+  if (
+    screen === "mobile"
+  ) {
+    return {
+      position: "relative",
+      zIndex: 3,
+      display: "flex",
+      flexDirection:
+        "column",
+      alignItems:
+        "stretch",
+      justifyContent:
+        "center",
+      gap: 16,
+      direction: "rtl",
+    };
+  }
+
+  if (
+    screen === "tablet"
+  ) {
+    return {
+      position: "relative",
+      zIndex: 3,
+      display: "grid",
+      gridTemplateColumns:
+        "1fr",
+      justifyItems:
+        "center",
+      alignItems:
+        "center",
+      gap: 18,
+      direction: "rtl",
+    };
+  }
+
+  return {
+    position: "relative",
+    zIndex: 3,
+    minHeight: 116,
+    display: "grid",
+    gridTemplateColumns:
+      "minmax(250px,315px) 1fr minmax(220px,315px)",
+    alignItems:
+      "center",
+    gap: 16,
+    direction: "ltr",
+  };
+}
+
+function getHeroUserCardStyle(
+  screen: ScreenType
+): CSSProperties {
+  if (
+    screen === "mobile" ||
+    screen === "tablet"
+  ) {
+    return {
+      width: "100%",
+      maxWidth: 520,
+      display: "grid",
+      gap: 12,
+      direction: "rtl",
+      justifyItems:
+        "center",
+      order: 2,
+    };
+  }
+
+  return {
+    width: "100%",
+    maxWidth: 315,
+    display: "grid",
+    gap: 24,
+    direction: "ltr",
+    justifySelf:
+      "start",
+  };
+}
+
+function getEmployeeTopRowStyle(
+  screen: ScreenType
+): CSSProperties {
+  return {
+    minHeight: 42,
+    display: "flex",
+    alignItems:
+      "center",
+    justifyContent:
+      screen ===
+      "desktop"
+        ? "flex-start"
+        : "center",
+    flexWrap: "wrap",
+    gap: 12,
+    direction:
+      screen ===
+      "desktop"
+        ? "ltr"
+        : "rtl",
+    color: "#ffffff",
+    width: "100%",
+  };
+}
+
+function getEmployeeNameStyle(
+  isMobile: boolean
+): CSSProperties {
+  return {
+    color: "#ffffff",
+    fontSize:
+      isMobile
+        ? 15
+        : 17,
+    fontWeight: 900,
+    whiteSpace:
+      "nowrap",
+    direction: "rtl",
+  };
+}
+
+function getMainWorkstationButtonStyle(
+  isMobile: boolean
+): CSSProperties {
+  return {
+    width:
+      isMobile
+        ? "100%"
+        : 220,
+    maxWidth:
+      isMobile
+        ? 280
+        : 220,
+    height: 44,
+    border: "none",
+    background:
+      "linear-gradient(135deg,#72e77d,#22c55e 58%,#16a34a)",
+    color: "#ffffff",
+    borderRadius: 999,
+    padding: "0 18px",
+    fontSize: 14,
+    fontWeight: 900,
+    cursor: "pointer",
+    boxShadow:
+      "0 8px 18px rgba(22,163,74,0.20)",
+    display:
+      "inline-flex",
+    alignItems:
+      "center",
+    justifyContent:
+      "center",
+    gap: 9,
+    whiteSpace:
+      "nowrap",
+    direction: "rtl",
+  };
+}
+
+function getHeroTitleBoxStyle(
+  screen: ScreenType
+): CSSProperties {
+  return {
+    position: "relative",
+    zIndex: 4,
+    display: "flex",
+    alignItems:
+      "center",
+    justifyContent:
+      "center",
+    textAlign: "center",
+    direction: "rtl",
+    pointerEvents:
+      "none",
+    order:
+      screen ===
+      "desktop"
+        ? 0
+        : 1,
+  };
+}
+
+function getTitleStyle(
+  screen: ScreenType
+): CSSProperties {
+  return {
+    margin: 0,
+    color: "#ffffff",
+    fontSize:
+      screen === "mobile"
+        ? 24
+        : screen ===
+            "tablet"
+          ? 28
+          : 30,
+    lineHeight: 1.4,
+    fontWeight: 900,
+    textShadow:
+      "0 5px 14px rgba(15,23,42,0.14)",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
+  };
+}
+
+function getHeroActionBoxStyle(
+  screen: ScreenType
+): CSSProperties {
+  return {
+    display:
+      screen ===
+      "desktop"
+        ? "flex"
+        : "none",
+  };
+}
+
 const employeeIcon: CSSProperties = {
   width: 38,
   height: 38,
@@ -3102,35 +3509,44 @@ const employeeIcon: CSSProperties = {
     "center",
   color:
     "rgba(255,255,255,0.96)",
-  flex: "0 0 auto",
 };
 
-const employeeDividerSmall: CSSProperties =
-  {
-    width: 1,
-    height: 34,
-    background:
-      "rgba(255,255,255,0.30)",
-  };
+const employeeDividerSmall: CSSProperties = {
+  width: 1,
+  height: 34,
+  background:
+    "rgba(255,255,255,0.30)",
+};
 
-const logoutInlineButton: CSSProperties =
-  {
-    border: "none",
-    background:
-      "transparent",
-    color:
-      "rgba(255,255,255,0.90)",
-    fontSize: 15,
-    fontWeight: 800,
-    display: "flex",
-    alignItems: "center",
-    gap: 9,
-    cursor: "pointer",
-    padding: 0,
-    whiteSpace:
-      "nowrap",
-    direction: "rtl",
-  };
+const supportBadge: CSSProperties = {
+  padding: "5px 9px",
+  borderRadius: 999,
+  background:
+    "rgba(22,163,74,0.22)",
+  border:
+    "1px solid rgba(187,247,208,0.42)",
+  color: "#dcfce7",
+  fontSize: 11,
+  fontWeight: 900,
+};
+
+const logoutInlineButton: CSSProperties = {
+  border: "none",
+  background:
+    "transparent",
+  color:
+    "rgba(255,255,255,0.90)",
+  fontSize: 15,
+  fontWeight: 800,
+  display: "flex",
+  alignItems: "center",
+  gap: 9,
+  cursor: "pointer",
+  padding: 0,
+  whiteSpace:
+    "nowrap",
+  direction: "rtl",
+};
 
 const heroCircleOne: CSSProperties = {
   position: "absolute",
@@ -3141,7 +3557,8 @@ const heroCircleOne: CSSProperties = {
   borderRadius: "50%",
   background:
     "rgba(255,255,255,0.075)",
-  pointerEvents: "none",
+  pointerEvents:
+    "none",
   zIndex: 1,
 };
 
@@ -3154,23 +3571,24 @@ const heroCircleTwo: CSSProperties = {
   borderRadius: "50%",
   background:
     "rgba(255,255,255,0.045)",
-  pointerEvents: "none",
+  pointerEvents:
+    "none",
   zIndex: 1,
 };
 
-const heroCircleThree: CSSProperties =
-  {
-    position: "absolute",
-    width: 150,
-    height: 150,
-    left: 380,
-    top: -96,
-    borderRadius: "50%",
-    background:
-      "rgba(255,255,255,0.035)",
-    pointerEvents: "none",
-    zIndex: 1,
-  };
+const heroCircleThree: CSSProperties = {
+  position: "absolute",
+  width: 150,
+  height: 150,
+  left: 380,
+  top: -96,
+  borderRadius: "50%",
+  background:
+    "rgba(255,255,255,0.035)",
+  pointerEvents:
+    "none",
+  zIndex: 1,
+};
 
 const heroDots: CSSProperties = {
   position: "absolute",
@@ -3189,7 +3607,7 @@ const heroDots: CSSProperties = {
 const statsGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns:
-    "repeat(auto-fit,minmax(190px,1fr))",
+    "repeat(auto-fit,minmax(175px,1fr))",
   gap: 12,
   marginBottom: 14,
 };
@@ -3214,7 +3632,7 @@ const statLabel: CSSProperties = {
 
 const statValue: CSSProperties = {
   color: "#0d47a1",
-  fontSize: 23,
+  fontSize: 22,
   fontWeight: 900,
 };
 
@@ -3238,7 +3656,7 @@ const filterCard: CSSProperties = {
 const filterGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns:
-    "minmax(240px,2fr) minmax(180px,1fr) minmax(170px,1fr) auto",
+    "repeat(auto-fit,minmax(180px,1fr))",
   gap: 12,
   alignItems: "end",
 };
@@ -3302,7 +3720,7 @@ const table: CSSProperties = {
   borderCollapse:
     "separate",
   borderSpacing: 0,
-  minWidth: 1120,
+  minWidth: 1260,
 };
 
 const th: CSSProperties = {
@@ -3337,8 +3755,10 @@ const amountText: CSSProperties = {
 };
 
 const lateBadge: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
+  display:
+    "inline-flex",
+  alignItems:
+    "center",
   justifyContent:
     "center",
   background: "#fee2e2",
@@ -3349,82 +3769,8 @@ const lateBadge: CSSProperties = {
   padding: "6px 9px",
   fontSize: 11,
   fontWeight: 900,
-  whiteSpace: "nowrap",
-};
-
-const desktopNoteText: CSSProperties = {
-  color: "#334155",
-  fontSize: 12,
-  lineHeight: 1.7,
   whiteSpace:
-    "pre-wrap",
-  wordBreak:
-    "break-word",
-};
-
-const noteMeta: CSSProperties = {
-  color: "#94a3b8",
-  fontSize: 10,
-  marginTop: 6,
-};
-
-const noteInlineActions: CSSProperties = {
-  display: "flex",
-  gap: 6,
-  marginTop: 8,
-};
-
-const addNoteMiniButton: CSSProperties = {
-  border: "none",
-  borderRadius: 8,
-  background:
-    "linear-gradient(135deg,#2563eb,#0ea5e9)",
-  color: "#ffffff",
-  padding: "7px 9px",
-  fontSize: 11,
-  fontWeight: 900,
-  cursor: "pointer",
-};
-
-const editNoteMiniButton: CSSProperties = {
-  border:
-    "1px solid #bfdbfe",
-  borderRadius: 8,
-  background: "#eff6ff",
-  color: "#1d4ed8",
-  padding: "7px 9px",
-  fontSize: 11,
-  fontWeight: 900,
-  cursor: "pointer",
-};
-
-const tableActionButtons: CSSProperties = {
-  display: "grid",
-  gap: 7,
-};
-
-const whatsappButton: CSSProperties = {
-  border: "none",
-  borderRadius: 9,
-  background:
-    "linear-gradient(135deg,#25d366,#16a34a)",
-  color: "#ffffff",
-  padding: "8px 10px",
-  fontSize: 11,
-  fontWeight: 900,
-  cursor: "pointer",
-};
-
-const callButton: CSSProperties = {
-  border: "none",
-  borderRadius: 9,
-  background:
-    "linear-gradient(135deg,#0ea5e9,#2563eb)",
-  color: "#ffffff",
-  padding: "8px 10px",
-  fontSize: 11,
-  fontWeight: 900,
-  cursor: "pointer",
+    "nowrap",
 };
 
 const mobileCards: CSSProperties = {
@@ -3442,7 +3788,8 @@ const mobileContractCard: CSSProperties = {
 
 const mobileCardHeader: CSSProperties = {
   display: "flex",
-  alignItems: "center",
+  alignItems:
+    "center",
   justifyContent:
     "space-between",
   gap: 10,
@@ -3484,68 +3831,59 @@ const infoValue: CSSProperties = {
     "anywhere",
 };
 
-const notePreviewBox: CSSProperties = {
-  marginTop: 11,
+const latestNoteBox: CSSProperties = {
+  background: "#eff6ff",
   border:
     "1px solid #bfdbfe",
   borderRadius: 12,
-  background: "#eff6ff",
-  padding: 11,
+  padding: 10,
 };
 
-const notePreviewHeader: CSSProperties = {
-  display: "flex",
-  justifyContent:
-    "space-between",
-  gap: 10,
-  color: "#1e3a8a",
-  fontSize: 11,
-};
-
-const notePreviewText: CSSProperties = {
-  margin: "8px 0 0",
-  color: "#334155",
+const noLatestNote: CSSProperties = {
+  color: "#64748b",
   fontSize: 12,
+};
+
+const latestNoteText: CSSProperties = {
+  color: "#334155",
   lineHeight: 1.7,
   whiteSpace:
     "pre-wrap",
   wordBreak:
     "break-word",
+  fontSize: 12,
 };
 
-const actionButtons: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns:
-    "repeat(2,minmax(0,1fr))",
-  gap: 8,
-  marginTop: 12,
+const latestNoteMeta: CSSProperties = {
+  color: "#64748b",
+  marginTop: 6,
+  fontSize: 10,
 };
 
-const addNoteButton: CSSProperties = {
+const latestNoteCount: CSSProperties = {
+  color: "#1d4ed8",
+  marginTop: 6,
+  fontSize: 10,
+  fontWeight: 900,
+};
+
+const actionsButton: CSSProperties = {
+  width: "100%",
   border: "none",
   borderRadius: 10,
   background:
     "linear-gradient(135deg,#2563eb,#0ea5e9)",
   color: "#ffffff",
-  padding: 10,
+  padding: "10px 12px",
   fontWeight: 900,
   cursor: "pointer",
-};
-
-const editNoteButton: CSSProperties = {
-  border:
-    "1px solid #bfdbfe",
-  borderRadius: 10,
-  background: "#eff6ff",
-  color: "#1d4ed8",
-  padding: 10,
-  fontWeight: 900,
-  cursor: "pointer",
+  whiteSpace: "nowrap",
 };
 
 const paginationWrapper: CSSProperties = {
   display: "flex",
-  alignItems: "center",
+  alignItems:
+    "center",
   justifyContent:
     "center",
   gap: 12,
@@ -3624,10 +3962,32 @@ const modalOverlay: CSSProperties = {
   backdropFilter:
     "blur(5px)",
   display: "flex",
-  alignItems: "center",
+  alignItems:
+    "center",
   justifyContent:
     "center",
   padding: 10,
+};
+
+const modalCard: CSSProperties = {
+  width:
+    "min(620px,calc(100vw - 24px))",
+  maxHeight:
+    "calc(100vh - 30px)",
+  overflowY: "auto",
+  background: "#ffffff",
+  borderRadius: 20,
+  border:
+    "1px solid #d9e3f5",
+  boxShadow:
+    "0 26px 80px rgba(15,23,42,0.28)",
+  padding: 20,
+};
+
+const notesModalCard: CSSProperties = {
+  ...modalCard,
+  width:
+    "min(760px,calc(100vw - 24px))",
 };
 
 const modalHeader: CSSProperties = {
@@ -3667,6 +4027,100 @@ const closeModalButton: CSSProperties = {
   cursor: "pointer",
 };
 
+const actionMenuList: CSSProperties = {
+  display: "grid",
+  gap: 8,
+};
+
+const actionMenuButton: CSSProperties = {
+  width: "100%",
+  minHeight: 46,
+  border:
+    "1px solid #dbeafe",
+  borderRadius: 12,
+  background: "#ffffff",
+  color: "#0f172a",
+  padding: "10px 13px",
+  display: "flex",
+  justifyContent:
+    "space-between",
+  alignItems: "center",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
+const addNoteHistoryButton: CSSProperties = {
+  width: "100%",
+  border: "none",
+  borderRadius: 12,
+  background:
+    "linear-gradient(135deg,#2563eb,#0ea5e9)",
+  color: "#ffffff",
+  padding: 12,
+  fontWeight: 900,
+  cursor: "pointer",
+  marginBottom: 14,
+};
+
+const notesVerticalList: CSSProperties = {
+  display: "grid",
+  gap: 12,
+};
+
+const noteHistoryCard: CSSProperties = {
+  border:
+    "1px solid #dbeafe",
+  borderRadius: 14,
+  background: "#f8fbff",
+  padding: 14,
+};
+
+const noteHistoryText: CSSProperties = {
+  margin: 0,
+  color: "#0f172a",
+  lineHeight: 1.8,
+  whiteSpace:
+    "pre-wrap",
+  wordBreak:
+    "break-word",
+};
+
+const noteHistoryMeta: CSSProperties = {
+  display: "grid",
+  gap: 4,
+  marginTop: 10,
+  color: "#64748b",
+  fontSize: 11,
+};
+
+const noteHistoryActions: CSSProperties = {
+  display: "flex",
+  gap: 8,
+  marginTop: 12,
+};
+
+const editNoteButton: CSSProperties = {
+  border:
+    "1px solid #bfdbfe",
+  borderRadius: 9,
+  background: "#eff6ff",
+  color: "#1d4ed8",
+  padding: "8px 12px",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
+const deleteNoteButton: CSSProperties = {
+  border:
+    "1px solid #fecaca",
+  borderRadius: 9,
+  background: "#fee2e2",
+  color: "#991b1b",
+  padding: "8px 12px",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
 const modalTextarea: CSSProperties = {
   width: "100%",
   minHeight: 170,
@@ -3703,18 +4157,6 @@ const saveModalButton: CSSProperties = {
   background:
     "linear-gradient(135deg,#2563eb,#0ea5e9)",
   color: "#ffffff",
-  padding: "12px 14px",
-  fontWeight: 900,
-  cursor: "pointer",
-};
-
-const deleteModalButton: CSSProperties = {
-  flex: "1 1 140px",
-  border:
-    "1px solid #fecaca",
-  borderRadius: 11,
-  background: "#fee2e2",
-  color: "#991b1b",
   padding: "12px 14px",
   fontWeight: 900,
   cursor: "pointer",
