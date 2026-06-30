@@ -1,8 +1,9 @@
-"use client";
+client";
 
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import type {
@@ -74,9 +75,14 @@ type NoteModalMode =
   | "create"
   | "edit";
 
+const BRANCH_SLUG_PATTERN =
+  /^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$/;
+
 const MANAGER_ROLES = new Set([
   "main_admin",
   "branch_manager",
+  "admin",
+  "manager",
   "مدير رئيسي",
   "مدير فرع",
   "مدير",
@@ -168,7 +174,7 @@ function normalizeRow(
           note_text: String(
             latestNoteValue.note_text ??
               ""
-          ),
+          ).slice(0, 2000),
           created_by_user_id: String(
             latestNoteValue.created_by_user_id ??
               ""
@@ -307,7 +313,10 @@ function getErrorMessage(
     typeof error.message ===
       "string"
   ) {
-    return error.message;
+    return error.message.slice(
+      0,
+      300
+    );
   }
 
   return fallback;
@@ -388,10 +397,11 @@ export default function FollowUpPage() {
   const router = useRouter();
 
   const branch =
-    typeof params.branch ===
-    "string"
-      ? params.branch
-      : "";
+    String(
+      params.branch ?? ""
+    )
+      .trim()
+      .toLowerCase();
 
   const [screen, setScreen] =
     useState<ScreenType>(
@@ -485,6 +495,14 @@ export default function FollowUpPage() {
     deletingNote,
     setDeletingNote,
   ] = useState(false);
+
+  const [
+    logoutLoading,
+    setLogoutLoading,
+  ] = useState(false);
+
+  const loadRequestIdRef =
+    useRef(0);
 
   const isMobile =
     screen === "mobile";
@@ -678,7 +696,25 @@ export default function FollowUpPage() {
   }, []);
 
   useEffect(() => {
-    if (!branch) {
+    if (
+      !branch ||
+      !BRANCH_SLUG_PATTERN.test(
+        branch
+      )
+    ) {
+      clearFinanceSession({
+        preserveReturnPath:
+          true,
+      });
+
+      redirectToFinanceLogin(
+        router,
+        {
+          preserveReturnPath:
+            true,
+        }
+      );
+
       return;
     }
 
@@ -695,6 +731,8 @@ export default function FollowUpPage() {
         router,
         {
           branchSlug: branch,
+          preserveReturnPath:
+            true,
         }
       );
 
@@ -847,6 +885,49 @@ export default function FollowUpPage() {
   ]);
 
   useEffect(() => {
+    if (!modalOpen) {
+      return;
+    }
+
+    const previousOverflow =
+      document.body.style.overflow;
+
+    document.body.style.overflow =
+      "hidden";
+
+    function handleEscape(
+      event: KeyboardEvent
+    ) {
+      if (
+        event.key === "Escape" &&
+        !savingNote &&
+        !deletingNote
+      ) {
+        closeModal();
+      }
+    }
+
+    window.addEventListener(
+      "keydown",
+      handleEscape
+    );
+
+    return () => {
+      document.body.style.overflow =
+        previousOverflow;
+
+      window.removeEventListener(
+        "keydown",
+        handleEscape
+      );
+    };
+  }, [
+    modalOpen,
+    savingNote,
+    deletingNote,
+  ]);
+
+  useEffect(() => {
     if (
       currentPage >
       totalPages
@@ -869,7 +950,9 @@ export default function FollowUpPage() {
       code ===
         "INVALID_SESSION" ||
       code ===
-        "SESSION_REVOKED"
+        "SESSION_REVOKED" ||
+      code ===
+        "BRANCH_MISMATCH"
     ) {
       clearFinanceSession({
         preserveReturnPath:
@@ -906,6 +989,9 @@ export default function FollowUpPage() {
       () => false,
     silent = false
   ) {
+    const requestId =
+      ++loadRequestIdRef.current;
+
     if (!silent) {
       setLoading(true);
     } else {
@@ -935,7 +1021,11 @@ export default function FollowUpPage() {
           response
         );
 
-      if (isCancelled()) {
+      if (
+        isCancelled() ||
+        requestId !==
+          loadRequestIdRef.current
+      ) {
         return false;
       }
 
@@ -977,7 +1067,11 @@ export default function FollowUpPage() {
 
       return true;
     } catch (error) {
-      if (isCancelled()) {
+      if (
+        isCancelled() ||
+        requestId !==
+          loadRequestIdRef.current
+      ) {
         return false;
       }
 
@@ -997,7 +1091,11 @@ export default function FollowUpPage() {
 
       return false;
     } finally {
-      if (!isCancelled()) {
+      if (
+        !isCancelled() &&
+        requestId ===
+          loadRequestIdRef.current
+      ) {
         setLoading(false);
         setRefreshing(false);
       }
@@ -1016,7 +1114,16 @@ export default function FollowUpPage() {
   function openEditNote(
     row: FollowUpRow
   ) {
-    if (!row.latest_note) {
+    if (
+      !row.latest_note ||
+      !canManageNote(
+        row.latest_note
+      )
+    ) {
+      window.alert(
+        "لا يمكنك تعديل هذه الملاحظة"
+      );
+
       return;
     }
 
@@ -1030,10 +1137,13 @@ export default function FollowUpPage() {
     setModalOpen(true);
   }
 
-  function closeModal() {
+  function closeModal(
+    force = false
+  ) {
     if (
-      savingNote ||
-      deletingNote
+      !force &&
+      (savingNote ||
+        deletingNote)
     ) {
       return;
     }
@@ -1068,7 +1178,9 @@ export default function FollowUpPage() {
 
     if (
       normalizedText.length <
-      2
+        2 ||
+      normalizedText.length >
+        2000
     ) {
       window.alert(
         "اكتب ملاحظة متابعة صحيحة"
@@ -1149,7 +1261,7 @@ export default function FollowUpPage() {
           "تم حفظ ملاحظة المتابعة"
       );
 
-      closeModal();
+      closeModal(true);
 
       await loadRows(
         () => false,
@@ -1252,7 +1364,7 @@ export default function FollowUpPage() {
           "تم حذف ملاحظة المتابعة"
       );
 
-      closeModal();
+      closeModal(true);
 
       await loadRows(
         () => false,
@@ -1275,28 +1387,55 @@ export default function FollowUpPage() {
     }
   }
 
+  function normalizeSaudiPhone(
+    value: string | null | undefined
+  ) {
+    let phone =
+      cleanPhone(value);
+
+    if (
+      phone.startsWith(
+        "00966"
+      )
+    ) {
+      phone =
+        phone.slice(2);
+    }
+
+    if (
+      phone.startsWith("05")
+    ) {
+      phone =
+        `966${phone.slice(1)}`;
+    } else if (
+      phone.startsWith("5")
+    ) {
+      phone =
+        `966${phone}`;
+    }
+
+    return phone;
+  }
+
   function openWhatsApp(
     row: FollowUpRow
   ) {
     const phone =
-      cleanPhone(
+      normalizeSaudiPhone(
         row.customer_phone
       );
 
-    if (!phone) {
+    if (
+      !/^9665\d{8}$/.test(
+        phone
+      )
+    ) {
       window.alert(
         "لا يوجد رقم جوال مسجل لهذا العميل"
       );
 
       return;
     }
-
-    const internationalPhone =
-      phone.startsWith("0")
-        ? `966${phone.slice(1)}`
-        : phone.startsWith("966")
-          ? phone
-          : `966${phone}`;
 
     const message =
       `السلام عليكم، نأمل التواصل بخصوص العقد رقم ${
@@ -1305,7 +1444,7 @@ export default function FollowUpPage() {
       }.`;
 
     window.open(
-      `https://wa.me/${internationalPhone}?text=${encodeURIComponent(
+      `https://wa.me/${phone}?text=${encodeURIComponent(
         message
       )}`,
       "_blank",
@@ -1321,9 +1460,16 @@ export default function FollowUpPage() {
         row.customer_phone
       );
 
-    if (!phone) {
+    if (
+      !/^0?5\d{8}$/.test(
+        phone
+      ) &&
+      !/^9665\d{8}$/.test(
+        phone
+      )
+    ) {
       window.alert(
-        "لا يوجد رقم جوال مسجل لهذا العميل"
+        "رقم الجوال المسجل غير صحيح"
       );
 
       return;
@@ -1333,10 +1479,20 @@ export default function FollowUpPage() {
       `tel:${phone}`;
   }
 
-  function logout() {
-    logoutFinanceUser(
-      router
-    );
+  async function logout() {
+    if (logoutLoading) {
+      return;
+    }
+
+    setLogoutLoading(true);
+
+    try {
+      logoutFinanceUser(
+        router
+      );
+    } finally {
+      setLogoutLoading(false);
+    }
   }
 
   if (
@@ -1434,15 +1590,30 @@ export default function FollowUpPage() {
 
                 <button
                   type="button"
-                  style={
-                    logoutInlineButton
+                  style={{
+                    ...logoutInlineButton,
+                    opacity:
+                      logoutLoading
+                        ? 0.65
+                        : 1,
+                    cursor:
+                      logoutLoading
+                        ? "not-allowed"
+                        : "pointer",
+                  }}
+                  onClick={() =>
+                    void logout()
                   }
-                  onClick={logout}
+                  disabled={
+                    logoutLoading
+                  }
                 >
                   <LogoutIcon />
 
                   <span>
-                    تسجيل الخروج
+                    {logoutLoading
+                      ? "جاري الخروج..."
+                      : "تسجيل الخروج"}
                   </span>
                 </button>
               </div>
@@ -1844,6 +2015,10 @@ export default function FollowUpPage() {
                           openCreateNote(
                             row
                           )
+                        }
+                        disabled={
+                          savingNote ||
+                          deletingNote
                         }
                       >
                         إضافة متابعة
