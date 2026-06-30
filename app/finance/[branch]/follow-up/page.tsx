@@ -2378,7 +2378,7 @@ export default function FollowUpPage() {
                       />
 
                       <InfoItem
-                        label="الاستحقاق الميلادي"
+                        label="تاريخ الإستحقاق"
                         value={formatGregorianDate(
                           row.payment_due_date
                         )}
@@ -2456,10 +2456,10 @@ export default function FollowUpPage() {
                       المتبقي
                     </th>
                     <th style={th}>
-                      الاستحقاق الميلادي
+                      تاريخ الإستحقاق
                     </th>
                     <th style={th}>
-                      التأخير
+                      الحالة
                     </th>
                     <th style={th}>
                       آخر ملاحظة
