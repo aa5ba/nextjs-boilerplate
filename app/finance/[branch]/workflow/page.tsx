@@ -1,16 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import type { CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
-import { getBranchId } from "@/lib/getBranchId";
+import { clearFinanceSession } from "@/lib/financeSession";
 
 const ITEMS_PER_PAGE = 25;
 const CONTRACTS_PER_PAGE = 15;
+const OVERDUE_GRACE_DAYS = 7;
 
 type ScreenType = "mobile" | "tablet" | "desktop";
 type InvestorTab = "all" | "overdue" | "paid" | "active" | "closed" | "statement";
+
+type ActivityItem = {
+  id: string;
+  activity_type: string | null;
+  customer_name: string | null;
+  status: string | null;
+  employee_name: string | null;
+  created_at: string;
+};
 
 type Investor = {
   id: string;
@@ -19,7 +28,7 @@ type Investor = {
   phone: string | null;
   notes: string | null;
   is_active: boolean;
-  is_primary?: boolean;
+  is_primary?: boolean | null;
   national_id?: string | null;
   created_at: string;
 };
@@ -48,24 +57,72 @@ type ContractItem = {
   contract_date_gregorian?: string | null;
 };
 
+type WorkflowApiResponse = {
+  ok?: boolean;
+  code?: string;
+  message?: string;
+  user?: {
+    id: string;
+    fullName: string;
+    username: string;
+    role: string;
+    permissions: string[];
+    investorId: string | null;
+    themeKey: string;
+  };
+  branch?: {
+    id: string;
+    slug: string;
+    name: string;
+    organizationName: string;
+  };
+  data?: {
+    activities: ActivityItem[];
+    investors: Investor[];
+    contracts: ContractItem[];
+  };
+};
+
+type MessageState = {
+  type: "error" | "success";
+  text: string;
+} | null;
+
+type InvestorSummary = {
+  totalContracts: number;
+  totalDebt: number;
+  totalPaid: number;
+  totalRemaining: number;
+  totalInstallments: number;
+  overdueCount: number;
+  paidCount: number;
+  activeCount: number;
+  closedCount: number;
+};
+
 export default function FinanceWorkflowPage() {
   const params = useParams();
   const router = useRouter();
-  const branch = params.branch as string;
+
+  const branch = useMemo(
+    () => String(params.branch || "").trim().toLowerCase(),
+    [params.branch]
+  );
 
   const [screen, setScreen] = useState<ScreenType>("desktop");
   const [employeeName, setEmployeeName] = useState("الموظف");
-
-  const [activities, setActivities] = useState<any[]>([]);
+  const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [investors, setInvestors] = useState<Investor[]>([]);
   const [contracts, setContracts] = useState<ContractItem[]>([]);
-
   const [currentPage, setCurrentPage] = useState(1);
   const [contractPage, setContractPage] = useState(1);
   const [selectedInvestorId, setSelectedInvestorId] = useState("");
   const [activeInvestorTab, setActiveInvestorTab] =
     useState<InvestorTab>("all");
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [message, setMessage] = useState<MessageState>(null);
 
   const isMobile = screen === "mobile";
   const isTablet = screen === "tablet";
@@ -75,9 +132,9 @@ export default function FinanceWorkflowPage() {
     function updateScreen() {
       const width = window.innerWidth;
 
-      if (width < 640) {
+      if (width <= 640) {
         setScreen("mobile");
-      } else if (width < 980) {
+      } else if (width <= 1024) {
         setScreen("tablet");
       } else {
         setScreen("desktop");
@@ -87,53 +144,196 @@ export default function FinanceWorkflowPage() {
     updateScreen();
     window.addEventListener("resize", updateScreen);
 
-    return () => window.removeEventListener("resize", updateScreen);
+    return () => {
+      window.removeEventListener("resize", updateScreen);
+    };
   }, []);
 
+  const clearLocalFinanceData = useCallback(() => {
+    try {
+      clearFinanceSession();
+    } catch (error) {
+      console.error("Failed to clear finance session:", error);
+    }
+
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("finance_user");
+      localStorage.removeItem("finance_user_name");
+      localStorage.removeItem("finance_branch_user");
+      localStorage.removeItem("finance_role");
+    }
+  }, []);
+
+  const redirectToLogin = useCallback(() => {
+    clearLocalFinanceData();
+
+    router.replace(
+      `/login?returnTo=${encodeURIComponent(`/finance/${branch}/workflow`)}`
+    );
+  }, [branch, clearLocalFinanceData, router]);
+
+  const loadPageData = useCallback(
+    async (
+      mode: "initial" | "refresh" = "initial",
+      signal?: AbortSignal
+    ) => {
+      if (!branch) {
+        setMessage({
+          type: "error",
+          text: "مسار الفرع غير صحيح.",
+        });
+        setLoading(false);
+        return;
+      }
+
+      if (mode === "refresh") {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+
+      setMessage(null);
+
+      try {
+        const response = await fetch(
+          `/finance/api/workflow?branch=${encodeURIComponent(branch)}`,
+          {
+            method: "GET",
+            credentials: "include",
+            cache: "no-store",
+            headers: {
+              Accept: "application/json",
+            },
+            signal,
+          }
+        );
+
+        let payload: WorkflowApiResponse;
+
+        try {
+          payload = (await response.json()) as WorkflowApiResponse;
+        } catch {
+          payload = {
+            ok: false,
+            message: "تعذر قراءة استجابة الخادم.",
+          };
+        }
+
+        if (response.status === 401) {
+          redirectToLogin();
+          return;
+        }
+
+        if (!response.ok || !payload.ok || !payload.data || !payload.user) {
+          setMessage({
+            type: "error",
+            text:
+              payload.message ||
+              "تعذر تحميل بيانات سير العمل. حاول مرة أخرى.",
+          });
+          return;
+        }
+
+        const safeActivities = Array.isArray(payload.data.activities)
+          ? payload.data.activities
+          : [];
+        const safeInvestors = Array.isArray(payload.data.investors)
+          ? payload.data.investors
+          : [];
+        const safeContracts = Array.isArray(payload.data.contracts)
+          ? payload.data.contracts
+          : [];
+
+        setEmployeeName(payload.user.fullName?.trim() || "الموظف");
+        setActivities(safeActivities);
+        setInvestors(safeInvestors);
+        setContracts(safeContracts);
+        setCurrentPage(1);
+        setContractPage(1);
+
+        setSelectedInvestorId((oldId) => {
+          if (safeInvestors.some((investor) => investor.id === oldId)) {
+            return oldId;
+          }
+
+          const preferredInvestor =
+            safeInvestors.find((investor) => investor.is_primary) ||
+            safeInvestors[0];
+
+          return preferredInvestor?.id || "";
+        });
+
+        if (mode === "refresh") {
+          setMessage({
+            type: "success",
+            text: "تم تحديث بيانات سير العمل.",
+          });
+        }
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+
+        console.error("Workflow page loading failed:", error);
+
+        setMessage({
+          type: "error",
+          text: "تعذر الاتصال بالخادم. تحقق من الاتصال ثم حاول مرة أخرى.",
+        });
+      } finally {
+        if (mode === "refresh") {
+          setRefreshing(false);
+        } else {
+          setLoading(false);
+        }
+      }
+    },
+    [branch, redirectToLogin]
+  );
+
   useEffect(() => {
-    loadEmployeeName();
-    loadPageData();
-  }, [branch]);
+    const controller = new AbortController();
+
+    void loadPageData("initial", controller.signal);
+
+    return () => {
+      controller.abort();
+    };
+  }, [loadPageData]);
 
   useEffect(() => {
     setContractPage(1);
   }, [selectedInvestorId, activeInvestorTab]);
 
-  function loadEmployeeName() {
-    if (typeof window === "undefined") return;
+  async function logout() {
+    if (loggingOut) return;
 
-    const newName = localStorage.getItem("finance_user_name");
+    setLoggingOut(true);
+    setMessage(null);
 
-    if (newName) {
-      setEmployeeName(newName);
-      return;
-    }
-
-    const oldUser = localStorage.getItem("finance_user");
-
-    if (oldUser) {
-      try {
-        const parsed = JSON.parse(oldUser);
-        setEmployeeName(parsed?.full_name || parsed?.username || "الموظف");
-      } catch {
-        setEmployeeName("الموظف");
-      }
+    try {
+      await fetch("/finance/api/branch-logout", {
+        method: "DELETE",
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          Accept: "application/json",
+        },
+      });
+    } catch (error) {
+      console.error("Finance logout request failed:", error);
+    } finally {
+      clearLocalFinanceData();
+      router.replace("/login");
+      setLoggingOut(false);
     }
   }
 
-  function logout() {
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("finance_user");
-      localStorage.removeItem("finance_user_name");
-      localStorage.removeItem("finance_branch_user");
-    }
-
-    router.push(`/finance/${branch}/login`);
-  }
-
-  const selectedInvestor = useMemo(() => {
-    return investors.find((investor) => investor.id === selectedInvestorId) || null;
-  }, [investors, selectedInvestorId]);
+  const selectedInvestor = useMemo(
+    () =>
+      investors.find((investor) => investor.id === selectedInvestorId) || null,
+    [investors, selectedInvestorId]
+  );
 
   const investorContracts = useMemo(() => {
     if (!selectedInvestor) return [];
@@ -150,28 +350,51 @@ export default function FinanceWorkflowPage() {
     });
   }, [contracts, selectedInvestor]);
 
-  const overdueContracts = useMemo(() => {
-    return investorContracts.filter((contract) => getContractStatus(contract) === "overdue");
-  }, [investorContracts]);
+  const overdueContracts = useMemo(
+    () =>
+      investorContracts.filter(
+        (contract) => getContractStatus(contract) === "overdue"
+      ),
+    [investorContracts]
+  );
 
-  const paidContracts = useMemo(() => {
-    return investorContracts.filter((contract) => getContractStatus(contract) === "paid");
-  }, [investorContracts]);
+  const paidContracts = useMemo(
+    () =>
+      investorContracts.filter(
+        (contract) => getContractStatus(contract) === "paid"
+      ),
+    [investorContracts]
+  );
 
-  const activeContracts = useMemo(() => {
-    return investorContracts.filter((contract) => getContractStatus(contract) === "active");
-  }, [investorContracts]);
+  const activeContracts = useMemo(
+    () =>
+      investorContracts.filter(
+        (contract) => getContractStatus(contract) === "active"
+      ),
+    [investorContracts]
+  );
 
-  const closedContracts = useMemo(() => {
-    return investorContracts.filter((contract) => getContractStatus(contract) === "closed");
-  }, [investorContracts]);
+  const closedContracts = useMemo(
+    () =>
+      investorContracts.filter(
+        (contract) => getContractStatus(contract) === "closed"
+      ),
+    [investorContracts]
+  );
 
   const filteredInvestorContracts = useMemo(() => {
-    if (activeInvestorTab === "overdue") return overdueContracts;
-    if (activeInvestorTab === "paid") return paidContracts;
-    if (activeInvestorTab === "active") return activeContracts;
-    if (activeInvestorTab === "closed") return closedContracts;
-    return investorContracts;
+    switch (activeInvestorTab) {
+      case "overdue":
+        return overdueContracts;
+      case "paid":
+        return paidContracts;
+      case "active":
+        return activeContracts;
+      case "closed":
+        return closedContracts;
+      default:
+        return investorContracts;
+    }
   }, [
     activeInvestorTab,
     investorContracts,
@@ -181,18 +404,13 @@ export default function FinanceWorkflowPage() {
     closedContracts,
   ]);
 
-  const investorSummary = useMemo(() => {
-    const totalDebt = sumValues(investorContracts, "debt_amount");
-    const totalPaid = sumValues(investorContracts, "paid_amount");
-    const totalRemaining = sumValues(investorContracts, "remaining_amount");
-    const totalInstallments = sumValues(investorContracts, "installment_amount");
-
+  const investorSummary = useMemo<InvestorSummary>(() => {
     return {
       totalContracts: investorContracts.length,
-      totalDebt,
-      totalPaid,
-      totalRemaining,
-      totalInstallments,
+      totalDebt: sumValues(investorContracts, "debt_amount"),
+      totalPaid: sumValues(investorContracts, "paid_amount"),
+      totalRemaining: sumValues(investorContracts, "remaining_amount"),
+      totalInstallments: sumValues(investorContracts, "installment_amount"),
       overdueCount: overdueContracts.length,
       paidCount: paidContracts.length,
       activeCount: activeContracts.length,
@@ -206,7 +424,10 @@ export default function FinanceWorkflowPage() {
     closedContracts,
   ]);
 
-  const totalPages = Math.max(1, Math.ceil(activities.length / ITEMS_PER_PAGE));
+  const totalPages = Math.max(
+    1,
+    Math.ceil(activities.length / ITEMS_PER_PAGE)
+  );
 
   const paginatedActivities = useMemo(() => {
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -220,126 +441,12 @@ export default function FinanceWorkflowPage() {
 
   const paginatedContracts = useMemo(() => {
     const startIndex = (contractPage - 1) * CONTRACTS_PER_PAGE;
+
     return filteredInvestorContracts.slice(
       startIndex,
       startIndex + CONTRACTS_PER_PAGE
     );
   }, [filteredInvestorContracts, contractPage]);
-
-  async function loadPageData() {
-    setLoading(true);
-
-    const currentBranchId = await getBranchId(branch);
-
-    if (!currentBranchId) {
-      setActivities([]);
-      setInvestors([]);
-      setContracts([]);
-      setSelectedInvestorId("");
-      setLoading(false);
-      return;
-    }
-
-    const { data: activitiesData, error: activitiesError } = await supabase
-      .from("finance_activity_logs")
-      .select("*")
-      .eq("branch_id", currentBranchId)
-      .order("created_at", { ascending: false });
-
-    if (activitiesError) {
-      console.log(activitiesError);
-      alert("خطأ في تحميل سير العمل: " + activitiesError.message);
-    }
-
-    const { data: investorsData, error: investorsError } = await supabase
-      .from("finance_investors")
-      .select("*")
-      .eq("branch_id", currentBranchId)
-      .order("is_primary", { ascending: false })
-      .order("created_at", { ascending: true });
-
-    if (investorsError) {
-      console.log(investorsError);
-      alert("خطأ في تحميل المستثمرين: " + investorsError.message);
-    }
-
-    const { data: contractsData, error: contractsError } = await supabase
-      .from("finance_contracts")
-      .select(
-        `
-        id,
-        contract_number,
-        customer_id,
-        customer_name,
-        customer_phone,
-        investor_id,
-        investor_name,
-        product_name,
-        product_quantity,
-        debt_amount,
-        payment_amount,
-        installment_amount,
-        payment_type,
-        payment_due_date,
-        contract_status,
-        paid_amount,
-        remaining_amount,
-        closed_at,
-        created_at,
-        contract_issue_date_gregorian,
-        contract_date_gregorian
-      `
-      )
-      .eq("branch_id", currentBranchId)
-      .order("created_at", { ascending: false });
-
-    if (contractsError) {
-      console.log(contractsError);
-      alert("خطأ في تحميل عقود المستثمرين: " + contractsError.message);
-    }
-
-    const safeInvestors = (investorsData || []) as Investor[];
-
-    setActivities(activitiesData || []);
-    setInvestors(safeInvestors);
-    setContracts((contractsData || []) as ContractItem[]);
-    setCurrentPage(1);
-    setContractPage(1);
-
-    setSelectedInvestorId((oldId) => {
-      if (safeInvestors.some((investor) => investor.id === oldId)) {
-        return oldId;
-      }
-
-      const primaryInvestor =
-        safeInvestors.find((investor) => investor.is_primary) || safeInvestors[0];
-
-      return primaryInvestor?.id || "";
-    });
-
-    setLoading(false);
-  }
-
-  function getIcon(type: string) {
-    switch (type) {
-      case "إنشاء عقد":
-        return "📄";
-      case "سداد":
-        return "💳";
-      case "إلغاء دفعة":
-        return "⛔";
-      case "إنشاء عميل":
-        return "👤";
-      case "إنشاء سند":
-        return "🧾";
-      case "تعديل عقد":
-        return "✏️";
-      case "إغلاق عقد":
-        return "🔒";
-      default:
-        return "📌";
-    }
-  }
 
   function openContract(contractId: string) {
     router.push(`/finance/${branch}/contracts/${contractId}`);
@@ -359,13 +466,14 @@ export default function FinanceWorkflowPage() {
             <div style={heroCircleThree} />
             <div style={heroDots} />
 
-            <div style={getHeroContentStyle(screen)}>
-              <div style={getHeroTitleBoxStyle(screen)}>
-                <h1 style={getTitleStyle(screen)}>جاري تحميل سير العمل...</h1>
-              </div>
+            <div style={loadingHeroContent}>
+              <div style={loadingSpinner} aria-hidden="true" />
+              <h1 style={getTitleStyle(screen)}>جاري تحميل سير العمل...</h1>
             </div>
           </section>
         </div>
+
+        <GlobalResponsiveStyles />
       </main>
     );
   }
@@ -386,20 +494,29 @@ export default function FinanceWorkflowPage() {
                   <UserIcon />
                 </div>
 
-                <div style={getEmployeeNameStyle(isMobile)}>
-                  {employeeName}
-                </div>
+                <div style={getEmployeeNameStyle(isMobile)}>{employeeName}</div>
 
                 {!isMobile && <div style={employeeDividerSmall} />}
 
-                <button className="no-print" style={logoutInlineButton} onClick={logout}>
+                <button
+                  type="button"
+                  className="no-print interactive-button"
+                  style={{
+                    ...logoutInlineButton,
+                    opacity: loggingOut ? 0.65 : 1,
+                  }}
+                  onClick={() => void logout()}
+                  disabled={loggingOut}
+                  aria-label="تسجيل الخروج"
+                >
                   <LogoutIcon />
-                  <span>تسجيل الخروج</span>
+                  <span>{loggingOut ? "جاري الخروج..." : "تسجيل الخروج"}</span>
                 </button>
               </div>
 
               <button
-                className="no-print"
+                type="button"
+                className="no-print interactive-button"
                 style={getMainWorkstationButtonStyle(isMobile)}
                 onClick={() => router.push(`/finance/${branch}`)}
               >
@@ -414,40 +531,71 @@ export default function FinanceWorkflowPage() {
 
             <div style={getHeroActionBoxStyle(screen)}>
               <button
-                className="no-print"
-                style={getRefreshButtonStyle(isMobile)}
-                onClick={loadPageData}
+                type="button"
+                className="no-print interactive-button"
+                style={{
+                  ...getRefreshButtonStyle(isMobile),
+                  opacity: refreshing ? 0.65 : 1,
+                }}
+                onClick={() => void loadPageData("refresh")}
+                disabled={refreshing}
               >
-                تحديث البيانات
+                <RefreshIcon spinning={refreshing} />
+                <span>{refreshing ? "جاري التحديث..." : "تحديث البيانات"}</span>
               </button>
             </div>
           </div>
         </header>
+
+        {message && (
+          <div
+            role={message.type === "error" ? "alert" : "status"}
+            style={{
+              ...messageBox,
+              ...(message.type === "error"
+                ? errorMessageBox
+                : successMessageBox),
+            }}
+          >
+            <span>{message.text}</span>
+
+            {message.type === "error" && (
+              <button
+                type="button"
+                style={messageRetryButton}
+                onClick={() => void loadPageData("refresh")}
+                disabled={refreshing}
+              >
+                إعادة المحاولة
+              </button>
+            )}
+          </div>
+        )}
 
         <section className="workflow-stats-grid" style={statsGrid}>
           <StatCard
             title="آخر العمليات"
             value={activities.length}
             hint="عملية مسجلة"
-            icon="📌"
+            icon={<ActivityIcon />}
           />
           <StatCard
             title="المستثمرون"
             value={investors.length}
             hint="مستثمر داخل الفرع"
-            icon="👥"
+            icon={<InvestorsIcon />}
           />
           <StatCard
             title="عقود المستثمر المحدد"
             value={investorSummary.totalContracts}
             hint="عقد"
-            icon="📄"
+            icon={<ContractsIcon />}
           />
           <StatCard
             title="المتأخرون"
             value={investorSummary.overdueCount}
             hint="عقد متأخر"
-            icon="⚠️"
+            icon={<AlertIcon />}
           />
         </section>
 
@@ -456,23 +604,34 @@ export default function FinanceWorkflowPage() {
             <h2 style={sectionTitle}>لوحة متابعة المستثمرين</h2>
 
             <div className="investor-select-box" style={selectBox}>
-              <label style={label}>اختيار المستثمر</label>
-              <select
-                style={select}
-                value={selectedInvestorId}
-                onChange={(event) => setSelectedInvestorId(event.target.value)}
-              >
-                {investors.length === 0 ? (
-                  <option value="">لا يوجد مستثمرون</option>
-                ) : (
-                  investors.map((investor) => (
-                    <option key={investor.id} value={investor.id}>
-                      {investor.is_primary ? "⭐ " : ""}
-                      {investor.investor_name}
-                    </option>
-                  ))
-                )}
-              </select>
+              <label style={label} htmlFor="workflow-investor">
+                اختيار المستثمر
+              </label>
+
+              <div style={selectWrapper}>
+                <select
+                  id="workflow-investor"
+                  style={select}
+                  value={selectedInvestorId}
+                  onChange={(event) => setSelectedInvestorId(event.target.value)}
+                  disabled={investors.length === 0}
+                >
+                  {investors.length === 0 ? (
+                    <option value="">لا يوجد مستثمرون</option>
+                  ) : (
+                    investors.map((investor) => (
+                      <option key={investor.id} value={investor.id}>
+                        {investor.is_primary ? "المستثمر الرئيسي - " : ""}
+                        {investor.investor_name}
+                      </option>
+                    ))
+                  )}
+                </select>
+
+                <span style={selectArrow} aria-hidden="true">
+                  <ChevronDownIcon />
+                </span>
+              </div>
             </div>
           </div>
 
@@ -501,17 +660,29 @@ export default function FinanceWorkflowPage() {
                 />
               </div>
 
-              <div className="workflow-tabs no-print" style={tabsBox}>
+              <div
+                className="workflow-tabs no-print"
+                style={tabsBox}
+                role="tablist"
+                aria-label="تصنيفات عقود المستثمر"
+              >
                 {INVESTOR_TABS.map((tab) => (
                   <button
                     key={tab.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeInvestorTab === tab.key}
+                    className="interactive-button"
                     style={
-                      activeInvestorTab === tab.key ? activeTabButton : tabButton
+                      activeInvestorTab === tab.key
+                        ? activeTabButton
+                        : tabButton
                     }
                     onClick={() => setActiveInvestorTab(tab.key)}
                   >
-                    <span>{tab.icon}</span>
-                    {tab.label}
+                    <span style={tabIcon}>{tab.icon}</span>
+                    <span>{tab.label}</span>
+
                     {tab.key !== "statement" && (
                       <small style={tabCounter}>
                         {getTabCount(tab.key, {
@@ -571,22 +742,27 @@ export default function FinanceWorkflowPage() {
 
             {overdueContracts.length === 0 ? (
               <div style={successAlert}>
-                لا توجد عقود متأخرة على المستثمر المحدد حالياً.
+                لا توجد عقود متأخرة على المستثمر المحدد حاليًا.
               </div>
             ) : (
               <div style={alertsList}>
                 {overdueContracts.slice(0, 6).map((contract) => (
                   <button
                     key={contract.id}
+                    type="button"
+                    className="interactive-button"
                     style={alertItem}
                     onClick={() => openContract(contract.id)}
                   >
-                    <span style={alertIcon}>⚠️</span>
-                    <span>
+                    <span style={alertIcon}>
+                      <AlertIcon />
+                    </span>
+
+                    <span style={alertText}>
                       <strong>{contract.contract_number || "عقد بدون رقم"}</strong>
                       <small>
-                        {contract.customer_name || "-"} - متبقي{" "}
-                        {formatMoney(contract.remaining_amount)} ريال - تأخير{" "}
+                        {contract.customer_name || "-"} — متبقي{" "}
+                        {formatMoney(contract.remaining_amount)} ريال — تأخير{" "}
                         {getOverdueDays(contract.payment_due_date)} يوم
                       </small>
                     </span>
@@ -623,9 +799,9 @@ export default function FinanceWorkflowPage() {
                   <div className="desktop-table">
                     {paginatedActivities.map((activity) => (
                       <div key={activity.id} style={activityTableRow}>
-                        <span>
-                          {getIcon(activity.activity_type)}{" "}
-                          {activity.activity_type}
+                        <span style={activityTypeCell}>
+                          <ActivityTypeIcon type={activity.activity_type} />
+                          {activity.activity_type || "-"}
                         </span>
                         <span>{activity.customer_name || "-"}</span>
                         <span>{activity.status || "-"}</span>
@@ -638,9 +814,9 @@ export default function FinanceWorkflowPage() {
                   <div className="mobile-cards">
                     {paginatedActivities.map((activity) => (
                       <article key={activity.id} style={mobileActivityCard}>
-                        <strong>
-                          {getIcon(activity.activity_type)}{" "}
-                          {activity.activity_type}
+                        <strong style={activityTypeCell}>
+                          <ActivityTypeIcon type={activity.activity_type} />
+                          {activity.activity_type || "-"}
                         </strong>
                         <span>العميل: {activity.customer_name || "-"}</span>
                         <span>الحالة: {activity.status || "-"}</span>
@@ -653,47 +829,30 @@ export default function FinanceWorkflowPage() {
               )}
 
               {activities.length > ITEMS_PER_PAGE && (
-                <div style={paginationBox}>
-                  <button
-                    style={{
-                      ...paginationButton,
-                      opacity: currentPage === 1 ? 0.5 : 1,
-                    }}
-                    disabled={currentPage === 1}
-                    onClick={() =>
-                      setCurrentPage((page) => Math.max(page - 1, 1))
-                    }
-                  >
-                    السابق
-                  </button>
-
-                  <span style={paginationText}>
-                    صفحة {currentPage} من {totalPages}
-                  </span>
-
-                  <button
-                    style={{
-                      ...paginationButton,
-                      opacity: currentPage === totalPages ? 0.5 : 1,
-                    }}
-                    disabled={currentPage === totalPages}
-                    onClick={() =>
-                      setCurrentPage((page) =>
-                        Math.min(page + 1, totalPages)
-                      )
-                    }
-                  >
-                    التالي
-                  </button>
-                </div>
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  onPrev={() =>
+                    setCurrentPage((page) => Math.max(page - 1, 1))
+                  }
+                  onNext={() =>
+                    setCurrentPage((page) => Math.min(page + 1, totalPages))
+                  }
+                />
               )}
             </div>
           </section>
         </section>
 
         <div className="no-print" style={backWrapper}>
-          <button style={backButton} onClick={() => router.back()}>
-            ← رجوع
+          <button
+            type="button"
+            className="interactive-button"
+            style={backButton}
+            onClick={() => router.back()}
+          >
+            <BackIcon />
+            <span>رجوع</span>
           </button>
         </div>
       </div>
@@ -702,6 +861,19 @@ export default function FinanceWorkflowPage() {
     </main>
   );
 }
+
+const INVESTOR_TABS: {
+  key: InvestorTab;
+  label: string;
+  icon: ReactNode;
+}[] = [
+  { key: "all", label: "جميع العقود", icon: <ContractsIcon /> },
+  { key: "overdue", label: "المتأخرون", icon: <AlertIcon /> },
+  { key: "paid", label: "المسددون", icon: <CheckIcon /> },
+  { key: "active", label: "النشطون", icon: <ActiveIcon /> },
+  { key: "closed", label: "المغلقون", icon: <LockIcon /> },
+  { key: "statement", label: "الكشف الشامل", icon: <ReportIcon /> },
+];
 
 function ContractsList({
   contracts,
@@ -749,7 +921,7 @@ function ContractsList({
               <div key={contract.id} style={contractsTableRow}>
                 <span>{contract.contract_number || "-"}</span>
                 <span>{contract.customer_name || "-"}</span>
-                <span>{contract.customer_phone || "-"}</span>
+                <span dir="ltr">{contract.customer_phone || "-"}</span>
                 <span>{contract.product_name || "-"}</span>
                 <span>{formatMoney(contract.remaining_amount)}</span>
                 <span>{formatDateOnly(contract.payment_due_date)}</span>
@@ -758,6 +930,8 @@ function ContractsList({
                 </span>
                 <span>
                   <button
+                    type="button"
+                    className="interactive-button"
                     style={smallActionButton}
                     onClick={() => onOpenContract(contract.id)}
                   >
@@ -777,12 +951,14 @@ function ContractsList({
                 </div>
 
                 <span>العميل: {contract.customer_name || "-"}</span>
-                <span>الجوال: {contract.customer_phone || "-"}</span>
+                <span dir="ltr">الجوال: {contract.customer_phone || "-"}</span>
                 <span>المنتج: {contract.product_name || "-"}</span>
                 <span>المتبقي: {formatMoney(contract.remaining_amount)} ريال</span>
                 <span>الاستحقاق: {formatDateOnly(contract.payment_due_date)}</span>
 
                 <button
+                  type="button"
+                  className="interactive-button"
                   style={mobileOpenButton}
                   onClick={() => onOpenContract(contract.id)}
                 >
@@ -795,33 +971,12 @@ function ContractsList({
       )}
 
       {totalContracts > CONTRACTS_PER_PAGE && (
-        <div style={paginationBox}>
-          <button
-            style={{
-              ...paginationButton,
-              opacity: currentPage === 1 ? 0.5 : 1,
-            }}
-            disabled={currentPage === 1}
-            onClick={onPrev}
-          >
-            السابق
-          </button>
-
-          <span style={paginationText}>
-            صفحة {currentPage} من {totalPages}
-          </span>
-
-          <button
-            style={{
-              ...paginationButton,
-              opacity: currentPage === totalPages ? 0.5 : 1,
-            }}
-            disabled={currentPage === totalPages}
-            onClick={onNext}
-          >
-            التالي
-          </button>
-        </div>
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPrev={onPrev}
+          onNext={onNext}
+        />
       )}
     </section>
   );
@@ -838,17 +993,7 @@ function InvestorStatement({
   onPrint,
 }: {
   investor: Investor;
-  summary: {
-    totalContracts: number;
-    totalDebt: number;
-    totalPaid: number;
-    totalRemaining: number;
-    totalInstallments: number;
-    overdueCount: number;
-    paidCount: number;
-    activeCount: number;
-    closedCount: number;
-  };
+  summary: InvestorSummary;
   contracts: ContractItem[];
   overdueContracts: ContractItem[];
   paidContracts: ContractItem[];
@@ -859,8 +1004,14 @@ function InvestorStatement({
   return (
     <section className="print-area" style={statementBox}>
       <div className="no-print" style={statementActions}>
-        <button style={printButton} onClick={onPrint}>
-          طباعة الكشف الشامل
+        <button
+          type="button"
+          className="interactive-button"
+          style={printButton}
+          onClick={onPrint}
+        >
+          <PrintIcon />
+          <span>طباعة الكشف الشامل</span>
         </button>
       </div>
 
@@ -891,9 +1042,18 @@ function InvestorStatement({
         <StatementItem title="المتأخرة" value={overdueContracts.length} />
         <StatementItem title="المسددة" value={paidContracts.length} />
         <StatementItem title="المغلقة" value={closedContracts.length} />
-        <StatementItem title="إجمالي المديونية" value={formatMoney(summary.totalDebt)} />
-        <StatementItem title="إجمالي المدفوع" value={formatMoney(summary.totalPaid)} />
-        <StatementItem title="إجمالي المتبقي" value={formatMoney(summary.totalRemaining)} />
+        <StatementItem
+          title="إجمالي المديونية"
+          value={formatMoney(summary.totalDebt)}
+        />
+        <StatementItem
+          title="إجمالي المدفوع"
+          value={formatMoney(summary.totalPaid)}
+        />
+        <StatementItem
+          title="إجمالي المتبقي"
+          value={formatMoney(summary.totalRemaining)}
+        />
       </div>
 
       <div style={statementSection}>
@@ -916,7 +1076,7 @@ function InvestorStatement({
               <div key={contract.id} style={statementTableRow}>
                 <span>{contract.contract_number || "-"}</span>
                 <span>{contract.customer_name || "-"}</span>
-                <span>{contract.customer_phone || "-"}</span>
+                <span dir="ltr">{contract.customer_phone || "-"}</span>
                 <span>{formatMoney(contract.remaining_amount)}</span>
                 <span>{formatDateOnly(contract.payment_due_date)}</span>
                 <span>{getOverdueDays(contract.payment_due_date)}</span>
@@ -959,6 +1119,52 @@ function InvestorStatement({
   );
 }
 
+function Pagination({
+  currentPage,
+  totalPages,
+  onPrev,
+  onNext,
+}: {
+  currentPage: number;
+  totalPages: number;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  return (
+    <div style={paginationBox}>
+      <button
+        type="button"
+        className="interactive-button"
+        style={{
+          ...paginationButton,
+          opacity: currentPage === 1 ? 0.5 : 1,
+        }}
+        disabled={currentPage === 1}
+        onClick={onPrev}
+      >
+        السابق
+      </button>
+
+      <span style={paginationText}>
+        صفحة {currentPage} من {totalPages}
+      </span>
+
+      <button
+        type="button"
+        className="interactive-button"
+        style={{
+          ...paginationButton,
+          opacity: currentPage === totalPages ? 0.5 : 1,
+        }}
+        disabled={currentPage === totalPages}
+        onClick={onNext}
+      >
+        التالي
+      </button>
+    </div>
+  );
+}
+
 function StatusBadge({ status }: { status: string }) {
   if (status === "overdue") {
     return <span style={dangerBadge}>متأخر</span>;
@@ -984,7 +1190,7 @@ function StatCard({
   title: string;
   value: number | string;
   hint: string;
-  icon: string;
+  icon: ReactNode;
 }) {
   return (
     <article style={statCard}>
@@ -1031,9 +1237,53 @@ function StatementItem({
   );
 }
 
+function ActivityTypeIcon({ type }: { type: string | null }) {
+  switch (type) {
+    case "إنشاء عقد":
+      return <ContractsIcon />;
+    case "سداد":
+      return <PaymentIcon />;
+    case "إلغاء دفعة":
+      return <CancelIcon />;
+    case "إنشاء عميل":
+      return <UserIcon />;
+    case "إنشاء سند":
+      return <ReportIcon />;
+    case "تعديل عقد":
+      return <EditIcon />;
+    case "إغلاق عقد":
+      return <LockIcon />;
+    default:
+      return <ActivityIcon />;
+  }
+}
+
+function BaseIcon({
+  children,
+  size = 20,
+  className,
+}: {
+  children: ReactNode;
+  size?: number;
+  className?: string;
+}) {
+  return (
+    <svg
+      className={className}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      {children}
+    </svg>
+  );
+}
+
 function UserIcon() {
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <BaseIcon size={22}>
       <path
         d="M12 12.2a4.2 4.2 0 1 0 0-8.4 4.2 4.2 0 0 0 0 8.4Z"
         stroke="currentColor"
@@ -1045,13 +1295,13 @@ function UserIcon() {
         strokeWidth="1.8"
         strokeLinecap="round"
       />
-    </svg>
+    </BaseIcon>
   );
 }
 
 function LogoutIcon() {
   return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <BaseIcon size={22}>
       <path
         d="M9.5 7V5.8c0-1 .8-1.8 1.8-1.8h6.1c1 0 1.8.8 1.8 1.8v12.4c0 1-.8 1.8-1.8 1.8h-6.1c-1 0-1.8-.8-1.8-1.8V17"
         stroke="currentColor"
@@ -1071,13 +1321,13 @@ function LogoutIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-    </svg>
+    </BaseIcon>
   );
 }
 
 function HomeIcon() {
   return (
-    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <BaseIcon size={20}>
       <path
         d="M3.8 11.2 12 4.5l8.2 6.7"
         stroke="currentColor"
@@ -1097,7 +1347,283 @@ function HomeIcon() {
         strokeWidth="2"
         strokeLinejoin="round"
       />
-    </svg>
+    </BaseIcon>
+  );
+}
+
+function RefreshIcon({ spinning }: { spinning: boolean }) {
+  return (
+    <BaseIcon size={19} className={spinning ? "spin-icon" : undefined}>
+      <path
+        d="M20 7v5h-5"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M4.7 9A8 8 0 0 1 18 6.1L20 8"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M4 17v-5h5"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M19.3 15A8 8 0 0 1 6 17.9L4 16"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </BaseIcon>
+  );
+}
+
+function ChevronDownIcon() {
+  return (
+    <BaseIcon size={18}>
+      <path
+        d="m7 9.5 5 5 5-5"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </BaseIcon>
+  );
+}
+
+function ActivityIcon() {
+  return (
+    <BaseIcon>
+      <path
+        d="M5 5.5h14M5 12h14M5 18.5h9"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <circle cx="3.5" cy="5.5" r="1" fill="currentColor" />
+      <circle cx="3.5" cy="12" r="1" fill="currentColor" />
+      <circle cx="3.5" cy="18.5" r="1" fill="currentColor" />
+    </BaseIcon>
+  );
+}
+
+function InvestorsIcon() {
+  return (
+    <BaseIcon>
+      <path
+        d="M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M3.5 19c.7-3 2.6-4.7 5.5-4.7s4.8 1.7 5.5 4.7"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <path
+        d="M16.2 5.2a3 3 0 0 1 0 5.6M15.8 14.5c2.4.3 4 1.8 4.7 4.5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </BaseIcon>
+  );
+}
+
+function ContractsIcon() {
+  return (
+    <BaseIcon>
+      <path
+        d="M7 3.8h7l3 3V20H7V3.8Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M14 3.8V7h3M9.5 11h5M9.5 14h5M9.5 17h3.3"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </BaseIcon>
+  );
+}
+
+function AlertIcon() {
+  return (
+    <BaseIcon>
+      <path
+        d="m12 4 8 15H4L12 4Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12 9v4.5M12 16.6v.1"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </BaseIcon>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <BaseIcon>
+      <circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.8" />
+      <path
+        d="m8.3 12.3 2.4 2.4 5-5.2"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </BaseIcon>
+  );
+}
+
+function ActiveIcon() {
+  return (
+    <BaseIcon>
+      <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth="1.8" />
+      <circle cx="12" cy="12" r="3.2" fill="currentColor" />
+    </BaseIcon>
+  );
+}
+
+function LockIcon() {
+  return (
+    <BaseIcon>
+      <rect
+        x="5.5"
+        y="10"
+        width="13"
+        height="9.5"
+        rx="2"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M8.5 10V7.5a3.5 3.5 0 0 1 7 0V10"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+    </BaseIcon>
+  );
+}
+
+function ReportIcon() {
+  return (
+    <BaseIcon>
+      <path
+        d="M6 3.8h12V20H6V3.8Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9 8h6M9 12h6M9 16h4"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </BaseIcon>
+  );
+}
+
+function PrintIcon() {
+  return (
+    <BaseIcon>
+      <path
+        d="M7 9V4h10v5M7 17H5.5A2.5 2.5 0 0 1 3 14.5v-3A2.5 2.5 0 0 1 5.5 9h13a2.5 2.5 0 0 1 2.5 2.5v3a2.5 2.5 0 0 1-2.5 2.5H17"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M7 14h10v6H7v-6Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+    </BaseIcon>
+  );
+}
+
+function PaymentIcon() {
+  return (
+    <BaseIcon>
+      <rect
+        x="3.5"
+        y="6"
+        width="17"
+        height="12"
+        rx="2.2"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M3.5 10h17M7 15h3"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </BaseIcon>
+  );
+}
+
+function CancelIcon() {
+  return (
+    <BaseIcon>
+      <circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.8" />
+      <path
+        d="m9 9 6 6M15 9l-6 6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </BaseIcon>
+  );
+}
+
+function EditIcon() {
+  return (
+    <BaseIcon>
+      <path
+        d="m4.5 16.8-.6 3.3 3.3-.6L18 8.7l-2.7-2.7L4.5 16.8Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="m13.8 7.5 2.7 2.7"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+    </BaseIcon>
+  );
+}
+
+function BackIcon() {
+  return (
+    <BaseIcon size={18}>
+      <path
+        d="M19 12H5M10 7l-5 5 5 5"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </BaseIcon>
   );
 }
 
@@ -1105,47 +1631,68 @@ function getContractStatus(contract: ContractItem) {
   const remaining = toNumber(contract.remaining_amount);
   const status = normalizeText(contract.contract_status);
 
-  if (status === "closed" || status === "مغلق" || contract.closed_at) {
+  if (
+    status === "closed" ||
+    status === "مغلق" ||
+    status === "cancelled" ||
+    status === "canceled" ||
+    status === "ملغي" ||
+    status === "ملغى" ||
+    Boolean(contract.closed_at)
+  ) {
     return "closed";
   }
 
-  if (remaining <= 0) {
+  if (
+    status === "paid" ||
+    status === "تم السداد" ||
+    status === "مسدد" ||
+    remaining <= 0
+  ) {
     return "paid";
   }
 
-  if (isOverdue(contract.payment_due_date) && remaining > 0) {
+  if (remaining > 0 && getOverdueDays(contract.payment_due_date) > OVERDUE_GRACE_DAYS) {
     return "overdue";
   }
 
   return "active";
 }
 
-function isOverdue(date: string | null) {
-  if (!date) return false;
-
-  const dueDate = new Date(date);
-  const today = new Date();
-
-  dueDate.setHours(0, 0, 0, 0);
-  today.setHours(0, 0, 0, 0);
-
-  return dueDate <= today;
-}
-
 function getOverdueDays(date: string | null) {
   if (!date) return 0;
 
-  const dueDate = new Date(date);
-  const today = new Date();
+  const dueDate = parseDateOnly(date);
 
-  dueDate.setHours(0, 0, 0, 0);
+  if (!dueDate) return 0;
+
+  const today = new Date();
   today.setHours(0, 0, 0, 0);
 
   const diff = today.getTime() - dueDate.getTime();
 
   if (diff <= 0) return 0;
 
-  return Math.floor(diff / (1000 * 60 * 60 * 24));
+  return Math.floor(diff / 86_400_000);
+}
+
+function parseDateOnly(value: string) {
+  const normalized = value.slice(0, 10);
+  const parts = normalized.split("-").map(Number);
+
+  if (
+    parts.length !== 3 ||
+    parts.some((part) => !Number.isFinite(part))
+  ) {
+    const fallback = new Date(value);
+    return Number.isNaN(fallback.getTime()) ? null : fallback;
+  }
+
+  const [year, month, day] = parts;
+  const date = new Date(year, month - 1, day);
+  date.setHours(0, 0, 0, 0);
+
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function getTabTitle(tab: InvestorTab) {
@@ -1173,8 +1720,8 @@ function getTabCount(
   return counts.all;
 }
 
-function toNumber(value: any) {
-  const number = Number(value || 0);
+function toNumber(value: unknown) {
+  const number = Number(value ?? 0);
   return Number.isFinite(number) ? number : 0;
 }
 
@@ -1182,11 +1729,11 @@ function sumValues(items: ContractItem[], key: keyof ContractItem) {
   return items.reduce((total, item) => total + toNumber(item[key]), 0);
 }
 
-function normalizeText(value: any) {
-  return String(value || "").trim().toLowerCase();
+function normalizeText(value: unknown) {
+  return String(value ?? "").trim().toLowerCase();
 }
 
-function formatMoney(value: any) {
+function formatMoney(value: unknown) {
   return toNumber(value).toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -1196,7 +1743,11 @@ function formatMoney(value: any) {
 function formatDateOnly(date: string | null) {
   if (!date) return "-";
 
-  return new Date(date).toLocaleDateString("en-GB", {
+  const parsed = new Date(date);
+
+  if (Number.isNaN(parsed.getTime())) return "-";
+
+  return parsed.toLocaleDateString("en-GB", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -1206,7 +1757,11 @@ function formatDateOnly(date: string | null) {
 function formatDateTime(date: string) {
   if (!date) return "-";
 
-  return new Date(date).toLocaleString("en-GB", {
+  const parsed = new Date(date);
+
+  if (Number.isNaN(parsed.getTime())) return "-";
+
+  return parsed.toLocaleString("en-GB", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -1217,7 +1772,7 @@ function formatDateTime(date: string) {
 
 function getPageStyle(isMobile: boolean): CSSProperties {
   return {
-    minHeight: "100vh",
+    minHeight: "100dvh",
     backgroundColor: "#f6f9ff",
     backgroundImage: `
       radial-gradient(circle at 12% 18%, rgba(59,130,246,0.16) 0, transparent 28%),
@@ -1226,8 +1781,9 @@ function getPageStyle(isMobile: boolean): CSSProperties {
       linear-gradient(rgba(246,249,255,0.72),rgba(246,249,255,0.82)),
       url('/backgrounds/v13-finance-bg-1.png')
     `,
-    backgroundSize: "cover",
+    backgroundSize: "auto, auto, auto, auto, cover",
     backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
     backgroundAttachment: isMobile ? "scroll" : "fixed",
     padding: isMobile ? 10 : 18,
     fontFamily: "var(--font-almarai), sans-serif",
@@ -1251,11 +1807,8 @@ function getHeroStyle(isMobile: boolean): CSSProperties {
     padding: isMobile ? "18px 14px" : "22px 26px",
     marginBottom: 14,
     overflow: "hidden",
-    border: "none",
-    outline: "none",
     background:
       "radial-gradient(circle at 15% 18%, rgba(255,255,255,0.08) 0, transparent 24%), radial-gradient(circle at 86% 18%, rgba(255,255,255,0.11) 0, transparent 26%), linear-gradient(105deg,#071c48 0%,#0a327d 30%,#0d65d9 60%,#23a8e4 82%,#6edce4 100%)",
-    boxShadow: "none",
     isolation: "isolate",
   };
 }
@@ -1265,7 +1818,6 @@ function getHeroContentStyle(screen: ScreenType): CSSProperties {
     return {
       position: "relative",
       zIndex: 3,
-      minHeight: "auto",
       display: "flex",
       flexDirection: "column",
       alignItems: "stretch",
@@ -1279,7 +1831,6 @@ function getHeroContentStyle(screen: ScreenType): CSSProperties {
     return {
       position: "relative",
       zIndex: 3,
-      minHeight: "auto",
       display: "grid",
       gridTemplateColumns: "1fr",
       alignItems: "center",
@@ -1294,7 +1845,7 @@ function getHeroContentStyle(screen: ScreenType): CSSProperties {
     zIndex: 3,
     minHeight: 116,
     display: "grid",
-    gridTemplateColumns: "minmax(250px, 315px) 1fr minmax(220px, 315px)",
+    gridTemplateColumns: "minmax(250px,315px) 1fr minmax(220px,315px)",
     alignItems: "center",
     gap: 16,
     direction: "ltr",
@@ -1308,7 +1859,6 @@ function getHeroUserCardStyle(screen: ScreenType): CSSProperties {
       display: "grid",
       gap: 12,
       direction: "rtl",
-      justifySelf: "center",
       justifyItems: "center",
       order: 2,
     };
@@ -1321,7 +1871,6 @@ function getHeroUserCardStyle(screen: ScreenType): CSSProperties {
       display: "grid",
       gap: 14,
       direction: "rtl",
-      justifySelf: "center",
       justifyItems: "center",
       order: 2,
     };
@@ -1338,40 +1887,16 @@ function getHeroUserCardStyle(screen: ScreenType): CSSProperties {
 }
 
 function getEmployeeTopRowStyle(screen: ScreenType): CSSProperties {
-  if (screen === "mobile") {
-    return {
-      minHeight: 42,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      flexWrap: "wrap",
-      gap: 10,
-      direction: "rtl",
-      color: "#ffffff",
-      width: "100%",
-    };
-  }
-
-  if (screen === "tablet") {
-    return {
-      height: 42,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: 14,
-      direction: "rtl",
-      color: "#ffffff",
-      width: "100%",
-    };
-  }
-
   return {
-    height: 42,
+    minHeight: 42,
     display: "flex",
     alignItems: "center",
-    gap: 14,
-    direction: "ltr",
+    justifyContent: screen === "desktop" ? "flex-start" : "center",
+    flexWrap: screen === "mobile" ? "wrap" : "nowrap",
+    gap: screen === "mobile" ? 10 : 14,
+    direction: "rtl",
     color: "#ffffff",
+    width: "100%",
   };
 }
 
@@ -1415,7 +1940,6 @@ function getHeroTitleBoxStyle(screen: ScreenType): CSSProperties {
     position: "relative",
     zIndex: 4,
     display: "flex",
-    flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
     textAlign: "center",
@@ -1435,43 +1959,18 @@ function getTitleStyle(screen: ScreenType): CSSProperties {
     letterSpacing: "-0.4px",
     textShadow: "0 5px 14px rgba(15,23,42,0.14)",
     whiteSpace: "nowrap",
+    fontFamily: "var(--font-almarai), sans-serif",
   };
 }
 
 function getHeroActionBoxStyle(screen: ScreenType): CSSProperties {
-  if (screen === "mobile") {
-    return {
-      display: "flex",
-      flexDirection: "column",
-      justifyContent: "center",
-      alignItems: "center",
-      gap: 12,
-      direction: "rtl",
-      width: "100%",
-      order: 3,
-    };
-  }
-
-  if (screen === "tablet") {
-    return {
-      display: "flex",
-      flexDirection: "column",
-      justifyContent: "center",
-      alignItems: "center",
-      gap: 12,
-      direction: "rtl",
-      width: "100%",
-      order: 3,
-    };
-  }
-
   return {
     display: "flex",
-    flexDirection: "column",
     justifyContent: "center",
-    alignItems: "flex-end",
-    gap: 12,
+    alignItems: screen === "desktop" ? "flex-end" : "center",
     direction: "rtl",
+    width: "100%",
+    order: screen === "desktop" ? 0 : 3,
   };
 }
 
@@ -1479,17 +1978,22 @@ function getRefreshButtonStyle(isMobile: boolean): CSSProperties {
   return {
     width: isMobile ? "100%" : "auto",
     maxWidth: isMobile ? 280 : "none",
+    minHeight: 44,
     background: "rgba(255,255,255,.12)",
     color: "#ffffff",
     border: "1px solid rgba(255,255,255,.22)",
     borderRadius: 14,
-    padding: "13px 18px",
-    fontSize: isMobile ? 15 : 16,
+    padding: "11px 16px",
+    fontSize: isMobile ? 14 : 15,
     fontWeight: 900,
     cursor: "pointer",
     fontFamily: "var(--font-almarai), sans-serif",
     boxShadow: "0 8px 18px rgba(15,23,42,0.10)",
     backdropFilter: "blur(4px)",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
   };
 }
 
@@ -1500,19 +2004,60 @@ function GlobalResponsiveStyles() {
         box-sizing: border-box;
       }
 
+      html,
       body {
+        margin: 0;
         overflow-x: hidden;
+      }
+
+      button,
+      select {
+        font-family: var(--font-almarai), sans-serif;
+      }
+
+      button:focus-visible,
+      select:focus-visible {
+        outline: 3px solid rgba(37, 99, 235, 0.22);
+        outline-offset: 2px;
+      }
+
+      .interactive-button {
+        transition:
+          transform 160ms ease,
+          box-shadow 160ms ease,
+          opacity 160ms ease,
+          background 160ms ease;
+      }
+
+      .interactive-button:not(:disabled):hover {
+        transform: translateY(-1px);
+      }
+
+      .interactive-button:not(:disabled):active {
+        transform: translateY(0);
       }
 
       .mobile-cards {
         display: none;
       }
 
-      @media (max-width: 900px) {
+      .spin-icon {
+        animation: workflow-spin 0.8s linear infinite;
+      }
+
+      @keyframes workflow-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      @media (max-width: 1024px) {
         .workflow-stats-grid,
-        .investor-summary-grid,
-        .bottom-grid,
-        .statement-grid {
+        .investor-summary-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        }
+
+        .bottom-grid {
           grid-template-columns: 1fr !important;
         }
 
@@ -1524,7 +2069,8 @@ function GlobalResponsiveStyles() {
         .workflow-tabs {
           overflow-x: auto;
           flex-wrap: nowrap !important;
-          padding-bottom: 4px;
+          padding-bottom: 5px;
+          scrollbar-width: none;
           -webkit-overflow-scrolling: touch;
         }
 
@@ -1547,6 +2093,18 @@ function GlobalResponsiveStyles() {
           display: grid !important;
           gap: 10px;
         }
+
+        .workflow-stats-grid,
+        .investor-summary-grid,
+        .statement-grid {
+          grid-template-columns: 1fr !important;
+        }
+      }
+
+      @media (max-width: 640px) {
+        select {
+          font-size: 16px !important;
+        }
       }
 
       @media print {
@@ -1565,33 +2123,61 @@ function GlobalResponsiveStyles() {
           right: 0 !important;
           left: 0 !important;
           width: 100% !important;
-          background: white !important;
+          max-width: none !important;
+          background: #ffffff !important;
           box-shadow: none !important;
           border: none !important;
-          padding: 14mm !important;
+          padding: 4mm !important;
+          border-radius: 0 !important;
         }
 
         .no-print {
           display: none !important;
         }
 
+        .print-area > div,
+        .print-area article {
+          break-inside: avoid;
+        }
+
         @page {
           size: A4;
-          margin: 10mm;
+          margin: 8mm;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
         }
       }
     `}</style>
   );
 }
 
-const INVESTOR_TABS: { key: InvestorTab; label: string; icon: string }[] = [
-  { key: "all", label: "جميع العقود", icon: "📄" },
-  { key: "overdue", label: "المتأخرون", icon: "⚠️" },
-  { key: "paid", label: "المسددون", icon: "✅" },
-  { key: "active", label: "النشطون", icon: "🟢" },
-  { key: "closed", label: "المغلقون", icon: "🔒" },
-  { key: "statement", label: "الكشف الشامل", icon: "🧾" },
-];
+const loadingHeroContent: CSSProperties = {
+  position: "relative",
+  zIndex: 3,
+  minHeight: 112,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 12,
+};
+
+const loadingSpinner: CSSProperties = {
+  width: 22,
+  height: 22,
+  borderRadius: "50%",
+  border: "3px solid rgba(255,255,255,0.35)",
+  borderTopColor: "#ffffff",
+  animation: "workflow-spin 0.8s linear infinite",
+};
 
 const employeeIcon: CSSProperties = {
   width: 38,
@@ -1623,7 +2209,6 @@ const logoutInlineButton: CSSProperties = {
   alignItems: "center",
   gap: 9,
   cursor: "pointer",
-  fontFamily: "var(--font-almarai), sans-serif",
   padding: 0,
   whiteSpace: "nowrap",
   direction: "rtl",
@@ -1678,6 +2263,40 @@ const heroDots: CSSProperties = {
   zIndex: 2,
 };
 
+const messageBox: CSSProperties = {
+  marginBottom: 14,
+  padding: "12px 14px",
+  borderRadius: 15,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 12,
+  flexWrap: "wrap",
+  fontWeight: 800,
+};
+
+const errorMessageBox: CSSProperties = {
+  background: "#fff1f2",
+  color: "#b91c1c",
+  border: "1px solid #fecaca",
+};
+
+const successMessageBox: CSSProperties = {
+  background: "#f0fdf4",
+  color: "#166534",
+  border: "1px solid #bbf7d0",
+};
+
+const messageRetryButton: CSSProperties = {
+  border: "1px solid currentColor",
+  background: "transparent",
+  color: "inherit",
+  borderRadius: 10,
+  padding: "7px 11px",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
 const statsGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(4,minmax(0,1fr))",
@@ -1686,7 +2305,7 @@ const statsGrid: CSSProperties = {
 };
 
 const statCard: CSSProperties = {
-  background: "white",
+  background: "rgba(255,255,255,0.96)",
   border: "1px solid #e2e8f0",
   borderRadius: 20,
   padding: 16,
@@ -1705,7 +2324,7 @@ const statIcon: CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  fontSize: 22,
+  flex: "0 0 auto",
 };
 
 const statValue: CSSProperties = {
@@ -1727,7 +2346,7 @@ const statHint: CSSProperties = {
 };
 
 const investorBoard: CSSProperties = {
-  background: "white",
+  background: "rgba(255,255,255,0.96)",
   border: "1px solid #e2e8f0",
   borderRadius: 24,
   padding: 18,
@@ -1746,12 +2365,14 @@ const sectionHeader: CSSProperties = {
 
 const sectionTitle: CSSProperties = {
   margin: "4px 0",
-  fontSize: 22,
+  fontSize: 21,
   color: "#0f172a",
+  fontWeight: 900,
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const selectBox: CSSProperties = {
-  minWidth: 280,
+  minWidth: 300,
 };
 
 const label: CSSProperties = {
@@ -1759,16 +2380,36 @@ const label: CSSProperties = {
   color: "#334155",
   fontWeight: 900,
   marginBottom: 7,
+  fontSize: 14,
+};
+
+const selectWrapper: CSSProperties = {
+  position: "relative",
 };
 
 const select: CSSProperties = {
   width: "100%",
+  minHeight: 50,
+  appearance: "none",
+  WebkitAppearance: "none",
   border: "1px solid #cbd5e1",
   background: "#f8fafc",
   borderRadius: 14,
-  padding: 13,
+  padding: "12px 44px 12px 14px",
   fontSize: 15,
-  fontFamily: "inherit",
+  color: "#0f172a",
+  cursor: "pointer",
+  outline: "none",
+};
+
+const selectArrow: CSSProperties = {
+  position: "absolute",
+  right: 14,
+  top: "50%",
+  transform: "translateY(-50%)",
+  color: "#64748b",
+  pointerEvents: "none",
+  display: "flex",
 };
 
 const investorSummaryGrid: CSSProperties = {
@@ -1816,7 +2457,8 @@ const tabButton: CSSProperties = {
   background: "#f8fafc",
   color: "#334155",
   borderRadius: 999,
-  padding: "10px 13px",
+  padding: "9px 13px",
+  minHeight: 42,
   fontSize: 14,
   fontWeight: 900,
   cursor: "pointer",
@@ -1829,14 +2471,22 @@ const activeTabButton: CSSProperties = {
   ...tabButton,
   border: "1px solid transparent",
   background: "linear-gradient(135deg,#2563eb,#1e3a8a)",
-  color: "white",
+  color: "#ffffff",
+  boxShadow: "0 8px 18px rgba(37,99,235,0.18)",
+};
+
+const tabIcon: CSSProperties = {
+  display: "flex",
 };
 
 const tabCounter: CSSProperties = {
-  background: "rgba(255,255,255,.20)",
+  minWidth: 24,
+  textAlign: "center",
+  background: "rgba(148,163,184,.18)",
   borderRadius: 999,
   padding: "2px 7px",
   fontWeight: 900,
+  color: "inherit",
 };
 
 const contractsBox: CSSProperties = {
@@ -1850,6 +2500,7 @@ const miniTitle: CSSProperties = {
   margin: 0,
   fontSize: 18,
   color: "#0f172a",
+  fontWeight: 900,
 };
 
 const contractsTableBox: CSSProperties = {
@@ -1918,7 +2569,7 @@ const bottomGrid: CSSProperties = {
 };
 
 const card: CSSProperties = {
-  background: "white",
+  background: "rgba(255,255,255,0.96)",
   border: "1px solid #e2e8f0",
   borderRadius: 22,
   padding: 16,
@@ -1965,7 +2616,7 @@ const alertsList: CSSProperties = {
 
 const alertItem: CSSProperties = {
   width: "100%",
-  border: "1px solid #fecaca",
+  border: "1px solid #fed7aa",
   background: "#fff7ed",
   color: "#7c2d12",
   borderRadius: 15,
@@ -1978,7 +2629,20 @@ const alertItem: CSSProperties = {
 };
 
 const alertIcon: CSSProperties = {
-  fontSize: 20,
+  width: 34,
+  height: 34,
+  borderRadius: 11,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  background: "#ffedd5",
+  color: "#c2410c",
+  flex: "0 0 auto",
+};
+
+const alertText: CSSProperties = {
+  display: "grid",
+  gap: 4,
 };
 
 const activityTableBox: CSSProperties = {
@@ -2006,6 +2670,13 @@ const activityTableRow: CSSProperties = {
   minWidth: 820,
   padding: 14,
   borderBottom: "1px solid #eef2f7",
+  alignItems: "center",
+};
+
+const activityTypeCell: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
 };
 
 const mobileActivityCard: CSSProperties = {
@@ -2039,7 +2710,7 @@ const paginationBox: CSSProperties = {
 const paginationButton: CSSProperties = {
   padding: "10px 16px",
   background: "#1e3a8a",
-  color: "white",
+  color: "#ffffff",
   border: "none",
   borderRadius: 12,
   fontSize: 14,
@@ -2104,11 +2775,14 @@ const statementActions: CSSProperties = {
 const printButton: CSSProperties = {
   border: "none",
   background: "linear-gradient(135deg,#16a34a,#15803d)",
-  color: "white",
+  color: "#ffffff",
   borderRadius: 13,
   padding: "11px 16px",
   fontWeight: 900,
   cursor: "pointer",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 8,
 };
 
 const statementHeader: CSSProperties = {
@@ -2124,6 +2798,7 @@ const statementHeader: CSSProperties = {
 const statementTitle: CSSProperties = {
   margin: 0,
   color: "#0f172a",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const statementDate: CSSProperties = {
@@ -2169,6 +2844,7 @@ const statementSection: CSSProperties = {
 const statementMiniTitle: CSSProperties = {
   margin: "0 0 10px",
   color: "#1e3a8a",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const statementTable: CSSProperties = {
@@ -2204,7 +2880,7 @@ const backWrapper: CSSProperties = {
 };
 
 const backButton: CSSProperties = {
-  padding: "11px 18px",
+  padding: "10px 17px",
   background: "linear-gradient(135deg,#22c55e,#15803d)",
   color: "#ffffff",
   border: "none",
@@ -2213,5 +2889,7 @@ const backButton: CSSProperties = {
   fontWeight: 900,
   cursor: "pointer",
   boxShadow: "0 5px 14px rgba(22,163,74,0.22)",
-  fontFamily: "var(--font-almarai), sans-serif",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 7,
 };
