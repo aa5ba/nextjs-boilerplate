@@ -15,8 +15,11 @@ const notoNaskhArabic = Noto_Naskh_Arabic({
 });
 
 export const metadata: Metadata = {
-  title: "احتساب",
-  description: "منصة احتساب",
+  title: {
+    default: "محطة إدارة العمل",
+    template: "%s | محطة إدارة العمل",
+  },
+  description: "نظام إدارة العملاء والعقود والسداد وسير العمل",
 };
 
 export default function RootLayout({
