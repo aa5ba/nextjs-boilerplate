@@ -134,6 +134,45 @@ function cleanPhone(
   ).replace(/\D/g, "");
 }
 
+function getOrganizationName(
+  user: FinanceSessionUser | null
+) {
+  const record =
+    (user ?? {}) as Record<
+      string,
+      unknown
+    >;
+
+  const fromSession =
+    String(
+      record.organization_name ??
+        record.organizationName ??
+        ""
+    ).trim();
+
+  if (fromSession) {
+    return fromSession;
+  }
+
+  if (
+    typeof window !== "undefined"
+  ) {
+    const stored =
+      String(
+        window.localStorage.getItem(
+          "finance_organization_name"
+        ) ?? ""
+      ).trim();
+
+    if (stored) {
+      return stored;
+    }
+  }
+
+  return "المنظمة";
+}
+
+
 function normalizeNote(
   value: unknown
 ): FollowUpNote | null {
@@ -525,6 +564,11 @@ export default function FollowUpPage() {
     employeeName,
     setEmployeeName,
   ] = useState("الموظف");
+
+  const [
+    organizationName,
+    setOrganizationName,
+  ] = useState("المنظمة");
 
   const [rows, setRows] =
     useState<FollowUpRow[]>([]);
@@ -934,6 +978,12 @@ export default function FollowUpPage() {
           )
         );
 
+        setOrganizationName(
+          getOrganizationName(
+            user
+          )
+        );
+
         setAuthChecked(true);
         return;
       }
@@ -984,6 +1034,12 @@ export default function FollowUpPage() {
 
           setEmployeeName(
             getFinanceEmployeeName(
+              payload.user
+            )
+          );
+
+          setOrganizationName(
+            getOrganizationName(
               payload.user
             )
           );
@@ -1083,6 +1139,12 @@ export default function FollowUpPage() {
 
         setEmployeeName(
           getFinanceEmployeeName(
+            updatedUser
+          )
+        );
+
+        setOrganizationName(
+          getOrganizationName(
             updatedUser
           )
         );
@@ -1708,11 +1770,25 @@ export default function FollowUpPage() {
       return;
     }
 
+    const dueDate =
+      formatGregorianDate(
+        row.payment_due_date
+      );
+
+    const contractNumber =
+      row.contract_number ||
+      "-";
+
+    const amount =
+      `${formatMoney(
+        row.remaining_amount
+      )} ريال`;
+
     const message =
-      `السلام عليكم، نأمل التواصل بخصوص العقد رقم ${
-        row.contract_number ||
-        "-"
-      }.`;
+      `السلام عليكم ورحمة الله وبركاته
+
+نود تذكيركم بإستحقاقكم للسداد بتاريخ (${dueDate}) للعقد رقم (${contractNumber}) بمبلغ (${amount}) لدى (${organizationName})
+شاكرين التزامكم .`;
 
     window.open(
       `https://wa.me/${phone}?text=${encodeURIComponent(
@@ -1725,29 +1801,6 @@ export default function FollowUpPage() {
     setActionsRow(null);
   }
 
-  function callCustomer(
-    row: FollowUpRow
-  ) {
-    const phone =
-      normalizeSaudiPhone(
-        row.customer_phone
-      );
-
-    if (
-      !/^9665\d{8}$/.test(
-        phone
-      )
-    ) {
-      window.alert(
-        "رقم الجوال المسجل غير صحيح"
-      );
-
-      return;
-    }
-
-    window.location.href =
-      `tel:+${phone}`;
-  }
 
   function openNotesHistory(
     row: FollowUpRow
@@ -2540,15 +2593,6 @@ export default function FollowUpPage() {
               }
             >
               <ActionMenuButton
-                label="اتصال"
-                onClick={() =>
-                  callCustomer(
-                    actionsRow
-                  )
-                }
-              />
-
-              <ActionMenuButton
                 label="واتساب"
                 onClick={() =>
                   openWhatsApp(
@@ -2574,21 +2618,6 @@ export default function FollowUpPage() {
                   )
                 }
               />
-
-              {actionsRow.latest_note &&
-                canManageNote(
-                  actionsRow.latest_note
-                ) && (
-                  <ActionMenuButton
-                    label="تعديل آخر ملاحظة"
-                    onClick={() =>
-                      openEditNote(
-                        actionsRow,
-                        actionsRow.latest_note as FollowUpNote
-                      )
-                    }
-                  />
-                )}
 
               <ActionMenuButton
                 label="فتح تفاصيل العقد"
