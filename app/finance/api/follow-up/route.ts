@@ -654,7 +654,7 @@ export async function GET(
         return !CLOSED_STATUSES.has(
           status
         );
-      }) as FollowUpContractRow[];
+      }) as unknown as FollowUpContractRow[];
 
     const customerIds =
       Array.from(
@@ -712,7 +712,7 @@ export async function GET(
 
       customers =
         Array.isArray(data)
-          ? (data as CustomerRow[])
+          ? (data as unknown as CustomerRow[])
           : [];
     }
 
@@ -767,7 +767,7 @@ export async function GET(
 
       notes =
         Array.isArray(data)
-          ? (data as FollowUpNoteRow[])
+          ? (data as unknown as FollowUpNoteRow[])
           : [];
     }
 
