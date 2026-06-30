@@ -155,6 +155,14 @@ const sections: MainSection[] = [
     permission: "workflow",
   },
   {
+    title: "المتابعة والتواصل",
+    path: "follow-up",
+    icon: "📞",
+    color: "#7c3aed",
+    bg: "linear-gradient(135deg,#f5f3ff,#ede9fe)",
+    permission: "follow_up",
+  },
+  {
     title: "العملاء",
     path: "customers",
     icon: "👥",
@@ -239,6 +247,12 @@ const drawerGroups: DrawerGroup[] = [
         permission: "workflow",
       },
       {
+        title: "المتابعة والتواصل",
+        path: "follow-up",
+        icon: "📞",
+        permission: "follow_up",
+      },
+      {
         title: "الملاحظات والتذكيرات",
         path: "notes",
         icon: "✏️",
@@ -254,6 +268,12 @@ const drawerGroups: DrawerGroup[] = [
         path: "customers",
         icon: "👥",
         permission: "customers",
+      },
+      {
+        title: "التحقق من عميل",
+        path: "customers?verify=1",
+        icon: "🛡️",
+        permission: "customers_verify",
       },
       {
         title: "طلب جديد",
