@@ -8,12 +8,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type RouteContext = {
-  params: Promise<{
-    id: string;
-  }>;
-};
-
 type UpdateBranchBody = {
   action?: unknown;
   branch_name?: unknown;
@@ -602,7 +596,7 @@ async function ensureBranchNotDeleted(
 
 export async function PATCH(
   request: Request,
-  context: RouteContext
+  context: RouteContext<"/api/admin-support/branches/[id]">
 ): Promise<NextResponse> {
   try {
     const auth =
@@ -1015,7 +1009,7 @@ export async function PATCH(
 
 export async function DELETE(
   request: Request,
-  context: RouteContext
+  context: RouteContext<"/api/admin-support/branches/[id]">
 ): Promise<NextResponse> {
   try {
     const auth =
