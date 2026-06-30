@@ -11,10 +11,15 @@ export const dynamic = "force-dynamic";
 const MANAGER_ROLES = new Set([
   "main_admin",
   "branch_manager",
+  "admin",
+  "manager",
   "مدير رئيسي",
   "مدير فرع",
   "مدير",
 ]);
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const CLOSED_STATUSES = new Set([
   "تم السداد",
@@ -78,6 +83,13 @@ type FinanceBranchRow = {
   is_active: boolean | null;
 };
 
+type FollowUpNoteOwnerRow = {
+  id: string;
+  branch_id: string;
+  contract_id?: string;
+  created_by_user_id: string;
+};
+
 function json(
   body: Record<string, unknown>,
   status = 200
@@ -98,6 +110,12 @@ function cleanText(
   return String(value ?? "")
     .trim()
     .slice(0, maxLength);
+}
+
+function isValidUuid(
+  value: string
+) {
+  return UUID_PATTERN.test(value);
 }
 
 function normalizeMoney(
@@ -333,12 +351,12 @@ async function authorize(
   }
 
   const branchRow =
-    branchResult.data as
+    branchResult.data as unknown as
       | FinanceBranchRow
       | null;
 
   const userRow =
-    userResult.data as
+    userResult.data as unknown as
       | FinanceBranchUserRow
       | null;
 
@@ -451,19 +469,7 @@ async function ensureContractAccess(
   } = await supabaseAdmin
     .from("finance_contracts")
     .select(
-      [
-        "id",
-        "branch_id",
-        "contract_number",
-        "customer_id",
-        "investor_id",
-        "investor_name",
-        "remaining_amount",
-        "debt_amount",
-        "payment_amount",
-        "payment_due_date",
-        "contract_status",
-      ].join(",")
+      "id,branch_id,contract_number,customer_id,investor_id,investor_name,remaining_amount,debt_amount,payment_amount,payment_due_date,contract_status"
     )
     .eq("id", contractId)
     .eq("branch_id", branchId)
@@ -593,19 +599,7 @@ export async function GET(
     } = await supabaseAdmin
       .from("finance_contracts")
       .select(
-        [
-          "id",
-          "branch_id",
-          "contract_number",
-          "customer_id",
-          "investor_id",
-          "investor_name",
-          "remaining_amount",
-          "debt_amount",
-          "payment_amount",
-          "payment_due_date",
-          "contract_status",
-        ].join(",")
+        "id,branch_id,contract_number,customer_id,investor_id,investor_name,remaining_amount,debt_amount,payment_amount,payment_due_date,contract_status"
       )
       .eq(
         "branch_id",
@@ -730,18 +724,7 @@ export async function GET(
           "finance_followup_notes"
         )
         .select(
-          [
-            "id",
-            "branch_id",
-            "contract_id",
-            "customer_id",
-            "investor_id",
-            "note_text",
-            "created_by_user_id",
-            "created_by_name",
-            "created_at",
-            "updated_at",
-          ].join(",")
+          "id,branch_id,contract_id,customer_id,investor_id,note_text,created_by_user_id,created_by_name,created_at,updated_at"
         )
         .eq(
           "branch_id",
@@ -901,9 +884,7 @@ export async function GET(
         code:
           "FOLLOW_UP_LOAD_FAILED",
         message:
-          error instanceof Error
-            ? error.message
-            : "تعذر تحميل بيانات المتابعة",
+          "تعذر تحميل بيانات المتابعة",
       },
       500
     );
@@ -951,14 +932,14 @@ export async function POST(
       );
     }
 
-    if (!contractId) {
+    if (!isValidUuid(contractId)) {
       return json(
         {
           ok: false,
           code:
-            "CONTRACT_REQUIRED",
+            "INVALID_CONTRACT_ID",
           message:
-            "العقد مطلوب",
+            "معرف العقد غير صحيح",
         },
         400
       );
@@ -1027,18 +1008,7 @@ export async function POST(
           auth.userName,
       })
       .select(
-        [
-          "id",
-          "branch_id",
-          "contract_id",
-          "customer_id",
-          "investor_id",
-          "note_text",
-          "created_by_user_id",
-          "created_by_name",
-          "created_at",
-          "updated_at",
-        ].join(",")
+        "id,branch_id,contract_id,customer_id,investor_id,note_text,created_by_user_id,created_by_name,created_at,updated_at"
       )
       .single();
 
@@ -1069,9 +1039,7 @@ export async function POST(
         code:
           "FOLLOW_UP_CREATE_FAILED",
         message:
-          error instanceof Error
-            ? error.message
-            : "تعذر إضافة ملاحظة المتابعة",
+          "تعذر إضافة ملاحظة المتابعة",
       },
       500
     );
@@ -1108,7 +1076,7 @@ export async function PATCH(
 
     if (
       !branchSlug ||
-      !noteId
+      !isValidUuid(noteId)
     ) {
       return json(
         {
@@ -1116,7 +1084,7 @@ export async function PATCH(
           code:
             "INVALID_REQUEST",
           message:
-            "بيانات التعديل غير مكتملة",
+            "بيانات التعديل غير صحيحة",
         },
         400
       );
@@ -1155,12 +1123,7 @@ export async function PATCH(
         "finance_followup_notes"
       )
       .select(
-        [
-          "id",
-          "branch_id",
-          "contract_id",
-          "created_by_user_id",
-        ].join(",")
+        "id,branch_id,contract_id,created_by_user_id"
       )
       .eq(
         "id",
@@ -1178,6 +1141,9 @@ export async function PATCH(
       );
     }
 
+    const existingNote =
+      existing as unknown as FollowUpNoteOwnerRow;
+
     if (!existing) {
       return json(
         {
@@ -1192,7 +1158,7 @@ export async function PATCH(
     }
 
     const canManage =
-      existing.created_by_user_id ===
+      existingNote.created_by_user_id ===
         auth.userId ||
       isManagerRole(
         auth.role
@@ -1233,18 +1199,7 @@ export async function PATCH(
         auth.branchId
       )
       .select(
-        [
-          "id",
-          "branch_id",
-          "contract_id",
-          "customer_id",
-          "investor_id",
-          "note_text",
-          "created_by_user_id",
-          "created_by_name",
-          "created_at",
-          "updated_at",
-        ].join(",")
+        "id,branch_id,contract_id,customer_id,investor_id,note_text,created_by_user_id,created_by_name,created_at,updated_at"
       )
       .single();
 
@@ -1272,9 +1227,7 @@ export async function PATCH(
         code:
           "FOLLOW_UP_UPDATE_FAILED",
         message:
-          error instanceof Error
-            ? error.message
-            : "تعذر تعديل ملاحظة المتابعة",
+          "تعذر تعديل ملاحظة المتابعة",
       },
       500
     );
@@ -1303,7 +1256,7 @@ export async function DELETE(
 
     if (
       !branchSlug ||
-      !noteId
+      !isValidUuid(noteId)
     ) {
       return json(
         {
@@ -1311,7 +1264,7 @@ export async function DELETE(
           code:
             "INVALID_REQUEST",
           message:
-            "بيانات الحذف غير مكتملة",
+            "بيانات الحذف غير صحيحة",
         },
         400
       );
@@ -1353,6 +1306,9 @@ export async function DELETE(
       );
     }
 
+    const existingNote =
+      existing as unknown as FollowUpNoteOwnerRow;
+
     if (!existing) {
       return json(
         {
@@ -1367,7 +1323,7 @@ export async function DELETE(
     }
 
     const canManage =
-      existing.created_by_user_id ===
+      existingNote.created_by_user_id ===
         auth.userId ||
       isManagerRole(
         auth.role
@@ -1425,9 +1381,7 @@ export async function DELETE(
         code:
           "FOLLOW_UP_DELETE_FAILED",
         message:
-          error instanceof Error
-            ? error.message
-            : "تعذر حذف ملاحظة المتابعة",
+          "تعذر حذف ملاحظة المتابعة",
       },
       500
     );
