@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireFinanceBranchSession } from "@/lib/financeBranchSession";
+import {
+  FINANCE_BRANCH_SESSION_COOKIE_NAME,
+  verifyFinanceBranchSessionToken,
+} from "@/lib/financeBranchSession";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -58,27 +61,21 @@ type CustomerRow = {
   national_id: string | null;
 };
 
-type SessionShape = {
-  user_id?: string;
-  id?: string;
-  full_name?: string;
-  username?: string;
-  role?: string;
-  permissions?: string[];
-  branch_id?: string;
-  branchId?: string;
+type FinanceBranchUserRow = {
+  id: string;
+  branch_id: string;
+  full_name: string | null;
+  username: string | null;
+  role: string | null;
+  permissions: string[] | null;
+  is_active: boolean | null;
+  session_version: number | null;
 };
 
-type AuthResultShape = {
-  ok?: boolean;
-  response?: NextResponse;
-  session?: SessionShape;
-  user?: SessionShape;
-  branch?: {
-    id?: string;
-    branch_id?: string;
-    slug?: string;
-  };
+type FinanceBranchRow = {
+  id: string;
+  branch_slug: string;
+  is_active: boolean | null;
 };
 
 function json(
@@ -202,95 +199,24 @@ async function authorize(
   request: NextRequest,
   branchSlug: string
 ) {
-  /*
-    يعتمد هذا الاستدعاء على ملف:
-    lib/financeBranchSession.ts
+  const token =
+    request.cookies.get(
+      FINANCE_BRANCH_SESSION_COOKIE_NAME
+    )?.value ?? null;
 
-    ويجب أن يعيد:
-    {
-      ok: true,
-      session: {
-        user_id,
-        full_name,
-        role,
-        permissions,
-        branch_id
-      }
-    }
+  let session;
 
-    أو عند الفشل:
-    {
-      ok: false,
-      response: NextResponse
-    }
-  */
-  const auth =
-    (await requireFinanceBranchSession(
-      request,
-      {
-        branchSlug,
-        requiredPermission:
-          "follow_up",
-      }
-    )) as AuthResultShape;
-
-  if (
-    !auth?.ok ||
-    !auth.session
-  ) {
-    return {
-      ok: false as const,
-      response:
-        auth?.response ??
-        json(
-          {
-            ok: false,
-            code: "INVALID_SESSION",
-            message:
-              "الجلسة غير صالحة أو منتهية",
-          },
-          401
-        ),
-    };
-  }
-
-  const session =
-    auth.session;
-
-  const branchId =
-    cleanText(
-      session.branch_id ??
-        session.branchId ??
-        auth.branch?.id ??
-        auth.branch?.branch_id,
-      80
+  try {
+    session =
+      verifyFinanceBranchSessionToken(
+        token
+      );
+  } catch (error) {
+    console.error(
+      "Follow-up session verification error:",
+      error
     );
 
-  const userId =
-    cleanText(
-      session.user_id ??
-        session.id,
-      80
-    );
-
-  const userName =
-    cleanText(
-      session.full_name ??
-        session.username ??
-        "الموظف",
-      160
-    );
-
-  const role =
-    cleanText(
-      session.role,
-      80
-    );
-
-  if (
-    !branchId ||
-    !userId
-  ) {
     return {
       ok: false as const,
       response: json(
@@ -298,18 +224,219 @@ async function authorize(
           ok: false,
           code: "INVALID_SESSION",
           message:
-            "تعذر تحديد المستخدم أو الفرع",
+            "تعذر التحقق من جلسة تسجيل الدخول",
         },
         401
       ),
     };
   }
 
+  if (!session) {
+    return {
+      ok: false as const,
+      response: json(
+        {
+          ok: false,
+          code: "INVALID_SESSION",
+          message:
+            "الجلسة غير صالحة أو منتهية",
+        },
+        401
+      ),
+    };
+  }
+
+  const normalizedBranchSlug =
+    cleanText(
+      branchSlug,
+      120
+    ).toLowerCase();
+
+  if (
+    session.branchSlug !==
+    normalizedBranchSlug
+  ) {
+    return {
+      ok: false as const,
+      response: json(
+        {
+          ok: false,
+          code: "BRANCH_MISMATCH",
+          message:
+            "الجلسة لا تخص هذا الفرع",
+        },
+        403
+      ),
+    };
+  }
+
+  const [
+    branchResult,
+    userResult,
+  ] = await Promise.all([
+    supabaseAdmin
+      .from("finance_branches")
+      .select(
+        "id,branch_slug,is_active"
+      )
+      .eq(
+        "id",
+        session.branchId
+      )
+      .eq(
+        "branch_slug",
+        normalizedBranchSlug
+      )
+      .maybeSingle(),
+
+    supabaseAdmin
+      .from(
+        "finance_branch_users"
+      )
+      .select(
+        "id,branch_id,full_name,username,role,permissions,is_active,session_version"
+      )
+      .eq(
+        "id",
+        session.userId
+      )
+      .eq(
+        "branch_id",
+        session.branchId
+      )
+      .maybeSingle(),
+  ]);
+
+  if (
+    branchResult.error ||
+    userResult.error
+  ) {
+    console.error(
+      "Follow-up authorization database error:",
+      branchResult.error ??
+        userResult.error
+    );
+
+    return {
+      ok: false as const,
+      response: json(
+        {
+          ok: false,
+          code:
+            "AUTHORIZATION_CHECK_FAILED",
+          message:
+            "تعذر التحقق من صلاحية الدخول",
+        },
+        500
+      ),
+    };
+  }
+
+  const branchRow =
+    branchResult.data as
+      | FinanceBranchRow
+      | null;
+
+  const userRow =
+    userResult.data as
+      | FinanceBranchUserRow
+      | null;
+
+  if (
+    !branchRow ||
+    branchRow.is_active === false ||
+    !userRow ||
+    userRow.is_active === false
+  ) {
+    return {
+      ok: false as const,
+      response: json(
+        {
+          ok: false,
+          code: "SESSION_REVOKED",
+          message:
+            "تم إيقاف المستخدم أو الفرع",
+        },
+        401
+      ),
+    };
+  }
+
+  if (
+    Number(
+      userRow.session_version ??
+        0
+    ) !==
+    session.sessionVersion
+  ) {
+    return {
+      ok: false as const,
+      response: json(
+        {
+          ok: false,
+          code: "SESSION_REVOKED",
+          message:
+            "انتهت صلاحية الجلسة، سجل الدخول مرة أخرى",
+        },
+        401
+      ),
+    };
+  }
+
+  const role =
+    cleanText(
+      userRow.role,
+      80
+    );
+
+  const permissions =
+    Array.isArray(
+      userRow.permissions
+    )
+      ? userRow.permissions.filter(
+          (
+            permission
+          ): permission is string =>
+            typeof permission ===
+              "string" &&
+            permission.trim()
+              .length > 0
+        )
+      : [];
+
+  if (
+    !isManagerRole(role) &&
+    !permissions.includes(
+      "follow_up"
+    )
+  ) {
+    return {
+      ok: false as const,
+      response: json(
+        {
+          ok: false,
+          code: "FORBIDDEN",
+          message:
+            "لا تملك صلاحية المتابعة والتواصل",
+        },
+        403
+      ),
+    };
+  }
+
   return {
     ok: true as const,
-    branchId,
-    userId,
-    userName,
+    branchId:
+      session.branchId,
+    userId:
+      session.userId,
+    userName:
+      cleanText(
+        userRow.full_name ??
+          userRow.username ??
+          "الموظف",
+        160
+      ),
     role,
   };
 }
