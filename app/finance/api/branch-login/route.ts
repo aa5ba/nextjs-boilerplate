@@ -150,22 +150,31 @@ export async function POST(
     }
 
     const username =
-      normalizeDigits(
-        cleanText(body.username)
-      );
+  normalizeDigits(
+    cleanText(body.username)
+  )
+    .replace(
+      /[^A-Za-z0-9_]/g,
+      ""
+    )
+    .slice(0, 30)
+    .toLowerCase();
 
-    const password =
-      normalizeDigits(
-        cleanText(body.password)
-      )
-        .replace(/\D/g, "")
-        .slice(0, 8);
+const password =
+  normalizeDigits(
+    cleanText(body.password)
+  )
+    .replace(
+      /[^A-Za-z0-9]/g,
+      ""
+    )
+    .slice(0, 10);
 
-    const usernameRegex =
-      /^[\u0600-\u06FFa-zA-Z0-9_.-]{2,35}$/;
+const usernameRegex =
+  /^[a-z0-9_]{3,30}$/;
 
-    const passwordRegex =
-      /^\d{4,8}$/;
+const passwordRegex =
+  /^[A-Za-z0-9]{4,10}$/;
 
     if (
       !usernameRegex.test(username) ||
