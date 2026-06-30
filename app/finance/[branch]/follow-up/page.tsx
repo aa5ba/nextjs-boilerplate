@@ -31,9 +31,16 @@ type NoteFilter =
   | "with-note"
   | "without-note";
 
+type SortType =
+  | "all"
+  | "paid"
+  | "overdue"
+  | "not-due";
+
 type DelayFilter =
   | "all"
-  | "7-15"
+  | "1-7"
+  | "8-15"
   | "16-30"
   | "31-60"
   | "61-plus";
@@ -70,6 +77,10 @@ type FollowUpRow = {
   payment_amount: number;
   payment_due_date?: string | null;
   contract_status?: string | null;
+  follow_up_status:
+    | "paid"
+    | "overdue"
+    | "not_due";
   days_late: number;
   latest_note?: FollowUpNote | null;
   notes: FollowUpNote[];
@@ -83,6 +94,7 @@ type FollowUpApiResponse = {
   rows?: unknown[];
   overdue_count?: number;
   server_date?: string;
+  organization_name?: string;
   note?: unknown;
 };
 
@@ -132,44 +144,6 @@ function cleanPhone(
   return normalizeDigits(
     String(value ?? "")
   ).replace(/\D/g, "");
-}
-
-function getOrganizationName(
-  user: FinanceSessionUser | null
-) {
-  const record =
-    (user ?? {}) as Record<
-      string,
-      unknown
-    >;
-
-  const fromSession =
-    String(
-      record.organization_name ??
-        record.organizationName ??
-        ""
-    ).trim();
-
-  if (fromSession) {
-    return fromSession;
-  }
-
-  if (
-    typeof window !== "undefined"
-  ) {
-    const stored =
-      String(
-        window.localStorage.getItem(
-          "finance_organization_name"
-        ) ?? ""
-      ).trim();
-
-    if (stored) {
-      return stored;
-    }
-  }
-
-  return "المنظمة";
 }
 
 
@@ -351,6 +325,12 @@ function normalizeRow(
             row.contract_status
           )
         : null,
+    follow_up_status:
+      row.follow_up_status === "paid" ||
+      row.follow_up_status === "overdue" ||
+      row.follow_up_status === "not_due"
+        ? row.follow_up_status
+        : "not_due",
     days_late:
       Number(
         row.days_late ?? 0
@@ -494,9 +474,16 @@ function matchesDelayFilter(
   daysLate: number,
   filter: DelayFilter
 ) {
-  if (filter === "7-15") {
+  if (filter === "1-7") {
     return (
-      daysLate >= 7 &&
+      daysLate >= 1 &&
+      daysLate <= 7
+    );
+  }
+
+  if (filter === "8-15") {
+    return (
+      daysLate >= 8 &&
       daysLate <= 15
     );
   }
@@ -568,7 +555,7 @@ export default function FollowUpPage() {
   const [
     organizationName,
     setOrganizationName,
-  ] = useState("المنظمة");
+  ] = useState("");
 
   const [rows, setRows] =
     useState<FollowUpRow[]>([]);
@@ -594,6 +581,14 @@ export default function FollowUpPage() {
     setNoteFilter,
   ] =
     useState<NoteFilter>(
+      "all"
+    );
+
+  const [
+    sortType,
+    setSortType,
+  ] =
+    useState<SortType>(
       "all"
     );
 
@@ -799,6 +794,28 @@ export default function FollowUpPage() {
           }
 
           if (
+            sortType === "paid" &&
+            row.follow_up_status !== "paid"
+          ) {
+            return false;
+          }
+
+          if (
+            sortType === "overdue" &&
+            row.follow_up_status !== "overdue"
+          ) {
+            return false;
+          }
+
+          if (
+            sortType === "not-due" &&
+            row.follow_up_status !== "not_due"
+          ) {
+            return false;
+          }
+
+          if (
+            sortType === "overdue" &&
             !matchesDelayFilter(
               row.days_late,
               delayFilter
@@ -815,6 +832,7 @@ export default function FollowUpPage() {
       search,
       investorFilter,
       noteFilter,
+      sortType,
       delayFilter,
     ]);
 
@@ -864,6 +882,15 @@ export default function FollowUpPage() {
   const withNotesCount =
     filteredRows.length -
     withoutNotesCount;
+
+
+  const overdueCount =
+    rows.filter(
+      (row) =>
+        row.follow_up_status ===
+        "overdue"
+    ).length;
+
 
   useEffect(() => {
     function updateScreen() {
@@ -978,11 +1005,6 @@ export default function FollowUpPage() {
           )
         );
 
-        setOrganizationName(
-          getOrganizationName(
-            user
-          )
-        );
 
         setAuthChecked(true);
         return;
@@ -1038,11 +1060,6 @@ export default function FollowUpPage() {
             )
           );
 
-          setOrganizationName(
-            getOrganizationName(
-              payload.user
-            )
-          );
 
           setAuthChecked(true);
           return;
@@ -1143,11 +1160,6 @@ export default function FollowUpPage() {
           )
         );
 
-        setOrganizationName(
-          getOrganizationName(
-            updatedUser
-          )
-        );
       },
     });
   }, [
@@ -1183,8 +1195,16 @@ export default function FollowUpPage() {
     search,
     investorFilter,
     noteFilter,
+    sortType,
     delayFilter,
   ]);
+
+
+  useEffect(() => {
+    if (sortType !== "overdue") {
+      setDelayFilter("all");
+    }
+  }, [sortType]);
 
   useEffect(() => {
     if (
@@ -1387,6 +1407,13 @@ export default function FollowUpPage() {
           payload.server_date ??
             ""
         )
+      );
+
+      setOrganizationName(
+        String(
+          payload.organization_name ??
+            ""
+        ).trim()
       );
 
       if (notesRow) {
@@ -1770,6 +1797,17 @@ export default function FollowUpPage() {
       return;
     }
 
+    const safeOrganizationName =
+      organizationName.trim();
+
+    if (!safeOrganizationName) {
+      window.alert(
+        "تعذر جلب اسم المنظمة لهذا الفرع"
+      );
+
+      return;
+    }
+
     const dueDate =
       formatGregorianDate(
         row.payment_due_date
@@ -1787,7 +1825,7 @@ export default function FollowUpPage() {
     const message =
       `السلام عليكم ورحمة الله وبركاته
 
-نود تذكيركم بإستحقاقكم للسداد بتاريخ (${dueDate}) للعقد رقم (${contractNumber}) بمبلغ (${amount}) لدى (${organizationName})
+نود تذكيركم بإستحقاقكم للسداد بتاريخ (${dueDate}) للعقد رقم (${contractNumber}) بمبلغ (${amount}) لدى (${safeOrganizationName})
 شاكرين التزامكم .`;
 
     window.open(
@@ -2059,7 +2097,7 @@ export default function FollowUpPage() {
           <StatCard
             label="العقود المتأخرة"
             value={String(
-              filteredRows.length
+              overdueCount
             )}
           />
 
@@ -2119,7 +2157,7 @@ export default function FollowUpPage() {
               label="المستثمر"
             >
               <select
-                className="follow-up-input"
+                className="follow-up-input follow-up-select"
                 style={input}
                 value={
                   investorFilter
@@ -2151,7 +2189,7 @@ export default function FollowUpPage() {
               label="حالة المتابعة"
             >
               <select
-                className="follow-up-input"
+                className="follow-up-input follow-up-select"
                 style={input}
                 value={noteFilter}
                 onChange={(event) =>
@@ -2176,40 +2214,78 @@ export default function FollowUpPage() {
             </Field>
 
             <Field
-              label="مدة التأخير"
+              label="نوع الفرز"
             >
               <select
-                className="follow-up-input"
+                className="follow-up-input follow-up-select"
                 style={input}
-                value={delayFilter}
+                value={sortType}
                 onChange={(event) =>
-                  setDelayFilter(
+                  setSortType(
                     event.target
-                      .value as DelayFilter
+                      .value as SortType
                   )
                 }
               >
                 <option value="all">
-                  جميع المدد
+                  الجميع
                 </option>
 
-                <option value="7-15">
-                  من 7 إلى 15 يومًا
+                <option value="paid">
+                  تم السداد
                 </option>
 
-                <option value="16-30">
-                  من 16 إلى 30 يومًا
+                <option value="overdue">
+                  متأخر
                 </option>
 
-                <option value="31-60">
-                  من 31 إلى 60 يومًا
-                </option>
-
-                <option value="61-plus">
-                  أكثر من 60 يومًا
+                <option value="not-due">
+                  لم يحل موعده
                 </option>
               </select>
             </Field>
+
+            {sortType === "overdue" && (
+              <Field
+                label="مدة التأخير"
+              >
+                <select
+                  className="follow-up-input follow-up-select"
+                  style={input}
+                  value={delayFilter}
+                  onChange={(event) =>
+                    setDelayFilter(
+                      event.target
+                        .value as DelayFilter
+                    )
+                  }
+                >
+                  <option value="all">
+                    جميع المتأخرين
+                  </option>
+
+                  <option value="1-7">
+                    من يوم إلى 7 أيام
+                  </option>
+
+                  <option value="8-15">
+                    من 8 إلى 15 يومًا
+                  </option>
+
+                  <option value="16-30">
+                    من 16 إلى 30 يومًا
+                  </option>
+
+                  <option value="31-60">
+                    من 31 إلى 60 يومًا
+                  </option>
+
+                  <option value="61-plus">
+                    أكثر من 60 يومًا
+                  </option>
+                </select>
+              </Field>
+            )}
 
             <button
               type="button"
@@ -2239,7 +2315,7 @@ export default function FollowUpPage() {
             <div
               style={emptyBox}
             >
-              لا توجد عقود متأخرة مطابقة للفلاتر الحالية.
+              لا توجد عقود مطابقة للفلاتر الحالية.
             </div>
           ) : isMobile ? (
             <div
@@ -2270,11 +2346,14 @@ export default function FollowUpPage() {
                       </strong>
 
                       <span
-                        style={
-                          lateBadge
-                        }
+                        style={getStatusBadgeStyle(
+                          row.follow_up_status
+                        )}
                       >
-                        {row.days_late} يوم
+                        {getStatusLabel(
+                          row.follow_up_status,
+                          row.days_late
+                        )}
                       </span>
                     </div>
 
@@ -2452,11 +2531,14 @@ export default function FollowUpPage() {
 
                         <td style={td}>
                           <span
-                            style={
-                              lateBadge
-                            }
+                            style={getStatusBadgeStyle(
+                              row.follow_up_status
+                            )}
                           >
-                            {row.days_late} يوم
+                            {getStatusLabel(
+                              row.follow_up_status,
+                              row.days_late
+                            )}
                           </span>
                         </td>
 
@@ -2896,6 +2978,46 @@ export default function FollowUpPage() {
   );
 }
 
+
+function getStatusLabel(
+  status: FollowUpRow["follow_up_status"],
+  daysLate: number
+) {
+  if (status === "paid") {
+    return "تم السداد";
+  }
+
+  if (status === "overdue") {
+    return `متأخر ${daysLate} يوم`;
+  }
+
+  return "لم يحل موعده";
+}
+
+function getStatusBadgeStyle(
+  status: FollowUpRow["follow_up_status"]
+): CSSProperties {
+  if (status === "paid") {
+    return {
+      ...lateBadge,
+      background: "#dcfce7",
+      color: "#166534",
+      border: "1px solid #bbf7d0",
+    };
+  }
+
+  if (status === "not_due") {
+    return {
+      ...lateBadge,
+      background: "#e0f2fe",
+      color: "#075985",
+      border: "1px solid #bae6fd",
+    };
+  }
+
+  return lateBadge;
+}
+
 function Field({
   label,
   children,
@@ -3226,6 +3348,20 @@ function GlobalStyles() {
         box-shadow:
           0 0 0 4px rgba(59,130,246,0.11) !important;
         background: #ffffff !important;
+      }
+
+      .follow-up-select {
+        appearance: none;
+        -webkit-appearance: none;
+        background-image:
+          linear-gradient(45deg, transparent 50%, #64748b 50%),
+          linear-gradient(135deg, #64748b 50%, transparent 50%);
+        background-position:
+          16px calc(50% - 2px),
+          11px calc(50% - 2px);
+        background-size: 5px 5px, 5px 5px;
+        background-repeat: no-repeat;
+        padding-left: 32px !important;
       }
 
       button:disabled {
@@ -3704,15 +3840,17 @@ const labelStyle: CSSProperties = {
 
 const input: CSSProperties = {
   width: "100%",
-  minHeight: 45,
-  padding: "11px 13px",
-  borderRadius: 12,
+  minHeight: 42,
+  padding: "9px 12px",
+  borderRadius: 11,
   border:
-    "1px solid #d9e3f5",
-  fontSize: 14,
-  background: "#ffffff",
+    "1px solid #dbe4f0",
+  fontSize: 13,
+  background: "rgba(255,255,255,0.96)",
   color: "#0f172a",
   outline: "none",
+  boxShadow:
+    "0 2px 8px rgba(15,23,42,0.025)",
 };
 
 const refreshButton: CSSProperties = {
@@ -4198,7 +4336,4 @@ const cancelModalButton: CSSProperties = {
   borderRadius: 11,
   background: "#f8fafc",
   color: "#475569",
-  padding: "12px 14px",
-  fontWeight: 900,
-  cursor: "pointer",
-};
+  padding: "12px 14p
