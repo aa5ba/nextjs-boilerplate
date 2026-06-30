@@ -799,6 +799,8 @@ export default function FollowUpPage() {
           router,
           {
             branchSlug: branch,
+            preserveReturnPath:
+              true,
           }
         );
       },
@@ -2278,6 +2280,10 @@ export default function FollowUpPage() {
                                       row
                                     )
                                   }
+                                  disabled={
+                                    savingNote ||
+                                    deletingNote
+                                  }
                                 >
                                   إضافة
                                 </button>
@@ -2295,6 +2301,10 @@ export default function FollowUpPage() {
                                         row
                                       )
                                     }
+                                    disabled={
+                                      savingNote ||
+                                      deletingNote
+                                    }
                                   >
                                     تعديل
                                   </button>
@@ -2311,6 +2321,10 @@ export default function FollowUpPage() {
                                 openCreateNote(
                                   row
                                 )
+                              }
+                              disabled={
+                                savingNote ||
+                                deletingNote
                               }
                             >
                               إضافة ملاحظة
@@ -2446,8 +2460,8 @@ export default function FollowUpPage() {
             style={
               modalOverlay
             }
-            onMouseDown={
-              closeModal
+            onMouseDown={() =>
+              closeModal()
             }
           >
             <div
@@ -2497,8 +2511,8 @@ export default function FollowUpPage() {
                   style={
                     closeModalButton
                   }
-                  onClick={
-                    closeModal
+                  onClick={() =>
+                    closeModal()
                   }
                 >
                   ×
@@ -2598,8 +2612,8 @@ export default function FollowUpPage() {
                     savingNote ||
                     deletingNote
                   }
-                  onClick={
-                    closeModal
+                  onClick={() =>
+                    closeModal()
                   }
                 >
                   إلغاء
