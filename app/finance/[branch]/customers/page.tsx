@@ -7,7 +7,11 @@ import {
   useState,
 } from "react";
 import type { CSSProperties } from "react";
-import { useParams, useRouter } from "next/navigation";
+import {
+  useParams,
+  useRouter,
+  useSearchParams,
+} from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import {
   getFinanceEmployeeName,
@@ -128,6 +132,7 @@ type VerificationApiResponse = {
 export default function FinanceCustomersPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const branch = String(
     params.branch ?? ""
@@ -906,6 +911,52 @@ export default function FinanceCustomersPage() {
   }, [
     authorized,
     canViewPage,
+  ]);
+
+  useEffect(() => {
+    if (
+      !authorized ||
+      accessDenied
+    ) {
+      return;
+    }
+
+    const shouldOpenVerification =
+      searchParams.get("verify") === "1";
+
+    if (!shouldOpenVerification) {
+      return;
+    }
+
+    if (!canVerifyCustomers) {
+      router.replace(
+        `/finance/${branch}/customers`,
+        {
+          scroll: false,
+        }
+      );
+
+      return;
+    }
+
+    setShowVerificationModal(true);
+    setVerificationNationalId("");
+    setVerificationResult(null);
+    setVerificationError("");
+
+    router.replace(
+      `/finance/${branch}/customers`,
+      {
+        scroll: false,
+      }
+    );
+  }, [
+    accessDenied,
+    authorized,
+    branch,
+    canVerifyCustomers,
+    router,
+    searchParams,
   ]);
 
   useEffect(() => {
