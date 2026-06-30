@@ -573,10 +573,13 @@ export async function GET(
                   count: "exact",
                 }
               )
-              .eq(
-                "role",
-                BRANCH_MANAGER_ROLE
-              )
+             .in(
+  "role",
+  [
+    "مدير فرع",
+    "مدير رئيسي",
+  ]
+)
               .eq(
                 "finance_branches.is_deleted",
                 false
