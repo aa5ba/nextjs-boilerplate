@@ -852,6 +852,8 @@ export async function GET(
               daysLate,
             latest_note:
               latestNote,
+            notes:
+              contractNotes,
             notes_count:
               contractNotes.length,
           };
