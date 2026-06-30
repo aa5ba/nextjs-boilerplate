@@ -91,6 +91,7 @@ const MANAGER_ROLES = new Set([
   "main_admin",
   "branch_manager",
   "مدير رئيسي",
+  "مدير فرع",
   "مدير",
 ]);
 
