@@ -1,0 +1,1308 @@
+import { NextRequest, NextResponse } from "next/server";
+import { requireFinanceBranchSession } from "@/lib/financeBranchSession";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const MANAGER_ROLES = new Set([
+  "main_admin",
+  "branch_manager",
+  "مدير رئيسي",
+  "مدير فرع",
+  "مدير",
+]);
+
+const CLOSED_STATUSES = new Set([
+  "تم السداد",
+  "مسدد",
+  "مغلق",
+  "ملغي",
+  "paid",
+  "closed",
+  "cancelled",
+  "canceled",
+]);
+
+type FollowUpNoteRow = {
+  id: string;
+  branch_id: string;
+  contract_id: string;
+  customer_id: string | null;
+  investor_id: string | null;
+  note_text: string;
+  created_by_user_id: string;
+  created_by_name: string;
+  created_at: string;
+  updated_at: string | null;
+};
+
+type FollowUpContractRow = {
+  id: string;
+  branch_id: string;
+  contract_number: string | null;
+  customer_id: string | null;
+  investor_id: string | null;
+  investor_name: string | null;
+  remaining_amount: number | string | null;
+  debt_amount: number | string | null;
+  payment_amount: number | string | null;
+  payment_due_date: string | null;
+  contract_status: string | null;
+};
+
+type CustomerRow = {
+  id: string;
+  full_name: string | null;
+  phone: string | null;
+  national_id: string | null;
+};
+
+type SessionShape = {
+  user_id?: string;
+  id?: string;
+  full_name?: string;
+  username?: string;
+  role?: string;
+  permissions?: string[];
+  branch_id?: string;
+  branchId?: string;
+};
+
+type AuthResultShape = {
+  ok?: boolean;
+  response?: NextResponse;
+  session?: SessionShape;
+  user?: SessionShape;
+  branch?: {
+    id?: string;
+    branch_id?: string;
+    slug?: string;
+  };
+};
+
+function json(
+  body: Record<string, unknown>,
+  status = 200
+) {
+  return NextResponse.json(body, {
+    status,
+    headers: {
+      "Cache-Control":
+        "no-store, no-cache, must-revalidate",
+    },
+  });
+}
+
+function cleanText(
+  value: unknown,
+  maxLength: number
+) {
+  return String(value ?? "")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function normalizeMoney(
+  value: unknown
+) {
+  const amount = Number(value ?? 0);
+
+  return Number.isFinite(amount)
+    ? amount
+    : 0;
+}
+
+function normalizeStatus(
+  value: unknown
+) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase();
+}
+
+function isManagerRole(
+  role: unknown
+) {
+  return MANAGER_ROLES.has(
+    String(role ?? "").trim()
+  );
+}
+
+function getTodaySaudiDate() {
+  return new Intl.DateTimeFormat(
+    "en-CA",
+    {
+      timeZone: "Asia/Riyadh",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }
+  ).format(new Date());
+}
+
+function subtractDays(
+  isoDate: string,
+  days: number
+) {
+  const [year, month, day] =
+    isoDate.split("-").map(Number);
+
+  const date = new Date(
+    Date.UTC(
+      year,
+      month - 1,
+      day
+    )
+  );
+
+  date.setUTCDate(
+    date.getUTCDate() - days
+  );
+
+  return date
+    .toISOString()
+    .slice(0, 10);
+}
+
+function calculateDaysLate(
+  dueDate: string | null,
+  todayIso: string
+) {
+  if (!dueDate) return 0;
+
+  const due = new Date(
+    `${dueDate.slice(0, 10)}T00:00:00Z`
+  );
+
+  const today = new Date(
+    `${todayIso}T00:00:00Z`
+  );
+
+  const difference =
+    today.getTime() -
+    due.getTime();
+
+  if (
+    !Number.isFinite(difference)
+  ) {
+    return 0;
+  }
+
+  return Math.max(
+    0,
+    Math.floor(
+      difference /
+        86_400_000
+    )
+  );
+}
+
+async function authorize(
+  request: NextRequest,
+  branchSlug: string
+) {
+  /*
+    يعتمد هذا الاستدعاء على ملف:
+    lib/financeBranchSession.ts
+
+    ويجب أن يعيد:
+    {
+      ok: true,
+      session: {
+        user_id,
+        full_name,
+        role,
+        permissions,
+        branch_id
+      }
+    }
+
+    أو عند الفشل:
+    {
+      ok: false,
+      response: NextResponse
+    }
+  */
+  const auth =
+    (await requireFinanceBranchSession(
+      request,
+      {
+        branchSlug,
+        requiredPermission:
+          "follow_up",
+      }
+    )) as AuthResultShape;
+
+  if (
+    !auth?.ok ||
+    !auth.session
+  ) {
+    return {
+      ok: false as const,
+      response:
+        auth?.response ??
+        json(
+          {
+            ok: false,
+            code: "INVALID_SESSION",
+            message:
+              "الجلسة غير صالحة أو منتهية",
+          },
+          401
+        ),
+    };
+  }
+
+  const session =
+    auth.session;
+
+  const branchId =
+    cleanText(
+      session.branch_id ??
+        session.branchId ??
+        auth.branch?.id ??
+        auth.branch?.branch_id,
+      80
+    );
+
+  const userId =
+    cleanText(
+      session.user_id ??
+        session.id,
+      80
+    );
+
+  const userName =
+    cleanText(
+      session.full_name ??
+        session.username ??
+        "الموظف",
+      160
+    );
+
+  const role =
+    cleanText(
+      session.role,
+      80
+    );
+
+  if (
+    !branchId ||
+    !userId
+  ) {
+    return {
+      ok: false as const,
+      response: json(
+        {
+          ok: false,
+          code: "INVALID_SESSION",
+          message:
+            "تعذر تحديد المستخدم أو الفرع",
+        },
+        401
+      ),
+    };
+  }
+
+  return {
+    ok: true as const,
+    branchId,
+    userId,
+    userName,
+    role,
+  };
+}
+
+async function ensureContractAccess(
+  contractId: string,
+  branchId: string
+) {
+  const {
+    data,
+    error,
+  } = await supabaseAdmin
+    .from("finance_contracts")
+    .select(
+      [
+        "id",
+        "branch_id",
+        "contract_number",
+        "customer_id",
+        "investor_id",
+        "investor_name",
+        "remaining_amount",
+        "debt_amount",
+        "payment_amount",
+        "payment_due_date",
+        "contract_status",
+      ].join(",")
+    )
+    .eq("id", contractId)
+    .eq("branch_id", branchId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(
+      error.message
+    );
+  }
+
+  if (!data) {
+    return {
+      ok: false as const,
+      response: json(
+        {
+          ok: false,
+          code: "CONTRACT_NOT_FOUND",
+          message:
+            "العقد غير موجود في هذا الفرع",
+        },
+        404
+      ),
+    };
+  }
+
+  const contract =
+    data as FollowUpContractRow;
+
+  const today =
+    getTodaySaudiDate();
+
+  const daysLate =
+    calculateDaysLate(
+      contract.payment_due_date,
+      today
+    );
+
+  const remainingAmount =
+    normalizeMoney(
+      contract.remaining_amount
+    );
+
+  const status =
+    normalizeStatus(
+      contract.contract_status
+    );
+
+  const isClosed =
+    CLOSED_STATUSES.has(status);
+
+  if (
+    remainingAmount <= 0 ||
+    isClosed ||
+    daysLate < 7
+  ) {
+    return {
+      ok: false as const,
+      response: json(
+        {
+          ok: false,
+          code:
+            "CONTRACT_NOT_OVERDUE",
+          message:
+            "لا يمكن إضافة متابعة لأن العقد غير متأخر 7 أيام كاملة أو لا يوجد عليه مبلغ متبقٍ",
+        },
+        409
+      ),
+    };
+  }
+
+  return {
+    ok: true as const,
+    contract,
+    daysLate,
+    remainingAmount,
+  };
+}
+
+export async function GET(
+  request: NextRequest
+) {
+  try {
+    const branchSlug =
+      cleanText(
+        request.nextUrl
+          .searchParams
+          .get("branch"),
+        120
+      );
+
+    if (!branchSlug) {
+      return json(
+        {
+          ok: false,
+          code:
+            "BRANCH_REQUIRED",
+          message:
+            "معرف الفرع مطلوب",
+        },
+        400
+      );
+    }
+
+    const auth =
+      await authorize(
+        request,
+        branchSlug
+      );
+
+    if (!auth.ok) {
+      return auth.response;
+    }
+
+    const today =
+      getTodaySaudiDate();
+
+    const overdueCutoff =
+      subtractDays(
+        today,
+        7
+      );
+
+    const {
+      data: contractsData,
+      error: contractsError,
+    } = await supabaseAdmin
+      .from("finance_contracts")
+      .select(
+        [
+          "id",
+          "branch_id",
+          "contract_number",
+          "customer_id",
+          "investor_id",
+          "investor_name",
+          "remaining_amount",
+          "debt_amount",
+          "payment_amount",
+          "payment_due_date",
+          "contract_status",
+        ].join(",")
+      )
+      .eq(
+        "branch_id",
+        auth.branchId
+      )
+      .gt(
+        "remaining_amount",
+        0
+      )
+      .not(
+        "payment_due_date",
+        "is",
+        null
+      )
+      .lte(
+        "payment_due_date",
+        overdueCutoff
+      )
+      .order(
+        "payment_due_date",
+        {
+          ascending: true,
+        }
+      )
+      .limit(2000);
+
+    if (contractsError) {
+      throw new Error(
+        contractsError.message
+      );
+    }
+
+    const contracts =
+      (
+        Array.isArray(
+          contractsData
+        )
+          ? contractsData
+          : []
+      ).filter((row) => {
+        const status =
+          normalizeStatus(
+            row.contract_status
+          );
+
+        return !CLOSED_STATUSES.has(
+          status
+        );
+      }) as FollowUpContractRow[];
+
+    const customerIds =
+      Array.from(
+        new Set(
+          contracts
+            .map(
+              (contract) =>
+                contract.customer_id
+            )
+            .filter(
+              (
+                value
+              ): value is string =>
+                Boolean(value)
+            )
+        )
+      );
+
+    const contractIds =
+      contracts.map(
+        (contract) =>
+          contract.id
+      );
+
+    let customers: CustomerRow[] =
+      [];
+
+    if (
+      customerIds.length > 0
+    ) {
+      const {
+        data,
+        error,
+      } = await supabaseAdmin
+        .from(
+          "finance_customers"
+        )
+        .select(
+          "id,full_name,phone,national_id"
+        )
+        .eq(
+          "branch_id",
+          auth.branchId
+        )
+        .in(
+          "id",
+          customerIds
+        );
+
+      if (error) {
+        throw new Error(
+          error.message
+        );
+      }
+
+      customers =
+        Array.isArray(data)
+          ? (data as CustomerRow[])
+          : [];
+    }
+
+    let notes: FollowUpNoteRow[] =
+      [];
+
+    if (
+      contractIds.length > 0
+    ) {
+      const {
+        data,
+        error,
+      } = await supabaseAdmin
+        .from(
+          "finance_followup_notes"
+        )
+        .select(
+          [
+            "id",
+            "branch_id",
+            "contract_id",
+            "customer_id",
+            "investor_id",
+            "note_text",
+            "created_by_user_id",
+            "created_by_name",
+            "created_at",
+            "updated_at",
+          ].join(",")
+        )
+        .eq(
+          "branch_id",
+          auth.branchId
+        )
+        .in(
+          "contract_id",
+          contractIds
+        )
+        .order(
+          "created_at",
+          {
+            ascending: false,
+          }
+        )
+        .limit(5000);
+
+      if (error) {
+        throw new Error(
+          error.message
+        );
+      }
+
+      notes =
+        Array.isArray(data)
+          ? (data as FollowUpNoteRow[])
+          : [];
+    }
+
+    const customerMap =
+      new Map(
+        customers.map(
+          (customer) => [
+            customer.id,
+            customer,
+          ]
+        )
+      );
+
+    const notesByContract =
+      new Map<
+        string,
+        FollowUpNoteRow[]
+      >();
+
+    for (
+      const note of notes
+    ) {
+      const existing =
+        notesByContract.get(
+          note.contract_id
+        ) ?? [];
+
+      existing.push(note);
+
+      notesByContract.set(
+        note.contract_id,
+        existing
+      );
+    }
+
+    const rows =
+      contracts
+        .map((contract) => {
+          const customer =
+            contract.customer_id
+              ? customerMap.get(
+                  contract.customer_id
+                )
+              : undefined;
+
+          const contractNotes =
+            notesByContract.get(
+              contract.id
+            ) ?? [];
+
+          const latestNote =
+            contractNotes[0] ??
+            null;
+
+          const daysLate =
+            calculateDaysLate(
+              contract.payment_due_date,
+              today
+            );
+
+          return {
+            id: contract.id,
+            contract_id:
+              contract.id,
+            contract_number:
+              contract.contract_number,
+            customer_id:
+              contract.customer_id,
+            customer_name:
+              customer?.full_name ??
+              "-",
+            customer_phone:
+              customer?.phone ??
+              null,
+            customer_national_id:
+              customer?.national_id ??
+              null,
+            investor_id:
+              contract.investor_id,
+            investor_name:
+              contract.investor_name,
+            remaining_amount:
+              normalizeMoney(
+                contract.remaining_amount
+              ),
+            debt_amount:
+              normalizeMoney(
+                contract.debt_amount
+              ),
+            payment_amount:
+              normalizeMoney(
+                contract.payment_amount
+              ),
+            payment_due_date:
+              contract.payment_due_date,
+            contract_status:
+              contract.contract_status,
+            days_late:
+              daysLate,
+            latest_note:
+              latestNote,
+            notes_count:
+              contractNotes.length,
+          };
+        })
+        .filter(
+          (row) =>
+            row.days_late >= 7 &&
+            row.remaining_amount >
+              0
+        );
+
+    return json({
+      ok: true,
+      branch_id:
+        auth.branchId,
+      server_date: today,
+      overdue_count:
+        rows.length,
+      rows,
+    });
+  } catch (error) {
+    console.error(
+      "Follow-up GET error:",
+      error
+    );
+
+    return json(
+      {
+        ok: false,
+        code:
+          "FOLLOW_UP_LOAD_FAILED",
+        message:
+          error instanceof Error
+            ? error.message
+            : "تعذر تحميل بيانات المتابعة",
+      },
+      500
+    );
+  }
+}
+
+export async function POST(
+  request: NextRequest
+) {
+  try {
+    const body =
+      (await request.json()) as Record<
+        string,
+        unknown
+      >;
+
+    const branchSlug =
+      cleanText(
+        body.branch,
+        120
+      );
+
+    const contractId =
+      cleanText(
+        body.contractId,
+        80
+      );
+
+    const noteText =
+      cleanText(
+        body.noteText,
+        2000
+      );
+
+    if (!branchSlug) {
+      return json(
+        {
+          ok: false,
+          code:
+            "BRANCH_REQUIRED",
+          message:
+            "معرف الفرع مطلوب",
+        },
+        400
+      );
+    }
+
+    if (!contractId) {
+      return json(
+        {
+          ok: false,
+          code:
+            "CONTRACT_REQUIRED",
+          message:
+            "العقد مطلوب",
+        },
+        400
+      );
+    }
+
+    if (
+      noteText.length < 2
+    ) {
+      return json(
+        {
+          ok: false,
+          code:
+            "NOTE_REQUIRED",
+          message:
+            "اكتب ملاحظة متابعة صحيحة",
+        },
+        400
+      );
+    }
+
+    const auth =
+      await authorize(
+        request,
+        branchSlug
+      );
+
+    if (!auth.ok) {
+      return auth.response;
+    }
+
+    const access =
+      await ensureContractAccess(
+        contractId,
+        auth.branchId
+      );
+
+    if (!access.ok) {
+      return access.response;
+    }
+
+    const {
+      data,
+      error,
+    } = await supabaseAdmin
+      .from(
+        "finance_followup_notes"
+      )
+      .insert({
+        branch_id:
+          auth.branchId,
+        contract_id:
+          access.contract.id,
+        customer_id:
+          access.contract
+            .customer_id ??
+          null,
+        investor_id:
+          access.contract
+            .investor_id ??
+          null,
+        note_text:
+          noteText,
+        created_by_user_id:
+          auth.userId,
+        created_by_name:
+          auth.userName,
+      })
+      .select(
+        [
+          "id",
+          "branch_id",
+          "contract_id",
+          "customer_id",
+          "investor_id",
+          "note_text",
+          "created_by_user_id",
+          "created_by_name",
+          "created_at",
+          "updated_at",
+        ].join(",")
+      )
+      .single();
+
+    if (error) {
+      throw new Error(
+        error.message
+      );
+    }
+
+    return json(
+      {
+        ok: true,
+        message:
+          "تمت إضافة ملاحظة المتابعة بنجاح",
+        note: data,
+      },
+      201
+    );
+  } catch (error) {
+    console.error(
+      "Follow-up POST error:",
+      error
+    );
+
+    return json(
+      {
+        ok: false,
+        code:
+          "FOLLOW_UP_CREATE_FAILED",
+        message:
+          error instanceof Error
+            ? error.message
+            : "تعذر إضافة ملاحظة المتابعة",
+      },
+      500
+    );
+  }
+}
+
+export async function PATCH(
+  request: NextRequest
+) {
+  try {
+    const body =
+      (await request.json()) as Record<
+        string,
+        unknown
+      >;
+
+    const branchSlug =
+      cleanText(
+        body.branch,
+        120
+      );
+
+    const noteId =
+      cleanText(
+        body.noteId,
+        80
+      );
+
+    const noteText =
+      cleanText(
+        body.noteText,
+        2000
+      );
+
+    if (
+      !branchSlug ||
+      !noteId
+    ) {
+      return json(
+        {
+          ok: false,
+          code:
+            "INVALID_REQUEST",
+          message:
+            "بيانات التعديل غير مكتملة",
+        },
+        400
+      );
+    }
+
+    if (
+      noteText.length < 2
+    ) {
+      return json(
+        {
+          ok: false,
+          code:
+            "NOTE_REQUIRED",
+          message:
+            "اكتب ملاحظة متابعة صحيحة",
+        },
+        400
+      );
+    }
+
+    const auth =
+      await authorize(
+        request,
+        branchSlug
+      );
+
+    if (!auth.ok) {
+      return auth.response;
+    }
+
+    const {
+      data: existing,
+      error: existingError,
+    } = await supabaseAdmin
+      .from(
+        "finance_followup_notes"
+      )
+      .select(
+        [
+          "id",
+          "branch_id",
+          "contract_id",
+          "created_by_user_id",
+        ].join(",")
+      )
+      .eq(
+        "id",
+        noteId
+      )
+      .eq(
+        "branch_id",
+        auth.branchId
+      )
+      .maybeSingle();
+
+    if (existingError) {
+      throw new Error(
+        existingError.message
+      );
+    }
+
+    if (!existing) {
+      return json(
+        {
+          ok: false,
+          code:
+            "NOTE_NOT_FOUND",
+          message:
+            "ملاحظة المتابعة غير موجودة",
+        },
+        404
+      );
+    }
+
+    const canManage =
+      existing.created_by_user_id ===
+        auth.userId ||
+      isManagerRole(
+        auth.role
+      );
+
+    if (!canManage) {
+      return json(
+        {
+          ok: false,
+          code:
+            "FORBIDDEN",
+          message:
+            "لا يمكنك تعديل ملاحظة أنشأها مستخدم آخر",
+        },
+        403
+      );
+    }
+
+    const {
+      data,
+      error,
+    } = await supabaseAdmin
+      .from(
+        "finance_followup_notes"
+      )
+      .update({
+        note_text:
+          noteText,
+        updated_at:
+          new Date().toISOString(),
+      })
+      .eq(
+        "id",
+        noteId
+      )
+      .eq(
+        "branch_id",
+        auth.branchId
+      )
+      .select(
+        [
+          "id",
+          "branch_id",
+          "contract_id",
+          "customer_id",
+          "investor_id",
+          "note_text",
+          "created_by_user_id",
+          "created_by_name",
+          "created_at",
+          "updated_at",
+        ].join(",")
+      )
+      .single();
+
+    if (error) {
+      throw new Error(
+        error.message
+      );
+    }
+
+    return json({
+      ok: true,
+      message:
+        "تم تعديل ملاحظة المتابعة بنجاح",
+      note: data,
+    });
+  } catch (error) {
+    console.error(
+      "Follow-up PATCH error:",
+      error
+    );
+
+    return json(
+      {
+        ok: false,
+        code:
+          "FOLLOW_UP_UPDATE_FAILED",
+        message:
+          error instanceof Error
+            ? error.message
+            : "تعذر تعديل ملاحظة المتابعة",
+      },
+      500
+    );
+  }
+}
+
+export async function DELETE(
+  request: NextRequest
+) {
+  try {
+    const branchSlug =
+      cleanText(
+        request.nextUrl
+          .searchParams
+          .get("branch"),
+        120
+      );
+
+    const noteId =
+      cleanText(
+        request.nextUrl
+          .searchParams
+          .get("noteId"),
+        80
+      );
+
+    if (
+      !branchSlug ||
+      !noteId
+    ) {
+      return json(
+        {
+          ok: false,
+          code:
+            "INVALID_REQUEST",
+          message:
+            "بيانات الحذف غير مكتملة",
+        },
+        400
+      );
+    }
+
+    const auth =
+      await authorize(
+        request,
+        branchSlug
+      );
+
+    if (!auth.ok) {
+      return auth.response;
+    }
+
+    const {
+      data: existing,
+      error: existingError,
+    } = await supabaseAdmin
+      .from(
+        "finance_followup_notes"
+      )
+      .select(
+        "id,branch_id,created_by_user_id"
+      )
+      .eq(
+        "id",
+        noteId
+      )
+      .eq(
+        "branch_id",
+        auth.branchId
+      )
+      .maybeSingle();
+
+    if (existingError) {
+      throw new Error(
+        existingError.message
+      );
+    }
+
+    if (!existing) {
+      return json(
+        {
+          ok: false,
+          code:
+            "NOTE_NOT_FOUND",
+          message:
+            "ملاحظة المتابعة غير موجودة",
+        },
+        404
+      );
+    }
+
+    const canManage =
+      existing.created_by_user_id ===
+        auth.userId ||
+      isManagerRole(
+        auth.role
+      );
+
+    if (!canManage) {
+      return json(
+        {
+          ok: false,
+          code:
+            "FORBIDDEN",
+          message:
+            "لا يمكنك حذف ملاحظة أنشأها مستخدم آخر",
+        },
+        403
+      );
+    }
+
+    const {
+      error,
+    } = await supabaseAdmin
+      .from(
+        "finance_followup_notes"
+      )
+      .delete()
+      .eq(
+        "id",
+        noteId
+      )
+      .eq(
+        "branch_id",
+        auth.branchId
+      );
+
+    if (error) {
+      throw new Error(
+        error.message
+      );
+    }
+
+    return json({
+      ok: true,
+      message:
+        "تم حذف ملاحظة المتابعة بنجاح",
+    });
+  } catch (error) {
+    console.error(
+      "Follow-up DELETE error:",
+      error
+    );
+
+    return json(
+      {
+        ok: false,
+        code:
+          "FOLLOW_UP_DELETE_FAILED",
+        message:
+          error instanceof Error
+            ? error.message
+            : "تعذر حذف ملاحظة المتابعة",
+      },
+      500
+    );
+  }
+}
