@@ -285,6 +285,20 @@ async function authorizeSupportSession(
       return null;
     }
 
+    const supportUserId =
+      cleanText(
+        payload.user.id,
+        80
+      );
+
+    if (
+      !isValidUuid(
+        supportUserId
+      )
+    ) {
+      return null;
+    }
+
     const {
       data: branchData,
       error: branchError,
@@ -315,10 +329,7 @@ async function authorizeSupportSession(
       branchId:
         branchRow.id,
       userId:
-        cleanText(
-          payload.user.id,
-          120
-        ),
+        supportUserId,
       userName:
         cleanText(
           payload.user.full_name ??
@@ -373,15 +384,11 @@ async function fetchAllContractsForBranch(
         "branch_id",
         branchId
       )
-      .not(
-        "payment_due_date",
-        "is",
-        null
-      )
       .order(
         "payment_due_date",
         {
           ascending: true,
+          nullsFirst: false,
         }
       )
       .range(
@@ -625,6 +632,16 @@ async function authorize(
     session.branchSlug !==
     normalizedBranchSlug
   ) {
+    const supportAuth =
+      await authorizeSupportSession(
+        request,
+        branchSlug
+      );
+
+    if (supportAuth) {
+      return supportAuth;
+    }
+
     return {
       ok: false as const,
       response: json(
@@ -717,6 +734,16 @@ async function authorize(
     !userRow ||
     userRow.is_active === false
   ) {
+    const supportAuth =
+      await authorizeSupportSession(
+        request,
+        branchSlug
+      );
+
+    if (supportAuth) {
+      return supportAuth;
+    }
+
     return {
       ok: false as const,
       response: json(
@@ -738,6 +765,16 @@ async function authorize(
     ) !==
     session.sessionVersion
   ) {
+    const supportAuth =
+      await authorizeSupportSession(
+        request,
+        branchSlug
+      );
+
+    if (supportAuth) {
+      return supportAuth;
+    }
+
     return {
       ok: false as const,
       response: json(
@@ -1069,9 +1106,11 @@ export async function GET(
               normalizedContractStatus
             )
               ? "paid"
-              : daysLate >= 1
-                ? "overdue"
-                : "not_due";
+              : !contract.payment_due_date
+                ? "not_due"
+                : daysLate >= 1
+                  ? "overdue"
+                  : "not_due";
 
           return {
             id: contract.id,
