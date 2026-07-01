@@ -54,7 +54,7 @@ export default function ActiveContractsPage() {
 
   const branch =
     typeof params.branch === "string"
-      ? params.branch.trim()
+      ? params.branch.trim().toLowerCase()
       : "";
 
   const [screen, setScreen] =
@@ -139,9 +139,7 @@ export default function ActiveContractsPage() {
   useEffect(() => {
     if (!branch) {
       clearFinanceSession();
-
       router.replace("/login");
-
       return;
     }
 
@@ -158,7 +156,6 @@ export default function ActiveContractsPage() {
           branchSlug: branch,
         }
       );
-
       return;
     }
 
@@ -179,7 +176,6 @@ export default function ActiveContractsPage() {
           branchSlug: branch,
         }
       );
-
       return;
     }
 
@@ -227,7 +223,6 @@ export default function ActiveContractsPage() {
 
         onInvalidated: () => {
           clearFinanceSession();
-
           router.replace("/login");
         },
 
@@ -242,9 +237,7 @@ export default function ActiveContractsPage() {
 
           if (!updatedBranchId) {
             clearFinanceSession();
-
             router.replace("/login");
-
             return;
           }
 
@@ -375,6 +368,9 @@ export default function ActiveContractsPage() {
           "branch_id",
           currentBranchId
         )
+        .or(
+          "is_archived.is.null,is_archived.eq.false"
+        )
         .in(
           "contract_status",
           [
@@ -427,7 +423,6 @@ export default function ActiveContractsPage() {
         setCurrentPage(
           calculatedTotalPages
         );
-
         return;
       }
 
@@ -928,7 +923,9 @@ export default function ActiveContractsPage() {
           <button
             type="button"
             style={backButton}
-          onClick={() => router.back()}
+            onClick={() =>
+              router.back()
+            }
           >
             ← رجوع
           </button>
