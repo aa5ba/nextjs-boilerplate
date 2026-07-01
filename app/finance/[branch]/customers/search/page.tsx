@@ -117,14 +117,15 @@ export default function SearchCustomersPage() {
       const cleanedSearch = cleanSearchValue(search);
       const normalizedSearch = normalizeNumber(cleanedSearch);
 
-      const { data, error } = await supabase
-        .from("finance_customers")
-        .select("*, finance_customer_groups(name)")
-        .eq("branch_id", branchId)
-        .or(
-          `full_name.ilike.%${cleanedSearch}%,national_id.ilike.%${normalizedSearch}%,phone.ilike.%${normalizedSearch}%`
-        )
-        .order("created_at", { ascending: false });
+     const { data, error } = await supabase
+  .from("finance_customers")
+  .select("*, finance_customer_groups(name)")
+  .eq("branch_id", branchId)
+  .or("is_archived.is.null,is_archived.eq.false")
+  .or(
+    `full_name.ilike.%${cleanedSearch}%,national_id.ilike.%${normalizedSearch}%,phone.ilike.%${normalizedSearch}%`
+  )
+  .order("created_at", { ascending: false });
 
       if (error) {
         alert(error.message || "تعذر البحث عن العميل");
