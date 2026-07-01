@@ -4,43 +4,21 @@ import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { getBranchId } from "@/lib/getBranchId";
+import {
+  clearFinanceSession,
+  getFinanceEmployeeName,
+  installFinanceActivityTracker,
+  logoutFinanceUser,
+  redirectToFinanceLogin,
+  validateFinanceSession,
+  type FinanceSessionUser,
+} from "@/lib/financeSession";
 
 const ITEMS_PER_PAGE = 25;
 
-const FINANCE_SESSION_KEYS = [
-  "finance_user",
-  "finance_branch_user",
-  "finance_user_id",
-  "finance_user_name",
-  "finance_username",
-  "finance_role",
-  "finance_branch_id",
-  "finance_branch_slug",
-  "finance_branch_name",
-  "finance_organization_name",
-  "finance_permissions",
-  "finance_investor_id",
-  "finance_is_active",
-  "finance_last_login_at",
-] as const;
 
 type ScreenType = "mobile" | "tablet" | "desktop";
 
-type FinanceUserSession = {
-  id?: string | null;
-  full_name?: string | null;
-  username?: string | null;
-  name?: string | null;
-  role?: string | null;
-  roles?: unknown;
-  branch_id?: string | null;
-  branch_slug?: string | null;
-  permissions?: unknown;
-  investor_id?: string | null;
-  is_active?: boolean | null;
-  last_login_at?: string | null;
-};
 
 type CustomerRelation = {
   id?: string | null;
@@ -82,9 +60,17 @@ export default function FinanceContractsPage() {
   const params = useParams();
   const router = useRouter();
 
-  const branch = String(params.branch ?? "").trim();
+  const branch = String(params.branch ?? "").trim().toLowerCase();
 
   const [authChecked, setAuthChecked] = useState(false);
+
+  const [sessionUser, setSessionUser] =
+    useState<FinanceSessionUser | null>(null);
+
+  const [
+    resolvedBranchId,
+    setResolvedBranchId,
+  ] = useState<string | null>(null);
 
   const [screen, setScreen] =
     useState<ScreenType>("desktop");
@@ -157,68 +143,154 @@ export default function FinanceContractsPage() {
   }, []);
 
   useEffect(() => {
+    if (!branch) {
+      clearFinanceSession();
+      router.replace("/login");
+      return;
+    }
+
+    const validation =
+      validateFinanceSession(branch);
+
+    if (
+      !validation.valid ||
+      !validation.user
+    ) {
+      redirectToFinanceLogin(
+        router,
+        {
+          branchSlug: branch,
+        }
+      );
+      return;
+    }
+
+    const authenticatedUser =
+      validation.user;
+
+    const currentBranchId =
+      String(
+        authenticatedUser.branch_id || ""
+      ).trim();
+
+    if (!currentBranchId) {
+      clearFinanceSession();
+
+      redirectToFinanceLogin(
+        router,
+        {
+          branchSlug: branch,
+        }
+      );
+      return;
+    }
+
+    setSessionUser(
+      authenticatedUser
+    );
+
+    setResolvedBranchId(
+      currentBranchId
+    );
+
+    applySession(
+      authenticatedUser
+    );
+
+    setContracts([]);
+    setCurrentPage(1);
+    setAuthChecked(true);
+  }, [branch, router]);
+
+  useEffect(() => {
+    if (
+      !authChecked ||
+      !sessionUser
+    ) {
+      return;
+    }
+
+    const uninstall =
+      installFinanceActivityTracker({
+        expectedBranchSlug: branch,
+
+        onExpired: () => {
+          redirectToFinanceLogin(
+            router,
+            {
+              branchSlug: branch,
+            }
+          );
+        },
+
+        onInvalidated: () => {
+          clearFinanceSession();
+          router.replace("/login");
+        },
+
+        onSessionUpdated: (
+          updatedUser
+        ) => {
+          const updatedBranchId =
+            String(
+              updatedUser.branch_id ||
+                ""
+            ).trim();
+
+          if (!updatedBranchId) {
+            clearFinanceSession();
+            router.replace("/login");
+            return;
+          }
+
+          setSessionUser(
+            updatedUser
+          );
+
+          setResolvedBranchId(
+            updatedBranchId
+          );
+
+          applySession(
+            updatedUser
+          );
+        },
+      });
+
+    return uninstall;
+  }, [
+    authChecked,
+    branch,
+    router,
+    sessionUser?.id,
+  ]);
+
+  useEffect(() => {
     let cancelled = false;
 
-    async function initializePage() {
-      setAuthChecked(false);
-      setLoading(true);
-
-      const session = readFinanceSession();
-
-      if (cancelled) return;
-
-      if (!isValidSession(session)) {
-        redirectToLogin();
-        return;
-      }
-
-      const currentBranchId =
-        await getBranchId(branch);
-
-      if (cancelled) return;
-
-      if (!currentBranchId) {
-        clearFinanceSession();
-        router.replace("/login");
-        return;
-      }
-
-      const sessionBranchId = String(
-        session?.branch_id ?? ""
-      ).trim();
-
-      const sessionBranchSlug = String(
-        session?.branch_slug ?? ""
-      ).trim();
-
+    async function fetchContracts() {
       if (
-        sessionBranchId !==
-          String(currentBranchId) ||
-        sessionBranchSlug !== branch
+        !authChecked ||
+        !resolvedBranchId
       ) {
-        clearFinanceSession();
-        router.replace("/login");
         return;
       }
-
-      applySession(session);
-
-      if (cancelled) return;
-
-      setAuthChecked(true);
 
       await loadContracts(
-        () => cancelled,
-        String(currentBranchId)
+        resolvedBranchId,
+        () => cancelled
       );
     }
 
-    void initializePage();
+    void fetchContracts();
 
     return () => {
       cancelled = true;
     };
-  }, [branch]);
+  }, [
+    authChecked,
+    resolvedBranchId,
+  ]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -231,98 +303,6 @@ export default function FinanceContractsPage() {
     toDate,
   ]);
 
-  function clearFinanceSession() {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    FINANCE_SESSION_KEYS.forEach((key) => {
-      localStorage.removeItem(key);
-    });
-  }
-
-  function redirectToLogin() {
-    clearFinanceSession();
-    router.replace("/login");
-  }
-
-  function readFinanceSession():
-    | FinanceUserSession
-    | null {
-    if (typeof window === "undefined") {
-      return null;
-    }
-
-    const savedUser =
-      localStorage.getItem("finance_user") ||
-      localStorage.getItem(
-        "finance_branch_user"
-      );
-
-    if (!savedUser) {
-      return null;
-    }
-
-    try {
-      const parsed = JSON.parse(
-        savedUser
-      ) as FinanceUserSession;
-
-      if (
-        !parsed ||
-        typeof parsed !== "object" ||
-        Array.isArray(parsed)
-      ) {
-        return null;
-      }
-
-      return parsed;
-    } catch {
-      return null;
-    }
-  }
-
-  function isValidSession(
-    session: FinanceUserSession | null
-  ) {
-    if (!session) {
-      return false;
-    }
-
-    const userId = String(
-      session.id ?? ""
-    ).trim();
-
-    const branchId = String(
-      session.branch_id ?? ""
-    ).trim();
-
-    const branchSlug = String(
-      session.branch_slug ?? ""
-    ).trim();
-
-    if (
-      !userId ||
-      !branchId ||
-      !branchSlug
-    ) {
-      return false;
-    }
-
-    if (session.is_active === false) {
-      return false;
-    }
-
-    if (
-      !branch ||
-      branchSlug !== branch
-    ) {
-      return false;
-    }
-
-    return true;
-  }
-
   function normalizeStringArray(
     value: unknown
   ): string[] {
@@ -330,36 +310,28 @@ export default function FinanceContractsPage() {
       return [];
     }
 
-    return value.filter(
-      (item): item is string =>
-        typeof item === "string" &&
-        item.trim().length > 0
+    return Array.from(
+      new Set(
+        value
+          .filter(
+            (item): item is string =>
+              typeof item === "string"
+          )
+          .map((item) =>
+            item.trim()
+          )
+          .filter(Boolean)
+      )
     );
   }
 
   function applySession(
-    session: FinanceUserSession | null
+    session: FinanceSessionUser
   ) {
-    if (!session) {
-      setEmployeeName("الموظف");
-      setRoles([]);
-      setPermissions([]);
-      return;
-    }
-
-    const directName =
-      typeof window !== "undefined"
-        ? localStorage.getItem(
-            "finance_user_name"
-          )
-        : null;
-
     setEmployeeName(
-      directName ||
-        session.full_name ||
-        session.username ||
-        session.name ||
-        "الموظف"
+      getFinanceEmployeeName(
+        session
+      )
     );
 
     const sessionRoles =
@@ -377,49 +349,12 @@ export default function FinanceContractsPage() {
       );
     }
 
-    const legacyRole =
-      typeof window !== "undefined"
-        ? localStorage.getItem(
-            "finance_role"
-          )
-        : null;
+    setRoles(sessionRoles);
 
-    if (
-      legacyRole &&
-      !sessionRoles.includes(legacyRole)
-    ) {
-      sessionRoles.push(legacyRole);
-    }
-
-    let sessionPermissions =
+    setPermissions(
       normalizeStringArray(
         session.permissions
-      );
-
-    if (
-      sessionPermissions.length === 0 &&
-      typeof window !== "undefined"
-    ) {
-      const savedPermissions =
-        localStorage.getItem(
-          "finance_permissions"
-        );
-
-      if (savedPermissions) {
-        try {
-          sessionPermissions =
-            normalizeStringArray(
-              JSON.parse(savedPermissions)
-            );
-        } catch {
-          sessionPermissions = [];
-        }
-      }
-    }
-
-    setRoles(sessionRoles);
-    setPermissions(
-      sessionPermissions
+      )
     );
   }
 
@@ -448,8 +383,7 @@ export default function FinanceContractsPage() {
   }
 
   function logout() {
-    clearFinanceSession();
-    router.replace("/login");
+    logoutFinanceUser(router);
   }
 
   function go(path: string) {
@@ -459,24 +393,15 @@ export default function FinanceContractsPage() {
   }
 
   async function loadContracts(
+    currentBranchId: string,
     isCancelled: () => boolean = () =>
-      false,
-    resolvedBranchId?: string
+      false
   ) {
     setLoading(true);
 
     try {
-      const currentBranchId =
-        resolvedBranchId ||
-        (await getBranchId(branch));
-
-      if (isCancelled()) {
-        return;
-      }
-
       if (!currentBranchId) {
         setContracts([]);
-        alert("تعذر تحديد الفرع");
         return;
       }
 
@@ -1115,9 +1040,15 @@ export default function FinanceContractsPage() {
               <ActionButton
                 icon="🔄"
                 title="تحديث النتائج"
-                onClick={() =>
-                  void loadContracts()
-                }
+                onClick={() => {
+                  if (
+                    resolvedBranchId
+                  ) {
+                    void loadContracts(
+                      resolvedBranchId
+                    );
+                  }
+                }}
               />
             </section>
 
@@ -2106,18 +2037,18 @@ const heroDots: CSSProperties = {
 const actionsSection: CSSProperties = {
   display: "grid",
   gridTemplateColumns:
-    "repeat(auto-fit,minmax(220px,1fr))",
-  gap: 14,
-  marginBottom: 16,
+    "repeat(auto-fit,minmax(180px,1fr))",
+  gap: 10,
+  marginBottom: 14,
 };
 
 const actionButton: CSSProperties = {
   background: "white",
   border:
     "1px solid #d9e3f5",
-  borderRadius: 18,
-  padding: 18,
-  fontSize: 16,
+  borderRadius: 15,
+  padding: 14,
+  fontSize: 14,
   fontWeight: "bold",
   cursor: "pointer",
   color: "#0d47a1",
@@ -2143,8 +2074,8 @@ const card: CSSProperties = {
   border:
     "1px solid #d9e3f5",
   borderRadius: 18,
-  padding: 20,
-  marginBottom: 16,
+  padding: 16,
+  marginBottom: 14,
   boxShadow:
     "0 8px 20px rgba(15,23,42,0.04)",
 };
@@ -2152,7 +2083,7 @@ const card: CSSProperties = {
 const sectionTitle: CSSProperties = {
   marginTop: 0,
   color: "#0d47a1",
-  fontSize: 22,
+  fontSize: 18,
   fontWeight: 900,
   fontFamily:
     "var(--font-almarai), sans-serif",
@@ -2177,8 +2108,8 @@ const pageInfo: CSSProperties = {
 const filtersGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns:
-    "repeat(auto-fit,minmax(220px,1fr))",
-  gap: 12,
+    "repeat(auto-fit,minmax(190px,1fr))",
+  gap: 10,
 };
 
 const fieldBox: CSSProperties = {
@@ -2195,8 +2126,8 @@ const labelStyle: CSSProperties = {
 
 const input: CSSProperties = {
   width: "100%",
-  padding: 14,
-  borderRadius: 14,
+  padding: 12,
+  borderRadius: 12,
   border:
     "1px solid #d9e3f5",
   fontSize: 16,
@@ -2227,17 +2158,17 @@ const clearButton: CSSProperties = {
 const summaryGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns:
-    "repeat(auto-fit,minmax(180px,1fr))",
-  gap: 14,
-  marginBottom: 16,
+    "repeat(auto-fit,minmax(150px,1fr))",
+  gap: 10,
+  marginBottom: 14,
 };
 
 const summaryBox: CSSProperties = {
   background: "white",
   border:
     "1px solid #d9e3f5",
-  borderRadius: 18,
-  padding: 18,
+  borderRadius: 16,
+  padding: 14,
   display: "flex",
   justifyContent:
     "space-between",
@@ -2252,9 +2183,9 @@ const contractCard: CSSProperties = {
   background: "#f8fbff",
   border:
     "1px solid #d9e3f5",
-  borderRadius: 18,
-  padding: 16,
-  marginBottom: 12,
+  borderRadius: 16,
+  padding: 14,
+  marginBottom: 10,
   cursor: "pointer",
   textAlign: "right",
   fontFamily:
@@ -2386,4 +2317,3 @@ const backButton: CSSProperties = {
     "0 5px 14px rgba(22,163,74,0.24)",
   fontFamily:
     "var(--font-almarai), sans-serif",
-};
