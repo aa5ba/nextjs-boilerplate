@@ -148,7 +148,7 @@ type DashboardCountsCache = {
 function getDashboardCountsCacheKey(
   branchId: string
 ) {
-  return `finance_dashboard_counts_v2_${branchId}`;
+  return `finance_dashboard_counts_${branchId}`;
 }
 
 function readDashboardCountsCache(
@@ -621,20 +621,8 @@ export default function FinancePage() {
 
       setBranchId(user.branch_id);
 
-      const cachedCounts =
-        readDashboardCountsCache(
-          user.branch_id
-        );
-
-      setCustomersCount(
-        cachedCounts?.customersCount ??
-          null
-      );
-
-      setContractsCount(
-        cachedCounts?.contractsCount ??
-          null
-      );
+      setCustomersCount(null);
+      setContractsCount(null);
 
       setEmployeeName(
         user.full_name ||
@@ -1434,6 +1422,9 @@ export default function FinancePage() {
                 "branch_id",
                 currentBranchId
               )
+              .or(
+                "is_archived.is.null,is_archived.eq.false"
+              )
           : Promise.resolve({
               count: 0,
               error: null,
@@ -1452,6 +1443,9 @@ export default function FinancePage() {
               .eq(
                 "branch_id",
                 currentBranchId
+              )
+              .or(
+                "is_archived.is.null,is_archived.eq.false"
               )
           : Promise.resolve({
               count: 0,
@@ -1814,6 +1808,9 @@ export default function FinancePage() {
                 safeBranchId
               )
               .or(
+                "is_archived.is.null,is_archived.eq.false"
+              )
+              .or(
                 `full_name.ilike.%${safeQuery}%,national_id.ilike.%${safeQuery}%,phone.ilike.%${safeQuery}%`
               )
               .limit(5)
@@ -1835,6 +1832,9 @@ export default function FinancePage() {
               .eq(
                 "branch_id",
                 safeBranchId
+              )
+              .or(
+                "is_archived.is.null,is_archived.eq.false"
               )
               .or(
                 `contract_number.ilike.%${safeQuery}%,customer_name.ilike.%${safeQuery}%,customer_national_id.ilike.%${safeQuery}%,customer_phone.ilike.%${safeQuery}%,investor_name.ilike.%${safeQuery}%`
