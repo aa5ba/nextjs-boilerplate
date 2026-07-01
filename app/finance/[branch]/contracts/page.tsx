@@ -512,6 +512,9 @@ export default function FinanceContractsPage() {
             "branch_id",
             currentBranchId
           )
+          .or(
+            "is_archived.is.null,is_archived.eq.false"
+          )
           .order("created_at", {
             ascending: false,
           });
