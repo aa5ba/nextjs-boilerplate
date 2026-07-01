@@ -102,10 +102,11 @@ export default function CustomersListPage() {
     }
 
     const { data, error } = await supabase
-      .from("finance_customers")
-      .select("*, finance_customer_groups(name)")
-      .eq("branch_id", branchId)
-      .order("created_at", { ascending: false });
+  .from("finance_customers")
+  .select("*, finance_customer_groups(name)")
+  .eq("branch_id", branchId)
+  .or("is_archived.is.null,is_archived.eq.false")
+  .order("created_at", { ascending: false });
 
     if (error) {
       alert(error.message || "تعذر تحميل قائمة العملاء");
