@@ -148,7 +148,7 @@ type DashboardCountsCache = {
 function getDashboardCountsCacheKey(
   branchId: string
 ) {
-  return `finance_dashboard_counts_${branchId}`;
+  return `finance_dashboard_counts_v2_${branchId}`;
 }
 
 function readDashboardCountsCache(
