@@ -19,6 +19,8 @@ type ActivityItem = {
   status: string | null;
   employee_name: string | null;
   created_at: string;
+  is_archived?: boolean | null;
+  customer_is_archived?: boolean | null;
 };
 
 type Investor = {
@@ -55,6 +57,7 @@ type ContractItem = {
   created_at: string;
   contract_issue_date_gregorian?: string | null;
   contract_date_gregorian?: string | null;
+  is_archived?: boolean | null;
 };
 
 type WorkflowApiResponse = {
@@ -235,13 +238,19 @@ export default function FinanceWorkflowPage() {
         }
 
         const safeActivities = Array.isArray(payload.data.activities)
-          ? payload.data.activities
+          ? payload.data.activities.filter(
+              (activity) =>
+                activity.is_archived !== true &&
+                activity.customer_is_archived !== true
+            )
           : [];
         const safeInvestors = Array.isArray(payload.data.investors)
           ? payload.data.investors
           : [];
         const safeContracts = Array.isArray(payload.data.contracts)
-          ? payload.data.contracts
+          ? payload.data.contracts.filter(
+              (contract) => contract.is_archived !== true
+            )
           : [];
 
         setEmployeeName(payload.user.fullName?.trim() || "الموظف");
