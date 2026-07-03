@@ -3,7 +3,7 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
+  useRef,
   useState,
 } from "react";
 import type { CSSProperties } from "react";
@@ -192,6 +192,16 @@ type OrganizationSettings = {
   commercialRecord: string;
 };
 
+type ActionFeedback = {
+  type: "success" | "info" | "error";
+  message: string;
+};
+
+type PdfGenerationResult = {
+  blob: Blob;
+  fileName: string;
+};
+
 const SESSION_KEYS = [
   "finance_user",
   "finance_branch_user",
@@ -235,6 +245,12 @@ export default function PrintNewRequestPage() {
     params.noteId ?? ""
   ).trim();
 
+  const contractPrintRef =
+    useRef<HTMLElement | null>(null);
+
+  const notePrintRef =
+    useRef<HTMLElement | null>(null);
+
   const [pageReady, setPageReady] =
     useState(false);
 
@@ -257,6 +273,15 @@ export default function PrintNewRequestPage() {
     useState<PromissoryNoteRecord | null>(
       null
     );
+
+  const [savingPdf, setSavingPdf] =
+    useState(false);
+
+  const [sharingWhatsapp, setSharingWhatsapp] =
+    useState(false);
+
+  const [actionFeedback, setActionFeedback] =
+    useState<ActionFeedback | null>(null);
 
   const [
     organizationSettings,
@@ -458,6 +483,7 @@ export default function PrintNewRequestPage() {
 
       setLoading(true);
       setPageError("");
+      setActionFeedback(null);
 
       try {
         const [
@@ -939,6 +965,11 @@ export default function PrintNewRequestPage() {
           transparent;
       }
 
+      .document-action-grid {
+        grid-template-columns:
+          repeat(3, minmax(0, 1fr));
+      }
+
       @media print {
         html,
         body {
@@ -964,6 +995,7 @@ export default function PrintNewRequestPage() {
         }
 
         .print-action-buttons,
+        .print-action-feedback,
         .print-loading-message,
         .print-error-message {
           display: none !important;
@@ -1049,6 +1081,11 @@ export default function PrintNewRequestPage() {
           grid-template-columns:
             1fr !important;
         }
+
+        .document-action-grid {
+          grid-template-columns:
+            1fr !important;
+        }
       }
     `;
 
@@ -1092,14 +1129,410 @@ export default function PrintNewRequestPage() {
       !contract ||
       !note
     ) {
-      alert(
-        "انتظر حتى يكتمل تحميل العقد والسند"
-      );
+      setActionFeedback({
+        type: "error",
+        message:
+          "انتظر حتى يكتمل تحميل العقد والسند.",
+      });
 
       return;
     }
 
+    setActionFeedback(null);
     window.print();
+  }
+
+  async function createDocumentsPdf(): Promise<PdfGenerationResult> {
+    const contractElement =
+      contractPrintRef.current;
+
+    const noteElement =
+      notePrintRef.current;
+
+    if (
+      !contract ||
+      !note ||
+      !contractElement ||
+      !noteElement
+    ) {
+      throw new Error(
+        "تعذر العثور على صفحات العقد والسند لإنشاء الملف"
+      );
+    }
+
+    if (document.fonts?.ready) {
+      await document.fonts.ready;
+    }
+
+    const [
+      html2canvasModule,
+      jsPdfModule,
+    ] = await Promise.all([
+      import("html2canvas"),
+      import("jspdf"),
+    ]);
+
+    const html2canvas =
+      html2canvasModule.default;
+
+    const { jsPDF } = jsPdfModule;
+
+    const pdf = new jsPDF({
+      orientation: "portrait",
+      unit: "mm",
+      format: "a4",
+      compress: true,
+    });
+
+    const pages = [
+      {
+        element: contractElement,
+        pageKey: "contract",
+      },
+      {
+        element: noteElement,
+        pageKey: "note",
+      },
+    ];
+
+    for (
+      let index = 0;
+      index < pages.length;
+      index += 1
+    ) {
+      const currentPage = pages[index];
+
+      const canvas = await html2canvas(
+        currentPage.element,
+        {
+          backgroundColor: "#ffffff",
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          windowWidth: 1400,
+          windowHeight: 1300,
+          scrollX: 0,
+          scrollY: 0,
+          onclone: (clonedDocument) => {
+            clonedDocument.documentElement.style.background =
+              "#ffffff";
+
+            clonedDocument.body.style.background =
+              "#ffffff";
+
+            const clonedPage =
+              clonedDocument.querySelector<HTMLElement>(
+                `[data-pdf-page="${currentPage.pageKey}"]`
+              );
+
+            if (!clonedPage) {
+              return;
+            }
+
+            clonedPage.style.width =
+              "210mm";
+            clonedPage.style.height =
+              "297mm";
+            clonedPage.style.minHeight =
+              "297mm";
+            clonedPage.style.maxHeight =
+              "297mm";
+            clonedPage.style.margin = "0";
+            clonedPage.style.boxShadow =
+              "none";
+            clonedPage.style.border =
+              "none";
+            clonedPage.style.borderRadius =
+              "0";
+            clonedPage.style.overflow =
+              "hidden";
+            clonedPage.style.background =
+              "#ffffff";
+          },
+        }
+      );
+
+      if (index > 0) {
+        pdf.addPage("a4", "portrait");
+      }
+
+      const imageData =
+        canvas.toDataURL(
+          "image/jpeg",
+          0.96
+        );
+
+      const pageWidth =
+        pdf.internal.pageSize.getWidth();
+
+      const pageHeight =
+        pdf.internal.pageSize.getHeight();
+
+      const canvasRatio =
+        canvas.width / canvas.height;
+
+      let imageWidth = pageWidth;
+      let imageHeight =
+        imageWidth / canvasRatio;
+
+      if (imageHeight > pageHeight) {
+        imageHeight = pageHeight;
+        imageWidth =
+          imageHeight * canvasRatio;
+      }
+
+      const imageX =
+        (pageWidth - imageWidth) / 2;
+
+      const imageY =
+        (pageHeight - imageHeight) / 2;
+
+      pdf.addImage(
+        imageData,
+        "JPEG",
+        imageX,
+        imageY,
+        imageWidth,
+        imageHeight,
+        undefined,
+        "FAST"
+      );
+    }
+
+    const fileName =
+      buildDocumentsPdfFileName(
+        contract.contract_number,
+        note.note_number
+      );
+
+    return {
+      blob: pdf.output("blob"),
+      fileName,
+    };
+  }
+
+  async function saveDocumentsPdf() {
+    if (
+      loading ||
+      pageError ||
+      !contract ||
+      !note
+    ) {
+      setActionFeedback({
+        type: "error",
+        message:
+          "انتظر حتى يكتمل تحميل العقد والسند.",
+      });
+
+      return;
+    }
+
+    if (savingPdf) {
+      return;
+    }
+
+    setSavingPdf(true);
+    setActionFeedback(null);
+
+    try {
+      const { blob, fileName } =
+        await createDocumentsPdf();
+
+      downloadBlob(blob, fileName);
+
+      setActionFeedback({
+        type: "success",
+        message:
+          "تم إنشاء ملف PDF واحد يحتوي على العقد والسند وحفظه بنجاح.",
+      });
+    } catch (error) {
+      console.error(
+        "Saving contract PDF failed:",
+        error
+      );
+
+      setActionFeedback({
+        type: "error",
+        message: getErrorMessage(
+          error,
+          "تعذر إنشاء ملف PDF"
+        ),
+      });
+    } finally {
+      setSavingPdf(false);
+    }
+  }
+
+  async function shareDocumentsOnWhatsapp() {
+    if (
+      loading ||
+      pageError ||
+      !contract ||
+      !note
+    ) {
+      setActionFeedback({
+        type: "error",
+        message:
+          "انتظر حتى يكتمل تحميل العقد والسند.",
+      });
+
+      return;
+    }
+
+    if (sharingWhatsapp) {
+      return;
+    }
+
+    const customerRelation =
+      getSingleRelation(
+        contract.customer
+      );
+
+    const customerPhone =
+      customerRelation?.phone ||
+      contract.customer_phone ||
+      note.debtor_phone ||
+      "";
+
+    const whatsappPhone =
+      normalizeSaudiMobile(
+        customerPhone
+      );
+
+    if (!whatsappPhone) {
+      setActionFeedback({
+        type: "error",
+        message:
+          "رقم جوال العميل غير موجود أو غير صحيح. يجب أن يكون رقم جوال سعودي مثل 05XXXXXXXX.",
+      });
+
+      return;
+    }
+
+    const customerDisplayName =
+      customerRelation?.full_name ||
+      contract.customer_name ||
+      note.debtor_name ||
+      "العميل";
+
+    const contractNumber =
+      String(
+        contract.contract_number ||
+          "-"
+      );
+
+    const noteNumber =
+      formatNoteNumber(
+        note.note_number
+      );
+
+    const whatsappMessage = [
+      `السلام عليكم ${customerDisplayName}،`,
+      `مرفق لكم العقد رقم ${contractNumber} والسند لأمر رقم ${noteNumber} بصيغة PDF.`,
+    ].join("\n");
+
+    const whatsappUrl =
+      `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(
+        whatsappMessage
+      )}`;
+
+    setSharingWhatsapp(true);
+    setActionFeedback(null);
+
+    try {
+      const { blob, fileName } =
+        await createDocumentsPdf();
+
+      const pdfFile = new File(
+        [blob],
+        fileName,
+        {
+          type: "application/pdf",
+          lastModified: Date.now(),
+        }
+      );
+
+      let canSharePdf = false;
+
+      if (
+        typeof navigator.share ===
+          "function" &&
+        typeof navigator.canShare ===
+          "function"
+      ) {
+        try {
+          canSharePdf =
+            navigator.canShare({
+              files: [pdfFile],
+            });
+        } catch {
+          canSharePdf = false;
+        }
+      }
+
+      if (canSharePdf) {
+        try {
+          await navigator.share({
+            title:
+              "العقد والسند لأمر",
+            text: whatsappMessage,
+            files: [pdfFile],
+          });
+        } catch (shareError) {
+          if (
+            isShareCancelled(
+              shareError
+            )
+          ) {
+            setActionFeedback({
+              type: "info",
+              message:
+                "تم إلغاء مشاركة ملف العقد والسند.",
+            });
+
+            return;
+          }
+
+          throw shareError;
+        }
+
+        openExternalUrl(
+          whatsappUrl
+        );
+
+        setActionFeedback({
+          type: "success",
+          message:
+            `تم تجهيز ومشاركة ملف العقد والسند، وفتح محادثة العميل على الرقم +${whatsappPhone}.`,
+        });
+
+        return;
+      }
+
+      downloadBlob(blob, fileName);
+      openExternalUrl(whatsappUrl);
+
+      setActionFeedback({
+        type: "info",
+        message:
+          `جهازك لا يدعم إرفاق PDF مباشرة من المتصفح؛ تم حفظ الملف وفتح محادثة العميل على الرقم +${whatsappPhone}. أرفق الملف المحفوظ داخل المحادثة.`,
+      });
+    } catch (error) {
+      console.error(
+        "WhatsApp PDF share failed:",
+        error
+      );
+
+      setActionFeedback({
+        type: "error",
+        message: getErrorMessage(
+          error,
+          "تعذر تجهيز ملف العقد والسند للمشاركة عبر واتساب"
+        ),
+      });
+    } finally {
+      setSharingWhatsapp(false);
+    }
   }
 
   if (!pageReady) {
@@ -1301,6 +1734,12 @@ export default function PrintNewRequestPage() {
     branchData?.branch_name ||
     "................";
 
+  const documentsUnavailable =
+    loading ||
+    Boolean(pageError) ||
+    !contract ||
+    !note;
+
   return (
     <main
       dir="rtl"
@@ -1337,6 +1776,8 @@ export default function PrintNewRequestPage() {
       {contract && note && (
         <>
           <section
+            ref={contractPrintRef}
+            data-pdf-page="contract"
             className="contract-print-area"
             style={contractPrintArea}
           >
@@ -1630,6 +2071,8 @@ export default function PrintNewRequestPage() {
           </section>
 
           <section
+            ref={notePrintRef}
+            data-pdf-page="note"
             className="note-print-area"
             style={notePrintArea}
           >
@@ -2041,41 +2484,85 @@ export default function PrintNewRequestPage() {
         </>
       )}
 
+      {actionFeedback && (
+        <div
+          className="print-action-feedback"
+          role={
+            actionFeedback.type ===
+            "error"
+              ? "alert"
+              : "status"
+          }
+          style={getActionFeedbackStyle(
+            actionFeedback.type
+          )}
+        >
+          {actionFeedback.message}
+        </div>
+      )}
+
       <div
         className="print-action-buttons"
         style={actionButtons}
       >
-        <button
-          type="button"
-          style={{
-            ...printButton,
-
-            opacity:
-              loading ||
-              Boolean(pageError) ||
-              !contract ||
-              !note
-                ? 0.6
-                : 1,
-
-            cursor:
-              loading ||
-              Boolean(pageError) ||
-              !contract ||
-              !note
-                ? "not-allowed"
-                : "pointer",
-          }}
-          disabled={
-            loading ||
-            Boolean(pageError) ||
-            !contract ||
-            !note
-          }
-          onClick={printDocuments}
+        <div
+          className="document-action-grid"
+          style={documentActionGrid}
         >
-          مشاركة / حفظ PDF
-        </button>
+          <button
+            type="button"
+            style={getActionButtonStyle(
+              printButton,
+              documentsUnavailable
+            )}
+            disabled={
+              documentsUnavailable
+            }
+            onClick={printDocuments}
+          >
+            طباعة
+          </button>
+
+          <button
+            type="button"
+            style={getActionButtonStyle(
+              saveButton,
+              documentsUnavailable ||
+                savingPdf
+            )}
+            disabled={
+              documentsUnavailable ||
+              savingPdf
+            }
+            onClick={() =>
+              void saveDocumentsPdf()
+            }
+          >
+            {savingPdf
+              ? "جاري إنشاء الملف..."
+              : "حفظ الملف PDF"}
+          </button>
+
+          <button
+            type="button"
+            style={getActionButtonStyle(
+              whatsappButton,
+              documentsUnavailable ||
+                sharingWhatsapp
+            )}
+            disabled={
+              documentsUnavailable ||
+              sharingWhatsapp
+            }
+            onClick={() =>
+              void shareDocumentsOnWhatsapp()
+            }
+          >
+            {sharingWhatsapp
+              ? "جاري تجهيز واتساب..."
+              : "إرسال واتساب"}
+          </button>
+        </div>
 
         <button
           type="button"
@@ -2203,6 +2690,186 @@ function getErrorMessage(
   }
 
   return fallback;
+}
+
+function getActionButtonStyle(
+  baseStyle: CSSProperties,
+  disabled: boolean
+): CSSProperties {
+  return {
+    ...baseStyle,
+    opacity: disabled ? 0.6 : 1,
+    cursor: disabled
+      ? "not-allowed"
+      : "pointer",
+  };
+}
+
+function getActionFeedbackStyle(
+  type: ActionFeedback["type"]
+): CSSProperties {
+  if (type === "success") {
+    return {
+      ...actionFeedbackBase,
+      border: "1px solid #bbf7d0",
+      background: "#f0fdf4",
+      color: "#166534",
+    };
+  }
+
+  if (type === "error") {
+    return {
+      ...actionFeedbackBase,
+      border: "1px solid #fecaca",
+      background: "#fff7f7",
+      color: "#991b1b",
+    };
+  }
+
+  return {
+    ...actionFeedbackBase,
+    border: "1px solid #bfdbfe",
+    background: "#eff6ff",
+    color: "#1d4ed8",
+  };
+}
+
+function normalizeDigits(
+  value: string
+) {
+  return value
+    .replace(
+      /[٠-٩]/g,
+      (digit) =>
+        String(
+          "٠١٢٣٤٥٦٧٨٩".indexOf(
+            digit
+          )
+        )
+    )
+    .replace(
+      /[۰-۹]/g,
+      (digit) =>
+        String(
+          "۰۱۲۳۴۵۶۷۸۹".indexOf(
+            digit
+          )
+        )
+    );
+}
+
+function normalizeSaudiMobile(
+  value?: string | null
+) {
+  let digits = normalizeDigits(
+    String(value || "")
+  ).replace(/\D/g, "");
+
+  if (digits.startsWith("00")) {
+    digits = digits.slice(2);
+  }
+
+  if (digits.startsWith("9660")) {
+    digits = `966${digits.slice(4)}`;
+  }
+
+  if (/^05\d{8}$/.test(digits)) {
+    digits = `966${digits.slice(1)}`;
+  } else if (/^5\d{8}$/.test(digits)) {
+    digits = `966${digits}`;
+  }
+
+  if (!/^9665\d{8}$/.test(digits)) {
+    return null;
+  }
+
+  return digits;
+}
+
+function buildDocumentsPdfFileName(
+  contractNumber:
+    | string
+    | number
+    | null
+    | undefined,
+  noteNumber:
+    | string
+    | number
+    | null
+    | undefined
+) {
+  const safeContractNumber =
+    sanitizeFileNamePart(
+      contractNumber || "بدون-رقم"
+    );
+
+  const safeNoteNumber =
+    sanitizeFileNamePart(
+      noteNumber || "بدون-رقم"
+    );
+
+  return `العقد-${safeContractNumber}-والسند-${safeNoteNumber}.pdf`;
+}
+
+function sanitizeFileNamePart(
+  value: unknown
+) {
+  return String(value || "")
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .slice(0, 70) || "بدون-رقم";
+}
+
+function downloadBlob(
+  blob: Blob,
+  fileName: string
+) {
+  const objectUrl =
+    URL.createObjectURL(blob);
+
+  const link =
+    document.createElement("a");
+
+  link.href = objectUrl;
+  link.download = fileName;
+  link.rel = "noopener";
+  link.style.display = "none";
+
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  window.setTimeout(() => {
+    URL.revokeObjectURL(objectUrl);
+  }, 1500);
+}
+
+function openExternalUrl(
+  url: string
+) {
+  const link =
+    document.createElement("a");
+
+  link.href = url;
+  link.target = "_self";
+  link.rel =
+    "noopener noreferrer";
+  link.style.display = "none";
+
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+function isShareCancelled(
+  error: unknown
+) {
+  return (
+    error instanceof DOMException &&
+    error.name === "AbortError"
+  );
 }
 
 function formatMoney(
@@ -3194,6 +3861,19 @@ const noteLegalFooterBox:
     flex: "0 0 auto",
   };
 
+const actionFeedbackBase:
+  CSSProperties = {
+    width: "100%",
+    maxWidth: 850,
+    margin: "20px auto 0",
+    padding: "13px 15px",
+    borderRadius: 13,
+    textAlign: "center",
+    fontSize: 14,
+    fontWeight: 900,
+    lineHeight: 1.7,
+  };
+
 const actionButtons:
   CSSProperties = {
     width: "100%",
@@ -3207,32 +3887,68 @@ const actionButtons:
     gap: 12,
   };
 
-const printButton:
+const documentActionGrid:
+  CSSProperties = {
+    display: "grid",
+    gap: 12,
+  };
+
+const actionButtonBase:
   CSSProperties = {
     width: "100%",
 
     minHeight: 52,
 
-    padding: 16,
+    padding: "14px 16px",
 
     border: "none",
 
     borderRadius: 14,
 
-    background:
-      "linear-gradient(135deg,#0d47a1,#1565c0 55%,#0284c7)",
-
     color: "#ffffff",
 
-    fontSize: 17,
+    fontSize: 16,
 
     fontWeight: 900,
 
     fontFamily:
       "var(--font-almarai), sans-serif",
 
+    transition:
+      "transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease",
+  };
+
+const printButton:
+  CSSProperties = {
+    ...actionButtonBase,
+
+    background:
+      "linear-gradient(135deg,#0d47a1,#1565c0 55%,#0284c7)",
+
     boxShadow:
       "0 8px 20px rgba(13,71,161,0.20)",
+  };
+
+const saveButton:
+  CSSProperties = {
+    ...actionButtonBase,
+
+    background:
+      "linear-gradient(135deg,#6d28d9,#7c3aed 55%,#8b5cf6)",
+
+    boxShadow:
+      "0 8px 20px rgba(109,40,217,0.20)",
+  };
+
+const whatsappButton:
+  CSSProperties = {
+    ...actionButtonBase,
+
+    background:
+      "linear-gradient(135deg,#16a34a,#22c55e 55%,#10b981)",
+
+    boxShadow:
+      "0 8px 20px rgba(22,163,74,0.22)",
   };
 
 const backButton:
