@@ -202,6 +202,10 @@ type PdfGenerationResult = {
   fileName: string;
 };
 
+type PdfGenerationOptions = {
+  autoPrint?: boolean;
+};
+
 const SESSION_KEYS = [
   "finance_user",
   "finance_branch_user",
@@ -273,6 +277,9 @@ export default function PrintNewRequestPage() {
     useState<PromissoryNoteRecord | null>(
       null
     );
+
+  const [printingPdf, setPrintingPdf] =
+    useState(false);
 
   const [savingPdf, setSavingPdf] =
     useState(false);
@@ -971,14 +978,9 @@ export default function PrintNewRequestPage() {
       }
 
       @media print {
-        @page {
-          size: A4 portrait;
-          margin: 6mm;
-        }
-
         html,
         body {
-          width: auto !important;
+          width: 210mm !important;
           height: auto !important;
           min-height: 0 !important;
           margin: 0 !important;
@@ -993,7 +995,7 @@ export default function PrintNewRequestPage() {
 
         .print-page-main {
           display: block !important;
-          width: auto !important;
+          width: 210mm !important;
           height: auto !important;
           min-height: 0 !important;
           margin: 0 !important;
@@ -1014,28 +1016,25 @@ export default function PrintNewRequestPage() {
         .contract-print-area,
         .note-print-area {
           position: relative !important;
-          width: 197mm !important;
-          height: 284mm !important;
-          min-height: 284mm !important;
-          max-height: 284mm !important;
-          margin: 0 auto !important;
-          padding: 5mm 7mm !important;
+          display: block !important;
+          width: 210mm !important;
+          height: 296mm !important;
+          min-height: 296mm !important;
+          max-height: 296mm !important;
+          margin: 0 !important;
+          padding: 6mm 9mm !important;
           border: none !important;
           border-radius: 0 !important;
           box-shadow: none !important;
           overflow: hidden !important;
           box-sizing: border-box !important;
           page-break-inside:
-            avoid !important;
+            auto !important;
           break-inside:
-            avoid-page !important;
+            auto !important;
         }
 
         .contract-print-area {
-          page-break-before:
-            auto !important;
-          break-before:
-            auto !important;
           page-break-after:
             always !important;
           break-after:
@@ -1043,18 +1042,17 @@ export default function PrintNewRequestPage() {
         }
 
         .note-print-area {
+          display: flex !important;
+          flex-direction:
+            column !important;
           page-break-before:
             auto !important;
           break-before:
             auto !important;
           page-break-after:
-            avoid !important;
+            auto !important;
           break-after:
             auto !important;
-        }
-
-        .note-legal-footer {
-          margin-bottom: 5mm !important;
         }
 
         .print-document-header,
@@ -1068,14 +1066,98 @@ export default function PrintNewRequestPage() {
         .note-guarantor-box,
         .note-legal-footer {
           page-break-inside:
-            avoid !important;
+            auto !important;
           break-inside:
-            avoid-page !important;
+            auto !important;
         }
 
-        p {
-          orphans: 2 !important;
-          widows: 2 !important;
+        .print-document-header {
+          margin-bottom: 8px !important;
+          padding-bottom: 6px !important;
+        }
+
+        .print-content-box {
+          margin-top: 6px !important;
+        }
+
+        .contract-print-area p {
+          margin: 4px 0 !important;
+          font-size: 12.8px !important;
+          line-height: 1.42 !important;
+          orphans: 1 !important;
+          widows: 1 !important;
+        }
+
+        .print-signatures {
+          margin-top: 12px !important;
+          gap: 12px !important;
+        }
+
+        .print-signatures > div {
+          min-height: 72px !important;
+          padding-top: 6px !important;
+          font-size: 12.3px !important;
+          line-height: 1.48 !important;
+        }
+
+        .note-document-title {
+          margin: 3mm 0 2mm !important;
+          font-size: 22pt !important;
+        }
+
+        .note-document-header {
+          flex: 0 0 auto !important;
+        }
+
+        .note-legal-body {
+          margin-top: 2mm !important;
+          flex: 0 0 auto !important;
+        }
+
+        .note-legal-body p {
+          margin: 0.6mm 0 !important;
+          font-size: 10.1pt !important;
+          line-height: 1.43 !important;
+          orphans: 1 !important;
+          widows: 1 !important;
+        }
+
+        .note-party-grid {
+          margin-top: 2mm !important;
+          gap: 3mm !important;
+          flex: 0 0 auto !important;
+        }
+
+        .note-party-grid > div {
+          padding: 2.2mm 3mm !important;
+        }
+
+        .note-signature-grid {
+          margin-top: 2.5mm !important;
+          gap: 4mm !important;
+          flex: 0 0 auto !important;
+        }
+
+        .note-signature-grid > div {
+          min-height: 16mm !important;
+          padding-top: 1.5mm !important;
+        }
+
+        .note-guarantor-box {
+          margin-top: 2mm !important;
+          padding: 2mm 3mm !important;
+          flex: 0 0 auto !important;
+        }
+
+        .note-legal-footer {
+          margin-top: auto !important;
+          margin-bottom: 8mm !important;
+          padding: 2.4mm 3mm !important;
+          font-size: 8.6pt !important;
+          line-height: 1.45 !important;
+          transform:
+            translateY(-2mm) !important;
+          flex: 0 0 auto !important;
         }
       }
 
@@ -1149,7 +1231,7 @@ export default function PrintNewRequestPage() {
     return relation || null;
   }
 
-  function printDocuments() {
+  async function printDocuments() {
     if (
       loading ||
       pageError ||
@@ -1165,11 +1247,139 @@ export default function PrintNewRequestPage() {
       return;
     }
 
+    if (printingPdf) {
+      return;
+    }
+
+    const printWindow =
+      window.open(
+        "",
+        "_blank"
+      );
+
+    if (!printWindow) {
+      setActionFeedback({
+        type: "error",
+        message:
+          "تعذر فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع ثم حاول مرة أخرى.",
+      });
+
+      return;
+    }
+
+    printWindow.document.open();
+    printWindow.document.write(`
+      <!doctype html>
+      <html lang="ar" dir="rtl">
+        <head>
+          <meta charset="utf-8" />
+          <meta
+            name="viewport"
+            content="width=device-width,initial-scale=1"
+          />
+          <title>جاري تجهيز ملف الطباعة</title>
+          <style>
+            * {
+              box-sizing: border-box;
+            }
+
+            html,
+            body {
+              margin: 0;
+              min-height: 100%;
+            }
+
+            body {
+              min-height: 100vh;
+              display: grid;
+              place-items: center;
+              padding: 24px;
+              background: #f8fafc;
+              color: #0f172a;
+              font-family: Arial, sans-serif;
+            }
+
+            .message {
+              width: min(520px, 100%);
+              padding: 24px;
+              border: 1px solid #bfdbfe;
+              border-radius: 18px;
+              background: #ffffff;
+              text-align: center;
+              font-size: 18px;
+              font-weight: 700;
+              line-height: 1.8;
+              box-shadow: 0 16px 40px rgba(15, 23, 42, 0.1);
+            }
+          </style>
+        </head>
+        <body>
+          <div class="message">
+            جاري إنشاء ملف PDF ثابت من صفحتين وفتحه للطباعة...
+          </div>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+
+    try {
+      printWindow.opener = null;
+    } catch {
+      // بعض المتصفحات تمنع تعديل opener، ولا يؤثر ذلك على الطباعة.
+    }
+
+    setPrintingPdf(true);
     setActionFeedback(null);
-    window.print();
+
+    try {
+      const { blob } =
+        await createDocumentsPdf({
+          autoPrint: true,
+        });
+
+      const pdfUrl =
+        URL.createObjectURL(blob);
+
+      printWindow.location.replace(
+        pdfUrl
+      );
+
+      printWindow.focus();
+
+      window.setTimeout(() => {
+        URL.revokeObjectURL(
+          pdfUrl
+        );
+      }, 120_000);
+
+      setActionFeedback({
+        type: "success",
+        message:
+          "تم فتح ملف PDF ثابت من صفحتين. اطبعه من عارض PDF؛ لن تعتمد الطباعة بعد الآن على تقسيم صفحات المتصفح.",
+      });
+    } catch (error) {
+      printWindow.close();
+
+      console.error(
+        "Opening printable PDF failed:",
+        error
+      );
+
+      setActionFeedback({
+        type: "error",
+        message: getErrorMessage(
+          error,
+          "تعذر إنشاء ملف الطباعة"
+        ),
+      });
+    } finally {
+      setPrintingPdf(false);
+    }
   }
 
-  async function createDocumentsPdf(): Promise<PdfGenerationResult> {
+  async function createDocumentsPdf(
+    options: PdfGenerationOptions = {}
+  ): Promise<PdfGenerationResult> {
     const contractElement =
       contractPrintRef.current;
 
@@ -1324,6 +1534,23 @@ export default function PrintNewRequestPage() {
         undefined,
         "FAST"
       );
+    }
+
+    if (options.autoPrint) {
+      const printablePdf =
+        pdf as typeof pdf & {
+          autoPrint?: (
+            options?: {
+              variant?:
+                | "non-conform"
+                | "javascript";
+            }
+          ) => void;
+        };
+
+      printablePdf.autoPrint?.({
+        variant: "non-conform",
+      });
     }
 
     const fileName =
@@ -2499,14 +2726,20 @@ export default function PrintNewRequestPage() {
             type="button"
             style={getActionButtonStyle(
               printButton,
-              documentsUnavailable
+              documentsUnavailable ||
+                printingPdf
             )}
             disabled={
-              documentsUnavailable
+              documentsUnavailable ||
+              printingPdf
             }
-            onClick={printDocuments}
+            onClick={() =>
+              void printDocuments()
+            }
           >
-            طباعة
+            {printingPdf
+              ? "جاري تجهيز الطباعة..."
+              : "طباعة PDF"}
           </button>
 
           <button
@@ -3338,14 +3571,14 @@ const contractHeader: CSSProperties = {
 
 const contractHeaderRight:
   CSSProperties = {
-    fontSize: 12.2,
+    fontSize: 12.8,
     lineHeight: 1.6,
     fontWeight: 900,
   };
 
 const contractHeaderLeft:
   CSSProperties = {
-    fontSize: 12.2,
+    fontSize: 12.8,
     lineHeight: 1.6,
     textAlign: "left",
     fontWeight: 900,
@@ -3359,7 +3592,7 @@ const contractDocumentTitle:
 
     color: "#111827",
 
-    fontSize: 24,
+    fontSize: 25,
 
     fontWeight: 900,
 
@@ -3378,7 +3611,7 @@ const contractParagraph:
   CSSProperties = {
     margin: "5px 0",
 
-    fontSize: 13.7,
+    fontSize: 14.4,
 
     lineHeight: 1.5,
 
@@ -3408,7 +3641,7 @@ const contractSignatureBox:
 
     lineHeight: 1.58,
 
-    fontSize: 13.3,
+    fontSize: 14,
   };
 
 const contractGuarantorBox:
@@ -3422,7 +3655,7 @@ const contractGuarantorBox:
 
     lineHeight: 1.58,
 
-    fontSize: 13.3,
+    fontSize: 14,
   };
 
 const contractGuarantorGrid:
@@ -3545,7 +3778,7 @@ const noteLegalParagraph:
 
     color: "#111827",
 
-    fontSize: "11.6pt",
+    fontSize: "12.1pt",
 
     lineHeight: 1.58,
 
@@ -3589,7 +3822,7 @@ const notePartyBoxTitle:
 
     color: "#0f2b55",
 
-    fontSize: "11.6pt",
+    fontSize: "12.1pt",
 
     fontWeight: 900,
   };
@@ -3606,7 +3839,7 @@ const noteDataRow:
 
     minWidth: 0,
 
-    fontSize: "10.2pt",
+    fontSize: "10.7pt",
 
     lineHeight: 1.45,
   };
@@ -3648,7 +3881,7 @@ const noteNotesBox:
 
     color: "#334155",
 
-    fontSize: "10.2pt",
+    fontSize: "10.7pt",
 
     lineHeight: 1.6,
 
@@ -3689,21 +3922,21 @@ const noteSignatureTitle:
 
     color: "#111827",
 
-    fontSize: "11.6pt",
+    fontSize: "12.1pt",
 
     fontWeight: 900,
   };
 
 const noteSignatureName:
   CSSProperties = {
-    fontSize: "10.2pt",
+    fontSize: "10.7pt",
 
     marginBottom: "3mm",
   };
 
 const noteSignatureLine:
   CSSProperties = {
-    fontSize: "10.2pt",
+    fontSize: "10.7pt",
 
     paddingTop: "1.5mm",
   };
@@ -3728,7 +3961,7 @@ const noteGuarantorTitle:
 
     color: "#0f2b55",
 
-    fontSize: "11.2pt",
+    fontSize: "11.7pt",
 
     fontWeight: 900,
   };
@@ -3747,7 +3980,7 @@ const noteLegalFooterBox:
   CSSProperties = {
     marginTop: "auto",
 
-    marginBottom: "6mm",
+    marginBottom: "10mm",
 
     padding: "3mm 4mm",
 
