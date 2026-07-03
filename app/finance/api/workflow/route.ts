@@ -18,6 +18,7 @@ const DATABASE_PAGE_SIZE = 1000;
 const MAX_ACTIVITY_RECORDS = 10_000;
 const MAX_INVESTOR_RECORDS = 5_000;
 const MAX_CONTRACT_RECORDS = 20_000;
+const MAX_ARCHIVED_CUSTOMER_RECORDS = 20_000;
 
 type ActivityRow = {
   id: string;
@@ -26,6 +27,8 @@ type ActivityRow = {
   status: string | null;
   employee_name: string | null;
   created_at: string;
+  is_archived?: boolean | null;
+  customer_is_archived?: boolean | null;
 };
 
 type InvestorRow = {
@@ -62,6 +65,11 @@ type ContractRow = {
   created_at: string;
   contract_issue_date_gregorian: string | null;
   contract_date_gregorian: string | null;
+  is_archived?: boolean | null;
+};
+
+type ArchivedCustomerRow = {
+  full_name: string | null;
 };
 
 type SupabaseErrorShape = {
@@ -77,6 +85,12 @@ function cleanText(value: unknown): string {
 
 function normalizeBranchSlug(value: unknown): string {
   return cleanText(value).toLowerCase();
+}
+
+function normalizeCustomerName(value: unknown): string {
+  return cleanText(value)
+    .toLowerCase()
+    .replace(/\s+/g, " ");
 }
 
 function createJsonResponse(
@@ -174,6 +188,60 @@ async function loadActivities(
   }
 
   return rows;
+}
+
+async function loadArchivedCustomerNames(
+  branchId: string
+): Promise<Set<string>> {
+  const names = new Set<string>();
+
+  for (
+    let from = 0;
+    from < MAX_ARCHIVED_CUSTOMER_RECORDS;
+    from += DATABASE_PAGE_SIZE
+  ) {
+    const to = Math.min(
+      from + DATABASE_PAGE_SIZE - 1,
+      MAX_ARCHIVED_CUSTOMER_RECORDS - 1
+    );
+
+    const { data, error } = await supabaseAdmin
+      .from("finance_customers")
+      .select("full_name")
+      .eq("branch_id", branchId)
+      .eq("is_archived", true)
+      .order("created_at", {
+        ascending: false,
+      })
+      .range(from, to);
+
+    if (error) {
+      logDatabaseError(
+        "Workflow archived customers query failed:",
+        error
+      );
+
+      throw new Error("ARCHIVED_CUSTOMERS_QUERY_FAILED");
+    }
+
+    const pageRows = (data || []) as ArchivedCustomerRow[];
+
+    pageRows.forEach((customer) => {
+      const normalizedName = normalizeCustomerName(
+        customer.full_name
+      );
+
+      if (normalizedName) {
+        names.add(normalizedName);
+      }
+    });
+
+    if (pageRows.length < DATABASE_PAGE_SIZE) {
+      break;
+    }
+  }
+
+  return names;
 }
 
 async function loadInvestors(
@@ -275,10 +343,12 @@ async function loadContracts(
           closed_at,
           created_at,
           contract_issue_date_gregorian,
-          contract_date_gregorian
+          contract_date_gregorian,
+          is_archived
         `
       )
       .eq("branch_id", branchId)
+      .or("is_archived.is.null,is_archived.eq.false")
       .order("created_at", {
         ascending: false,
       })
@@ -338,14 +408,22 @@ export async function GET(request: NextRequest) {
     let activities: ActivityRow[];
     let investors: InvestorRow[];
     let contracts: ContractRow[];
+    let archivedCustomerNames: Set<string>;
 
     try {
-      [activities, investors, contracts] =
-        await Promise.all([
-          loadActivities(session.branchId),
-          loadInvestors(session.branchId),
-          loadContracts(session.branchId),
-        ]);
+      [
+        activities,
+        investors,
+        contracts,
+        archivedCustomerNames,
+      ] = await Promise.all([
+        loadActivities(session.branchId),
+        loadInvestors(session.branchId),
+        loadContracts(session.branchId),
+        loadArchivedCustomerNames(
+          session.branchId
+        ),
+      ]);
     } catch (error) {
       console.error(
         "Workflow data loading failed:",
@@ -358,6 +436,33 @@ export async function GET(request: NextRequest) {
         "WORKFLOW_DATA_LOAD_FAILED"
       );
     }
+
+    const safeActivities = activities
+      .map((activity) => {
+        const normalizedCustomerName =
+          normalizeCustomerName(
+            activity.customer_name
+          );
+
+        const customerIsArchived = Boolean(
+          normalizedCustomerName &&
+            archivedCustomerNames.has(
+              normalizedCustomerName
+            )
+        );
+
+        return {
+          ...activity,
+          is_archived: false,
+          customer_is_archived:
+            customerIsArchived,
+        };
+      })
+      .filter(
+        (activity) =>
+          activity.customer_is_archived !==
+          true
+      );
 
     return createJsonResponse(
       {
@@ -386,7 +491,7 @@ export async function GET(request: NextRequest) {
         },
 
         data: {
-          activities,
+          activities: safeActivities,
           investors,
           contracts,
         },
@@ -395,6 +500,8 @@ export async function GET(request: NextRequest) {
           activities: MAX_ACTIVITY_RECORDS,
           investors: MAX_INVESTOR_RECORDS,
           contracts: MAX_CONTRACT_RECORDS,
+          archivedCustomers:
+            MAX_ARCHIVED_CUSTOMER_RECORDS,
         },
       },
       200
