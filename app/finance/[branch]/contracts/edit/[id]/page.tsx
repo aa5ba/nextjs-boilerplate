@@ -92,7 +92,6 @@ type UpdateContractResult = {
 
 type InventorySnapshot = {
   quantity: number;
-  exists: boolean;
 };
 
 type DialogTone =
@@ -197,18 +196,6 @@ export default function EditContractPage() {
   const [organizationCommercialRecord, setOrganizationCommercialRecord] =
     useState("");
 
-  const [inventoryQuantity, setInventoryQuantity] =
-    useState<number | null>(null);
-
-  const [inventoryExists, setInventoryExists] =
-    useState(false);
-
-  const [inventoryLoading, setInventoryLoading] =
-    useState(false);
-
-  const [inventoryError, setInventoryError] =
-    useState("");
-
   const [dialog, setDialog] =
     useState<DialogState | null>(null);
 
@@ -260,63 +247,6 @@ export default function EditContractPage() {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadSelectedInventory() {
-      if (!branchId || !investorId || !productId) {
-        setInventoryQuantity(null);
-        setInventoryExists(false);
-        setInventoryError("");
-        setInventoryLoading(false);
-        return;
-      }
-
-      setInventoryLoading(true);
-      setInventoryError("");
-
-      try {
-        const snapshot = await fetchInventorySnapshot(
-          branchId,
-          investorId,
-          productId
-        );
-
-        if (cancelled) {
-          return;
-        }
-
-        setInventoryQuantity(snapshot.quantity);
-        setInventoryExists(snapshot.exists);
-      } catch (error) {
-        if (cancelled) {
-          return;
-        }
-
-        console.error(
-          "Selected inventory loading error:",
-          error
-        );
-
-        setInventoryQuantity(null);
-        setInventoryExists(false);
-        setInventoryError(
-          "تعذر تحميل كمية المخزون الحالية"
-        );
-      } finally {
-        if (!cancelled) {
-          setInventoryLoading(false);
-        }
-      }
-    }
-
-    void loadSelectedInventory();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [branchId, investorId, productId]);
-
-  useEffect(() => {
     if (!dialog || typeof window === "undefined") {
       return;
     }
@@ -347,9 +277,6 @@ export default function EditContractPage() {
       setInvestors([]);
       setProducts([]);
       setBranchId(null);
-      setInventoryQuantity(null);
-      setInventoryExists(false);
-      setInventoryError("");
       setDialog(null);
 
       if (!branch || !contractId) {
@@ -834,7 +761,6 @@ export default function EditContractPage() {
 
     return {
       quantity: Number(data?.quantity || 0),
-      exists: Boolean(data?.id),
     };
   }
 
@@ -1370,10 +1296,6 @@ export default function EditContractPage() {
           productId
         );
 
-        setInventoryQuantity(snapshot.quantity);
-        setInventoryExists(snapshot.exists);
-        setInventoryError("");
-
         const impact = calculateInventoryImpact(
           snapshot.quantity,
           newQuantity
@@ -1676,23 +1598,6 @@ export default function EditContractPage() {
     );
   }
 
-  const enteredProductQuantity = toNumber(
-    productQuantity
-  );
-
-  const hasValidEnteredQuantity =
-    Number.isFinite(enteredProductQuantity) &&
-    enteredProductQuantity > 0;
-
-  const currentInventoryImpact =
-    inventoryQuantity !== null &&
-    hasValidEnteredQuantity
-      ? calculateInventoryImpact(
-          inventoryQuantity,
-          enteredProductQuantity
-        )
-      : null;
-
   const organizationOptionLabel =
     organizationName.trim() ||
     "اسم المؤسسة غير محدد";
@@ -1835,126 +1740,6 @@ export default function EditContractPage() {
               )
             }
           />
-
-          {investorId && productId && (
-            <div
-              style={{
-                ...inventorySummary,
-                ...(currentInventoryImpact &&
-                (currentInventoryImpact.selectedQuantityExceedsAvailable ||
-                  currentInventoryImpact.projectedQuantity < 0)
-                  ? inventorySummaryWarning
-                  : {}),
-              }}
-            >
-              {inventoryLoading ? (
-                <div style={inventorySummaryMessage}>
-                  جاري قراءة كمية المخزون...
-                </div>
-              ) : inventoryError ? (
-                <div style={inventorySummaryError}>
-                  {inventoryError}
-                </div>
-              ) : inventoryQuantity !== null ? (
-                <>
-                  <div style={inventorySummaryHeader}>
-                    <span style={inventorySummaryTitle}>
-                      كمية المخزون الحالية
-                    </span>
-
-                    {!inventoryExists && (
-                      <span style={inventoryNewBadge}>
-                        لا يوجد سجل سابق
-                      </span>
-                    )}
-                  </div>
-
-                  <div style={inventoryStatsGrid}>
-                    <div style={inventoryStatBox}>
-                      <span style={inventoryStatLabel}>
-                        المتوفر الآن
-                      </span>
-
-                      <strong style={inventoryStatValue}>
-                        {formatQuantity(
-                          inventoryQuantity
-                        )}
-                      </strong>
-                    </div>
-
-                    <div style={inventoryStatBox}>
-                      <span style={inventoryStatLabel}>
-                        {currentInventoryImpact?.sameInventory
-                          ? "المطلوب بسبب التعديل"
-                          : "المطلوب من المخزون"}
-                      </span>
-
-                      <strong style={inventoryStatValue}>
-                        {formatQuantity(
-                          currentInventoryImpact
-                            ?.requiredFromInventory || 0
-                        )}
-                      </strong>
-                    </div>
-
-                    <div style={inventoryStatBox}>
-                      <span style={inventoryStatLabel}>
-                        الرصيد بعد التعديل
-                      </span>
-
-                      <strong
-                        style={{
-                          ...inventoryStatValue,
-                          ...(currentInventoryImpact &&
-                          currentInventoryImpact.projectedQuantity < 0
-                            ? inventoryNegativeValue
-                            : {}),
-                        }}
-                      >
-                        {currentInventoryImpact
-                          ? formatQuantity(
-                              currentInventoryImpact.projectedQuantity
-                            )
-                          : "-"}
-                      </strong>
-                    </div>
-                  </div>
-
-                  {currentInventoryImpact &&
-                    (currentInventoryImpact.selectedQuantityExceedsAvailable ||
-                      currentInventoryImpact.projectedQuantity < 0) && (
-                      <div style={inventoryInlineWarning}>
-                        {currentInventoryImpact.projectedQuantity < 0 ? (
-                          <>
-                            الكمية تتجاوز المتوفر، وسيصبح الرصيد بالسالب بمقدار {" "}
-                            <strong>
-                              {formatQuantity(
-                                currentInventoryImpact.shortage
-                              )}
-                            </strong>{" "}
-                            وحدة. سيُسمح بالحفظ بعد التنبيه.
-                          </>
-                        ) : (
-                          <>
-                            الكمية المحددة أكبر من المتوفر الحالي، لكن المطلوب فعليًا بسبب التعديل هو {" "}
-                            <strong>
-                              {formatQuantity(
-                                currentInventoryImpact.requiredFromInventory
-                              )}
-                            </strong>{" "}
-                            وحدة، ولن يصبح الرصيد بالسالب.
-                          </>
-                        )}
-                      </div>
-                    )}
-                </>
-              ) : (
-                <div style={inventorySummaryMessage}>
-                  اختر المستثمر والمنتج لعرض المخزون
-                </div>
-              )}
-            </div>
-          )}
 
           <label style={fieldLabel}>
             الطرف الأول في الطباعة
@@ -2862,107 +2647,6 @@ const saveButton: CSSProperties = {
   cursor: "pointer",
   fontFamily:
     "var(--font-almarai), sans-serif",
-};
-
-const inventorySummary: CSSProperties = {
-  margin: "2px 0 16px",
-  padding: 16,
-  border: "1px solid #bfdbfe",
-  borderRadius: 16,
-  background:
-    "linear-gradient(135deg,#f8fbff,#eff6ff)",
-  boxShadow:
-    "0 8px 18px rgba(37,99,235,0.06)",
-};
-
-const inventorySummaryWarning: CSSProperties = {
-  border: "1px solid #fdba74",
-  background:
-    "linear-gradient(135deg,#fffaf5,#fff7ed)",
-};
-
-const inventorySummaryHeader: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: 10,
-  flexWrap: "wrap",
-  marginBottom: 12,
-};
-
-const inventorySummaryTitle: CSSProperties = {
-  color: "#0d47a1",
-  fontSize: 15,
-  fontWeight: 900,
-};
-
-const inventoryNewBadge: CSSProperties = {
-  padding: "6px 10px",
-  borderRadius: 999,
-  background: "#e2e8f0",
-  color: "#475569",
-  fontSize: 11,
-  fontWeight: 900,
-};
-
-const inventoryStatsGrid: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns:
-    "repeat(auto-fit,minmax(150px,1fr))",
-  gap: 10,
-};
-
-const inventoryStatBox: CSSProperties = {
-  minHeight: 76,
-  padding: 12,
-  border: "1px solid rgba(148,163,184,0.24)",
-  borderRadius: 13,
-  background: "rgba(255,255,255,0.84)",
-  display: "flex",
-  flexDirection: "column",
-  justifyContent: "center",
-  gap: 7,
-};
-
-const inventoryStatLabel: CSSProperties = {
-  color: "#64748b",
-  fontSize: 12,
-  fontWeight: 800,
-};
-
-const inventoryStatValue: CSSProperties = {
-  color: "#0f172a",
-  fontSize: 21,
-  fontWeight: 900,
-};
-
-const inventoryNegativeValue: CSSProperties = {
-  color: "#b91c1c",
-};
-
-const inventoryInlineWarning: CSSProperties = {
-  marginTop: 12,
-  padding: "11px 12px",
-  borderRadius: 12,
-  background: "#ffedd5",
-  color: "#9a3412",
-  fontSize: 13,
-  fontWeight: 800,
-  lineHeight: 1.8,
-};
-
-const inventorySummaryMessage: CSSProperties = {
-  color: "#475569",
-  fontSize: 13,
-  fontWeight: 800,
-  textAlign: "center",
-};
-
-const inventorySummaryError: CSSProperties = {
-  color: "#b91c1c",
-  fontSize: 13,
-  fontWeight: 900,
-  textAlign: "center",
 };
 
 const dialogOverlay: CSSProperties = {
