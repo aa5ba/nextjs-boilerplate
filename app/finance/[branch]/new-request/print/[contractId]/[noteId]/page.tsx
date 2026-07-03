@@ -1247,6 +1247,12 @@ export default function PrintNewRequestPage() {
       return;
     }
 
+    if (!isSafariBrowser()) {
+      setActionFeedback(null);
+      window.print();
+      return;
+    }
+
     if (printingPdf) {
       return;
     }
@@ -1261,7 +1267,7 @@ export default function PrintNewRequestPage() {
       setActionFeedback({
         type: "error",
         message:
-          "تعذر فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع ثم حاول مرة أخرى.",
+          "تعذر فتح نافذة الطباعة في Safari. اسمح بالنوافذ المنبثقة لهذا الموقع ثم حاول مرة أخرى.",
       });
 
       return;
@@ -1315,7 +1321,7 @@ export default function PrintNewRequestPage() {
         </head>
         <body>
           <div class="message">
-            جاري إنشاء ملف PDF ثابت من صفحتين وفتحه للطباعة...
+            جاري إنشاء ملف PDF ثابت من صفحتين وفتحه للطباعة في Safari...
           </div>
         </body>
       </html>
@@ -1325,7 +1331,7 @@ export default function PrintNewRequestPage() {
     try {
       printWindow.opener = null;
     } catch {
-      // بعض المتصفحات تمنع تعديل opener، ولا يؤثر ذلك على الطباعة.
+      // بعض إصدارات Safari تمنع تعديل opener، ولا يؤثر ذلك على الطباعة.
     }
 
     setPrintingPdf(true);
@@ -1355,13 +1361,13 @@ export default function PrintNewRequestPage() {
       setActionFeedback({
         type: "success",
         message:
-          "تم فتح ملف PDF ثابت من صفحتين. اطبعه من عارض PDF؛ لن تعتمد الطباعة بعد الآن على تقسيم صفحات المتصفح.",
+          "تم فتح ملف PDF ثابت من صفحتين للطباعة في Safari.",
       });
     } catch (error) {
       printWindow.close();
 
       console.error(
-        "Opening printable PDF failed:",
+        "Opening Safari printable PDF failed:",
         error
       );
 
@@ -1369,7 +1375,7 @@ export default function PrintNewRequestPage() {
         type: "error",
         message: getErrorMessage(
           error,
-          "تعذر إنشاء ملف الطباعة"
+          "تعذر إنشاء ملف الطباعة في Safari"
         ),
       });
     } finally {
@@ -2739,7 +2745,7 @@ export default function PrintNewRequestPage() {
           >
             {printingPdf
               ? "جاري تجهيز الطباعة..."
-              : "طباعة PDF"}
+              : "طباعة"}
           </button>
 
           <button
@@ -2887,6 +2893,44 @@ function NoteDataRow({
         {value}
       </strong>
     </div>
+  );
+}
+
+
+function isSafariBrowser() {
+  if (
+    typeof navigator ===
+    "undefined"
+  ) {
+    return false;
+  }
+
+  const userAgent =
+    navigator.userAgent || "";
+
+  const vendor =
+    navigator.vendor || "";
+
+  const usesAppleWebKit =
+    /AppleWebKit/i.test(
+      userAgent
+    );
+
+  const hasSafariToken =
+    /Safari/i.test(
+      userAgent
+    );
+
+  const isAnotherBrowser =
+    /Chrome|Chromium|CriOS|Edg|EdgiOS|OPR|OPiOS|FxiOS|Firefox|SamsungBrowser|Android/i.test(
+      userAgent
+    );
+
+  return (
+    usesAppleWebKit &&
+    hasSafariToken &&
+    !isAnotherBrowser &&
+    /Apple/i.test(vendor)
   );
 }
 
