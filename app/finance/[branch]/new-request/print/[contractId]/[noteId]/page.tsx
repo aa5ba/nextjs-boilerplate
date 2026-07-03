@@ -1992,6 +1992,106 @@ export default function PrintNewRequestPage() {
         </div>
       )}
 
+      <div
+        className="print-action-buttons"
+        style={actionButtons}
+        role="toolbar"
+        aria-label="خيارات الطباعة والمشاركة"
+      >
+        <div
+          className="document-action-grid"
+          style={documentActionGrid}
+        >
+          <button
+            type="button"
+            style={getActionButtonStyle(
+              printButton,
+              documentsUnavailable ||
+                printingPdf
+            )}
+            disabled={
+              documentsUnavailable ||
+              printingPdf
+            }
+            onClick={() =>
+              void printDocuments()
+            }
+          >
+            {printingPdf
+              ? "جاري تجهيز الطباعة..."
+              : "طباعة"}
+          </button>
+
+          <button
+            type="button"
+            style={getActionButtonStyle(
+              saveButton,
+              documentsUnavailable ||
+                savingPdf
+            )}
+            disabled={
+              documentsUnavailable ||
+              savingPdf
+            }
+            onClick={() =>
+              void saveDocumentsPdf()
+            }
+          >
+            {savingPdf
+              ? "جاري إنشاء الملف..."
+              : "حفظ الملف PDF"}
+          </button>
+
+          <button
+            type="button"
+            style={getActionButtonStyle(
+              whatsappButton,
+              documentsUnavailable ||
+                sharingWhatsapp
+            )}
+            disabled={
+              documentsUnavailable ||
+              sharingWhatsapp
+            }
+            onClick={() =>
+              void shareDocumentsOnWhatsapp()
+            }
+          >
+            {sharingWhatsapp
+              ? "جاري تجهيز ملف PDF..."
+              : "مشاركة PDF عبر واتساب"}
+          </button>
+        </div>
+
+        <button
+          type="button"
+          style={backButton}
+          onClick={() =>
+            router.back()
+          }
+        >
+          ← رجوع
+        </button>
+      </div>
+
+      {actionFeedback && (
+        <div
+          className="print-action-feedback"
+          role={
+            actionFeedback.type ===
+            "error"
+              ? "alert"
+              : "status"
+          }
+          style={getActionFeedbackStyle(
+            actionFeedback.type
+          )}
+        >
+          {actionFeedback.message}
+        </div>
+      )}
+
+
       {contract && note && (
         <>
           <section
@@ -2703,102 +2803,6 @@ export default function PrintNewRequestPage() {
         </>
       )}
 
-      {actionFeedback && (
-        <div
-          className="print-action-feedback"
-          role={
-            actionFeedback.type ===
-            "error"
-              ? "alert"
-              : "status"
-          }
-          style={getActionFeedbackStyle(
-            actionFeedback.type
-          )}
-        >
-          {actionFeedback.message}
-        </div>
-      )}
-
-      <div
-        className="print-action-buttons"
-        style={actionButtons}
-      >
-        <div
-          className="document-action-grid"
-          style={documentActionGrid}
-        >
-          <button
-            type="button"
-            style={getActionButtonStyle(
-              printButton,
-              documentsUnavailable ||
-                printingPdf
-            )}
-            disabled={
-              documentsUnavailable ||
-              printingPdf
-            }
-            onClick={() =>
-              void printDocuments()
-            }
-          >
-            {printingPdf
-              ? "جاري تجهيز الطباعة..."
-              : "طباعة"}
-          </button>
-
-          <button
-            type="button"
-            style={getActionButtonStyle(
-              saveButton,
-              documentsUnavailable ||
-                savingPdf
-            )}
-            disabled={
-              documentsUnavailable ||
-              savingPdf
-            }
-            onClick={() =>
-              void saveDocumentsPdf()
-            }
-          >
-            {savingPdf
-              ? "جاري إنشاء الملف..."
-              : "حفظ الملف PDF"}
-          </button>
-
-          <button
-            type="button"
-            style={getActionButtonStyle(
-              whatsappButton,
-              documentsUnavailable ||
-                sharingWhatsapp
-            )}
-            disabled={
-              documentsUnavailable ||
-              sharingWhatsapp
-            }
-            onClick={() =>
-              void shareDocumentsOnWhatsapp()
-            }
-          >
-            {sharingWhatsapp
-              ? "جاري تجهيز ملف PDF..."
-              : "مشاركة PDF عبر واتساب"}
-          </button>
-        </div>
-
-        <button
-          type="button"
-          style={backButton}
-          onClick={() =>
-            router.back()
-          }
-        >
-          ← رجوع
-        </button>
-      </div>
     </main>
   );
 }
@@ -4054,7 +4058,7 @@ const actionFeedbackBase:
   CSSProperties = {
     width: "100%",
     maxWidth: 850,
-    margin: "20px auto 0",
+    margin: "0 auto 20px",
     padding: "13px 15px",
     borderRadius: 13,
     textAlign: "center",
@@ -4069,11 +4073,25 @@ const actionButtons:
 
     maxWidth: 850,
 
-    margin: "20px auto 0",
+    margin: "0 auto 12px",
+
+    padding: 14,
 
     display: "grid",
 
     gap: 12,
+
+    border: "1px solid rgba(191,219,254,0.92)",
+
+    borderRadius: 18,
+
+    background: "rgba(255,255,255,0.94)",
+
+    boxShadow: "0 12px 30px rgba(15,23,42,0.08)",
+
+    backdropFilter: "blur(14px)",
+
+    WebkitBackdropFilter: "blur(14px)",
   };
 
 const documentActionGrid:
