@@ -1398,27 +1398,6 @@ export default function PrintNewRequestPage() {
         contract.customer
       );
 
-    const customerPhone =
-      customerRelation?.phone ||
-      contract.customer_phone ||
-      note.debtor_phone ||
-      "";
-
-    const whatsappPhone =
-      normalizeSaudiMobile(
-        customerPhone
-      );
-
-    if (!whatsappPhone) {
-      setActionFeedback({
-        type: "error",
-        message:
-          "رقم جوال العميل غير موجود أو غير صحيح. يجب أن يكون رقم جوال سعودي مثل 05XXXXXXXX.",
-      });
-
-      return;
-    }
-
     const customerDisplayName =
       customerRelation?.full_name ||
       contract.customer_name ||
@@ -1436,39 +1415,6 @@ export default function PrintNewRequestPage() {
         note.note_number
       );
 
-    const whatsappMessage = [
-      `السلام عليكم ${customerDisplayName}،`,
-      `مرفق لكم العقد رقم ${contractNumber} والسند لأمر رقم ${noteNumber} بصيغة PDF.`,
-      "تم تجهيز الملف على الجهاز، فضلاً أرفقه في المحادثة.",
-    ].join("\n");
-
-    const whatsappUrl =
-      `https://api.whatsapp.com/send?phone=${encodeURIComponent(
-        whatsappPhone
-      )}&text=${encodeURIComponent(
-        whatsappMessage
-      )}`;
-
-    const whatsappWindow =
-      window.open(
-        "about:blank",
-        "_blank"
-      );
-
-    if (whatsappWindow) {
-      whatsappWindow.opener = null;
-      whatsappWindow.document.title =
-        "جاري تجهيز ملف العقد والسند...";
-      whatsappWindow.document.body.dir =
-        "rtl";
-      whatsappWindow.document.body.style.fontFamily =
-        "sans-serif";
-      whatsappWindow.document.body.style.padding =
-        "24px";
-      whatsappWindow.document.body.textContent =
-        "جاري تجهيز ملف العقد والسند وفتح واتساب...";
-    }
-
     setSharingWhatsapp(true);
     setActionFeedback(null);
 
@@ -1476,33 +1422,73 @@ export default function PrintNewRequestPage() {
       const { blob, fileName } =
         await createDocumentsPdf();
 
-      downloadBlob(blob, fileName);
+      const pdfFile = new File(
+        [blob],
+        fileName,
+        {
+          type: "application/pdf",
+          lastModified: Date.now(),
+        }
+      );
+
+      const shareData: ShareData = {
+        files: [pdfFile],
+
+        title:
+          `العقد رقم ${contractNumber} والسند رقم ${noteNumber}`,
+      };
+
+      const canSharePdf =
+        typeof navigator !==
+          "undefined" &&
+        typeof navigator.share ===
+          "function" &&
+        typeof navigator.canShare ===
+          "function" &&
+        navigator.canShare(
+          shareData
+        );
+
+      if (!canSharePdf) {
+        downloadBlob(
+          blob,
+          fileName
+        );
+
+        setActionFeedback({
+          type: "info",
+          message:
+            "هذا المتصفح لا يدعم مشاركة ملفات PDF مباشرة. تم حفظ الملف على الجهاز، ويمكنك مشاركته من تطبيق الملفات.",
+        });
+
+        return;
+      }
+
+      await navigator.share(
+        shareData
+      );
 
       setActionFeedback({
         type: "success",
         message:
-          "تم تجهيز ملف العقد والسند وحفظه على الجهاز، وسيتم فتح محادثة العميل في واتساب. أرفق الملف الذي تم تنزيله داخل المحادثة.",
+          `تم فتح نافذة مشاركة ملف PDF. اختر واتساب ثم أرسل الملف إلى ${customerDisplayName}.`,
       });
-
-      if (whatsappWindow) {
-        whatsappWindow.location.replace(
-          whatsappUrl
-        );
-      } else {
-        window.location.assign(
-          whatsappUrl
-        );
-      }
     } catch (error) {
       if (
-        whatsappWindow &&
-        !whatsappWindow.closed
+        error instanceof DOMException &&
+        error.name === "AbortError"
       ) {
-        whatsappWindow.close();
+        setActionFeedback({
+          type: "info",
+          message:
+            "تم إلغاء مشاركة ملف PDF.",
+        });
+
+        return;
       }
 
       console.error(
-        "WhatsApp PDF preparation failed:",
+        "WhatsApp PDF sharing failed:",
         error
       );
 
@@ -1510,7 +1496,7 @@ export default function PrintNewRequestPage() {
         type: "error",
         message: getErrorMessage(
           error,
-          "تعذر تجهيز ملف العقد والسند وفتح واتساب"
+          "تعذر إنشاء ملف العقد والسند أو مشاركته"
         ),
       });
     } finally {
@@ -2542,8 +2528,8 @@ export default function PrintNewRequestPage() {
             }
           >
             {sharingWhatsapp
-              ? "جاري تجهيز الملف وواتساب..."
-              : "إرسال عبر واتساب"}
+              ? "جاري تجهيز ملف PDF..."
+              : "مشاركة PDF عبر واتساب"}
           </button>
         </div>
 
@@ -2717,57 +2703,6 @@ function getActionFeedbackStyle(
   };
 }
 
-function normalizeDigits(
-  value: string
-) {
-  return value
-    .replace(
-      /[٠-٩]/g,
-      (digit) =>
-        String(
-          "٠١٢٣٤٥٦٧٨٩".indexOf(
-            digit
-          )
-        )
-    )
-    .replace(
-      /[۰-۹]/g,
-      (digit) =>
-        String(
-          "۰۱۲۳۴۵۶۷۸۹".indexOf(
-            digit
-          )
-        )
-    );
-}
-
-function normalizeSaudiMobile(
-  value?: string | null
-) {
-  let digits = normalizeDigits(
-    String(value || "")
-  ).replace(/\D/g, "");
-
-  if (digits.startsWith("00")) {
-    digits = digits.slice(2);
-  }
-
-  if (digits.startsWith("9660")) {
-    digits = `966${digits.slice(4)}`;
-  }
-
-  if (/^05\d{8}$/.test(digits)) {
-    digits = `966${digits.slice(1)}`;
-  } else if (/^5\d{8}$/.test(digits)) {
-    digits = `966${digits}`;
-  }
-
-  if (!/^9665\d{8}$/.test(digits)) {
-    return null;
-  }
-
-  return digits;
-}
 
 function buildDocumentsPdfFileName(
   contractNumber:
