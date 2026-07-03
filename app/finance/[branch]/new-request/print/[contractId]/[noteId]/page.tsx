@@ -1443,7 +1443,35 @@ export default function PrintNewRequestPage() {
     const whatsappMessage = [
       `السلام عليكم ${customerDisplayName}،`,
       `مرفق لكم العقد رقم ${contractNumber} والسند لأمر رقم ${noteNumber} بصيغة PDF.`,
+      "تم تجهيز الملف على الجهاز، فضلاً أرفقه في المحادثة.",
     ].join("\n");
+
+    const whatsappUrl =
+      `https://api.whatsapp.com/send?phone=${encodeURIComponent(
+        whatsappPhone
+      )}&text=${encodeURIComponent(
+        whatsappMessage
+      )}`;
+
+    const whatsappWindow =
+      window.open(
+        "about:blank",
+        "_blank"
+      );
+
+    if (whatsappWindow) {
+      whatsappWindow.opener = null;
+      whatsappWindow.document.title =
+        "جاري تجهيز ملف العقد والسند...";
+      whatsappWindow.document.body.dir =
+        "rtl";
+      whatsappWindow.document.body.style.fontFamily =
+        "sans-serif";
+      whatsappWindow.document.body.style.padding =
+        "24px";
+      whatsappWindow.document.body.textContent =
+        "جاري تجهيز ملف العقد والسند وفتح واتساب...";
+    }
 
     setSharingWhatsapp(true);
     setActionFeedback(null);
@@ -1452,78 +1480,33 @@ export default function PrintNewRequestPage() {
       const { blob, fileName } =
         await createDocumentsPdf();
 
-      const pdfFile = new File(
-        [blob],
-        fileName,
-        {
-          type: "application/pdf",
-          lastModified: Date.now(),
-        }
-      );
-
-      let canSharePdf = false;
-
-      if (
-        typeof navigator.share ===
-          "function" &&
-        typeof navigator.canShare ===
-          "function"
-      ) {
-        try {
-          canSharePdf =
-            navigator.canShare({
-              files: [pdfFile],
-            });
-        } catch {
-          canSharePdf = false;
-        }
-      }
-
-      if (!canSharePdf) {
-        downloadBlob(blob, fileName);
-
-        setActionFeedback({
-          type: "info",
-          message:
-            `هذا المتصفح لا يدعم مشاركة ملف PDF مباشرة. تم حفظ الملف على جهازك؛ افتح واتساب وأرسله للعميل على الرقم +${whatsappPhone}.`,
-        });
-
-        return;
-      }
-
-      try {
-        await navigator.share({
-          title:
-            "العقد والسند لأمر",
-          text: whatsappMessage,
-          files: [pdfFile],
-        });
-      } catch (shareError) {
-        if (
-          isShareCancelled(
-            shareError
-          )
-        ) {
-          setActionFeedback({
-            type: "info",
-            message:
-              "تم إلغاء مشاركة ملف العقد والسند.",
-          });
-
-          return;
-        }
-
-        throw shareError;
-      }
+      downloadBlob(blob, fileName);
 
       setActionFeedback({
         type: "success",
         message:
-          `تمت مشاركة ملف العقد والسند. تأكد أن المستلم هو العميل على الرقم +${whatsappPhone}.`,
+          "تم تجهيز ملف العقد والسند وحفظه على الجهاز، وسيتم فتح محادثة العميل في واتساب. أرفق الملف الذي تم تنزيله داخل المحادثة.",
       });
+
+      if (whatsappWindow) {
+        whatsappWindow.location.replace(
+          whatsappUrl
+        );
+      } else {
+        window.location.assign(
+          whatsappUrl
+        );
+      }
     } catch (error) {
+      if (
+        whatsappWindow &&
+        !whatsappWindow.closed
+      ) {
+        whatsappWindow.close();
+      }
+
       console.error(
-        "WhatsApp PDF share failed:",
+        "WhatsApp PDF preparation failed:",
         error
       );
 
@@ -1531,7 +1514,7 @@ export default function PrintNewRequestPage() {
         type: "error",
         message: getErrorMessage(
           error,
-          "تعذر تجهيز ملف العقد والسند للمشاركة عبر واتساب"
+          "تعذر تجهيز ملف العقد والسند وفتح واتساب"
         ),
       });
     } finally {
@@ -2563,8 +2546,8 @@ export default function PrintNewRequestPage() {
             }
           >
             {sharingWhatsapp
-              ? "جاري تجهيز واتساب..."
-              : "مشاركة عبر واتساب"}
+              ? "جاري تجهيز الملف وواتساب..."
+              : "إرسال عبر واتساب"}
           </button>
         </div>
 
@@ -2850,14 +2833,6 @@ function downloadBlob(
   }, 1500);
 }
 
-function isShareCancelled(
-  error: unknown
-) {
-  return (
-    error instanceof DOMException &&
-    error.name === "AbortError"
-  );
-}
 
 function formatMoney(
   value: unknown
