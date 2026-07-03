@@ -29,6 +29,9 @@ type Customer = {
   bank?: string | null;
   broker?: string | null;
   updated_at?: string | null;
+  is_archived?: boolean | null;
+  archived_at?: string | null;
+  archived_by?: string | null;
   finance_customer_groups?: {
     name?: string | null;
   } | null;
@@ -71,7 +74,7 @@ export default function FinanceCustomerProfilePage() {
 
   const branch =
     typeof params.branch === "string"
-      ? params.branch.trim()
+      ? params.branch.trim().toLowerCase()
       : "";
 
   const customerId =
@@ -394,6 +397,9 @@ export default function FinanceCustomerProfilePage() {
         )
         .eq("id", customerId)
         .eq("branch_id", safeBranchId)
+        .or(
+          "is_archived.is.null,is_archived.eq.false"
+        )
         .maybeSingle();
 
       if (isCancelled()) {
@@ -437,6 +443,9 @@ export default function FinanceCustomerProfilePage() {
             "branch_id",
             safeBranchId
           )
+          .or(
+            "is_archived.is.null,is_archived.eq.false"
+          )
           .in(
             "contract_status",
             ["نشط", "متأخر"]
@@ -465,6 +474,9 @@ export default function FinanceCustomerProfilePage() {
             "branch_id",
             safeBranchId
           )
+          .or(
+            "is_archived.is.null,is_archived.eq.false"
+          )
           .in(
             "contract_status",
             ["تم السداد", "ملغي"]
@@ -492,6 +504,9 @@ export default function FinanceCustomerProfilePage() {
           .eq(
             "branch_id",
             safeBranchId
+          )
+          .or(
+            "is_archived.is.null,is_archived.eq.false"
           )
           .order("created_at", {
             ascending: false,
@@ -816,7 +831,7 @@ export default function FinanceCustomerProfilePage() {
 
     const confirmed =
       window.confirm(
-        `هل أنت متأكد من حذف ملف العميل "${customerName}"؟\n\nلن يتم الحذف إذا كان العميل مرتبطًا بعقود أو سندات.`
+        `هل أنت متأكد من نقل ملف العميل "${customerName}" إلى المحذوفات؟\n\nسيتم إخفاء العميل وعقوده وسنداته المرتبطة من جميع الصفحات التشغيلية، مع الاحتفاظ بها في الأرشيف لإمكانية الاسترجاع لاحقًا.`
       );
 
     if (!confirmed) {
@@ -851,7 +866,7 @@ export default function FinanceCustomerProfilePage() {
       }
 
       alert(
-        "تم حذف العميل بنجاح"
+        "تم نقل العميل وعقوده وسنداته إلى المحذوفات بنجاح"
       );
 
       router.push(
@@ -948,15 +963,18 @@ export default function FinanceCustomerProfilePage() {
 
     if (
       combinedMessage.includes(
+        "CUSTOMER_ARCHIVE_FAILED"
+      ) ||
+      combinedMessage.includes(
         "CUSTOMER_DELETE_FAILED"
       )
     ) {
-      return "تعذر حذف العميل من قاعدة البيانات";
+      return "تعذر نقل العميل إلى المحذوفات";
     }
 
     return (
       combinedMessage ||
-      "تعذر حذف العميل"
+      "تعذر نقل العميل إلى المحذوفات"
     );
   }
 
