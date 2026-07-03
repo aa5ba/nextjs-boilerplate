@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import type { CSSProperties } from "react";
@@ -13,12 +14,8 @@ import {
 } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
-import { exportElementToPdf } from "@/lib/exportElementToPdf";
 
-type ScreenType =
-  | "mobile"
-  | "tablet"
-  | "desktop";
+type ScreenType = "mobile" | "tablet" | "desktop";
 
 type FinanceSession = {
   id?: string | null;
@@ -50,107 +47,50 @@ type CustomerRelation = {
 type ContractRecord = {
   id: string;
   branch_id?: string | null;
-
   customer_id?: string | null;
   guarantor_customer_id?: string | null;
-
-  contract_number?:
-    | string
-    | number
-    | null;
-
+  contract_number?: string | number | null;
   contract_status?: string | null;
   finance_type?: string | null;
-
   customer_name?: string | null;
   customer_national_id?: string | null;
   customer_phone?: string | null;
   customer_birth_hijri?: string | null;
   customer_work_name?: string | null;
   customer_address?: string | null;
-
   investor_name?: string | null;
   investor_national_id?: string | null;
-
   product_name?: string | null;
-  product_quantity?:
-    | string
-    | number
-    | null;
-
+  product_quantity?: string | number | null;
   print_party_type?: string | null;
   print_party_name?: string | null;
   print_party_identifier?: string | null;
-
   first_party_type?: string | null;
   first_party_name?: string | null;
   first_party_identifier?: string | null;
-
-  debt_amount?:
-    | string
-    | number
-    | null;
-
-  payment_amount?:
-    | string
-    | number
-    | null;
-
-  paid_amount?:
-    | string
-    | number
-    | null;
-
-  remaining_amount?:
-    | string
-    | number
-    | null;
-
+  debt_amount?: string | number | null;
+  payment_amount?: string | number | null;
+  paid_amount?: string | number | null;
+  remaining_amount?: string | number | null;
   has_deferred_payments?: boolean | null;
-
-  installment_amount?:
-    | string
-    | number
-    | null;
-
-  deferred_payments_count?:
-    | string
-    | number
-    | null;
-
+  installment_amount?: string | number | null;
+  deferred_payments_count?: string | number | null;
   payment_due_date?: string | null;
-
   contract_issue_date_gregorian?: string | null;
   contract_date_gregorian?: string | null;
-
   contract_issue_date_hijri?: string | null;
   contract_date_hijri?: string | null;
-
   legal_city?: string | null;
-
-  judicial_amount?:
-    | string
-    | number
-    | null;
-
+  judicial_amount?: string | number | null;
   notes?: string | null;
-
   has_guarantor?: boolean | null;
   guarantor_name?: string | null;
   guarantor_national_id?: string | null;
   guarantor_phone?: string | null;
   guarantor_birth_hijri?: string | null;
   guarantor_work_name?: string | null;
-
-  customer?:
-    | CustomerRelation
-    | CustomerRelation[]
-    | null;
-
-  guarantor_customer?:
-    | CustomerRelation
-    | CustomerRelation[]
-    | null;
+  customer?: CustomerRelation | CustomerRelation[] | null;
+  guarantor_customer?: CustomerRelation | CustomerRelation[] | null;
 };
 
 type OrganizationSettings = {
@@ -160,11 +100,22 @@ type OrganizationSettings = {
   commercialRecord: string;
 };
 
-const SESSION_DURATION_MS =
-  60 * 60 * 1000;
+type ActionFeedback = {
+  type: "success" | "info" | "error";
+  message: string;
+};
 
-const ACTIVITY_REFRESH_INTERVAL_MS =
-  60 * 1000;
+type PdfGenerationResult = {
+  blob: Blob;
+  fileName: string;
+};
+
+type PdfGenerationOptions = {
+  autoPrint?: boolean;
+};
+
+const SESSION_DURATION_MS = 60 * 60 * 1000;
+const ACTIVITY_REFRESH_INTERVAL_MS = 60 * 1000;
 
 const SESSION_KEYS = [
   "finance_user",
@@ -191,63 +142,38 @@ export default function PrintContractPage() {
   const pathname = usePathname();
   const router = useRouter();
 
-  const branch = String(
-    params.branch ?? ""
-  ).trim();
+  const branch = String(params.branch ?? "").trim();
+  const contractId = String(params.id ?? "").trim();
 
-  const contractId = String(
-    params.id ?? ""
-  ).trim();
+  const contractPrintRef = useRef<HTMLElement | null>(null);
 
-  const [screen, setScreen] =
-    useState<ScreenType>("desktop");
+  const [screen, setScreen] = useState<ScreenType>("desktop");
+  const [pageReady, setPageReady] = useState(false);
+  const [employeeName, setEmployeeName] = useState("الموظف");
+  const [branchId, setBranchId] = useState<string | null>(null);
+  const [contract, setContract] = useState<ContractRecord | null>(null);
+  const [organizationSettings, setOrganizationSettings] =
+    useState<OrganizationSettings>({
+      name: "احتساب",
+      phone: "",
+      city: "",
+      commercialRecord: "",
+    });
+  const [loading, setLoading] = useState(true);
+  const [pageError, setPageError] = useState("");
+  const [printingPdf, setPrintingPdf] = useState(false);
+  const [savingPdf, setSavingPdf] = useState(false);
+  const [sharingWhatsapp, setSharingWhatsapp] = useState(false);
+  const [actionFeedback, setActionFeedback] =
+    useState<ActionFeedback | null>(null);
 
-  const [pageReady, setPageReady] =
-    useState(false);
-
-  const [employeeName, setEmployeeName] =
-    useState("الموظف");
-
-  const [branchId, setBranchId] =
-    useState<string | null>(null);
-
-  const [contract, setContract] =
-    useState<ContractRecord | null>(
-      null
-    );
-
-  const [
-    organizationSettings,
-    setOrganizationSettings,
-  ] = useState<OrganizationSettings>({
-    name: "احتساب",
-    phone: "",
-    city: "",
-    commercialRecord: "",
-  });
-
-  const [loading, setLoading] =
-    useState(true);
-
-  const [pageError, setPageError] =
-    useState("");
-
-  const [exportingPdf, setExportingPdf] =
-    useState(false);
-
-  const isMobile =
-    screen === "mobile";
-
-  const isTablet =
-    screen === "tablet";
-
-  const isCompact =
-    isMobile || isTablet;
+  const isMobile = screen === "mobile";
+  const isTablet = screen === "tablet";
+  const isCompact = isMobile || isTablet;
 
   useEffect(() => {
     function updateScreen() {
-      const width =
-        window.innerWidth;
+      const width = window.innerWidth;
 
       if (width < 640) {
         setScreen("mobile");
@@ -259,24 +185,17 @@ export default function PrintContractPage() {
     }
 
     updateScreen();
-
-    window.addEventListener(
-      "resize",
-      updateScreen
-    );
+    window.addEventListener("resize", updateScreen);
 
     return () => {
-      window.removeEventListener(
-        "resize",
-        updateScreen
-      );
+      window.removeEventListener("resize", updateScreen);
     };
   }, []);
 
   useEffect(() => {
-    const style =
-      document.createElement("style");
+    const style = document.createElement("style");
 
+    style.setAttribute("data-contract-print", "true");
     style.innerHTML = `
       * {
         box-sizing: border-box;
@@ -290,9 +209,24 @@ export default function PrintContractPage() {
         -webkit-tap-highlight-color: transparent;
       }
 
+      .contract-action-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .contract-action-button:hover:not(:disabled) {
+        transform: translateY(-1px);
+      }
+
+      @page {
+        size: A4 portrait;
+        margin: 0;
+      }
+
       @media print {
         html,
         body {
+          width: 210mm !important;
+          min-height: 297mm !important;
           margin: 0 !important;
           padding: 0 !important;
           background: #ffffff !important;
@@ -302,16 +236,20 @@ export default function PrintContractPage() {
         }
 
         .contract-print-main {
-          min-height: auto !important;
+          display: block !important;
+          width: 210mm !important;
+          min-height: 297mm !important;
           padding: 0 !important;
           margin: 0 !important;
           background: #ffffff !important;
+          background-image: none !important;
         }
 
         .contract-print-container {
-          width: 100% !important;
+          width: 210mm !important;
           max-width: none !important;
           margin: 0 !important;
+          padding: 0 !important;
         }
 
         .no-print {
@@ -319,18 +257,20 @@ export default function PrintContractPage() {
         }
 
         #contract-print-area {
-          width: 194mm !important;
-          height: 281mm !important;
-          min-height: 281mm !important;
-          max-height: 281mm !important;
-          margin: 0 auto !important;
-          padding: 7mm !important;
+          width: 210mm !important;
+          height: 297mm !important;
+          min-height: 297mm !important;
+          max-height: 297mm !important;
+          margin: 0 !important;
+          padding: 8mm 10mm !important;
           border: none !important;
           border-radius: 0 !important;
           box-shadow: none !important;
           overflow: hidden !important;
           page-break-inside: avoid !important;
           break-inside: avoid-page !important;
+          box-sizing: border-box !important;
+          background: #ffffff !important;
         }
 
         #contract-print-area section,
@@ -341,12 +281,7 @@ export default function PrintContractPage() {
         }
       }
 
-      @page {
-        size: A4 portrait;
-        margin: 8mm;
-      }
-
-      @media (max-width: 850px) {
+      @media screen and (max-width: 850px) {
         #contract-print-area {
           width: 100% !important;
           height: auto !important;
@@ -368,6 +303,10 @@ export default function PrintContractPage() {
         .contract-guarantor-grid {
           grid-template-columns: 1fr !important;
         }
+
+        .contract-action-grid {
+          grid-template-columns: 1fr !important;
+        }
       }
     `;
 
@@ -381,167 +320,115 @@ export default function PrintContractPage() {
   const loadContract = useCallback(
     async (
       currentBranchId: string,
-      isCancelled: () => boolean =
-        () => false
+      isCancelled: () => boolean = () => false
     ) => {
-      if (
-        !currentBranchId ||
-        !contractId
-      ) {
-        setPageError(
-          "تعذر تحديد العقد أو الفرع"
-        );
-
-        setLoading(false);
+      if (!currentBranchId || !contractId) {
+        if (!isCancelled()) {
+          setPageError("تعذر تحديد العقد أو الفرع");
+          setLoading(false);
+        }
         return;
       }
 
       setLoading(true);
       setPageError("");
+      setActionFeedback(null);
 
       try {
-        const [
-          branchResult,
-          contractResult,
-        ] = await Promise.all([
+        const [branchResult, contractResult] = await Promise.all([
           supabase
             .from("finance_branches")
             .select(
-              "id, branch_slug, branch_name, organization_name, phone, city, commercial_record, is_active"
+              "id, branch_slug, branch_name, organization_name, organization_phone, phone, city, commercial_record, is_active"
             )
-            .eq(
-              "id",
-              currentBranchId
-            )
-            .eq(
-              "branch_slug",
-              branch
-            )
+            .eq("id", currentBranchId)
+            .eq("branch_slug", branch)
             .maybeSingle(),
 
           supabase
             .from("finance_contracts")
             .select(
               `
-              *,
-              customer:finance_customers!finance_contracts_customer_id_fkey(
-                id,
-                full_name,
-                national_id,
-                phone,
-                birth_hijri,
-                work,
-                work_name,
-                address
-              ),
-              guarantor_customer:finance_customers!finance_contracts_guarantor_customer_id_fkey(
-                id,
-                full_name,
-                national_id,
-                phone,
-                birth_hijri,
-                work,
-                work_name,
-                address
-              )
-            `
+                *,
+                customer:finance_customers!finance_contracts_customer_id_fkey(
+                  id,
+                  full_name,
+                  national_id,
+                  phone,
+                  birth_hijri,
+                  work,
+                  work_name,
+                  address
+                ),
+                guarantor_customer:finance_customers!finance_contracts_guarantor_customer_id_fkey(
+                  id,
+                  full_name,
+                  national_id,
+                  phone,
+                  birth_hijri,
+                  work,
+                  work_name,
+                  address
+                )
+              `
             )
             .eq("id", contractId)
-            .eq(
-              "branch_id",
-              currentBranchId
-            )
+            .eq("branch_id", currentBranchId)
             .maybeSingle(),
         ]);
 
-        if (isCancelled()) {
-          return;
-        }
+        if (isCancelled()) return;
 
         if (branchResult.error) {
-          throw new Error(
-            branchResult.error.message
-          );
+          throw new Error(branchResult.error.message);
         }
 
-        if (
-          !branchResult.data ||
-          branchResult.data.is_active ===
-            false
-        ) {
-          throw new Error(
-            "الفرع غير موجود أو غير نشط"
-          );
+        if (!branchResult.data || branchResult.data.is_active === false) {
+          throw new Error("الفرع غير موجود أو غير نشط");
         }
 
         if (contractResult.error) {
-          throw new Error(
-            contractResult.error.message
-          );
+          throw new Error(contractResult.error.message);
         }
 
         if (!contractResult.data) {
-          throw new Error(
-            "العقد غير موجود أو لا يتبع هذا الفرع"
-          );
+          throw new Error("العقد غير موجود أو لا يتبع هذا الفرع");
         }
 
-        setOrganizationSettings({
-          name:
-            branchResult.data
-              .organization_name ||
-            localStorage.getItem(
-              "finance_organization_name"
-            ) ||
-            "احتساب",
+        const organizationName =
+          branchResult.data.organization_name ||
+          localStorage.getItem("finance_organization_name") ||
+          "احتساب";
 
+        setOrganizationSettings({
+          name: organizationName,
           phone:
+            branchResult.data.organization_phone ||
             branchResult.data.phone ||
             "",
-
           city:
             branchResult.data.city ||
-            branchResult.data
-              .branch_name ||
+            branchResult.data.branch_name ||
             "",
-
           commercialRecord:
-            branchResult.data
-              .commercial_record ||
-            "",
+            branchResult.data.commercial_record || "",
         });
 
-        setContract(
-          contractResult.data as ContractRecord
-        );
+        setContract(contractResult.data as ContractRecord);
 
-        if (
-          branchResult.data
-            .organization_name
-        ) {
+        if (organizationName) {
           localStorage.setItem(
             "finance_organization_name",
-            branchResult.data
-              .organization_name
+            organizationName
           );
         }
       } catch (error) {
-        if (isCancelled()) {
-          return;
-        }
+        if (isCancelled()) return;
 
-        console.error(
-          "Contract print loading error:",
-          error
-        );
-
+        console.error("Contract print loading error:", error);
         setContract(null);
-
         setPageError(
-          getErrorMessage(
-            error,
-            "تعذر تحميل بيانات العقد"
-          )
+          getErrorMessage(error, "تعذر تحميل بيانات العقد")
         );
       } finally {
         if (!isCancelled()) {
@@ -556,135 +443,75 @@ export default function PrintContractPage() {
     let cancelled = false;
 
     async function initializePage() {
-      if (
-        typeof window === "undefined"
-      ) {
-        return;
-      }
+      if (typeof window === "undefined") return;
 
-      if (
-        !branch ||
-        !contractId
-      ) {
+      if (!branch || !contractId) {
         redirectToLogin(true);
         return;
       }
 
-      const storedSession =
-        readStoredSession();
+      const storedSession = readStoredSession();
 
-      if (
-        !isValidSession(
-          storedSession
-        )
-      ) {
+      if (!isValidSession(storedSession)) {
         redirectToLogin(true);
         return;
       }
 
-      const sessionBranchSlug =
-        String(
-          storedSession
-            ?.branch_slug || ""
-        ).trim();
+      const sessionBranchSlug = String(
+        storedSession?.branch_slug || ""
+      ).trim();
 
-      if (
-        sessionBranchSlug &&
-        sessionBranchSlug !== branch
-      ) {
-        router.replace(
-          `/finance/${sessionBranchSlug}`
-        );
-
+      if (sessionBranchSlug && sessionBranchSlug !== branch) {
+        router.replace(`/finance/${sessionBranchSlug}`);
         return;
       }
 
       const resolvedEmployeeName =
-        localStorage.getItem(
-          "finance_user_name"
-        ) ||
+        localStorage.getItem("finance_user_name") ||
         storedSession?.full_name ||
         storedSession?.username ||
         "الموظف";
 
-      setEmployeeName(
-        resolvedEmployeeName
-      );
-
+      setEmployeeName(resolvedEmployeeName);
       renewFinanceSession();
       setPageReady(true);
 
-      const storedBranchId =
-        String(
-          storedSession?.branch_id ||
-            localStorage.getItem(
-              "finance_branch_id"
-            ) ||
-            ""
-        ).trim();
+      const storedBranchId = String(
+        storedSession?.branch_id ||
+          localStorage.getItem("finance_branch_id") ||
+          ""
+      ).trim();
 
-      let resolvedBranchId =
-        storedBranchId;
+      let resolvedBranchId = storedBranchId;
 
       if (!resolvedBranchId) {
         try {
-          const fetchedBranchId =
-            await getBranchId(branch);
+          const fetchedBranchId = await getBranchId(branch);
 
-          if (cancelled) {
-            return;
-          }
+          if (cancelled) return;
 
           if (!fetchedBranchId) {
-            setPageError(
-              "تعذر تحديد الفرع"
-            );
-
+            setPageError("تعذر تحديد الفرع");
             setLoading(false);
             return;
           }
 
-          resolvedBranchId =
-            String(fetchedBranchId);
-
-          localStorage.setItem(
-            "finance_branch_id",
-            resolvedBranchId
-          );
-
-          localStorage.setItem(
-            "finance_branch_slug",
-            branch
-          );
+          resolvedBranchId = String(fetchedBranchId);
+          localStorage.setItem("finance_branch_id", resolvedBranchId);
+          localStorage.setItem("finance_branch_slug", branch);
         } catch (error) {
-          if (cancelled) {
-            return;
-          }
+          if (cancelled) return;
 
-          setPageError(
-            getErrorMessage(
-              error,
-              "تعذر تحديد الفرع"
-            )
-          );
-
+          setPageError(getErrorMessage(error, "تعذر تحديد الفرع"));
           setLoading(false);
           return;
         }
       }
 
-      if (cancelled) {
-        return;
-      }
+      if (cancelled) return;
 
-      setBranchId(
-        resolvedBranchId
-      );
-
-      await loadContract(
-        resolvedBranchId,
-        () => cancelled
-      );
+      setBranchId(resolvedBranchId);
+      await loadContract(resolvedBranchId, () => cancelled);
     }
 
     void initializePage();
@@ -692,39 +519,23 @@ export default function PrintContractPage() {
     return () => {
       cancelled = true;
     };
-  }, [
-    branch,
-    contractId,
-    loadContract,
-    router,
-  ]);
+  }, [branch, contractId, loadContract, router]);
 
   useEffect(() => {
-    if (
-      !pageReady ||
-      typeof window === "undefined"
-    ) {
-      return;
-    }
+    if (!pageReady || typeof window === "undefined") return;
 
     let lastRefresh = 0;
 
     function handleActivity() {
       const now = Date.now();
 
-      if (
-        now - lastRefresh <
-        ACTIVITY_REFRESH_INTERVAL_MS
-      ) {
-        return;
-      }
+      if (now - lastRefresh < ACTIVITY_REFRESH_INTERVAL_MS) return;
 
       lastRefresh = now;
       renewFinanceSession();
     }
 
-    const events:
-      Array<keyof WindowEventMap> = [
+    const events: Array<keyof WindowEventMap> = [
       "pointerdown",
       "keydown",
       "scroll",
@@ -732,140 +543,81 @@ export default function PrintContractPage() {
     ];
 
     events.forEach((eventName) => {
-      window.addEventListener(
-        eventName,
-        handleActivity,
-        { passive: true }
-      );
+      window.addEventListener(eventName, handleActivity, { passive: true });
     });
 
-    const timer =
-      window.setInterval(() => {
-        const expiresAt = Number(
-          localStorage.getItem(
-            "finance_session_expires_at"
-          ) || 0
-        );
+    const timer = window.setInterval(() => {
+      const expiresAt = Number(
+        localStorage.getItem("finance_session_expires_at") || 0
+      );
 
-        if (
-          expiresAt > 0 &&
-          Date.now() >= expiresAt
-        ) {
-          redirectToLogin(true);
-        }
-      }, 30 * 1000);
+      if (expiresAt > 0 && Date.now() >= expiresAt) {
+        redirectToLogin(true);
+      }
+    }, 30 * 1000);
 
     return () => {
       events.forEach((eventName) => {
-        window.removeEventListener(
-          eventName,
-          handleActivity
-        );
+        window.removeEventListener(eventName, handleActivity);
       });
 
       window.clearInterval(timer);
     };
   }, [pageReady, pathname]);
 
-  function readStoredSession():
-    | FinanceSession
-    | null {
-    if (
-      typeof window === "undefined"
-    ) {
-      return null;
-    }
+  function readStoredSession(): FinanceSession | null {
+    if (typeof window === "undefined") return null;
 
     const rawSession =
-      localStorage.getItem(
-        "finance_branch_user"
-      ) ||
-      localStorage.getItem(
-        "finance_user"
-      );
+      localStorage.getItem("finance_branch_user") ||
+      localStorage.getItem("finance_user");
 
-    if (!rawSession) {
-      return null;
-    }
+    if (!rawSession) return null;
 
     try {
-      const parsed =
-        JSON.parse(
-          rawSession
-        ) as FinanceSession;
+      const parsed = JSON.parse(rawSession) as FinanceSession;
 
-      if (
-        !parsed ||
-        typeof parsed !== "object" ||
-        Array.isArray(parsed)
-      ) {
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
         return null;
       }
 
       return {
         ...parsed,
-
         id:
           parsed.id ||
           parsed.user_id ||
-          localStorage.getItem(
-            "finance_user_id"
-          ),
-
+          localStorage.getItem("finance_user_id"),
         full_name:
           parsed.full_name ||
-          localStorage.getItem(
-            "finance_user_name"
-          ) ||
+          localStorage.getItem("finance_user_name") ||
           null,
-
         username:
           parsed.username ||
-          localStorage.getItem(
-            "finance_username"
-          ) ||
+          localStorage.getItem("finance_username") ||
           null,
-
         role:
           parsed.role ||
-          localStorage.getItem(
-            "finance_role"
-          ) ||
+          localStorage.getItem("finance_role") ||
           null,
-
         branch_id:
           parsed.branch_id ||
-          localStorage.getItem(
-            "finance_branch_id"
-          ) ||
+          localStorage.getItem("finance_branch_id") ||
           null,
-
         branch_slug:
           parsed.branch_slug ||
-          localStorage.getItem(
-            "finance_branch_slug"
-          ) ||
+          localStorage.getItem("finance_branch_slug") ||
           null,
-
         branch_name:
           parsed.branch_name ||
-          localStorage.getItem(
-            "finance_branch_name"
-          ) ||
+          localStorage.getItem("finance_branch_name") ||
           null,
-
         organization_name:
           parsed.organization_name ||
-          localStorage.getItem(
-            "finance_organization_name"
-          ) ||
+          localStorage.getItem("finance_organization_name") ||
           null,
-
         investor_id:
           parsed.investor_id ||
-          localStorage.getItem(
-            "finance_investor_id"
-          ) ||
+          localStorage.getItem("finance_investor_id") ||
           null,
       };
     } catch {
@@ -873,72 +625,30 @@ export default function PrintContractPage() {
     }
   }
 
-  function isValidSession(
-    session: FinanceSession | null
-  ) {
-    if (!session) {
-      return false;
-    }
+  function isValidSession(session: FinanceSession | null) {
+    if (!session) return false;
 
-    const userId = String(
-      session.id ||
-        session.user_id ||
-        ""
-    ).trim();
+    const userId = String(session.id || session.user_id || "").trim();
+    const sessionBranchSlug = String(session.branch_slug || "").trim();
 
-    const sessionBranchSlug =
-      String(
-        session.branch_slug || ""
-      ).trim();
-
-    if (
-      !userId ||
-      !sessionBranchSlug
-    ) {
-      return false;
-    }
-
-    if (
-      session.is_active === false
-    ) {
-      return false;
-    }
+    if (!userId || !sessionBranchSlug) return false;
+    if (session.is_active === false) return false;
 
     const expiresAt = Number(
-      localStorage.getItem(
-        "finance_session_expires_at"
-      ) || 0
+      localStorage.getItem("finance_session_expires_at") || 0
     );
 
-    if (
-      expiresAt > 0 &&
-      Date.now() >= expiresAt
-    ) {
-      return false;
-    }
-
-    return true;
+    return !(expiresAt > 0 && Date.now() >= expiresAt);
   }
 
   function renewFinanceSession() {
-    if (
-      typeof window === "undefined"
-    ) {
-      return;
-    }
+    if (typeof window === "undefined") return;
 
     const now = Date.now();
-
-    localStorage.setItem(
-      "finance_last_activity_at",
-      String(now)
-    );
-
+    localStorage.setItem("finance_last_activity_at", String(now));
     localStorage.setItem(
       "finance_session_expires_at",
-      String(
-        now + SESSION_DURATION_MS
-      )
+      String(now + SESSION_DURATION_MS)
     );
   }
 
@@ -947,28 +657,16 @@ export default function PrintContractPage() {
   }: {
     preserveReturnPath?: boolean;
   } = {}) {
-    if (
-      typeof window === "undefined"
-    ) {
-      return;
-    }
+    if (typeof window === "undefined") return;
 
     SESSION_KEYS.forEach((key) => {
-      if (
-        preserveReturnPath &&
-        key === "finance_return_to"
-      ) {
-        return;
-      }
-
+      if (preserveReturnPath && key === "finance_return_to") return;
       localStorage.removeItem(key);
     });
   }
 
   function getCurrentReturnPath() {
-    if (
-      typeof window === "undefined"
-    ) {
+    if (typeof window === "undefined") {
       return (
         pathname ||
         `/finance/${branch}/contracts/print/${contractId}`
@@ -978,69 +676,29 @@ export default function PrintContractPage() {
     return `${window.location.pathname}${window.location.search}`;
   }
 
-  function isSafeReturnPath(
-    value: string
-  ) {
-    if (
-      !value.startsWith(
-        `/finance/${branch}`
-      )
-    ) {
-      return false;
-    }
-
-    if (
-      value.startsWith("//") ||
-      value.includes("://")
-    ) {
-      return false;
-    }
-
+  function isSafeReturnPath(value: string) {
+    if (!value.startsWith(`/finance/${branch}`)) return false;
+    if (value.startsWith("//") || value.includes("://")) return false;
     return true;
   }
 
-  function redirectToLogin(
-    preserveReturnPath = true
-  ) {
-    if (
-      typeof window === "undefined"
-    ) {
+  function redirectToLogin(preserveReturnPath = true) {
+    if (typeof window === "undefined") {
       router.replace("/login");
       return;
     }
 
-    const returnTo =
-      getCurrentReturnPath();
+    const returnTo = getCurrentReturnPath();
 
-    if (
-      preserveReturnPath &&
-      isSafeReturnPath(returnTo)
-    ) {
-      localStorage.setItem(
-        "finance_return_to",
-        returnTo
-      );
+    if (preserveReturnPath && isSafeReturnPath(returnTo)) {
+      localStorage.setItem("finance_return_to", returnTo);
     }
 
-    clearSession({
-      preserveReturnPath,
-    });
+    clearSession({ preserveReturnPath });
 
-    if (
-      preserveReturnPath &&
-      isSafeReturnPath(returnTo)
-    ) {
-      localStorage.setItem(
-        "finance_return_to",
-        returnTo
-      );
-
-      router.replace(
-        `/login?returnTo=${encodeURIComponent(
-          returnTo
-        )}`
-      );
-
+    if (preserveReturnPath && isSafeReturnPath(returnTo)) {
+      localStorage.setItem("finance_return_to", returnTo);
+      router.replace(`/login?returnTo=${encodeURIComponent(returnTo)}`);
       return;
     }
 
@@ -1048,19 +706,13 @@ export default function PrintContractPage() {
   }
 
   function logout() {
-    clearSession({
-      preserveReturnPath: false,
-    });
-
+    clearSession({ preserveReturnPath: false });
     router.replace("/login");
   }
 
   function retryLoading() {
     if (!branchId) {
-      setPageError(
-        "تعذر تحديد الفرع"
-      );
-
+      setPageError("تعذر تحديد الفرع");
       return;
     }
 
@@ -1074,288 +726,440 @@ export default function PrintContractPage() {
       | null
       | undefined
   ) {
-    if (Array.isArray(relation)) {
-      return relation[0] || null;
-    }
-
-    return relation || null;
+    return Array.isArray(relation) ? relation[0] || null : relation || null;
   }
 
-  function formatMoney(
-    value: unknown
-  ) {
-    const amount =
-      Number(value || 0);
-
-    return amount.toLocaleString(
-      "en-US",
-      {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }
-    );
-  }
-
-  function formatDateOnly(
-    value?: string | null
-  ) {
-    if (!value) {
-      return "-";
-    }
-
-    const trimmedValue =
-      String(value).trim();
-
-    const directMatch =
-      /^(\d{4})-(\d{2})-(\d{2})(?:[T\s].*)?$/.exec(
-        trimmedValue
-      );
-
-    if (directMatch) {
-      const year =
-        directMatch[1];
-
-      const month =
-        directMatch[2];
-
-      const day =
-        directMatch[3];
-
-      return `${day}-${month}-${year}`;
-    }
-
-    const parsedDate =
-      new Date(trimmedValue);
-
-    if (
-      Number.isNaN(
-        parsedDate.getTime()
-      )
-    ) {
-      return trimmedValue;
-    }
-
-    const day =
-      String(
-        parsedDate.getDate()
-      ).padStart(2, "0");
-
-    const month =
-      String(
-        parsedDate.getMonth() + 1
-      ).padStart(2, "0");
-
-    const year =
-      parsedDate.getFullYear();
-
-    return `${day}-${month}-${year}`;
-  }
-
-  function handlePrint() {
-    if (
-      loading ||
-      pageError ||
-      !contract
-    ) {
-      alert(
-        "انتظر حتى يكتمل تحميل بيانات العقد"
-      );
-
+  async function printContract() {
+    if (loading || pageError || !contract) {
+      setActionFeedback({
+        type: "error",
+        message: "انتظر حتى يكتمل تحميل بيانات العقد.",
+      });
       return;
     }
 
-    renewFinanceSession();
-    window.print();
-  }
-
-  async function handleExportPdf() {
-    if (
-      loading ||
-      pageError ||
-      !contract ||
-      exportingPdf
-    ) {
-      if (!exportingPdf) {
-        alert(
-          "انتظر حتى يكتمل تحميل بيانات العقد"
-        );
-      }
-
+    if (!isSafariBrowser()) {
+      setActionFeedback(null);
+      renewFinanceSession();
+      window.print();
       return;
     }
+
+    if (printingPdf) return;
+
+    const printWindow = window.open("", "_blank");
+
+    if (!printWindow) {
+      setActionFeedback({
+        type: "error",
+        message:
+          "تعذر فتح نافذة الطباعة في Safari. اسمح بالنوافذ المنبثقة لهذا الموقع ثم حاول مرة أخرى.",
+      });
+      return;
+    }
+
+    printWindow.document.open();
+    printWindow.document.write(`
+      <!doctype html>
+      <html lang="ar" dir="rtl">
+        <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width,initial-scale=1" />
+          <title>جاري تجهيز ملف الطباعة</title>
+          <style>
+            * { box-sizing: border-box; }
+            html, body { margin: 0; min-height: 100%; }
+            body {
+              min-height: 100vh;
+              display: grid;
+              place-items: center;
+              padding: 24px;
+              background: #f8fafc;
+              color: #0f172a;
+              font-family: Arial, sans-serif;
+            }
+            .message {
+              width: min(520px, 100%);
+              padding: 24px;
+              border: 1px solid #bfdbfe;
+              border-radius: 18px;
+              background: #ffffff;
+              text-align: center;
+              font-size: 18px;
+              font-weight: 700;
+              line-height: 1.8;
+              box-shadow: 0 16px 40px rgba(15, 23, 42, 0.1);
+            }
+          </style>
+        </head>
+        <body>
+          <div class="message">
+            جاري إنشاء ملف PDF ثابت وفتحه للطباعة في Safari...
+          </div>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
 
     try {
-      setExportingPdf(true);
-      renewFinanceSession();
+      printWindow.opener = null;
+    } catch {
+      // بعض إصدارات Safari تمنع تعديل opener، ولا يؤثر ذلك على الطباعة.
+    }
 
-      await exportElementToPdf(
-        "contract-print-area",
-        String(
-          contract.contract_number ||
-            "contract"
-        )
-      );
+    setPrintingPdf(true);
+    setActionFeedback(null);
+    renewFinanceSession();
+
+    try {
+      const { blob } = await createContractPdf({ autoPrint: true });
+      const pdfUrl = URL.createObjectURL(blob);
+
+      printWindow.location.replace(pdfUrl);
+      printWindow.focus();
+
+      window.setTimeout(() => {
+        URL.revokeObjectURL(pdfUrl);
+      }, 120_000);
+
+      setActionFeedback({
+        type: "success",
+        message: "تم فتح ملف PDF ثابت للطباعة في Safari.",
+      });
     } catch (error) {
-      console.error(
-        "PDF export error:",
-        error
-      );
+      printWindow.close();
 
-      alert(
-        getErrorMessage(
+      console.error("Opening Safari contract PDF failed:", error);
+      setActionFeedback({
+        type: "error",
+        message: getErrorMessage(
           error,
-          "تعذر تحميل ملف PDF"
-        )
-      );
+          "تعذر إنشاء ملف الطباعة في Safari"
+        ),
+      });
     } finally {
-      setExportingPdf(false);
+      setPrintingPdf(false);
     }
   }
 
-  if (!pageReady) {
-    return null;
+  async function createContractPdf(
+    options: PdfGenerationOptions = {}
+  ): Promise<PdfGenerationResult> {
+    const contractElement = contractPrintRef.current;
+
+    if (!contract || !contractElement) {
+      throw new Error("تعذر العثور على صفحة العقد لإنشاء الملف");
+    }
+
+    if (document.fonts?.ready) {
+      await document.fonts.ready;
+    }
+
+    const [html2canvasModule, jsPdfModule] = await Promise.all([
+      import("html2canvas"),
+      import("jspdf"),
+    ]);
+
+    const html2canvas = html2canvasModule.default;
+    const { jsPDF } = jsPdfModule;
+
+    const canvas = await html2canvas(contractElement, {
+      backgroundColor: "#ffffff",
+      scale: 2,
+      useCORS: true,
+      logging: false,
+      windowWidth: 1400,
+      windowHeight: 1300,
+      scrollX: 0,
+      scrollY: 0,
+      onclone: (clonedDocument) => {
+        clonedDocument.documentElement.style.background = "#ffffff";
+        clonedDocument.body.style.background = "#ffffff";
+
+        const clonedPage =
+          clonedDocument.querySelector<HTMLElement>(
+            '[data-pdf-page="contract"]'
+          );
+
+        if (!clonedPage) return;
+
+        clonedPage.style.width = "210mm";
+        clonedPage.style.height = "297mm";
+        clonedPage.style.minHeight = "297mm";
+        clonedPage.style.maxHeight = "297mm";
+        clonedPage.style.margin = "0";
+        clonedPage.style.padding = "8mm 10mm";
+        clonedPage.style.boxShadow = "none";
+        clonedPage.style.border = "none";
+        clonedPage.style.borderRadius = "0";
+        clonedPage.style.overflow = "hidden";
+        clonedPage.style.background = "#ffffff";
+      },
+    });
+
+    const pdf = new jsPDF({
+      orientation: "portrait",
+      unit: "mm",
+      format: "a4",
+      compress: true,
+    });
+
+    const imageData = canvas.toDataURL("image/jpeg", 0.96);
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const canvasRatio = canvas.width / canvas.height;
+
+    let imageWidth = pageWidth;
+    let imageHeight = imageWidth / canvasRatio;
+
+    if (imageHeight > pageHeight) {
+      imageHeight = pageHeight;
+      imageWidth = imageHeight * canvasRatio;
+    }
+
+    const imageX = (pageWidth - imageWidth) / 2;
+    const imageY = (pageHeight - imageHeight) / 2;
+
+    pdf.addImage(
+      imageData,
+      "JPEG",
+      imageX,
+      imageY,
+      imageWidth,
+      imageHeight,
+      undefined,
+      "FAST"
+    );
+
+    if (options.autoPrint) {
+      const printablePdf = pdf as typeof pdf & {
+        autoPrint?: (options?: {
+          variant?: "non-conform" | "javascript";
+        }) => void;
+      };
+
+      printablePdf.autoPrint?.({ variant: "non-conform" });
+    }
+
+    const fileName = buildContractPdfFileName(
+      contract.contract_number
+    );
+
+    return {
+      blob: pdf.output("blob"),
+      fileName,
+    };
   }
 
-  const customer =
-    getSingleRelation(
-      contract?.customer
-    );
+  async function saveContractPdf() {
+    if (loading || pageError || !contract) {
+      setActionFeedback({
+        type: "error",
+        message: "انتظر حتى يكتمل تحميل بيانات العقد.",
+      });
+      return;
+    }
 
-  const guarantorCustomer =
-    getSingleRelation(
-      contract?.guarantor_customer
-    );
+    if (savingPdf) return;
+
+    setSavingPdf(true);
+    setActionFeedback(null);
+    renewFinanceSession();
+
+    try {
+      const { blob, fileName } = await createContractPdf();
+      downloadBlob(blob, fileName);
+
+      setActionFeedback({
+        type: "success",
+        message: "تم إنشاء ملف PDF للعقد وحفظه بنجاح.",
+      });
+    } catch (error) {
+      console.error("Saving contract PDF failed:", error);
+      setActionFeedback({
+        type: "error",
+        message: getErrorMessage(error, "تعذر إنشاء ملف PDF للعقد"),
+      });
+    } finally {
+      setSavingPdf(false);
+    }
+  }
+
+  async function shareContractOnWhatsapp() {
+    if (loading || pageError || !contract) {
+      setActionFeedback({
+        type: "error",
+        message: "انتظر حتى يكتمل تحميل بيانات العقد.",
+      });
+      return;
+    }
+
+    if (sharingWhatsapp) return;
+
+    const customer = getSingleRelation(contract.customer);
+    const customerDisplayName =
+      customer?.full_name || contract.customer_name || "العميل";
+
+    setSharingWhatsapp(true);
+    setActionFeedback(null);
+    renewFinanceSession();
+
+    try {
+      const { blob, fileName } = await createContractPdf();
+      const pdfFile = new File([blob], fileName, {
+        type: "application/pdf",
+        lastModified: Date.now(),
+      });
+
+      const shareData: ShareData = {
+        files: [pdfFile],
+        title: `العقد رقم ${String(contract.contract_number || "-")}`,
+      };
+
+      const canSharePdf =
+        typeof navigator !== "undefined" &&
+        typeof navigator.share === "function" &&
+        typeof navigator.canShare === "function" &&
+        navigator.canShare(shareData);
+
+      if (!canSharePdf) {
+        downloadBlob(blob, fileName);
+
+        setActionFeedback({
+          type: "info",
+          message:
+            "هذا المتصفح لا يدعم مشاركة ملفات PDF مباشرة. تم حفظ الملف على الجهاز، ويمكنك مشاركته من تطبيق الملفات.",
+        });
+        return;
+      }
+
+      await navigator.share(shareData);
+
+      setActionFeedback({
+        type: "success",
+        message:
+          `تم فتح نافذة مشاركة ملف PDF. اختر واتساب ثم أرسل الملف إلى ${customerDisplayName}.`,
+      });
+    } catch (error) {
+      if (isShareCancellation(error)) {
+        setActionFeedback({
+          type: "info",
+          message: "تم إلغاء مشاركة ملف PDF.",
+        });
+        return;
+      }
+
+      console.error("WhatsApp contract PDF sharing failed:", error);
+      setActionFeedback({
+        type: "error",
+        message: getErrorMessage(
+          error,
+          "تعذر إنشاء ملف العقد أو مشاركته"
+        ),
+      });
+    } finally {
+      setSharingWhatsapp(false);
+    }
+  }
+
+  if (!pageReady) return null;
+
+  const customer = getSingleRelation(contract?.customer);
+  const guarantorCustomer = getSingleRelation(
+    contract?.guarantor_customer
+  );
 
   const customerName =
-    customer?.full_name ||
-    contract?.customer_name ||
-    "................";
-
+    customer?.full_name || contract?.customer_name || "................";
   const nationalId =
     customer?.national_id ||
     contract?.customer_national_id ||
     "................";
-
   const phone =
-    customer?.phone ||
-    contract?.customer_phone ||
-    "................";
-
+    customer?.phone || contract?.customer_phone || "................";
   const birthHijri =
     customer?.birth_hijri ||
     contract?.customer_birth_hijri ||
     "................";
-
   const customerWork =
     customer?.work_name ||
     customer?.work ||
     contract?.customer_work_name ||
     "";
-
   const customerAddress =
-    customer?.address ||
-    contract?.customer_address ||
-    "";
+    customer?.address || contract?.customer_address || "";
 
   const firstPartyType =
     contract?.print_party_type ||
     contract?.first_party_type ||
     "organization";
+  const isInvestorParty = firstPartyType === "investor";
 
-  const isInvestorParty =
-    firstPartyType === "investor";
+  const firstPartyName = isInvestorParty
+    ? contract?.print_party_name ||
+      contract?.first_party_name ||
+      contract?.investor_name ||
+      "................"
+    : contract?.print_party_name ||
+      contract?.first_party_name ||
+      organizationSettings.name ||
+      "................";
 
-  const firstPartyName =
-    isInvestorParty
-      ? contract?.print_party_name ||
-        contract?.first_party_name ||
-        contract?.investor_name ||
-        "................"
-      : contract?.print_party_name ||
-        contract?.first_party_name ||
-        organizationSettings.name ||
-        "................";
+  const firstPartyIdentifier = isInvestorParty
+    ? contract?.print_party_identifier ||
+      contract?.first_party_identifier ||
+      contract?.investor_national_id ||
+      ""
+    : contract?.print_party_identifier ||
+      contract?.first_party_identifier ||
+      organizationSettings.commercialRecord ||
+      "";
 
-  const firstPartyIdentifier =
-    isInvestorParty
-      ? contract?.print_party_identifier ||
-        contract?.first_party_identifier ||
-        contract?.investor_national_id ||
-        ""
-      : contract?.print_party_identifier ||
-        contract?.first_party_identifier ||
-        organizationSettings.commercialRecord ||
-        "";
+  const firstPartyIdentifierLabel = isInvestorParty
+    ? "رقم الهوية"
+    : "سجل تجاري رقم";
 
-  const firstPartyIdentifierLabel =
-    isInvestorParty
-      ? "رقم الهوية"
-      : "سجل تجاري رقم";
-
-  const contractIssueDate =
-    formatDateOnly(
-      contract?.contract_issue_date_gregorian ||
-        contract?.contract_date_gregorian
-    );
-
-  const paymentDueDate =
-    formatDateOnly(
-      contract?.payment_due_date
-    );
+  const contractIssueDate = formatDateOnly(
+    contract?.contract_issue_date_gregorian ||
+      contract?.contract_date_gregorian
+  );
+  const paymentDueDate = formatDateOnly(contract?.payment_due_date);
 
   const hasDeferredPayments =
-    Boolean(
-      contract?.has_deferred_payments
-    ) ||
-    Number(
-      contract?.installment_amount ||
-        0
-    ) > 0;
+    Boolean(contract?.has_deferred_payments) ||
+    Number(contract?.installment_amount || 0) > 0;
 
   const hasGuarantor =
-    Boolean(
-      contract?.has_guarantor
-    ) ||
-    Boolean(
-      contract?.guarantor_customer_id
-    ) ||
-    Boolean(
-      guarantorCustomer?.full_name
-    ) ||
-    Boolean(
-      contract?.guarantor_name
-    );
+    Boolean(contract?.has_guarantor) ||
+    Boolean(contract?.guarantor_customer_id) ||
+    Boolean(guarantorCustomer?.full_name) ||
+    Boolean(contract?.guarantor_name);
 
   const guarantorName =
     guarantorCustomer?.full_name ||
     contract?.guarantor_name ||
     "................";
-
   const guarantorNationalId =
     guarantorCustomer?.national_id ||
     contract?.guarantor_national_id ||
     "................";
-
   const guarantorPhone =
     guarantorCustomer?.phone ||
     contract?.guarantor_phone ||
     "................";
-
   const guarantorBirthHijri =
     guarantorCustomer?.birth_hijri ||
     contract?.guarantor_birth_hijri ||
     "................";
-
   const guarantorWork =
     guarantorCustomer?.work_name ||
     guarantorCustomer?.work ||
     contract?.guarantor_work_name ||
     "";
 
-  const legalCity =
-    String(
-      contract?.legal_city || ""
-    ).trim();
+  const legalCity = String(contract?.legal_city || "").trim();
+  const documentsUnavailable = loading || Boolean(pageError) || !contract;
+  const actionBusy = printingPdf || savingPdf || sharingWhatsapp;
 
   return (
     <main
@@ -1365,139 +1169,142 @@ export default function PrintContractPage() {
     >
       <div
         className="contract-print-container"
-        style={getContainerStyle(
-          isCompact
-        )}
+        style={getContainerStyle(isCompact)}
       >
-        <header
-          className="no-print"
-          style={getHeroStyle(
-            isMobile
-          )}
-        >
-          <div
-            style={heroCircleOne}
-          />
-
-          <div
-            style={heroCircleTwo}
-          />
-
-          <div
-            style={heroCircleThree}
-          />
-
+        <header className="no-print" style={getHeroStyle(isMobile)}>
+          <div style={heroCircleOne} />
+          <div style={heroCircleTwo} />
+          <div style={heroCircleThree} />
           <div style={heroDots} />
 
-          <div
-            style={getHeroContentStyle(
-              screen
-            )}
-          >
-            <div
-              style={getHeroUserCardStyle(
-                screen
-              )}
-            >
-              <div
-                style={getEmployeeTopRowStyle(
-                  screen
-                )}
-              >
-                <div
-                  style={employeeIcon}
-                >
+          <div style={getHeroContentStyle(screen)}>
+            <div style={getHeroUserCardStyle(screen)}>
+              <div style={getEmployeeTopRowStyle(screen)}>
+                <div style={employeeIcon}>
                   <UserIcon />
                 </div>
 
-                <div
-                  style={getEmployeeNameStyle(
-                    isMobile
-                  )}
-                >
+                <div style={getEmployeeNameStyle(isMobile)}>
                   {employeeName}
                 </div>
 
-                {!isMobile && (
-                  <div
-                    style={
-                      employeeDividerSmall
-                    }
-                  />
-                )}
+                {!isMobile && <div style={employeeDividerSmall} />}
 
                 <button
                   type="button"
-                  style={
-                    logoutInlineButton
-                  }
+                  style={logoutInlineButton}
                   onClick={logout}
                 >
                   <LogoutIcon />
-
-                  <span>
-                    تسجيل الخروج
-                  </span>
+                  <span>تسجيل الخروج</span>
                 </button>
               </div>
 
               <button
                 type="button"
-                style={getMainWorkstationButtonStyle(
-                  isMobile
-                )}
-                onClick={() =>
-                  router.push(
-                    `/finance/${branch}`
-                  )
-                }
+                style={getMainWorkstationButtonStyle(isMobile)}
+                onClick={() => router.push(`/finance/${branch}`)}
               >
                 <HomeIcon />
-
-                <span>
-                  محطة العمل الرئيسية
-                </span>
+                <span>محطة العمل الرئيسية</span>
               </button>
             </div>
 
-            <div
-              style={getHeroTitleBoxStyle(
-                screen
-              )}
-            >
-              <h1
-                style={getTitleStyle(
-                  screen
-                )}
-              >
-                طباعة العقد
-              </h1>
+            <div style={getHeroTitleBoxStyle(screen)}>
+              <h1 style={getTitleStyle(screen)}>طباعة العقد</h1>
             </div>
 
-            <div
-              style={getHeroActionBoxStyle(
-                screen
-              )}
-            />
+            <div style={getHeroActionBoxStyle(screen)} />
           </div>
         </header>
 
-        {loading && (
-          <section
-            className="no-print"
-            style={loadingBox}
+        <section
+          className="no-print"
+          style={printControlsCard}
+          aria-label="خيارات طباعة العقد"
+        >
+          <div
+            className="contract-action-grid"
+            style={documentActionGrid}
           >
+            <button
+              type="button"
+              className="contract-action-button"
+              style={getActionButtonStyle(
+                printButton,
+                documentsUnavailable || printingPdf || actionBusy
+              )}
+              disabled={
+                documentsUnavailable || printingPdf || actionBusy
+              }
+              onClick={() => void printContract()}
+            >
+              {printingPdf ? "جاري تجهيز الطباعة..." : "طباعة"}
+            </button>
+
+            <button
+              type="button"
+              className="contract-action-button"
+              style={getActionButtonStyle(
+                saveButton,
+                documentsUnavailable || savingPdf || actionBusy
+              )}
+              disabled={documentsUnavailable || savingPdf || actionBusy}
+              onClick={() => void saveContractPdf()}
+            >
+              {savingPdf ? "جاري إنشاء الملف..." : "حفظ الملف PDF"}
+            </button>
+
+            <button
+              type="button"
+              className="contract-action-button"
+              style={getActionButtonStyle(
+                whatsappButton,
+                documentsUnavailable || sharingWhatsapp || actionBusy
+              )}
+              disabled={
+                documentsUnavailable || sharingWhatsapp || actionBusy
+              }
+              onClick={() => void shareContractOnWhatsapp()}
+            >
+              {sharingWhatsapp
+                ? "جاري تجهيز ملف PDF..."
+                : "مشاركة PDF عبر واتساب"}
+            </button>
+
+            <button
+              type="button"
+              className="contract-action-button"
+              style={backTopButton}
+              onClick={() =>
+                router.push(`/finance/${branch}/contracts/${contractId}`)
+              }
+              disabled={actionBusy}
+            >
+              ← رجوع للعقد
+            </button>
+          </div>
+        </section>
+
+        {actionFeedback && (
+          <div
+            className="no-print"
+            role={actionFeedback.type === "error" ? "alert" : "status"}
+            style={getActionFeedbackStyle(actionFeedback.type)}
+          >
+            {actionFeedback.message}
+          </div>
+        )}
+
+        {loading && (
+          <section className="no-print" style={loadingBox}>
             جاري تحميل بيانات العقد...
           </section>
         )}
 
         {pageError && (
-          <section
-            className="no-print"
-            style={errorBox}
-          >
+          <section className="no-print" style={errorBox}>
             <span>{pageError}</span>
-
             <button
               type="button"
               style={retryButton}
@@ -1508,95 +1315,53 @@ export default function PrintContractPage() {
           </section>
         )}
 
-        {!loading &&
-          !pageError &&
-          !contract && (
-            <section
-              className="no-print"
-              style={emptyBox}
-            >
-              لم يتم العثور على العقد أو أنه لا يتبع هذا الفرع
-            </section>
-          )}
+        {!loading && !pageError && !contract && (
+          <section className="no-print" style={emptyBox}>
+            لم يتم العثور على العقد أو أنه لا يتبع هذا الفرع
+          </section>
+        )}
 
         {contract && (
           <section
+            ref={contractPrintRef}
             id="contract-print-area"
+            data-pdf-page="contract"
             style={printArea}
           >
             <PrintHeader
               title="عقد اتفاق بيع"
-              organizationSettings={
-                organizationSettings
-              }
-              contractNumber={
-                contract.contract_number
-              }
-              contractIssueDate={
-                contractIssueDate
-              }
+              organizationSettings={organizationSettings}
+              contractNumber={contract.contract_number}
+              contractIssueDate={contractIssueDate}
             />
 
             <div style={contentBox}>
               <p style={paragraph}>
-                الحمد لله والصلاة
-                والسلام على من لا نبي
-                بعده، وبعد:
+                الحمد لله والصلاة والسلام على من لا نبي بعده، وبعد:
               </p>
 
               <p style={paragraph}>
-                أقر أنا الموقع أدناه
-                الطرف الثاني /{" "}
-                <strong>
-                  {customerName}
-                </strong>
-                ، رقم الهوية /{" "}
-                <strong>
-                  {nationalId}
-                </strong>
-                ، تاريخ الميلاد /{" "}
-                <strong>
-                  {birthHijri}
-                </strong>
-                ، رقم الجوال /{" "}
-                <strong>{phone}</strong>
-
+                أقر أنا الموقع أدناه الطرف الثاني /{" "}
+                <strong>{customerName}</strong>
+                ، رقم الهوية / <strong>{nationalId}</strong>
+                ، تاريخ الميلاد / <strong>{birthHijri}</strong>
+                ، رقم الجوال / <strong>{phone}</strong>
                 {customerWork ? (
                   <>
-                    ، العمل /{" "}
-                    <strong>
-                      {customerWork}
-                    </strong>
+                    ، العمل / <strong>{customerWork}</strong>
                   </>
                 ) : null}
-
                 {customerAddress ? (
                   <>
-                    ، العنوان /{" "}
-                    <strong>
-                      {customerAddress}
-                    </strong>
+                    ، العنوان / <strong>{customerAddress}</strong>
                   </>
                 ) : null}
-
-                ، بأني اشتريت من الطرف
-                الأول /{" "}
-                <strong>
-                  {firstPartyName}
-                </strong>
-
+                ، بأني اشتريت من الطرف الأول /{" "}
+                <strong>{firstPartyName}</strong>
                 {firstPartyIdentifier ? (
                   <>
-                    ،{" "}
-                    {
-                      firstPartyIdentifierLabel
-                    }{" "}
-                    /{" "}
-                    <strong>
-                      {
-                        firstPartyIdentifier
-                      }
-                    </strong>
+                    ، {firstPartyIdentifierLabel} /{" "}
+                    <strong>{firstPartyIdentifier}</strong>
                   </>
                 ) : null}
                 .
@@ -1604,281 +1369,102 @@ export default function PrintContractPage() {
 
               <p style={paragraph}>
                 وذلك مقابل /{" "}
-                <strong>
-                  {contract.product_name ||
-                    "................"}
-                </strong>
+                <strong>{contract.product_name || "................"}</strong>
                 ، وعددها /{" "}
-                <strong>
-                  {contract.product_quantity ||
-                    "-"}
-                </strong>
-                .
+                <strong>{contract.product_quantity || "-"}</strong>.
               </p>
 
               <p style={paragraph}>
-                ويلتزم الطرف الثاني
-                بسداد مبلغ وقدره /{" "}
-                <strong>
-                  {formatMoney(
-                    contract.payment_amount
-                  )}
-                </strong>{" "}
+                ويلتزم الطرف الثاني بسداد مبلغ وقدره /{" "}
+                <strong>{formatMoney(contract.payment_amount)}</strong>{" "}
                 ريال سعودي
-
                 {hasDeferredPayments ? (
                   <>
-                    ، على دفعات آجلة
-                    قيمة كل دفعة /{" "}
+                    ، على دفعات آجلة قيمة كل دفعة /{" "}
                     <strong>
-                      {formatMoney(
-                        contract.installment_amount
-                      )}
+                      {formatMoney(contract.installment_amount)}
                     </strong>{" "}
                     ريال سعودي، وعددها /{" "}
-                    <strong>
-                      {contract.deferred_payments_count ||
-                        0}
-                    </strong>{" "}
-                    دفعات، ويكون تاريخ
-                    الاستحقاق بتاريخ /{" "}
-                    <strong>
-                      {paymentDueDate}
-                    </strong>
-                    .
+                    <strong>{contract.deferred_payments_count || 0}</strong>{" "}
+                    دفعات، ويكون تاريخ استحقاق السداد بتاريخ /{" "}
+                    <strong>{paymentDueDate}</strong>.
                   </>
                 ) : (
                   <>
-                    ، ويكون تاريخ
-                    الاستحقاق بتاريخ /{" "}
-                    <strong>
-                      {paymentDueDate}
-                    </strong>
-                    .
+                    ، ويكون تاريخ استحقاق السداد بتاريخ /{" "}
+                    <strong>{paymentDueDate}</strong>.
                   </>
                 )}
               </p>
 
               {legalCity && (
                 <p style={paragraph}>
-                  وتكون مدينة التقاضي /{" "}
-                  <strong>
-                    {legalCity}
-                  </strong>
-                  .
+                  وتكون مدينة التقاضي / <strong>{legalCity}</strong>.
                 </p>
               )}
 
-              {Number(
-                contract.judicial_amount ||
-                  0
-              ) > 0 && (
+              {Number(contract.judicial_amount || 0) > 0 && (
                 <p style={paragraph}>
-                  ويكون المبلغ القضائي
-                  المتفق عليه /{" "}
-                  <strong>
-                    {formatMoney(
-                      contract.judicial_amount
-                    )}
-                  </strong>{" "}
+                  ويكون المبلغ القضائي المتفق عليه /{" "}
+                  <strong>{formatMoney(contract.judicial_amount)}</strong>{" "}
                   ريال سعودي.
                 </p>
               )}
 
               <p style={paragraph}>
-                كما يقر الطرف الثاني
-                بأنه اطلع على كامل بنود
-                هذا العقد، وأنه ملتزم
-                بالسداد في المواعيد
-                المتفق عليها، وفي حال
-                التأخر يحق للطرف الأول
-                اتخاذ الإجراءات النظامية
-                اللازمة للمطالبة بكامل
-                المبلغ المتبقي.
+                كما يقر الطرف الثاني بأنه اطلع على كامل بنود هذا العقد،
+                وأنه ملتزم بالسداد في المواعيد المتفق عليها، وفي حال التأخر
+                يحق للطرف الأول اتخاذ الإجراءات النظامية اللازمة للمطالبة
+                بكامل المبلغ المتبقي.
               </p>
 
               {contract.notes?.trim() && (
                 <p style={paragraph}>
-                  ملاحظات:{" "}
-                  <strong>
-                    {contract.notes}
-                  </strong>
+                  ملاحظات: <strong>{contract.notes}</strong>
                 </p>
               )}
             </div>
 
-            <div
-              className="contract-signatures"
-              style={signatures}
-            >
+            <div className="contract-signatures" style={signatures}>
               <div style={signatureBox}>
-                <strong>
-                  الطرف الأول البائع
-                </strong>
-
+                <strong>الطرف الأول البائع</strong>
+                <div>الاسم / {firstPartyName}</div>
                 <div>
-                  الاسم /{" "}
-                  {firstPartyName}
+                  {firstPartyIdentifierLabel} /{" "}
+                  {firstPartyIdentifier || "................"}
                 </div>
-
-                <div>
-                  {
-                    firstPartyIdentifierLabel
-                  }{" "}
-                  /{" "}
-                  {firstPartyIdentifier ||
-                    "................"}
-                </div>
-
-                <div>
-                  التوقيع /
-                  ................
-                </div>
+                <div>التوقيع / ................</div>
               </div>
 
               <div style={signatureBox}>
-                <strong>
-                  الطرف الثاني المشتري
-                </strong>
-
-                <div>
-                  الاسم / {customerName}
-                </div>
-
-                <div>
-                  رقم الهوية /{" "}
-                  {nationalId}
-                </div>
-
-                <div>
-                  الجوال / {phone}
-                </div>
-
-                <div>
-                  التوقيع /
-                  ................
-                </div>
+                <strong>الطرف الثاني المشتري</strong>
+                <div>الاسم / {customerName}</div>
+                <div>رقم الهوية / {nationalId}</div>
+                <div>الجوال / {phone}</div>
+                <div>التوقيع / ................</div>
               </div>
             </div>
 
             {hasGuarantor && (
               <div style={guarantorBox}>
-                <strong>
-                  الكفيل الغارم
-                </strong>
+                <strong>الكفيل الغارم</strong>
 
                 <div
                   className="contract-guarantor-grid"
                   style={guarantorGrid}
                 >
-                  <div>
-                    الاسم /{" "}
-                    {guarantorName}
-                  </div>
-
-                  <div>
-                    رقم الهوية /{" "}
-                    {guarantorNationalId}
-                  </div>
-
-                  <div>
-                    الجوال /{" "}
-                    {guarantorPhone}
-                  </div>
-
-                  <div>
-                    تاريخ الميلاد /{" "}
-                    {
-                      guarantorBirthHijri
-                    }
-                  </div>
-
-                  {guarantorWork && (
-                    <div>
-                      العمل /{" "}
-                      {guarantorWork}
-                    </div>
-                  )}
+                  <div>الاسم / {guarantorName}</div>
+                  <div>رقم الهوية / {guarantorNationalId}</div>
+                  <div>الجوال / {guarantorPhone}</div>
+                  <div>تاريخ الميلاد / {guarantorBirthHijri}</div>
+                  {guarantorWork && <div>العمل / {guarantorWork}</div>}
                 </div>
 
-                <div>
-                  التوقيع /
-                  ................
-                </div>
+                <div>التوقيع / ................</div>
               </div>
             )}
           </section>
         )}
-
-        <div
-          className="no-print"
-          style={buttonsArea}
-        >
-          <button
-            type="button"
-            style={{
-              ...printButton,
-              opacity:
-                loading ||
-                Boolean(pageError) ||
-                !contract
-                  ? 0.6
-                  : 1,
-            }}
-            disabled={
-              loading ||
-              Boolean(pageError) ||
-              !contract
-            }
-            onClick={handlePrint}
-          >
-            🖨️ طباعة العقد
-          </button>
-
-          <button
-            type="button"
-            style={{
-              ...pdfButton,
-              opacity:
-                loading ||
-                Boolean(pageError) ||
-                !contract ||
-                exportingPdf
-                  ? 0.6
-                  : 1,
-            }}
-            disabled={
-              loading ||
-              Boolean(pageError) ||
-              !contract ||
-              exportingPdf
-            }
-            onClick={() =>
-              void handleExportPdf()
-            }
-          >
-            {exportingPdf
-              ? "جاري تجهيز PDF..."
-              : "📄 تحميل PDF"}
-          </button>
-        </div>
-
-        <div
-          className="no-print"
-          style={backWrapper}
-        >
-          <button
-            type="button"
-            style={backButton}
-            onClick={() =>
-              router.push(
-                `/finance/${branch}/contracts/${contractId}`
-              )
-            }
-          >
-            ← رجوع للعقد
-          </button>
-        </div>
       </div>
     </main>
   );
@@ -1892,88 +1478,175 @@ function PrintHeader({
 }: {
   title: string;
   organizationSettings: OrganizationSettings;
-  contractNumber:
-    | string
-    | number
-    | null
-    | undefined;
+  contractNumber: string | number | null | undefined;
   contractIssueDate: string;
 }) {
   return (
-    <div
-      className="contract-document-header"
-      style={documentHeader}
-    >
+    <div className="contract-document-header" style={documentHeader}>
       <div style={documentHeaderRight}>
-        <div>
-          المملكة العربية السعودية
-        </div>
-
-        <div>
-          {organizationSettings.city ||
-            "................"}
-        </div>
-
-        <div>
-          {organizationSettings.name ||
-            "................"}
-        </div>
-
+        <div>المملكة العربية السعودية</div>
+        <div>{organizationSettings.city || "................"}</div>
+        <div>{organizationSettings.name || "................"}</div>
         <div>
           سجل تجاري رقم /{" "}
-          {organizationSettings.commercialRecord ||
-            "................"}
+          {organizationSettings.commercialRecord || "................"}
         </div>
-
         {organizationSettings.phone && (
-          <div>
-            الجوال /{" "}
-            {
-              organizationSettings.phone
-            }
-          </div>
+          <div>الجوال / {organizationSettings.phone}</div>
         )}
       </div>
 
-      <div style={documentTitle}>
-        {title}
-      </div>
+      <div style={documentTitle}>{title}</div>
 
-      <div
-        className="contract-header-left"
-        style={documentHeaderLeft}
-      >
-        <div>
-          رقم العقد:{" "}
-          {contractNumber || "-"}
-        </div>
-
-        <div>
-          تاريخ تحرير العقد:{" "}
-          {contractIssueDate}
-        </div>
+      <div className="contract-header-left" style={documentHeaderLeft}>
+        <div>رقم العقد: {contractNumber || "-"}</div>
+        <div>تاريخ تحرير العقد: {contractIssueDate}</div>
       </div>
     </div>
   );
 }
 
-function getErrorMessage(
-  error: unknown,
-  fallback: string
-) {
-  if (error instanceof Error) {
-    return (
-      error.message || fallback
+function isSafariBrowser() {
+  if (typeof navigator === "undefined") return false;
+
+  const userAgent = navigator.userAgent || "";
+  const vendor = navigator.vendor || "";
+  const usesAppleWebKit = /AppleWebKit/i.test(userAgent);
+  const hasSafariToken = /Safari/i.test(userAgent);
+  const isAnotherBrowser =
+    /Chrome|Chromium|CriOS|Edg|EdgiOS|OPR|OPiOS|FxiOS|Firefox|SamsungBrowser|Android/i.test(
+      userAgent
     );
+
+  return (
+    usesAppleWebKit &&
+    hasSafariToken &&
+    !isAnotherBrowser &&
+    /Apple/i.test(vendor)
+  );
+}
+
+function isShareCancellation(error: unknown) {
+  return (
+    error instanceof DOMException &&
+    ["AbortError", "NotAllowedError"].includes(error.name)
+  );
+}
+
+function buildContractPdfFileName(
+  contractNumber: string | number | null | undefined
+) {
+  const safeContractNumber = sanitizeFileNamePart(
+    contractNumber || "بدون-رقم"
+  );
+
+  return `العقد-${safeContractNumber}.pdf`;
+}
+
+function sanitizeFileNamePart(value: unknown) {
+  return (
+    String(value || "")
+      .trim()
+      .replace(/[\\/:*?"<>|]+/g, "-")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-")
+      .slice(0, 70) || "بدون-رقم"
+  );
+}
+
+function downloadBlob(blob: Blob, fileName: string) {
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = objectUrl;
+  link.download = fileName;
+  link.rel = "noopener";
+  link.style.display = "none";
+
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  window.setTimeout(() => {
+    URL.revokeObjectURL(objectUrl);
+  }, 1500);
+}
+
+function formatMoney(value: unknown) {
+  const amount = Number(value || 0);
+
+  return amount.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function formatDateOnly(value?: string | null) {
+  if (!value) return "-";
+
+  const trimmedValue = String(value).trim();
+  const directMatch =
+    /^(\d{4})-(\d{2})-(\d{2})(?:[T\s].*)?$/.exec(trimmedValue);
+
+  if (directMatch) {
+    return `${directMatch[3]}-${directMatch[2]}-${directMatch[1]}`;
   }
 
-  if (
-    typeof error === "string"
-  ) {
-    return error || fallback;
-  }
+  const parsedDate = new Date(trimmedValue);
 
+  if (Number.isNaN(parsedDate.getTime())) return trimmedValue;
+
+  const day = String(parsedDate.getDate()).padStart(2, "0");
+  const month = String(parsedDate.getMonth() + 1).padStart(2, "0");
+  const year = parsedDate.getFullYear();
+
+  return `${day}-${month}-${year}`;
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error) return error.message || fallback;
+  if (typeof error === "string") return error || fallback;
   return fallback;
+}
+
+function getActionButtonStyle(
+  baseStyle: CSSProperties,
+  disabled: boolean
+): CSSProperties {
+  return {
+    ...baseStyle,
+    opacity: disabled ? 0.6 : 1,
+    cursor: disabled ? "not-allowed" : "pointer",
+  };
+}
+
+function getActionFeedbackStyle(
+  type: ActionFeedback["type"]
+): CSSProperties {
+  if (type === "success") {
+    return {
+      ...actionFeedbackBase,
+      border: "1px solid #bbf7d0",
+      background: "#f0fdf4",
+      color: "#166534",
+    };
+  }
+
+  if (type === "error") {
+    return {
+      ...actionFeedbackBase,
+      border: "1px solid #fecaca",
+      background: "#fff7f7",
+      color: "#991b1b",
+    };
+  }
+
+  return {
+    ...actionFeedbackBase,
+    border: "1px solid #bfdbfe",
+    background: "#eff6ff",
+    color: "#1d4ed8",
+  };
 }
 
 function UserIcon() {
@@ -1990,7 +1663,6 @@ function UserIcon() {
         stroke="currentColor"
         strokeWidth="1.8"
       />
-
       <path
         d="M4.8 20.2c.8-3.5 3.6-5.4 7.2-5.4s6.4 1.9 7.2 5.4"
         stroke="currentColor"
@@ -2016,14 +1688,12 @@ function LogoutIcon() {
         strokeWidth="2"
         strokeLinecap="round"
       />
-
       <path
         d="M4.8 12h9.5"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
       />
-
       <path
         d="M7.8 8.8 4.6 12l3.2 3.2"
         stroke="currentColor"
@@ -2051,14 +1721,12 @@ function HomeIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-
       <path
         d="M6.2 10.4v9.1h11.6v-9.1"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinejoin="round"
       />
-
       <path
         d="M10 19.5v-5.2h4v5.2"
         stroke="currentColor"
@@ -2069,9 +1737,7 @@ function HomeIcon() {
   );
 }
 
-function getPageStyle(
-  isMobile: boolean
-): CSSProperties {
+function getPageStyle(isMobile: boolean): CSSProperties {
   return {
     minHeight: "100vh",
     backgroundColor: "#f6f9ff",
@@ -2084,48 +1750,27 @@ function getPageStyle(
     `,
     backgroundSize: "cover",
     backgroundPosition: "center",
-    backgroundAttachment:
-      isMobile
-        ? "scroll"
-        : "fixed",
-    padding:
-      isMobile ? 10 : 18,
-    fontFamily:
-      "var(--font-almarai), sans-serif",
+    backgroundAttachment: isMobile ? "scroll" : "fixed",
+    padding: isMobile ? 10 : 18,
+    fontFamily: "var(--font-almarai), sans-serif",
     color: "#111827",
   };
 }
 
-function getContainerStyle(
-  isCompact: boolean
-): CSSProperties {
+function getContainerStyle(isCompact: boolean): CSSProperties {
   return {
     width: "100%",
-    maxWidth:
-      isCompact
-        ? 980
-        : 1180,
+    maxWidth: isCompact ? 980 : 1180,
     margin: "auto",
   };
 }
 
-function getHeroStyle(
-  isMobile: boolean
-): CSSProperties {
+function getHeroStyle(isMobile: boolean): CSSProperties {
   return {
     position: "relative",
-    minHeight:
-      isMobile
-        ? "auto"
-        : 160,
-    borderRadius:
-      isMobile
-        ? 20
-        : 24,
-    padding:
-      isMobile
-        ? "18px 14px"
-        : "22px 26px",
+    minHeight: isMobile ? "auto" : 160,
+    borderRadius: isMobile ? 20 : 24,
+    padding: isMobile ? "18px 14px" : "22px 26px",
     marginBottom: 14,
     overflow: "hidden",
     border: "none",
@@ -2135,9 +1780,7 @@ function getHeroStyle(
   };
 }
 
-function getHeroContentStyle(
-  screen: ScreenType
-): CSSProperties {
+function getHeroContentStyle(screen: ScreenType): CSSProperties {
   if (screen === "mobile") {
     return {
       position: "relative",
@@ -2177,9 +1820,7 @@ function getHeroContentStyle(
   };
 }
 
-function getHeroUserCardStyle(
-  screen: ScreenType
-): CSSProperties {
+function getHeroUserCardStyle(screen: ScreenType): CSSProperties {
   if (screen === "mobile") {
     return {
       width: "100%",
@@ -2213,9 +1854,7 @@ function getHeroUserCardStyle(
   };
 }
 
-function getEmployeeTopRowStyle(
-  screen: ScreenType
-): CSSProperties {
+function getEmployeeTopRowStyle(screen: ScreenType): CSSProperties {
   if (screen === "mobile") {
     return {
       minHeight: 42,
@@ -2253,20 +1892,14 @@ function getEmployeeTopRowStyle(
   };
 }
 
-function getEmployeeNameStyle(
-  isMobile: boolean
-): CSSProperties {
+function getEmployeeNameStyle(isMobile: boolean): CSSProperties {
   return {
     color: "#ffffff",
-    fontSize:
-      isMobile
-        ? 15
-        : 17,
+    fontSize: isMobile ? 15 : 17,
     fontWeight: 900,
     whiteSpace: "nowrap",
     direction: "rtl",
-    textShadow:
-      "0 4px 10px rgba(15,23,42,0.18)",
+    textShadow: "0 4px 10px rgba(15,23,42,0.18)",
   };
 }
 
@@ -2274,14 +1907,8 @@ function getMainWorkstationButtonStyle(
   isMobile: boolean
 ): CSSProperties {
   return {
-    width:
-      isMobile
-        ? "100%"
-        : 220,
-    maxWidth:
-      isMobile
-        ? 280
-        : 220,
+    width: isMobile ? "100%" : 220,
+    maxWidth: isMobile ? 280 : 220,
     height: 44,
     border: "none",
     background:
@@ -2292,10 +1919,8 @@ function getMainWorkstationButtonStyle(
     fontSize: 14,
     fontWeight: 900,
     cursor: "pointer",
-    fontFamily:
-      "var(--font-almarai), sans-serif",
-    boxShadow:
-      "0 8px 18px rgba(22,163,74,0.20)",
+    fontFamily: "var(--font-almarai), sans-serif",
+    boxShadow: "0 8px 18px rgba(22,163,74,0.20)",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
@@ -2305,9 +1930,7 @@ function getMainWorkstationButtonStyle(
   };
 }
 
-function getHeroTitleBoxStyle(
-  screen: ScreenType
-): CSSProperties {
+function getHeroTitleBoxStyle(screen: ScreenType): CSSProperties {
   return {
     position: "relative",
     zIndex: 4,
@@ -2317,43 +1940,26 @@ function getHeroTitleBoxStyle(
     textAlign: "center",
     direction: "rtl",
     pointerEvents: "none",
-    order:
-      screen === "desktop"
-        ? 0
-        : 1,
+    order: screen === "desktop" ? 0 : 1,
   };
 }
 
-function getTitleStyle(
-  screen: ScreenType
-): CSSProperties {
+function getTitleStyle(screen: ScreenType): CSSProperties {
   return {
     margin: 0,
     color: "#ffffff",
-    fontFamily:
-      "var(--font-almarai), sans-serif",
-    fontSize:
-      screen === "mobile"
-        ? 24
-        : screen === "tablet"
-          ? 26
-          : 28,
+    fontFamily: "var(--font-almarai), sans-serif",
+    fontSize: screen === "mobile" ? 24 : screen === "tablet" ? 26 : 28,
     lineHeight: 1.35,
     fontWeight: 900,
     letterSpacing: "-0.4px",
-    textShadow:
-      "0 5px 14px rgba(15,23,42,0.14)",
+    textShadow: "0 5px 14px rgba(15,23,42,0.14)",
     whiteSpace: "nowrap",
   };
 }
 
-function getHeroActionBoxStyle(
-  screen: ScreenType
-): CSSProperties {
-  if (
-    screen === "mobile" ||
-    screen === "tablet"
-  ) {
+function getHeroActionBoxStyle(screen: ScreenType): CSSProperties {
+  if (screen === "mobile" || screen === "tablet") {
     return {
       display: "none",
       width: "100%",
@@ -2372,39 +1978,33 @@ const employeeIcon: CSSProperties = {
   width: 38,
   height: 38,
   borderRadius: "50%",
-  border:
-    "1.5px solid rgba(255,255,255,0.34)",
-  background:
-    "rgba(255,255,255,0.06)",
+  border: "1.5px solid rgba(255,255,255,0.34)",
+  background: "rgba(255,255,255,0.06)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  color:
-    "rgba(255,255,255,0.96)",
+  color: "rgba(255,255,255,0.96)",
   flex: "0 0 auto",
 };
 
 const employeeDividerSmall: CSSProperties = {
   width: 1,
   height: 34,
-  background:
-    "rgba(255,255,255,0.30)",
+  background: "rgba(255,255,255,0.30)",
   flex: "0 0 auto",
 };
 
 const logoutInlineButton: CSSProperties = {
   border: "none",
   background: "transparent",
-  color:
-    "rgba(255,255,255,0.90)",
+  color: "rgba(255,255,255,0.90)",
   fontSize: 15,
   fontWeight: 800,
   display: "flex",
   alignItems: "center",
   gap: 9,
   cursor: "pointer",
-  fontFamily:
-    "var(--font-almarai), sans-serif",
+  fontFamily: "var(--font-almarai), sans-serif",
   padding: 0,
   whiteSpace: "nowrap",
   direction: "rtl",
@@ -2417,8 +2017,7 @@ const heroCircleOne: CSSProperties = {
   right: -78,
   top: -85,
   borderRadius: "50%",
-  background:
-    "rgba(255,255,255,0.075)",
+  background: "rgba(255,255,255,0.075)",
   pointerEvents: "none",
   zIndex: 1,
 };
@@ -2430,8 +2029,7 @@ const heroCircleTwo: CSSProperties = {
   right: 145,
   bottom: -178,
   borderRadius: "50%",
-  background:
-    "rgba(255,255,255,0.045)",
+  background: "rgba(255,255,255,0.045)",
   pointerEvents: "none",
   zIndex: 1,
 };
@@ -2443,8 +2041,7 @@ const heroCircleThree: CSSProperties = {
   left: 380,
   top: -96,
   borderRadius: "50%",
-  background:
-    "rgba(255,255,255,0.035)",
+  background: "rgba(255,255,255,0.035)",
   pointerEvents: "none",
   zIndex: 1,
 };
@@ -2458,15 +2055,82 @@ const heroDots: CSSProperties = {
   opacity: 0.24,
   backgroundImage:
     "radial-gradient(rgba(255,255,255,0.40) 2px, transparent 2px)",
-  backgroundSize:
-    "14px 14px",
+  backgroundSize: "14px 14px",
   zIndex: 2,
+};
+
+const printControlsCard: CSSProperties = {
+  width: "100%",
+  maxWidth: 850,
+  margin: "0 auto 14px",
+  padding: 14,
+  border: "1px solid rgba(203,213,225,0.92)",
+  borderRadius: 18,
+  background: "rgba(255,255,255,0.94)",
+  boxShadow: "0 12px 30px rgba(15,23,42,0.08)",
+  backdropFilter: "blur(14px)",
+  WebkitBackdropFilter: "blur(14px)",
+};
+
+const documentActionGrid: CSSProperties = {
+  display: "grid",
+  gap: 10,
+};
+
+const actionButtonBase: CSSProperties = {
+  width: "100%",
+  minHeight: 50,
+  padding: "12px 14px",
+  border: "none",
+  borderRadius: 13,
+  color: "#ffffff",
+  fontSize: 14,
+  fontWeight: 900,
+  fontFamily: "var(--font-almarai), sans-serif",
+  transition:
+    "transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease",
+};
+
+const printButton: CSSProperties = {
+  ...actionButtonBase,
+  background: "linear-gradient(135deg,#0d47a1,#1565c0 55%,#0284c7)",
+  boxShadow: "0 8px 20px rgba(13,71,161,0.20)",
+};
+
+const saveButton: CSSProperties = {
+  ...actionButtonBase,
+  background: "linear-gradient(135deg,#6d28d9,#7c3aed 55%,#8b5cf6)",
+  boxShadow: "0 8px 20px rgba(109,40,217,0.20)",
+};
+
+const whatsappButton: CSSProperties = {
+  ...actionButtonBase,
+  background: "linear-gradient(135deg,#16a34a,#22c55e 55%,#10b981)",
+  boxShadow: "0 8px 20px rgba(22,163,74,0.22)",
+};
+
+const backTopButton: CSSProperties = {
+  ...actionButtonBase,
+  background: "linear-gradient(135deg,#475569,#1e293b)",
+  boxShadow: "0 8px 20px rgba(30,41,59,0.18)",
+  cursor: "pointer",
+};
+
+const actionFeedbackBase: CSSProperties = {
+  width: "100%",
+  maxWidth: 850,
+  margin: "0 auto 14px",
+  padding: "13px 15px",
+  borderRadius: 13,
+  textAlign: "center",
+  fontSize: 14,
+  fontWeight: 900,
+  lineHeight: 1.7,
 };
 
 const loadingBox: CSSProperties = {
   background: "#eff6ff",
-  border:
-    "1px solid #bfdbfe",
+  border: "1px solid #bfdbfe",
   borderRadius: 14,
   padding: 15,
   marginBottom: 14,
@@ -2477,16 +2141,14 @@ const loadingBox: CSSProperties = {
 
 const errorBox: CSSProperties = {
   background: "#fff7ed",
-  border:
-    "1px solid #fed7aa",
+  border: "1px solid #fed7aa",
   borderRadius: 14,
   padding: 14,
   marginBottom: 14,
   color: "#9a3412",
   display: "flex",
   alignItems: "center",
-  justifyContent:
-    "space-between",
+  justifyContent: "space-between",
   gap: 12,
   flexWrap: "wrap",
   fontWeight: 900,
@@ -2497,19 +2159,16 @@ const retryButton: CSSProperties = {
   padding: "8px 14px",
   border: "none",
   borderRadius: 10,
-  background:
-    "linear-gradient(135deg,#22c55e,#15803d)",
+  background: "linear-gradient(135deg,#22c55e,#15803d)",
   color: "#ffffff",
   cursor: "pointer",
   fontWeight: 900,
-  fontFamily:
-    "var(--font-almarai), sans-serif",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const emptyBox: CSSProperties = {
   background: "#ffffff",
-  border:
-    "1px dashed #cbd5e1",
+  border: "1px dashed #cbd5e1",
   borderRadius: 18,
   padding: 24,
   marginBottom: 16,
@@ -2520,29 +2179,28 @@ const emptyBox: CSSProperties = {
 
 const printArea: CSSProperties = {
   background: "#ffffff",
-  width: "190mm",
-  height: "257mm",
+  width: "210mm",
+  height: "297mm",
+  minHeight: "297mm",
+  maxHeight: "297mm",
   margin: "0 auto",
   overflow: "hidden",
-  padding: "7mm",
+  padding: "8mm 10mm",
   borderRadius: 0,
   lineHeight: 1.45,
   color: "#111827",
   boxSizing: "border-box",
   pageBreakInside: "avoid",
-  boxShadow:
-    "0 14px 35px rgba(15,23,42,0.08)",
+  boxShadow: "0 14px 35px rgba(15,23,42,0.08)",
 };
 
 const documentHeader: CSSProperties = {
   display: "grid",
-  gridTemplateColumns:
-    "1.25fr 1fr 1.25fr",
+  gridTemplateColumns: "1.25fr 1fr 1.25fr",
   alignItems: "start",
   gap: 10,
   marginBottom: 12,
-  borderBottom:
-    "1.5px solid #111827",
+  borderBottom: "1.5px solid #111827",
   paddingBottom: 8,
 };
 
@@ -2566,8 +2224,7 @@ const documentTitle: CSSProperties = {
   fontWeight: 900,
   marginTop: 13,
   whiteSpace: "nowrap",
-  fontFamily:
-    "var(--font-almarai), sans-serif",
+  fontFamily: "var(--font-almarai), sans-serif",
 };
 
 const contentBox: CSSProperties = {
@@ -2582,15 +2239,13 @@ const paragraph: CSSProperties = {
 
 const signatures: CSSProperties = {
   display: "grid",
-  gridTemplateColumns:
-    "1fr 1fr",
+  gridTemplateColumns: "1fr 1fr",
   gap: 16,
   marginTop: 17,
 };
 
 const signatureBox: CSSProperties = {
-  borderTop:
-    "1.5px solid #111827",
+  borderTop: "1.5px solid #111827",
   paddingTop: 8,
   lineHeight: 1.65,
   fontSize: 12.2,
@@ -2599,8 +2254,7 @@ const signatureBox: CSSProperties = {
 
 const guarantorBox: CSSProperties = {
   marginTop: 14,
-  borderTop:
-    "1.5px solid #111827",
+  borderTop: "1.5px solid #111827",
   paddingTop: 8,
   lineHeight: 1.65,
   fontSize: 12.2,
@@ -2608,66 +2262,8 @@ const guarantorBox: CSSProperties = {
 
 const guarantorGrid: CSSProperties = {
   display: "grid",
-  gridTemplateColumns:
-    "1fr 1fr",
+  gridTemplateColumns: "1fr 1fr",
   gap: "2px 14px",
   marginTop: 4,
   marginBottom: 4,
-};
-
-const buttonsArea: CSSProperties = {
-  width: "100%",
-  maxWidth: 850,
-  display: "grid",
-  gridTemplateColumns:
-    "repeat(auto-fit,minmax(180px,1fr))",
-  gap: 12,
-  margin: "20px auto 0",
-};
-
-const printButton: CSSProperties = {
-  width: "100%",
-  padding: 16,
-  background:
-    "linear-gradient(135deg,#0d47a1,#1565c0 55%,#0284c7)",
-  color: "#ffffff",
-  border: "none",
-  borderRadius: 14,
-  fontSize: 17,
-  fontWeight: 900,
-  cursor: "pointer",
-  fontFamily:
-    "var(--font-almarai), sans-serif",
-  boxShadow:
-    "0 8px 20px rgba(13,71,161,0.20)",
-};
-
-const pdfButton: CSSProperties = {
-  ...printButton,
-  background:
-    "linear-gradient(135deg,#475569,#1e293b)",
-  boxShadow:
-    "0 8px 20px rgba(30,41,59,0.18)",
-};
-
-const backWrapper: CSSProperties = {
-  display: "flex",
-  justifyContent: "center",
-  marginTop: 18,
-};
-
-const backButton: CSSProperties = {
-  padding: "11px 18px",
-  background:
-    "linear-gradient(135deg,#22c55e,#15803d)",
-  color: "#ffffff",
-  border: "none",
-  borderRadius: 12,
-  fontSize: 14,
-  fontWeight: 900,
-  cursor: "pointer",
-  boxShadow:
-    "0 5px 14px rgba(22,163,74,0.22)",
-  fontFamily:
-    "var(--font-almarai), sans-serif",
 };
