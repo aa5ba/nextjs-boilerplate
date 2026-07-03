@@ -3,6 +3,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import type { CSSProperties } from "react";
@@ -12,12 +13,10 @@ import {
 } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getOrganizationSettings } from "@/lib/getOrganizationSettings";
-import { exportElementToPdf } from "@/lib/exportElementToPdf";
 import {
   clearFinanceSession,
   getFinanceEmployeeName,
   installFinanceActivityTracker,
-  logoutFinanceUser,
   redirectToFinanceLogin,
   validateFinanceSession,
   type FinanceSessionUser,
@@ -78,6 +77,20 @@ type ReceiptRowProps = {
   value: string | number | null | undefined;
 };
 
+type ActionFeedback = {
+  type: "success" | "info" | "error";
+  message: string;
+};
+
+type PdfResult = {
+  blob: Blob;
+  fileName: string;
+};
+
+type PdfOptions = {
+  autoPrint?: boolean;
+};
+
 export default function PaymentReceiptPage() {
   const params = useParams();
   const router = useRouter();
@@ -91,6 +104,9 @@ export default function PaymentReceiptPage() {
     typeof params.id === "string"
       ? params.id.trim()
       : "";
+
+  const receiptPrintRef =
+    useRef<HTMLElement | null>(null);
 
   const [sessionUser, setSessionUser] =
     useState<FinanceSessionUser | null>(
@@ -112,25 +128,36 @@ export default function PaymentReceiptPage() {
   const [loading, setLoading] =
     useState(true);
 
+  const [pageError, setPageError] =
+    useState("");
+
+  const [printingPdf, setPrintingPdf] =
+    useState(false);
+
   const [exportingPdf, setExportingPdf] =
     useState(false);
 
-  const [
-    organizationSettings,
-    setOrganizationSettings,
-  ] = useState<OrganizationSettingsState>({
-    name: "احتساب",
-    phone: "",
-    city: "",
-    commercialRecord: "",
-    logoUrl: "",
-  });
+  const [sharingWhatsapp, setSharingWhatsapp] =
+    useState(false);
+
+  const [actionFeedback, setActionFeedback] =
+    useState<ActionFeedback | null>(null);
+
+  const [organizationSettings, setOrganizationSettings] =
+    useState<OrganizationSettingsState>({
+      name: "احتساب",
+      phone: "",
+      city: "",
+      commercialRecord: "",
+      logoUrl: "",
+    });
 
   useEffect(() => {
     let cancelled = false;
 
     async function initializePage() {
       setLoading(true);
+      setPageError("");
       setAuthChecked(false);
 
       if (!branch) {
@@ -142,6 +169,9 @@ export default function PaymentReceiptPage() {
       if (!paymentId) {
         setPayment(null);
         setContract(null);
+        setPageError(
+          "رابط الإيصال غير مكتمل"
+        );
         setAuthChecked(true);
         setLoading(false);
         return;
@@ -157,25 +187,21 @@ export default function PaymentReceiptPage() {
         redirectToFinanceLogin(router, {
           branchSlug: branch,
         });
-
         return;
       }
 
       const authenticatedUser =
         validation.user;
 
-      const currentBranchId =
-        String(
-          authenticatedUser.branch_id || ""
-        ).trim();
+      const currentBranchId = String(
+        authenticatedUser.branch_id || ""
+      ).trim();
 
       if (!currentBranchId) {
         clearFinanceSession();
-
         redirectToFinanceLogin(router, {
           branchSlug: branch,
         });
-
         return;
       }
 
@@ -184,23 +210,17 @@ export default function PaymentReceiptPage() {
       }
 
       setSessionUser(authenticatedUser);
-
       setEmployeeName(
         getFinanceEmployeeName(
           authenticatedUser
         )
       );
-
       setAuthChecked(true);
 
       await loadReceipt(
         currentBranchId,
         () => cancelled
       );
-
-      if (!cancelled) {
-        setLoading(false);
-      }
     }
 
     void initializePage();
@@ -211,10 +231,7 @@ export default function PaymentReceiptPage() {
   }, [branch, paymentId, router]);
 
   useEffect(() => {
-    if (
-      !authChecked ||
-      !sessionUser
-    ) {
+    if (!authChecked || !sessionUser) {
       return;
     }
 
@@ -236,10 +253,9 @@ export default function PaymentReceiptPage() {
         onSessionUpdated: (
           updatedUser
         ) => {
-          const updatedBranchId =
-            String(
-              updatedUser.branch_id || ""
-            ).trim();
+          const updatedBranchId = String(
+            updatedUser.branch_id || ""
+          ).trim();
 
           if (!updatedBranchId) {
             clearFinanceSession();
@@ -248,7 +264,6 @@ export default function PaymentReceiptPage() {
           }
 
           setSessionUser(updatedUser);
-
           setEmployeeName(
             getFinanceEmployeeName(
               updatedUser
@@ -269,75 +284,108 @@ export default function PaymentReceiptPage() {
     const style =
       document.createElement("style");
 
+    style.setAttribute(
+      "data-payment-receipt-print",
+      "true"
+    );
+
     style.innerHTML = `
       @page {
         size: A4 portrait;
-        margin: 8mm;
+        margin: 0;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        overflow-x: hidden;
+      }
+
+      button {
+        font-family: var(--font-almarai), sans-serif;
+        -webkit-tap-highlight-color: transparent;
       }
 
       @media print {
         html,
         body {
-          width: 100% !important;
-          min-height: auto !important;
+          width: 210mm !important;
+          height: 297mm !important;
+          min-height: 297mm !important;
           margin: 0 !important;
           padding: 0 !important;
           background: #ffffff !important;
+          overflow: hidden !important;
           print-color-adjust: exact !important;
           -webkit-print-color-adjust: exact !important;
         }
 
-        button,
-        .no-print {
-          display: none !important;
-        }
-
-        main {
-          width: 100% !important;
-          min-height: auto !important;
-          margin: 0 !important;
-          padding: 0 !important;
-          background: #ffffff !important;
-        }
-
-        #receipt-print-area {
-          width: 100% !important;
-          min-height: auto !important;
-          height: auto !important;
-          margin: 0 !important;
-          padding: 6mm !important;
-          border: none !important;
-          box-shadow: none !important;
-          overflow: visible !important;
-          box-sizing: border-box !important;
+        body * {
+          visibility: hidden !important;
         }
 
         #receipt-print-area,
         #receipt-print-area * {
-          print-color-adjust: exact !important;
-          -webkit-print-color-adjust: exact !important;
+          visibility: visible !important;
+        }
+
+        .receipt-page-main {
+          width: 210mm !important;
+          min-height: 297mm !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #ffffff !important;
+        }
+
+        .no-print {
+          display: none !important;
+        }
+
+        #receipt-print-area {
+          position: absolute !important;
+          top: 14mm !important;
+          right: 22.5mm !important;
+          width: 165mm !important;
+          height: auto !important;
+          min-height: 0 !important;
+          max-height: 265mm !important;
+          margin: 0 !important;
+          padding: 6mm !important;
+          border: 0.3mm solid #d7dee8 !important;
+          border-radius: 2.4mm !important;
+          box-shadow: none !important;
+          overflow: hidden !important;
+          break-inside: avoid !important;
+          page-break-inside: avoid !important;
+          background: #ffffff !important;
         }
 
         .receipt-block,
         .receipt-info-box,
         .receipt-signatures,
         .receipt-header,
-        .receipt-amount {
+        .receipt-summary {
           break-inside: avoid !important;
           page-break-inside: avoid !important;
         }
       }
 
-      @media (max-width: 760px) {
+      @media screen and (max-width: 760px) {
         #receipt-print-area {
           width: 100% !important;
-          min-height: auto !important;
+          min-height: 0 !important;
           padding: 16px !important;
         }
 
         .receipt-header-grid,
         .receipt-two-columns,
-        .receipt-signatures-grid {
+        .receipt-signatures-grid,
+        .receipt-summary-grid {
           grid-template-columns: 1fr !important;
         }
 
@@ -346,8 +394,14 @@ export default function PaymentReceiptPage() {
         }
 
         .receipt-country-box,
-        .receipt-meta-top {
+        .receipt-meta-top,
+        .receipt-brand-box {
           justify-items: center !important;
+          text-align: center !important;
+        }
+
+        .receipt-meta-top {
+          align-items: center !important;
         }
       }
     `;
@@ -355,9 +409,7 @@ export default function PaymentReceiptPage() {
     document.head.appendChild(style);
 
     return () => {
-      if (
-        document.head.contains(style)
-      ) {
+      if (document.head.contains(style)) {
         document.head.removeChild(style);
       }
     };
@@ -370,6 +422,8 @@ export default function PaymentReceiptPage() {
   ) {
     try {
       setLoading(true);
+      setPageError("");
+      setActionFeedback(null);
       setPayment(null);
       setContract(null);
 
@@ -380,20 +434,14 @@ export default function PaymentReceiptPage() {
         .from("finance_payments")
         .select("*")
         .eq("id", paymentId)
-        .eq(
-          "branch_id",
-          currentBranchId
-        )
+        .eq("branch_id", currentBranchId)
         .maybeSingle();
 
       if (isCancelled()) {
         return;
       }
 
-      if (
-        paymentError ||
-        !paymentData
-      ) {
+      if (paymentError || !paymentData) {
         throw new Error(
           paymentError?.message ||
             "الإيصال غير موجود"
@@ -403,10 +451,9 @@ export default function PaymentReceiptPage() {
       const typedPayment =
         paymentData as PaymentReceipt;
 
-      const linkedContractId =
-        String(
-          typedPayment.contract_id || ""
-        ).trim();
+      const linkedContractId = String(
+        typedPayment.contract_id || ""
+      ).trim();
 
       let contractData:
         | ContractRelation
@@ -439,10 +486,7 @@ export default function PaymentReceiptPage() {
             `
           )
           .eq("id", linkedContractId)
-          .eq(
-            "branch_id",
-            currentBranchId
-          )
+          .eq("branch_id", currentBranchId)
           .maybeSingle();
 
         if (isCancelled()) {
@@ -541,14 +585,11 @@ export default function PaymentReceiptPage() {
       if (!isCancelled()) {
         setPayment(null);
         setContract(null);
-
-        const message =
-          error instanceof Error
-            ? error.message
-            : "حدث خطأ غير متوقع أثناء تحميل الإيصال";
-
-        alert(
-          `تعذر تحميل الإيصال: ${message}`
+        setPageError(
+          getErrorMessage(
+            error,
+            "حدث خطأ غير متوقع أثناء تحميل الإيصال"
+          )
         );
       }
     } finally {
@@ -618,18 +659,24 @@ export default function PaymentReceiptPage() {
     employeeName ||
     "الموظف";
 
-  const linkedContractId =
-    String(
-      contract?.id ||
-        payment?.contract_id ||
-        ""
-    ).trim();
+  const linkedContractId = String(
+    contract?.id ||
+      payment?.contract_id ||
+      ""
+  ).trim();
+
+  const receiptUnavailable =
+    loading ||
+    Boolean(pageError) ||
+    !payment;
 
   function goToContract() {
     if (!linkedContractId) {
-      alert(
-        "تعذر تحديد العقد المرتبط بهذا الإيصال"
-      );
+      setActionFeedback({
+        type: "error",
+        message:
+          "تعذر تحديد العقد المرتبط بهذا الإيصال.",
+      });
       return;
     }
 
@@ -647,40 +694,448 @@ export default function PaymentReceiptPage() {
     router.push(destination);
   }
 
-  async function downloadPdf() {
-    if (exportingPdf) {
+  async function createReceiptPdf(
+    options: PdfOptions = {}
+  ): Promise<PdfResult> {
+    const receiptElement =
+      receiptPrintRef.current;
+
+    if (!payment || !receiptElement) {
+      throw new Error(
+        "تعذر العثور على الإيصال لإنشاء الملف"
+      );
+    }
+
+    if (document.fonts?.ready) {
+      await document.fonts.ready;
+    }
+
+    await waitForImages(
+      receiptElement
+    );
+
+    const [
+      html2canvasModule,
+      jsPdfModule,
+    ] = await Promise.all([
+      import("html2canvas"),
+      import("jspdf"),
+    ]);
+
+    const html2canvas =
+      html2canvasModule.default;
+
+    const { jsPDF } = jsPdfModule;
+
+    const canvas = await html2canvas(
+      receiptElement,
+      {
+        backgroundColor: "#ffffff",
+        scale: 2.2,
+        useCORS: true,
+        allowTaint: false,
+        logging: false,
+        windowWidth: 1400,
+        scrollX: 0,
+        scrollY: 0,
+
+        onclone: (clonedDocument) => {
+          clonedDocument.documentElement.style.background =
+            "#ffffff";
+          clonedDocument.body.style.background =
+            "#ffffff";
+
+          const clonedReceipt =
+            clonedDocument.querySelector<HTMLElement>(
+              "#receipt-print-area"
+            );
+
+          if (!clonedReceipt) {
+            return;
+          }
+
+          clonedReceipt.style.width =
+            "165mm";
+          clonedReceipt.style.height =
+            "auto";
+          clonedReceipt.style.minHeight =
+            "0";
+          clonedReceipt.style.maxHeight =
+            "none";
+          clonedReceipt.style.margin =
+            "0";
+          clonedReceipt.style.padding =
+            "6mm";
+          clonedReceipt.style.border =
+            "1px solid #d7dee8";
+          clonedReceipt.style.borderRadius =
+            "9px";
+          clonedReceipt.style.boxShadow =
+            "none";
+          clonedReceipt.style.overflow =
+            "hidden";
+          clonedReceipt.style.background =
+            "#ffffff";
+        },
+      }
+    );
+
+    const pdf = new jsPDF({
+      orientation: "portrait",
+      unit: "mm",
+      format: "a4",
+      compress: true,
+    });
+
+    if (options.autoPrint) {
+      const printablePdf =
+        pdf as typeof pdf & {
+          autoPrint?: (
+            autoPrintOptions?: {
+              variant?:
+                | "non-conform"
+                | "javascript";
+            }
+          ) => void;
+        };
+
+      printablePdf.autoPrint?.({
+        variant: "non-conform",
+      });
+    }
+
+    const pageWidth =
+      pdf.internal.pageSize.getWidth();
+
+    const pageHeight =
+      pdf.internal.pageSize.getHeight();
+
+    const maxImageWidth = 165;
+    const maxImageHeight = 263;
+
+    const canvasRatio =
+      canvas.width / canvas.height;
+
+    let imageWidth = maxImageWidth;
+    let imageHeight =
+      imageWidth / canvasRatio;
+
+    if (imageHeight > maxImageHeight) {
+      imageHeight = maxImageHeight;
+      imageWidth =
+        imageHeight * canvasRatio;
+    }
+
+    const imageX =
+      (pageWidth - imageWidth) / 2;
+
+    const imageY = Math.max(
+      12,
+      (pageHeight - imageHeight) / 2
+    );
+
+    pdf.addImage(
+      canvas.toDataURL(
+        "image/jpeg",
+        0.96
+      ),
+      "JPEG",
+      imageX,
+      imageY,
+      imageWidth,
+      imageHeight,
+      undefined,
+      "FAST"
+    );
+
+    const fileName =
+      buildReceiptFileName(
+        receiptNumber,
+        paymentId
+      );
+
+    return {
+      blob: pdf.output("blob"),
+      fileName,
+    };
+  }
+
+  async function printReceipt() {
+    if (receiptUnavailable) {
+      setActionFeedback({
+        type: "error",
+        message:
+          "انتظر حتى يكتمل تحميل الإيصال.",
+      });
       return;
     }
 
-    try {
-      setExportingPdf(true);
+    if (printingPdf) {
+      return;
+    }
 
-      await exportElementToPdf(
-        "receipt-print-area",
-        `receipt-${
-          receiptNumber || paymentId
-        }`
+    const printWindow = window.open(
+      "",
+      "_blank"
+    );
+
+    if (!printWindow) {
+      setActionFeedback({
+        type: "error",
+        message:
+          "تعذر فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع ثم حاول مرة أخرى.",
+      });
+      return;
+    }
+
+    printWindow.document.open();
+    printWindow.document.write(`
+      <!doctype html>
+      <html lang="ar" dir="rtl">
+        <head>
+          <meta charset="utf-8" />
+          <meta
+            name="viewport"
+            content="width=device-width,initial-scale=1"
+          />
+          <title>جاري تجهيز الإيصال</title>
+          <style>
+            * { box-sizing: border-box; }
+            html, body { margin: 0; min-height: 100%; }
+            body {
+              min-height: 100vh;
+              display: grid;
+              place-items: center;
+              padding: 24px;
+              background: #f8fafc;
+              color: #0f172a;
+              font-family: Arial, sans-serif;
+            }
+            .message {
+              width: min(520px,100%);
+              padding: 24px;
+              border: 1px solid #dbeafe;
+              border-radius: 18px;
+              background: #ffffff;
+              text-align: center;
+              font-size: 18px;
+              font-weight: 700;
+              line-height: 1.8;
+              box-shadow: 0 16px 40px rgba(15,23,42,0.10);
+            }
+          </style>
+        </head>
+        <body>
+          <div class="message">
+            جاري إنشاء إيصال PDF من صفحة واحدة وفتحه للطباعة...
+          </div>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+
+    try {
+      printWindow.opener = null;
+    } catch {
+      // بعض المتصفحات تمنع تعديل opener، ولا يؤثر ذلك على الطباعة.
+    }
+
+    setPrintingPdf(true);
+    setActionFeedback(null);
+
+    try {
+      const { blob } =
+        await createReceiptPdf({
+          autoPrint: true,
+        });
+
+      const pdfUrl =
+        URL.createObjectURL(blob);
+
+      printWindow.location.replace(
+        pdfUrl
       );
+      printWindow.focus();
+
+      window.setTimeout(() => {
+        URL.revokeObjectURL(pdfUrl);
+      }, 120_000);
+
+      setActionFeedback({
+        type: "success",
+        message:
+          "تم فتح إيصال PDF من صفحة واحدة للطباعة.",
+      });
+    } catch (error) {
+      printWindow.close();
+
+      console.error(
+        "Print receipt PDF error:",
+        error
+      );
+
+      setActionFeedback({
+        type: "error",
+        message: getErrorMessage(
+          error,
+          "تعذر تجهيز الإيصال للطباعة"
+        ),
+      });
+    } finally {
+      setPrintingPdf(false);
+    }
+  }
+
+  async function downloadPdf() {
+    if (
+      receiptUnavailable ||
+      exportingPdf
+    ) {
+      if (!exportingPdf) {
+        setActionFeedback({
+          type: "error",
+          message:
+            "انتظر حتى يكتمل تحميل الإيصال.",
+        });
+      }
+      return;
+    }
+
+    setExportingPdf(true);
+    setActionFeedback(null);
+
+    try {
+      const { blob, fileName } =
+        await createReceiptPdf();
+
+      downloadBlob(blob, fileName);
+
+      setActionFeedback({
+        type: "success",
+        message:
+          "تم حفظ إيصال PDF من صفحة واحدة بنجاح.",
+      });
     } catch (error) {
       console.error(
         "Export receipt PDF error:",
         error
       );
 
-      alert(
-        "تعذر تحميل الإيصال بصيغة PDF"
-      );
+      setActionFeedback({
+        type: "error",
+        message: getErrorMessage(
+          error,
+          "تعذر تحميل الإيصال بصيغة PDF"
+        ),
+      });
     } finally {
       setExportingPdf(false);
     }
   }
 
-  if (
-    !authChecked ||
-    loading
-  ) {
+  async function shareReceiptOnWhatsapp() {
+    if (
+      receiptUnavailable ||
+      sharingWhatsapp
+    ) {
+      if (!sharingWhatsapp) {
+        setActionFeedback({
+          type: "error",
+          message:
+            "انتظر حتى يكتمل تحميل الإيصال.",
+        });
+      }
+      return;
+    }
+
+    setSharingWhatsapp(true);
+    setActionFeedback(null);
+
+    try {
+      const { blob, fileName } =
+        await createReceiptPdf();
+
+      const pdfFile = new File(
+        [blob],
+        fileName,
+        {
+          type: "application/pdf",
+          lastModified: Date.now(),
+        }
+      );
+
+      const shareData: ShareData = {
+        files: [pdfFile],
+        title: `إيصال سداد ${receiptNumber}`,
+      };
+
+      const canSharePdf =
+        typeof navigator !==
+          "undefined" &&
+        typeof navigator.share ===
+          "function" &&
+        typeof navigator.canShare ===
+          "function" &&
+        navigator.canShare(shareData);
+
+      if (!canSharePdf) {
+        downloadBlob(
+          blob,
+          fileName
+        );
+
+        setActionFeedback({
+          type: "info",
+          message:
+            "هذا المتصفح لا يدعم مشاركة ملفات PDF مباشرة. تم حفظ الإيصال على الجهاز لتشاركه من تطبيق الملفات عبر واتساب.",
+        });
+        return;
+      }
+
+      await navigator.share(shareData);
+
+      setActionFeedback({
+        type: "success",
+        message:
+          "تم فتح نافذة مشاركة ملف PDF. اختر واتساب لإرسال الإيصال.",
+      });
+    } catch (error) {
+      if (
+        error instanceof DOMException &&
+        error.name === "AbortError"
+      ) {
+        setActionFeedback({
+          type: "info",
+          message:
+            "تم إلغاء مشاركة الإيصال.",
+        });
+        return;
+      }
+
+      console.error(
+        "Share receipt PDF error:",
+        error
+      );
+
+      setActionFeedback({
+        type: "error",
+        message: getErrorMessage(
+          error,
+          "تعذر إنشاء الإيصال أو مشاركته"
+        ),
+      });
+    } finally {
+      setSharingWhatsapp(false);
+    }
+  }
+
+  if (!authChecked || loading) {
     return (
-      <main dir="rtl" style={page}>
+      <main
+        dir="rtl"
+        className="receipt-page-main"
+        style={page}
+      >
         <div style={loadingBox}>
           جاري تحميل الإيصال...
         </div>
@@ -688,11 +1143,16 @@ export default function PaymentReceiptPage() {
     );
   }
 
-  if (!payment) {
+  if (pageError || !payment) {
     return (
-      <main dir="rtl" style={page}>
+      <main
+        dir="rtl"
+        className="receipt-page-main"
+        style={page}
+      >
         <div style={loadingBox}>
-          لم يتم العثور على الإيصال.
+          {pageError ||
+            "لم يتم العثور على الإيصال."}
 
           <div style={errorActions}>
             <button
@@ -723,9 +1183,128 @@ export default function PaymentReceiptPage() {
   }
 
   return (
-    <main dir="rtl" style={page}>
+    <main
+      dir="rtl"
+      className="receipt-page-main"
+      style={page}
+    >
+      <div
+        className="no-print"
+        style={actionsCard}
+      >
+        <div style={actionsWrapper}>
+          <button
+            type="button"
+            style={getActionButtonStyle(
+              printButton,
+              receiptUnavailable ||
+                printingPdf
+            )}
+            disabled={
+              receiptUnavailable ||
+              printingPdf
+            }
+            onClick={() =>
+              void printReceipt()
+            }
+          >
+            {printingPdf
+              ? "جاري تجهيز الطباعة..."
+              : "طباعة الإيصال"}
+          </button>
+
+          <button
+            type="button"
+            style={getActionButtonStyle(
+              pdfButton,
+              receiptUnavailable ||
+                exportingPdf
+            )}
+            disabled={
+              receiptUnavailable ||
+              exportingPdf
+            }
+            onClick={() =>
+              void downloadPdf()
+            }
+          >
+            {exportingPdf
+              ? "جاري تجهيز PDF..."
+              : "حفظ PDF"}
+          </button>
+
+          <button
+            type="button"
+            style={getActionButtonStyle(
+              whatsappButton,
+              receiptUnavailable ||
+                sharingWhatsapp
+            )}
+            disabled={
+              receiptUnavailable ||
+              sharingWhatsapp
+            }
+            onClick={() =>
+              void shareReceiptOnWhatsapp()
+            }
+          >
+            {sharingWhatsapp
+              ? "جاري تجهيز الملف..."
+              : "مشاركة PDF عبر واتساب"}
+          </button>
+
+          <button
+            type="button"
+            style={getActionButtonStyle(
+              contractButton,
+              !linkedContractId
+            )}
+            disabled={!linkedContractId}
+            onClick={goToContract}
+          >
+            العودة إلى العقد
+          </button>
+
+          <button
+            type="button"
+            style={paymentButton}
+            onClick={goToNewPayment}
+          >
+            إجراء سداد آخر
+          </button>
+        </div>
+
+        <button
+          type="button"
+          style={backButton}
+          onClick={() =>
+            router.back()
+          }
+        >
+          ← رجوع
+        </button>
+      </div>
+
+      {actionFeedback && (
+        <div
+          className="no-print"
+          role={
+            actionFeedback.type ===
+            "error"
+              ? "alert"
+              : "status"
+          }
+          style={getActionFeedbackStyle(
+            actionFeedback.type
+          )}
+        >
+          {actionFeedback.message}
+        </div>
+      )}
+
       <section
         id="receipt-print-area"
+        ref={receiptPrintRef}
         style={printArea}
       >
         <header
@@ -747,12 +1326,16 @@ export default function PaymentReceiptPage() {
             )}
           </div>
 
-          <div style={brandBox}>
+          <div
+            className="receipt-brand-box"
+            style={brandBox}
+          >
             {organizationSettings.logoUrl ? (
               <img
                 src={
                   organizationSettings.logoUrl
                 }
+                crossOrigin="anonymous"
                 alt={
                   organizationSettings.name
                 }
@@ -769,7 +1352,7 @@ export default function PaymentReceiptPage() {
             <div style={orgMeta}>
               {organizationSettings.commercialRecord && (
                 <span>
-                  سجل تجاري:{" "}
+                  سجل تجاري: {" "}
                   {
                     organizationSettings.commercialRecord
                   }
@@ -778,7 +1361,7 @@ export default function PaymentReceiptPage() {
 
               {organizationSettings.phone && (
                 <span>
-                  جوال:{" "}
+                  جوال: {" "}
                   {organizationSettings.phone}
                 </span>
               )}
@@ -789,23 +1372,40 @@ export default function PaymentReceiptPage() {
             className="receipt-meta-top"
             style={receiptMetaTop}
           >
-            <strong>إيصال سداد</strong>
+            <strong style={receiptTitle}>
+              إيصال سداد
+            </strong>
+
+            <span>
+              رقم الإيصال: {" "}
+              <b>{receiptNumber}</b>
+            </span>
+
             <span>{paymentDate}</span>
           </div>
         </header>
 
         <section
-          className="receipt-block"
-          style={titleBox}
+          className="receipt-summary receipt-summary-grid"
+          style={summaryGrid}
         >
-          <h1 style={title}>
-            إيصال سداد
-          </h1>
+          <div style={summaryItem}>
+            <span style={summaryLabel}>
+              المبلغ المستلم
+            </span>
 
-          <div style={receiptNumberBox}>
-            رقم الإيصال:{" "}
-            <strong>
-              {receiptNumber}
+            <strong style={summaryAmount}>
+              {formatMoney(paymentAmount)} ر.س
+            </strong>
+          </div>
+
+          <div style={summaryItem}>
+            <span style={summaryLabel}>
+              المتبقي بعد السداد
+            </span>
+
+            <strong style={summaryRemaining}>
+              {formatMoney(remainingAmount)} ر.س
             </strong>
           </div>
         </section>
@@ -855,13 +1455,6 @@ export default function PaymentReceiptPage() {
             </h2>
 
             <Row
-              label="مبلغ الدفعة"
-              value={`${formatMoney(
-                paymentAmount
-              )} ر.س`}
-            />
-
-            <Row
               label="نوع السداد"
               value={
                 payment.payment_type || "-"
@@ -888,13 +1481,6 @@ export default function PaymentReceiptPage() {
             />
 
             <Row
-              label="المتبقي بعد السداد"
-              value={`${formatMoney(
-                remainingAmount
-              )} ر.س`}
-            />
-
-            <Row
               label="الموظف"
               value={paymentEmployeeName}
             />
@@ -902,34 +1488,21 @@ export default function PaymentReceiptPage() {
         </section>
 
         <section
-          className="receipt-amount"
-          style={amountHighlight}
-        >
-          <span>المبلغ المستلم</span>
-
-          <strong>
-            {formatMoney(paymentAmount)} ر.س
-          </strong>
-        </section>
-
-        <section
           className="receipt-block"
           style={statementBox}
         >
           <p style={paragraph}>
-            تشهد{" "}
+            تشهد {" "}
             <strong>
               {organizationSettings.name}
             </strong>{" "}
-            باستلام مبلغ وقدره{" "}
+            باستلام مبلغ وقدره {" "}
             <strong>
               {formatMoney(paymentAmount)}
             </strong>{" "}
-            ريال سعودي من العميل{" "}
-            <strong>
-              {customerName}
-            </strong>
-            ، وذلك كسداد على العقد رقم{" "}
+            ريال سعودي من العميل {" "}
+            <strong>{customerName}</strong>
+            ، وذلك كسداد على العقد رقم {" "}
             <strong>
               {contract?.contract_number ||
                 "................"}
@@ -938,11 +1511,10 @@ export default function PaymentReceiptPage() {
           </p>
 
           <p style={paragraph}>
-            ويعد هذا الإيصال إثباتًا
-            لعملية السداد الموضحة أعلاه،
-            ولا يعتبر مخالصة نهائية إلا
-            في حال سداد كامل المديونية
-            وإصدار مخالصة مستقلة.
+            يعد هذا الإيصال إثباتًا لعملية
+            السداد الموضحة أعلاه، ولا يعد
+            مخالصة نهائية إلا بعد سداد كامل
+            المديونية وإصدار مخالصة مستقلة.
           </p>
         </section>
 
@@ -954,8 +1526,7 @@ export default function PaymentReceiptPage() {
             <strong>المستلم</strong>
 
             <div>
-              الاسم /{" "}
-              {paymentEmployeeName}
+              الاسم / {paymentEmployeeName}
             </div>
 
             <div>
@@ -977,66 +1548,9 @@ export default function PaymentReceiptPage() {
         </footer>
 
         <div style={receiptFooterNote}>
-          تم إصدار هذا الإيصال آليًا من
-          النظام
+          تم إصدار هذا الإيصال آليًا من النظام
         </div>
       </section>
-
-      <div
-        className="no-print"
-        style={actionsWrapper}
-      >
-        <button
-          type="button"
-          style={primaryActionButton}
-          onClick={() =>
-            window.print()
-          }
-        >
-          🖨️ طباعة الإيصال
-        </button>
-
-        <button
-          type="button"
-          style={primaryActionButton}
-          onClick={() =>
-            void downloadPdf()
-          }
-          disabled={exportingPdf}
-        >
-          {exportingPdf
-            ? "جاري تجهيز PDF..."
-            : "📄 تحميل PDF"}
-        </button>
-
-        <button
-          type="button"
-          style={contractButton}
-          onClick={goToContract}
-          disabled={!linkedContractId}
-        >
-          العودة إلى العقد
-        </button>
-
-        <button
-          type="button"
-          style={paymentButton}
-          onClick={goToNewPayment}
-        >
-          إجراء سداد آخر
-        </button>
-
-        <button
-          type="button"
-          style={backButton}
-          onClick={() =>
-            router.back()
-          }
-        >
-          ← رجوع
-        </button>
-        
-      </div>
     </main>
   );
 }
@@ -1074,9 +1588,7 @@ function getReceiptNumber(
   }
 
   if (payment.receipt_no) {
-    return String(
-      payment.receipt_no
-    );
+    return String(payment.receipt_no);
   }
 
   if (payment.payment_number) {
@@ -1178,12 +1690,9 @@ function formatMoney(
     | null
     | undefined
 ) {
-  const number =
-    Number(value || 0);
+  const number = Number(value || 0);
 
-  if (
-    !Number.isFinite(number)
-  ) {
+  if (!Number.isFinite(number)) {
     return "0.00";
   }
 
@@ -1196,36 +1705,188 @@ function formatMoney(
   );
 }
 
+function getErrorMessage(
+  error: unknown,
+  fallback: string
+) {
+  if (error instanceof Error) {
+    return error.message || fallback;
+  }
+
+  if (typeof error === "string") {
+    return error || fallback;
+  }
+
+  return fallback;
+}
+
+function getActionButtonStyle(
+  baseStyle: CSSProperties,
+  disabled: boolean
+): CSSProperties {
+  return {
+    ...baseStyle,
+    opacity: disabled ? 0.58 : 1,
+    cursor: disabled
+      ? "not-allowed"
+      : "pointer",
+  };
+}
+
+function getActionFeedbackStyle(
+  type: ActionFeedback["type"]
+): CSSProperties {
+  if (type === "success") {
+    return {
+      ...actionFeedbackBase,
+      border: "1px solid #bbf7d0",
+      background: "#f0fdf4",
+      color: "#166534",
+    };
+  }
+
+  if (type === "error") {
+    return {
+      ...actionFeedbackBase,
+      border: "1px solid #fecaca",
+      background: "#fff7f7",
+      color: "#991b1b",
+    };
+  }
+
+  return {
+    ...actionFeedbackBase,
+    border: "1px solid #bfdbfe",
+    background: "#eff6ff",
+    color: "#1d4ed8",
+  };
+}
+
+async function waitForImages(
+  rootElement: HTMLElement
+) {
+  const images = Array.from(
+    rootElement.querySelectorAll("img")
+  );
+
+  await Promise.all(
+    images.map(
+      (image) =>
+        new Promise<void>((resolve) => {
+          if (image.complete) {
+            resolve();
+            return;
+          }
+
+          const finish = () => {
+            image.removeEventListener(
+              "load",
+              finish
+            );
+            image.removeEventListener(
+              "error",
+              finish
+            );
+            resolve();
+          };
+
+          image.addEventListener(
+            "load",
+            finish,
+            { once: true }
+          );
+          image.addEventListener(
+            "error",
+            finish,
+            { once: true }
+          );
+        })
+    )
+  );
+}
+
+function buildReceiptFileName(
+  receiptNumber: string,
+  paymentId: string
+) {
+  const safeNumber =
+    sanitizeFileNamePart(
+      receiptNumber || paymentId
+    );
+
+  return `إيصال-سداد-${safeNumber}.pdf`;
+}
+
+function sanitizeFileNamePart(
+  value: unknown
+) {
+  return (
+    String(value || "")
+      .trim()
+      .replace(/[\\/:*?"<>|]+/g, "-")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-")
+      .slice(0, 80) || "بدون-رقم"
+  );
+}
+
+function downloadBlob(
+  blob: Blob,
+  fileName: string
+) {
+  const objectUrl =
+    URL.createObjectURL(blob);
+
+  const link =
+    document.createElement("a");
+
+  link.href = objectUrl;
+  link.download = fileName;
+  link.rel = "noopener";
+  link.style.display = "none";
+
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  window.setTimeout(() => {
+    URL.revokeObjectURL(objectUrl);
+  }, 1500);
+}
+
 const page: CSSProperties = {
-  minHeight: "100vh",
-  backgroundColor: "#f6f9ff",
+  minHeight: "100dvh",
+  padding: 16,
+  color: "#111827",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+  backgroundColor: "#f3f7fc",
   backgroundImage: `
-    radial-gradient(circle at 12% 18%, rgba(59,130,246,0.16) 0, transparent 28%),
-    radial-gradient(circle at 88% 12%, rgba(168,85,247,0.10) 0, transparent 25%),
-    radial-gradient(circle at 80% 88%, rgba(34,197,94,0.10) 0, transparent 28%),
-    linear-gradient(rgba(246,249,255,0.72),rgba(246,249,255,0.82)),
+    radial-gradient(circle at 12% 18%, rgba(59,130,246,0.12) 0, transparent 28%),
+    radial-gradient(circle at 88% 12%, rgba(168,85,247,0.07) 0, transparent 25%),
+    radial-gradient(circle at 80% 88%, rgba(34,197,94,0.07) 0, transparent 28%),
+    linear-gradient(rgba(246,249,255,0.78),rgba(246,249,255,0.88)),
     url('/backgrounds/v13-finance-bg-1.png')
   `,
   backgroundSize: "cover",
   backgroundPosition: "center",
   backgroundAttachment: "fixed",
-  padding: 16,
-  fontFamily:
-    "var(--font-almarai), sans-serif",
-  color: "#111827",
 };
 
 const loadingBox: CSSProperties = {
   width: "100%",
-  maxWidth: 850,
+  maxWidth: 720,
   margin: "80px auto",
-  background: "#ffffff",
+  padding: 24,
   border: "1px solid #d9e3f5",
   borderRadius: 18,
-  padding: 24,
+  background: "#ffffff",
+  color: "#334155",
   textAlign: "center",
   fontWeight: 900,
-  color: "#334155",
+  lineHeight: 1.8,
+  boxShadow:
+    "0 14px 35px rgba(15,23,42,0.07)",
 };
 
 const errorActions: CSSProperties = {
@@ -1236,64 +1897,177 @@ const errorActions: CSSProperties = {
   marginTop: 18,
 };
 
+const actionsCard: CSSProperties = {
+  width: "100%",
+  maxWidth: 980,
+  margin: "0 auto 14px",
+  padding: 12,
+  border: "1px solid #dbe5f2",
+  borderRadius: 16,
+  background: "rgba(255,255,255,0.96)",
+  display: "grid",
+  gap: 10,
+  boxShadow:
+    "0 12px 30px rgba(15,23,42,0.07)",
+};
+
+const actionsWrapper: CSSProperties = {
+  width: "100%",
+  display: "grid",
+  gridTemplateColumns:
+    "repeat(auto-fit,minmax(150px,1fr))",
+  gap: 9,
+};
+
+const actionButtonBase: CSSProperties = {
+  minHeight: 44,
+  padding: "10px 13px",
+  border: "none",
+  borderRadius: 11,
+  color: "#ffffff",
+  fontSize: 13.5,
+  fontWeight: 900,
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+  transition:
+    "transform 160ms ease, opacity 160ms ease",
+};
+
+const printButton: CSSProperties = {
+  ...actionButtonBase,
+  background:
+    "linear-gradient(135deg,#0d47a1,#1565c0 55%,#0284c7)",
+};
+
+const pdfButton: CSSProperties = {
+  ...actionButtonBase,
+  background:
+    "linear-gradient(135deg,#475569,#1e293b)",
+};
+
+const whatsappButton: CSSProperties = {
+  ...actionButtonBase,
+  background:
+    "linear-gradient(135deg,#16a34a,#22c55e 55%,#10b981)",
+};
+
+const contractButton: CSSProperties = {
+  ...actionButtonBase,
+  background:
+    "linear-gradient(135deg,#7c3aed,#4f46e5)",
+};
+
+const paymentButton: CSSProperties = {
+  ...actionButtonBase,
+  background:
+    "linear-gradient(135deg,#0891b2,#0369a1)",
+};
+
+const backButton: CSSProperties = {
+  minWidth: 108,
+  minHeight: 38,
+  justifySelf: "center",
+  padding: "8px 15px",
+  border: "none",
+  borderRadius: 10,
+  background:
+    "linear-gradient(135deg,#22c55e,#15803d)",
+  color: "#ffffff",
+  fontSize: 13,
+  fontWeight: 900,
+  cursor: "pointer",
+  boxShadow:
+    "0 5px 14px rgba(21,128,61,0.20)",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const homeButton: CSSProperties = {
+  minHeight: 42,
+  padding: "9px 14px",
+  border: "none",
+  borderRadius: 10,
+  background:
+    "linear-gradient(135deg,#16a34a,#15803d)",
+  color: "#ffffff",
+  fontSize: 13.5,
+  fontWeight: 900,
+  cursor: "pointer",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const actionFeedbackBase: CSSProperties = {
+  width: "100%",
+  maxWidth: 980,
+  margin: "0 auto 14px",
+  padding: "12px 14px",
+  borderRadius: 12,
+  textAlign: "center",
+  fontSize: 13.5,
+  fontWeight: 900,
+  lineHeight: 1.7,
+};
+
 const printArea: CSSProperties = {
-  background: "#ffffff",
-  width: "190mm",
-  minHeight: "255mm",
+  width: "165mm",
+  minHeight: 0,
   margin: "0 auto",
-  padding: "7mm",
-  borderRadius: 0,
-  lineHeight: 1.55,
+  padding: "6mm",
+  border: "1px solid #d7dee8",
+  borderRadius: 9,
+  background: "#ffffff",
   color: "#111827",
   boxSizing: "border-box",
   overflow: "hidden",
+  lineHeight: 1.45,
   boxShadow:
-    "0 18px 45px rgba(15,23,42,0.08)",
+    "0 16px 36px rgba(15,23,42,0.09)",
 };
 
 const receiptHeader: CSSProperties = {
   display: "grid",
   gridTemplateColumns:
     "1fr 1.25fr 1fr",
-  gap: 10,
+  gap: 9,
   alignItems: "start",
-  borderBottom:
-    "1.5px solid #e2e8f0",
-  paddingBottom: 9,
-  marginBottom: 10,
+  borderBottom: "1px solid #d8e0ea",
+  paddingBottom: 7,
+  marginBottom: 8,
 };
 
 const countryBox: CSSProperties = {
   display: "grid",
-  gap: 3,
-  fontSize: 11.5,
-  color: "#111827",
+  gap: 2,
+  fontSize: 10.2,
+  lineHeight: 1.5,
+  color: "#334155",
 };
 
 const brandBox: CSSProperties = {
   display: "grid",
   justifyItems: "center",
-  gap: 4,
+  gap: 3,
 };
 
 const logoImage: CSSProperties = {
-  width: 62,
-  height: 62,
+  width: 48,
+  height: 48,
   objectFit: "contain",
 };
 
 const organizationNameBox: CSSProperties = {
-  minWidth: 145,
-  maxWidth: 225,
-  minHeight: 45,
-  padding: "7px 12px",
-  border: "1px solid #bfdbfe",
-  borderRadius: 13,
-  background: "#eff6ff",
+  minWidth: 135,
+  maxWidth: 210,
+  minHeight: 35,
+  padding: "5px 10px",
+  border: "1px solid #dbe7f4",
+  borderRadius: 9,
+  background: "#f8fbff",
   color: "#0f172a",
-  fontSize: 16,
+  fontSize: 14.5,
   fontWeight: 900,
-  lineHeight: 1.45,
+  lineHeight: 1.4,
   textAlign: "center",
   display: "flex",
   alignItems: "center",
@@ -1303,63 +2077,84 @@ const organizationNameBox: CSSProperties = {
 const orgMeta: CSSProperties = {
   display: "flex",
   justifyContent: "center",
-  gap: 8,
+  gap: 6,
   flexWrap: "wrap",
-  fontSize: 9.5,
-  color: "#475569",
+  fontSize: 8.7,
+  color: "#64748b",
 };
 
 const receiptMetaTop: CSSProperties = {
   display: "grid",
   justifyItems: "end",
+  gap: 2,
+  fontSize: 9.8,
+  lineHeight: 1.5,
+  color: "#334155",
+};
+
+const receiptTitle: CSSProperties = {
+  color: "#0f3f7a",
+  fontSize: 17,
+  lineHeight: 1.25,
+  fontWeight: 900,
+};
+
+const summaryGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns:
+    "repeat(2,minmax(0,1fr))",
+  gap: 8,
+  marginBottom: 8,
+};
+
+const summaryItem: CSSProperties = {
+  display: "grid",
   gap: 3,
-  fontSize: 11.5,
-  color: "#111827",
+  padding: "7px 10px",
+  border: "1px solid #dce7e2",
+  borderRadius: 9,
+  background: "#fbfefc",
 };
 
-const titleBox: CSSProperties = {
-  textAlign: "center",
-  marginBottom: 10,
+const summaryLabel: CSSProperties = {
+  color: "#64748b",
+  fontSize: 9.3,
+  fontWeight: 800,
 };
 
-const title: CSSProperties = {
-  color: "#0d47a1",
-  fontSize: 22,
-  margin: "0 0 7px",
+const summaryAmount: CSSProperties = {
+  color: "#166534",
+  fontSize: 16,
   fontWeight: 900,
-  fontFamily:
-    "var(--font-almarai), sans-serif",
 };
 
-const receiptNumberBox: CSSProperties = {
-  display: "inline-block",
-  background: "#eef5ff",
-  border: "1px solid #bfdbfe",
-  borderRadius: 12,
-  padding: "7px 18px",
-  color: "#0d47a1",
+const summaryRemaining: CSSProperties = {
+  color: "#0f3f7a",
+  fontSize: 15.2,
   fontWeight: 900,
-  fontSize: 12.5,
 };
 
 const twoColumns: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "1fr 1fr",
-  gap: 9,
-  marginBottom: 9,
+  gap: 8,
+  marginBottom: 8,
 };
 
 const infoBox: CSSProperties = {
+  padding: 8,
   border: "1px solid #e2e8f0",
-  borderRadius: 13,
-  padding: 10,
+  borderRadius: 9,
   background: "#ffffff",
 };
 
 const boxTitle: CSSProperties = {
-  margin: "0 0 6px",
-  color: "#0d47a1",
-  fontSize: 14.5,
+  margin: "0 0 5px",
+  paddingBottom: 4,
+  borderBottom: "1px solid #eef2f7",
+  color: "#0f3f7a",
+  fontSize: 12.2,
+  fontWeight: 900,
   fontFamily:
     "var(--font-almarai), sans-serif",
 };
@@ -1367,170 +2162,50 @@ const boxTitle: CSSProperties = {
 const row: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
-  alignItems: "center",
-  gap: 10,
-  minHeight: 23,
-  padding: "4px 0",
-  borderBottom:
-    "1px solid #eef2f7",
-  fontSize: 11.3,
-};
-
-const amountHighlight: CSSProperties = {
-  border: "1px solid #bbf7d0",
-  background: "#f0fdf4",
-  color: "#166534",
-  borderRadius: 13,
-  padding: "9px 12px",
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: 12,
-  margin: "9px 0",
-  fontSize: 15.5,
-  fontWeight: 900,
+  alignItems: "baseline",
+  gap: 8,
+  minHeight: 20,
+  padding: "3px 0",
+  borderBottom: "1px solid #f1f4f8",
+  fontSize: 9.8,
+  lineHeight: 1.45,
 };
 
 const statementBox: CSSProperties = {
-  marginTop: 4,
+  marginTop: 2,
+  padding: "7px 9px",
+  border: "1px solid #e2e8f0",
+  borderRadius: 9,
+  background: "#fcfdff",
 };
 
 const paragraph: CSSProperties = {
-  fontSize: 11.5,
-  lineHeight: 1.75,
-  margin: "5px 0",
+  margin: "3px 0",
+  fontSize: 9.8,
+  lineHeight: 1.65,
   textAlign: "justify",
 };
 
 const footerBox: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "1fr 1fr",
-  gap: 22,
-  marginTop: 20,
+  gap: 18,
+  marginTop: 12,
 };
 
 const signatureBox: CSSProperties = {
-  borderTop: "1px solid #111827",
-  paddingTop: 7,
-  lineHeight: 1.75,
-  fontSize: 11.5,
+  minHeight: 54,
+  paddingTop: 5,
+  borderTop: "1px solid #334155",
+  fontSize: 9.8,
+  lineHeight: 1.65,
 };
 
 const receiptFooterNote: CSSProperties = {
-  marginTop: 16,
-  textAlign: "center",
-  fontSize: 10,
+  marginTop: 9,
+  paddingTop: 5,
+  borderTop: "1px solid #e2e8f0",
   color: "#64748b",
-  borderTop:
-    "1px solid #e2e8f0",
-  paddingTop: 7,
-};
-
-const actionsWrapper: CSSProperties = {
-  width: "100%",
-  maxWidth: 1180,
-  margin: "16px auto 0",
-  display: "grid",
-  gridTemplateColumns:
-    "repeat(auto-fit,minmax(170px,1fr))",
-  gap: 10,
-};
-
-const primaryActionButton: CSSProperties = {
-  padding: 14,
-  background:
-    "linear-gradient(135deg,#0d47a1,#1976d2)",
-  color: "#ffffff",
-  border: "none",
-  borderRadius: 14,
-  fontSize: 15,
-  fontWeight: 900,
-  cursor: "pointer",
-  boxShadow:
-    "0 10px 25px rgba(13,71,161,0.18)",
-  fontFamily:
-    "var(--font-almarai), sans-serif",
-};
-
-const contractButton: CSSProperties = {
-  padding: 14,
-  background:
-    "linear-gradient(135deg,#7c3aed,#4f46e5)",
-  color: "#ffffff",
-  border: "none",
-  borderRadius: 14,
-  fontSize: 15,
-  fontWeight: 900,
-  cursor: "pointer",
-  boxShadow:
-    "0 8px 18px rgba(79,70,229,0.22)",
-  fontFamily:
-    "var(--font-almarai), sans-serif",
-};
-
-const paymentButton: CSSProperties = {
-  padding: 14,
-  background:
-    "linear-gradient(135deg,#0891b2,#0369a1)",
-  color: "#ffffff",
-  border: "none",
-  borderRadius: 14,
-  fontSize: 15,
-  fontWeight: 900,
-  cursor: "pointer",
-  boxShadow:
-    "0 8px 18px rgba(3,105,161,0.22)",
-  fontFamily:
-    "var(--font-almarai), sans-serif",
-};
-
-const backButton: CSSProperties = {
-  border:
-    "1px solid rgba(255,255,255,0.20)",
-  background:
-    "linear-gradient(135deg,#22c55e,#15803d)",
-  color: "#ffffff",
-  borderRadius: 14,
-  padding: 14,
-  fontSize: 15,
-  fontWeight: 900,
-  cursor: "pointer",
-  boxShadow:
-    "0 8px 18px rgba(21,128,61,0.24)",
-  fontFamily:
-    "var(--font-almarai), sans-serif",
-};
-
-const homeButton: CSSProperties = {
-  border:
-    "1px solid rgba(255,255,255,0.20)",
-  background:
-    "linear-gradient(135deg,#16a34a,#15803d)",
-  color: "#ffffff",
-  borderRadius: 14,
-  padding: 14,
-  fontSize: 15,
-  fontWeight: 900,
-  cursor: "pointer",
-  boxShadow:
-    "0 8px 18px rgba(21,128,61,0.25)",
-  fontFamily:
-    "var(--font-almarai), sans-serif",
-};
-
-const logoutButton: CSSProperties = {
-  border:
-    "1px solid rgba(255,255,255,0.20)",
-  background:
-    "linear-gradient(135deg,#ef4444,#b91c1c)",
-  color: "#ffffff",
-  borderRadius: 14,
-  padding: 14,
-  fontSize: 15,
-  fontWeight: 900,
-  cursor: "pointer",
-  boxShadow:
-    "0 8px 18px rgba(185,28,28,0.22)",
-  fontFamily:
-    "var(--font-almarai), sans-serif",
+  textAlign: "center",
+  fontSize: 8.6,
 };
