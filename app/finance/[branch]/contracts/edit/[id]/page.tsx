@@ -90,6 +90,38 @@ type UpdateContractResult = {
   new_remaining_amount: number | string;
 };
 
+type InventorySnapshot = {
+  quantity: number;
+  exists: boolean;
+};
+
+type DialogTone =
+  | "info"
+  | "warning"
+  | "error"
+  | "success";
+
+type DialogAction =
+  | "continue-save"
+  | "open-contract"
+  | null;
+
+type DialogDetail = {
+  label: string;
+  value: string;
+  highlight?: boolean;
+};
+
+type DialogState = {
+  tone: DialogTone;
+  title: string;
+  message: string;
+  details?: DialogDetail[];
+  confirmText?: string;
+  cancelText?: string;
+  action?: DialogAction;
+};
+
 const SESSION_KEYS = [
   "finance_user",
   "finance_branch_user",
@@ -159,6 +191,27 @@ export default function EditContractPage() {
   const [printPartyType, setPrintPartyType] =
     useState("organization");
 
+  const [organizationName, setOrganizationName] =
+    useState("");
+
+  const [organizationCommercialRecord, setOrganizationCommercialRecord] =
+    useState("");
+
+  const [inventoryQuantity, setInventoryQuantity] =
+    useState<number | null>(null);
+
+  const [inventoryExists, setInventoryExists] =
+    useState(false);
+
+  const [inventoryLoading, setInventoryLoading] =
+    useState(false);
+
+  const [inventoryError, setInventoryError] =
+    useState("");
+
+  const [dialog, setDialog] =
+    useState<DialogState | null>(null);
+
   const [debtAmount, setDebtAmount] = useState("");
   const [paymentAmount, setPaymentAmount] =
     useState("");
@@ -209,6 +262,83 @@ export default function EditContractPage() {
   useEffect(() => {
     let cancelled = false;
 
+    async function loadSelectedInventory() {
+      if (!branchId || !investorId || !productId) {
+        setInventoryQuantity(null);
+        setInventoryExists(false);
+        setInventoryError("");
+        setInventoryLoading(false);
+        return;
+      }
+
+      setInventoryLoading(true);
+      setInventoryError("");
+
+      try {
+        const snapshot = await fetchInventorySnapshot(
+          branchId,
+          investorId,
+          productId
+        );
+
+        if (cancelled) {
+          return;
+        }
+
+        setInventoryQuantity(snapshot.quantity);
+        setInventoryExists(snapshot.exists);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        console.error(
+          "Selected inventory loading error:",
+          error
+        );
+
+        setInventoryQuantity(null);
+        setInventoryExists(false);
+        setInventoryError(
+          "تعذر تحميل كمية المخزون الحالية"
+        );
+      } finally {
+        if (!cancelled) {
+          setInventoryLoading(false);
+        }
+      }
+    }
+
+    void loadSelectedInventory();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [branchId, investorId, productId]);
+
+  useEffect(() => {
+    if (!dialog || typeof window === "undefined") {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape" || saving) {
+        return;
+      }
+
+      setDialog(null);
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [dialog, saving]);
+
+  useEffect(() => {
+    let cancelled = false;
+
     async function initializePage() {
       setAuthChecked(false);
       setLoading(true);
@@ -217,6 +347,10 @@ export default function EditContractPage() {
       setInvestors([]);
       setProducts([]);
       setBranchId(null);
+      setInventoryQuantity(null);
+      setInventoryExists(false);
+      setInventoryError("");
+      setDialog(null);
 
       if (!branch || !contractId) {
         redirectToLogin();
@@ -612,8 +746,19 @@ export default function EditContractPage() {
       session.username ||
       "الموظف";
 
+    const resolvedOrganizationName = String(
+      session.organization_name ||
+        (typeof window !== "undefined"
+          ? localStorage.getItem(
+              "finance_organization_name"
+            )
+          : "") ||
+        ""
+    ).trim();
+
     setEmployeeId(resolvedEmployeeId);
     setEmployeeName(resolvedEmployeeName);
+    setOrganizationName(resolvedOrganizationName);
     setRoles(getSessionRoles(session));
     setPermissions(
       getSessionPermissions(session)
@@ -647,6 +792,94 @@ export default function EditContractPage() {
     );
   }
 
+  function showDialog(
+    nextDialog: DialogState
+  ) {
+    setDialog(nextDialog);
+  }
+
+  function showError(
+    title: string,
+    message: string
+  ) {
+    showDialog({
+      tone: "error",
+      title,
+      message,
+      confirmText: "حسنًا",
+      action: null,
+    });
+  }
+
+  async function fetchInventorySnapshot(
+    currentBranchId: string,
+    currentInvestorId: string,
+    currentProductId: string
+  ): Promise<InventorySnapshot> {
+    const { data, error } = await supabase
+      .from("finance_inventory")
+      .select("id, quantity")
+      .eq("branch_id", currentBranchId)
+      .eq("investor_id", currentInvestorId)
+      .eq("product_id", currentProductId)
+      .order("updated_at", {
+        ascending: false,
+      })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return {
+      quantity: Number(data?.quantity || 0),
+      exists: Boolean(data?.id),
+    };
+  }
+
+  function calculateInventoryImpact(
+    selectedInventoryQuantity: number,
+    requestedQuantity: number
+  ) {
+    const oldQuantity = Number(
+      contract?.product_quantity || 0
+    );
+
+    const sameInventory = Boolean(
+      contract?.investor_id === investorId &&
+        contract?.product_id === productId
+    );
+
+    const quantityDifference = sameInventory
+      ? requestedQuantity - oldQuantity
+      : requestedQuantity;
+
+    const requiredFromInventory = Math.max(
+      quantityDifference,
+      0
+    );
+
+    const returnedToInventory = sameInventory
+      ? Math.max(-quantityDifference, 0)
+      : 0;
+
+    const projectedQuantity = sameInventory
+      ? selectedInventoryQuantity - quantityDifference
+      : selectedInventoryQuantity - requestedQuantity;
+
+    return {
+      sameInventory,
+      oldQuantity,
+      requiredFromInventory,
+      returnedToInventory,
+      projectedQuantity,
+      selectedQuantityExceedsAvailable:
+        requestedQuantity > selectedInventoryQuantity,
+      shortage: Math.max(-projectedQuantity, 0),
+    };
+  }
+
   async function loadData(
     currentBranchId: string,
     isCancelled: () => boolean = () => false
@@ -659,6 +892,8 @@ export default function EditContractPage() {
         investorsResult,
         productsResult,
         contractResult,
+        branchResult,
+        organizationSettings,
       ] = await Promise.all([
         supabase
           .from("finance_investors")
@@ -715,6 +950,21 @@ export default function EditContractPage() {
           .eq("id", contractId)
           .eq("branch_id", currentBranchId)
           .maybeSingle(),
+
+        supabase
+          .from("finance_branches")
+          .select("organization_name")
+          .eq("id", currentBranchId)
+          .maybeSingle(),
+
+        getOrganizationSettings().catch((error) => {
+          console.warn(
+            "Organization settings loading warning:",
+            error
+          );
+
+          return null;
+        }),
       ]);
 
       if (isCancelled()) {
@@ -749,6 +999,39 @@ export default function EditContractPage() {
 
       const loadedContract =
         contractResult.data as ContractData;
+
+      if (branchResult.error) {
+        console.warn(
+          "Branch organization name loading warning:",
+          branchResult.error
+        );
+      }
+
+      const storedOrganizationName =
+        typeof window !== "undefined"
+          ? localStorage.getItem(
+              "finance_organization_name"
+            ) || ""
+          : "";
+
+      const resolvedOrganizationName = String(
+        branchResult.data?.organization_name ||
+          organizationSettings?.name ||
+          storedOrganizationName ||
+          (loadedContract.print_party_type ===
+          "organization"
+            ? loadedContract.print_party_name
+            : "") ||
+          ""
+      ).trim();
+
+      setOrganizationName(resolvedOrganizationName);
+      setOrganizationCommercialRecord(
+        String(
+          organizationSettings?.commercialRecord ||
+            ""
+        ).trim()
+      );
 
       setInvestors(
         (investorsResult.data || []) as Investor[]
@@ -878,7 +1161,7 @@ export default function EditContractPage() {
     if (
       message.includes("INSUFFICIENT_INVENTORY")
     ) {
-      return "الكمية المطلوبة أكبر من المخزون المتاح";
+      return "لم تُحدّث دالة تعديل العقد بعد للسماح بتجاوز المخزون";
     }
 
     if (
@@ -905,7 +1188,9 @@ export default function EditContractPage() {
     );
   }
 
-  async function saveContract() {
+  async function saveContract(
+    skipInventoryWarning = false
+  ) {
     if (saving) {
       return;
     }
@@ -915,47 +1200,74 @@ export default function EditContractPage() {
       !contract ||
       !employeeId
     ) {
-      alert("تعذر تحديد العقد أو المستخدم أو الفرع");
+      showError(
+        "تعذر إكمال التعديل",
+        "تعذر تحديد العقد أو المستخدم أو الفرع"
+      );
       return;
     }
 
     if (!investorId) {
-      alert("اختر المستثمر");
+      showError(
+        "بيانات غير مكتملة",
+        "اختر المستثمر"
+      );
       return;
     }
 
     if (!productId) {
-      alert("اختر المنتج");
+      showError(
+        "بيانات غير مكتملة",
+        "اختر المنتج"
+      );
       return;
     }
 
     if (!productQuantity) {
-      alert("أدخل كمية المنتجات");
+      showError(
+        "بيانات غير مكتملة",
+        "أدخل كمية المنتجات"
+      );
       return;
     }
 
     if (!debtAmount) {
-      alert("أدخل مبلغ الدين");
+      showError(
+        "بيانات غير مكتملة",
+        "أدخل مبلغ الدين"
+      );
       return;
     }
 
     if (!paymentAmount) {
-      alert("أدخل مبلغ السداد");
+      showError(
+        "بيانات غير مكتملة",
+        "أدخل مبلغ السداد"
+      );
       return;
     }
 
     if (!paymentType) {
-      alert("اختر نوع السداد");
+      showError(
+        "بيانات غير مكتملة",
+        "اختر نوع السداد"
+      );
       return;
     }
 
     if (!paymentDueDate) {
-      alert("حدد تاريخ الاستحقاق");
+      showError(
+        "بيانات غير مكتملة",
+        "حدد تاريخ الاستحقاق"
+      );
       return;
     }
 
     if (!legalCity.trim()) {
-      alert("أدخل مدينة التقاضي");
+      showError(
+        "بيانات غير مكتملة",
+        "أدخل مدينة التقاضي"
+      );
       return;
     }
 
@@ -968,12 +1280,18 @@ export default function EditContractPage() {
     );
 
     if (!selectedInvestor) {
-      alert("تعذر تحديد المستثمر");
+      showError(
+        "تعذر تحديد المستثمر",
+        "أعد اختيار المستثمر ثم حاول مرة أخرى"
+      );
       return;
     }
 
     if (!selectedProduct) {
-      alert("تعذر تحديد المنتج");
+      showError(
+        "تعذر تحديد المنتج",
+        "أعد اختيار المنتج ثم حاول مرة أخرى"
+      );
       return;
     }
 
@@ -996,7 +1314,10 @@ export default function EditContractPage() {
       !Number.isFinite(newQuantity) ||
       newQuantity <= 0
     ) {
-      alert("أدخل كمية صحيحة");
+      showError(
+        "كمية غير صحيحة",
+        "أدخل كمية منتجات أكبر من صفر"
+      );
       return;
     }
 
@@ -1004,7 +1325,10 @@ export default function EditContractPage() {
       !Number.isFinite(debt) ||
       debt <= 0
     ) {
-      alert("أدخل مبلغ دين صحيح");
+      showError(
+        "مبلغ غير صحيح",
+        "أدخل مبلغ دين صحيحًا"
+      );
       return;
     }
 
@@ -1012,15 +1336,18 @@ export default function EditContractPage() {
       !Number.isFinite(payment) ||
       payment <= 0
     ) {
-      alert("أدخل مبلغ سداد صحيح");
+      showError(
+        "مبلغ غير صحيح",
+        "أدخل مبلغ سداد صحيحًا"
+      );
       return;
     }
 
     if (payment < alreadyPaid) {
-      alert(
-        "مبلغ السداد الجديد لا يمكن أن يكون أقل من المبلغ المسدد"
+      showError(
+        "تعذر تعديل مبلغ السداد",
+        "مبلغ السداد الجديد لا يمكن أن يكون أقل من المبلغ المسدد فعليًا"
       );
-
       return;
     }
 
@@ -1028,31 +1355,145 @@ export default function EditContractPage() {
       installment < 0 ||
       !Number.isFinite(installment)
     ) {
-      alert("أدخل قيمة قسط صحيحة");
+      showError(
+        "قيمة قسط غير صحيحة",
+        "أدخل قيمة قسط صحيحة"
+      );
       return;
     }
 
+    if (!skipInventoryWarning) {
+      try {
+        const snapshot = await fetchInventorySnapshot(
+          branchId,
+          investorId,
+          productId
+        );
+
+        setInventoryQuantity(snapshot.quantity);
+        setInventoryExists(snapshot.exists);
+        setInventoryError("");
+
+        const impact = calculateInventoryImpact(
+          snapshot.quantity,
+          newQuantity
+        );
+
+        if (
+          impact.selectedQuantityExceedsAvailable ||
+          impact.projectedQuantity < 0
+        ) {
+          const createsNegativeInventory =
+            impact.projectedQuantity < 0;
+
+          showDialog({
+            tone: "warning",
+            title: "الكمية المحددة أكبر من المتوفر",
+            message: createsNegativeInventory
+              ? `يمكن متابعة تعديل العقد، وسيصبح رصيد المخزون بالسالب بمقدار ${formatQuantity(
+                  impact.shortage
+                )} وحدة وفق النظام المعتمد.`
+              : "الكمية المسجلة في العقد أكبر من المتوفر الحالي، لكن فرق التعديل الفعلي لا يؤدي إلى رصيد سالب. يمكن متابعة الحفظ.",
+            details: [
+              {
+                label: "المتوفر حاليًا",
+                value: `${formatQuantity(
+                  snapshot.quantity
+                )} وحدة`,
+              },
+              {
+                label: "الكمية المحددة للعقد",
+                value: `${formatQuantity(
+                  newQuantity
+                )} وحدة`,
+              },
+              {
+                label: impact.sameInventory
+                  ? "المطلوب بسبب فرق التعديل"
+                  : "المطلوب من المخزون الجديد",
+                value: `${formatQuantity(
+                  impact.requiredFromInventory
+                )} وحدة`,
+              },
+              {
+                label: "الرصيد بعد التعديل",
+                value: `${formatQuantity(
+                  impact.projectedQuantity
+                )} وحدة`,
+                highlight: createsNegativeInventory,
+              },
+            ],
+            confirmText: "متابعة التعديل",
+            cancelText: "مراجعة الكمية",
+            action: "continue-save",
+          });
+
+          return;
+        }
+      } catch (error) {
+        console.error(
+          "Inventory verification error:",
+          error
+        );
+
+        showError(
+          "تعذر التحقق من المخزون",
+          "لم نتمكن من قراءة الرصيد الحالي. أعد المحاولة قبل حفظ التعديل"
+        );
+        return;
+      }
+    }
+
     try {
+      setDialog(null);
       setSaving(true);
 
-      const organizationSettings =
-        await getOrganizationSettings();
+      let resolvedOrganizationName =
+        organizationName.trim();
+
+      let resolvedCommercialRecord =
+        organizationCommercialRecord.trim();
+
+      if (
+        printPartyType === "organization" &&
+        !resolvedOrganizationName
+      ) {
+        const organizationSettings =
+          await getOrganizationSettings();
+
+        resolvedOrganizationName = String(
+          organizationSettings.name || ""
+        ).trim();
+
+        resolvedCommercialRecord = String(
+          organizationSettings.commercialRecord ||
+            ""
+        ).trim();
+
+        setOrganizationName(
+          resolvedOrganizationName
+        );
+
+        setOrganizationCommercialRecord(
+          resolvedCommercialRecord
+        );
+      }
 
       const printPartyName =
         printPartyType === "organization"
-          ? organizationSettings.name
+          ? resolvedOrganizationName
           : selectedInvestor.investor_name;
 
       const printPartyIdentifier =
         printPartyType === "organization"
-          ? organizationSettings.commercialRecord
+          ? resolvedCommercialRecord
           : selectedInvestor.national_id;
 
       if (!printPartyName?.trim()) {
-        alert(
-          "تعذر تحديد اسم الطرف الأول في الطباعة"
+        showError(
+          "تعذر تحديد الطرف الأول",
+          "لم يتم العثور على اسم المؤسسة المعتمد لهذا الفرع"
         );
-
         return;
       }
 
@@ -1112,11 +1553,14 @@ export default function EditContractPage() {
         );
       }
 
-      alert("تم حفظ تعديل العقد بنجاح");
-
-      router.push(
-        `/finance/${branch}/contracts/${contractId}`
-      );
+      showDialog({
+        tone: "success",
+        title: "تم حفظ التعديل",
+        message:
+          "تم تحديث بيانات العقد والمخزون بنجاح.",
+        confirmText: "العودة إلى تفاصيل العقد",
+        action: "open-contract",
+      });
     } catch (error) {
       console.error(
         "Save contract error:",
@@ -1128,10 +1572,33 @@ export default function EditContractPage() {
           ? error.message
           : "حدث خطأ أثناء تعديل العقد";
 
-      alert(getRpcErrorMessage(message));
+      showError(
+        "تعذر حفظ التعديل",
+        getRpcErrorMessage(message)
+      );
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleDialogConfirm() {
+    const action = dialog?.action || null;
+
+    if (action === "continue-save") {
+      setDialog(null);
+      void saveContract(true);
+      return;
+    }
+
+    if (action === "open-contract") {
+      setDialog(null);
+      router.push(
+        `/finance/${branch}/contracts/${contractId}`
+      );
+      return;
+    }
+
+    setDialog(null);
   }
 
   function renderHero() {
@@ -1208,6 +1675,27 @@ export default function EditContractPage() {
       </header>
     );
   }
+
+  const enteredProductQuantity = toNumber(
+    productQuantity
+  );
+
+  const hasValidEnteredQuantity =
+    Number.isFinite(enteredProductQuantity) &&
+    enteredProductQuantity > 0;
+
+  const currentInventoryImpact =
+    inventoryQuantity !== null &&
+    hasValidEnteredQuantity
+      ? calculateInventoryImpact(
+          inventoryQuantity,
+          enteredProductQuantity
+        )
+      : null;
+
+  const organizationOptionLabel =
+    organizationName.trim() ||
+    "اسم المؤسسة غير محدد";
 
   if (!authChecked) {
     return null;
@@ -1348,6 +1836,126 @@ export default function EditContractPage() {
             }
           />
 
+          {investorId && productId && (
+            <div
+              style={{
+                ...inventorySummary,
+                ...(currentInventoryImpact &&
+                (currentInventoryImpact.selectedQuantityExceedsAvailable ||
+                  currentInventoryImpact.projectedQuantity < 0)
+                  ? inventorySummaryWarning
+                  : {}),
+              }}
+            >
+              {inventoryLoading ? (
+                <div style={inventorySummaryMessage}>
+                  جاري قراءة كمية المخزون...
+                </div>
+              ) : inventoryError ? (
+                <div style={inventorySummaryError}>
+                  {inventoryError}
+                </div>
+              ) : inventoryQuantity !== null ? (
+                <>
+                  <div style={inventorySummaryHeader}>
+                    <span style={inventorySummaryTitle}>
+                      كمية المخزون الحالية
+                    </span>
+
+                    {!inventoryExists && (
+                      <span style={inventoryNewBadge}>
+                        لا يوجد سجل سابق
+                      </span>
+                    )}
+                  </div>
+
+                  <div style={inventoryStatsGrid}>
+                    <div style={inventoryStatBox}>
+                      <span style={inventoryStatLabel}>
+                        المتوفر الآن
+                      </span>
+
+                      <strong style={inventoryStatValue}>
+                        {formatQuantity(
+                          inventoryQuantity
+                        )}
+                      </strong>
+                    </div>
+
+                    <div style={inventoryStatBox}>
+                      <span style={inventoryStatLabel}>
+                        {currentInventoryImpact?.sameInventory
+                          ? "المطلوب بسبب التعديل"
+                          : "المطلوب من المخزون"}
+                      </span>
+
+                      <strong style={inventoryStatValue}>
+                        {formatQuantity(
+                          currentInventoryImpact
+                            ?.requiredFromInventory || 0
+                        )}
+                      </strong>
+                    </div>
+
+                    <div style={inventoryStatBox}>
+                      <span style={inventoryStatLabel}>
+                        الرصيد بعد التعديل
+                      </span>
+
+                      <strong
+                        style={{
+                          ...inventoryStatValue,
+                          ...(currentInventoryImpact &&
+                          currentInventoryImpact.projectedQuantity < 0
+                            ? inventoryNegativeValue
+                            : {}),
+                        }}
+                      >
+                        {currentInventoryImpact
+                          ? formatQuantity(
+                              currentInventoryImpact.projectedQuantity
+                            )
+                          : "-"}
+                      </strong>
+                    </div>
+                  </div>
+
+                  {currentInventoryImpact &&
+                    (currentInventoryImpact.selectedQuantityExceedsAvailable ||
+                      currentInventoryImpact.projectedQuantity < 0) && (
+                      <div style={inventoryInlineWarning}>
+                        {currentInventoryImpact.projectedQuantity < 0 ? (
+                          <>
+                            الكمية تتجاوز المتوفر، وسيصبح الرصيد بالسالب بمقدار {" "}
+                            <strong>
+                              {formatQuantity(
+                                currentInventoryImpact.shortage
+                              )}
+                            </strong>{" "}
+                            وحدة. سيُسمح بالحفظ بعد التنبيه.
+                          </>
+                        ) : (
+                          <>
+                            الكمية المحددة أكبر من المتوفر الحالي، لكن المطلوب فعليًا بسبب التعديل هو {" "}
+                            <strong>
+                              {formatQuantity(
+                                currentInventoryImpact.requiredFromInventory
+                              )}
+                            </strong>{" "}
+                            وحدة، ولن يصبح الرصيد بالسالب.
+                          </>
+                        )}
+                      </div>
+                    )}
+                </>
+              ) : (
+                <div style={inventorySummaryMessage}>
+                  اختر المستثمر والمنتج لعرض المخزون
+                </div>
+              )}
+            </div>
+          )}
+
           <label style={fieldLabel}>
             الطرف الأول في الطباعة
           </label>
@@ -1363,7 +1971,7 @@ export default function EditContractPage() {
             }
           >
             <option value="organization">
-              المنظمة
+              {organizationOptionLabel}
             </option>
 
             <option value="investor">
@@ -1535,7 +2143,189 @@ export default function EditContractPage() {
           </button>
         </div>
       </div>
+
+      {dialog && (
+        <ProjectDialog
+          dialog={dialog}
+          busy={saving}
+          onConfirm={handleDialogConfirm}
+          onCancel={() => setDialog(null)}
+        />
+      )}
     </main>
+  );
+}
+
+function ProjectDialog({
+  dialog,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  dialog: DialogState;
+  busy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const toneStyles = getDialogToneStyles(
+    dialog.tone
+  );
+
+  const canCancel = Boolean(
+    dialog.cancelText
+  );
+
+  return (
+    <div
+      style={dialogOverlay}
+      role="presentation"
+      onMouseDown={(event) => {
+        if (
+          event.target === event.currentTarget &&
+          canCancel &&
+          !busy
+        ) {
+          onCancel();
+        }
+      }}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="project-dialog-title"
+        style={dialogCard}
+      >
+        <div
+          style={{
+            ...dialogIcon,
+            background: toneStyles.iconBackground,
+            color: toneStyles.iconColor,
+          }}
+        >
+          {dialog.tone === "success"
+            ? "✓"
+            : dialog.tone === "warning"
+              ? "!"
+              : dialog.tone === "error"
+                ? "×"
+                : "i"}
+        </div>
+
+        <div style={dialogBody}>
+          <h2
+            id="project-dialog-title"
+            style={dialogTitle}
+          >
+            {dialog.title}
+          </h2>
+
+          <p style={dialogMessage}>
+            {dialog.message}
+          </p>
+
+          {dialog.details &&
+            dialog.details.length > 0 && (
+              <div style={dialogDetailsGrid}>
+                {dialog.details.map((detail) => (
+                  <div
+                    key={detail.label}
+                    style={{
+                      ...dialogDetailItem,
+                      ...(detail.highlight
+                        ? dialogDetailHighlight
+                        : {}),
+                    }}
+                  >
+                    <span style={dialogDetailLabel}>
+                      {detail.label}
+                    </span>
+
+                    <strong style={dialogDetailValue}>
+                      {detail.value}
+                    </strong>
+                  </div>
+                ))}
+              </div>
+            )}
+        </div>
+
+        <div style={dialogActions}>
+          {dialog.cancelText && (
+            <button
+              type="button"
+              style={dialogCancelButton}
+              onClick={onCancel}
+              disabled={busy}
+            >
+              {dialog.cancelText}
+            </button>
+          )}
+
+          <button
+            type="button"
+            style={{
+              ...dialogConfirmButton,
+              background: toneStyles.buttonBackground,
+            }}
+            onClick={onConfirm}
+            disabled={busy}
+          >
+            {busy
+              ? "جاري التنفيذ..."
+              : dialog.confirmText || "حسنًا"}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function getDialogToneStyles(
+  tone: DialogTone
+) {
+  if (tone === "success") {
+    return {
+      iconBackground: "#dcfce7",
+      iconColor: "#15803d",
+      buttonBackground:
+        "linear-gradient(135deg,#22c55e,#15803d)",
+    };
+  }
+
+  if (tone === "warning") {
+    return {
+      iconBackground: "#ffedd5",
+      iconColor: "#c2410c",
+      buttonBackground:
+        "linear-gradient(135deg,#f97316,#c2410c)",
+    };
+  }
+
+  if (tone === "error") {
+    return {
+      iconBackground: "#fee2e2",
+      iconColor: "#b91c1c",
+      buttonBackground:
+        "linear-gradient(135deg,#ef4444,#b91c1c)",
+    };
+  }
+
+  return {
+    iconBackground: "#dbeafe",
+    iconColor: "#1d4ed8",
+    buttonBackground:
+      "linear-gradient(135deg,#2563eb,#1d4ed8)",
+  };
+}
+
+function formatQuantity(
+  value: number
+) {
+  return Number(value || 0).toLocaleString(
+    "en-US",
+    {
+      maximumFractionDigits: 3,
+    }
   );
 }
 
@@ -2068,6 +2858,244 @@ const saveButton: CSSProperties = {
   border: "none",
   borderRadius: 14,
   fontSize: 17,
+  fontWeight: 900,
+  cursor: "pointer",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const inventorySummary: CSSProperties = {
+  margin: "2px 0 16px",
+  padding: 16,
+  border: "1px solid #bfdbfe",
+  borderRadius: 16,
+  background:
+    "linear-gradient(135deg,#f8fbff,#eff6ff)",
+  boxShadow:
+    "0 8px 18px rgba(37,99,235,0.06)",
+};
+
+const inventorySummaryWarning: CSSProperties = {
+  border: "1px solid #fdba74",
+  background:
+    "linear-gradient(135deg,#fffaf5,#fff7ed)",
+};
+
+const inventorySummaryHeader: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 10,
+  flexWrap: "wrap",
+  marginBottom: 12,
+};
+
+const inventorySummaryTitle: CSSProperties = {
+  color: "#0d47a1",
+  fontSize: 15,
+  fontWeight: 900,
+};
+
+const inventoryNewBadge: CSSProperties = {
+  padding: "6px 10px",
+  borderRadius: 999,
+  background: "#e2e8f0",
+  color: "#475569",
+  fontSize: 11,
+  fontWeight: 900,
+};
+
+const inventoryStatsGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns:
+    "repeat(auto-fit,minmax(150px,1fr))",
+  gap: 10,
+};
+
+const inventoryStatBox: CSSProperties = {
+  minHeight: 76,
+  padding: 12,
+  border: "1px solid rgba(148,163,184,0.24)",
+  borderRadius: 13,
+  background: "rgba(255,255,255,0.84)",
+  display: "flex",
+  flexDirection: "column",
+  justifyContent: "center",
+  gap: 7,
+};
+
+const inventoryStatLabel: CSSProperties = {
+  color: "#64748b",
+  fontSize: 12,
+  fontWeight: 800,
+};
+
+const inventoryStatValue: CSSProperties = {
+  color: "#0f172a",
+  fontSize: 21,
+  fontWeight: 900,
+};
+
+const inventoryNegativeValue: CSSProperties = {
+  color: "#b91c1c",
+};
+
+const inventoryInlineWarning: CSSProperties = {
+  marginTop: 12,
+  padding: "11px 12px",
+  borderRadius: 12,
+  background: "#ffedd5",
+  color: "#9a3412",
+  fontSize: 13,
+  fontWeight: 800,
+  lineHeight: 1.8,
+};
+
+const inventorySummaryMessage: CSSProperties = {
+  color: "#475569",
+  fontSize: 13,
+  fontWeight: 800,
+  textAlign: "center",
+};
+
+const inventorySummaryError: CSSProperties = {
+  color: "#b91c1c",
+  fontSize: 13,
+  fontWeight: 900,
+  textAlign: "center",
+};
+
+const dialogOverlay: CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  zIndex: 10000,
+  padding: 16,
+  background: "rgba(15,23,42,0.58)",
+  backdropFilter: "blur(6px)",
+  WebkitBackdropFilter: "blur(6px)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+};
+
+const dialogCard: CSSProperties = {
+  width: "100%",
+  maxWidth: 520,
+  maxHeight: "calc(100vh - 32px)",
+  overflowY: "auto",
+  padding: 22,
+  border: "1px solid rgba(255,255,255,0.88)",
+  borderRadius: 22,
+  background:
+    "linear-gradient(180deg,#ffffff,#f8fafc)",
+  boxShadow:
+    "0 28px 70px rgba(15,23,42,0.28)",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+  direction: "rtl",
+};
+
+const dialogIcon: CSSProperties = {
+  width: 54,
+  height: 54,
+  margin: "0 auto 14px",
+  borderRadius: 18,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: 29,
+  fontWeight: 900,
+};
+
+const dialogBody: CSSProperties = {
+  textAlign: "center",
+};
+
+const dialogTitle: CSSProperties = {
+  margin: 0,
+  color: "#0f172a",
+  fontSize: 21,
+  lineHeight: 1.5,
+  fontWeight: 900,
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const dialogMessage: CSSProperties = {
+  margin: "9px 0 0",
+  color: "#475569",
+  fontSize: 14,
+  lineHeight: 1.9,
+  fontWeight: 700,
+};
+
+const dialogDetailsGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns:
+    "repeat(2,minmax(0,1fr))",
+  gap: 9,
+  marginTop: 17,
+};
+
+const dialogDetailItem: CSSProperties = {
+  padding: 12,
+  border: "1px solid #e2e8f0",
+  borderRadius: 13,
+  background: "#ffffff",
+  display: "flex",
+  flexDirection: "column",
+  gap: 6,
+  textAlign: "right",
+};
+
+const dialogDetailHighlight: CSSProperties = {
+  border: "1px solid #fed7aa",
+  background: "#fff7ed",
+};
+
+const dialogDetailLabel: CSSProperties = {
+  color: "#64748b",
+  fontSize: 11,
+  fontWeight: 800,
+};
+
+const dialogDetailValue: CSSProperties = {
+  color: "#0f172a",
+  fontSize: 15,
+  fontWeight: 900,
+};
+
+const dialogActions: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns:
+    "repeat(auto-fit,minmax(150px,1fr))",
+  gap: 10,
+  marginTop: 20,
+};
+
+const dialogConfirmButton: CSSProperties = {
+  minHeight: 46,
+  padding: "11px 16px",
+  border: "none",
+  borderRadius: 13,
+  color: "#ffffff",
+  fontSize: 14,
+  fontWeight: 900,
+  cursor: "pointer",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+  boxShadow:
+    "0 8px 18px rgba(15,23,42,0.12)",
+};
+
+const dialogCancelButton: CSSProperties = {
+  minHeight: 46,
+  padding: "11px 16px",
+  border: "1px solid #cbd5e1",
+  borderRadius: 13,
+  background: "#ffffff",
+  color: "#334155",
+  fontSize: 14,
   fontWeight: 900,
   cursor: "pointer",
   fontFamily:
