@@ -2317,3 +2317,4 @@ const backButton: CSSProperties = {
     "0 5px 14px rgba(22,163,74,0.24)",
   fontFamily:
     "var(--font-almarai), sans-serif",
+};
