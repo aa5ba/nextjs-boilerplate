@@ -1009,43 +1009,34 @@ export default function PrintNewRequestPage() {
         .contract-print-area,
         .note-print-area {
           position: relative !important;
-          width: 210mm !important;
-          height: 296mm !important;
-          min-height: 296mm !important;
-          max-height: 296mm !important;
-          margin: 0 !important;
+          width: 208mm !important;
+          height: 292mm !important;
+          min-height: 292mm !important;
+          max-height: 292mm !important;
+          margin: 0 auto !important;
+          padding: 7mm 9mm !important;
           border: none !important;
           border-radius: 0 !important;
           box-shadow: none !important;
           overflow: hidden !important;
           box-sizing: border-box !important;
           page-break-inside:
-            avoid !important;
+            auto !important;
           break-inside:
-            avoid-page !important;
+            auto !important;
         }
 
         .contract-print-area {
-          padding: 8mm 10mm !important;
           page-break-before:
             auto !important;
-          break-before:
-            auto !important;
           page-break-after:
-            always !important;
-          break-after:
-            page !important;
+            auto !important;
         }
 
         .note-print-area {
-          padding: 8mm 10mm !important;
           page-break-before:
-            auto !important;
-          break-before:
-            auto !important;
+            always !important;
           page-break-after:
-            auto !important;
-          break-after:
             auto !important;
         }
 
@@ -1060,9 +1051,14 @@ export default function PrintNewRequestPage() {
         .note-guarantor-box,
         .note-legal-footer {
           page-break-inside:
-            avoid !important;
+            auto !important;
           break-inside:
-            avoid-page !important;
+            auto !important;
+        }
+
+        p {
+          orphans: 1 !important;
+          widows: 1 !important;
         }
       }
 
@@ -3390,15 +3386,15 @@ const contractHeader: CSSProperties = {
 
 const contractHeaderRight:
   CSSProperties = {
-    fontSize: 11,
-    lineHeight: 1.65,
+    fontSize: 11.5,
+    lineHeight: 1.6,
     fontWeight: 900,
   };
 
 const contractHeaderLeft:
   CSSProperties = {
-    fontSize: 11,
-    lineHeight: 1.65,
+    fontSize: 11.5,
+    lineHeight: 1.6,
     textAlign: "left",
     fontWeight: 900,
   };
@@ -3411,7 +3407,7 @@ const contractDocumentTitle:
 
     color: "#111827",
 
-    fontSize: 21,
+    fontSize: 22,
 
     fontWeight: 900,
 
@@ -3428,11 +3424,11 @@ const contractContentBox:
 
 const contractParagraph:
   CSSProperties = {
-    margin: "6px 0",
+    margin: "5px 0",
 
-    fontSize: 12.3,
+    fontSize: 13,
 
-    lineHeight: 1.58,
+    lineHeight: 1.52,
 
     textAlign: "justify",
   };
@@ -3458,9 +3454,9 @@ const contractSignatureBox:
     borderTop:
       "1.5px solid #111827",
 
-    lineHeight: 1.65,
+    lineHeight: 1.58,
 
-    fontSize: 12.2,
+    fontSize: 12.8,
   };
 
 const contractGuarantorBox:
@@ -3472,9 +3468,9 @@ const contractGuarantorBox:
     borderTop:
       "1.5px solid #111827",
 
-    lineHeight: 1.65,
+    lineHeight: 1.58,
 
-    fontSize: 12.2,
+    fontSize: 12.8,
   };
 
 const contractGuarantorGrid:
@@ -3514,8 +3510,8 @@ const noteCountryBlock:
 
     color: "#111827",
 
-    fontSize: "10.5pt",
-    lineHeight: 1.5,
+    fontSize: "10.8pt",
+    lineHeight: 1.45,
   };
 
 const noteTopMeta:
@@ -3525,8 +3521,8 @@ const noteTopMeta:
 
     textAlign: "left",
 
-    fontSize: "10.5pt",
-    lineHeight: 1.5,
+    fontSize: "10.8pt",
+    lineHeight: 1.45,
   };
 
 const noteDocumentTitle:
@@ -3537,7 +3533,7 @@ const noteDocumentTitle:
 
     color: "#0f172a",
 
-    fontSize: "25pt",
+    fontSize: "26pt",
 
     lineHeight: 1.2,
 
@@ -3571,7 +3567,7 @@ const noteDocumentAmountLabel:
   CSSProperties = {
     color: "#475569",
 
-    fontSize: "10pt",
+    fontSize: "10.3pt",
 
     fontWeight: 800,
   };
@@ -3580,7 +3576,7 @@ const noteDocumentAmountValue:
   CSSProperties = {
     color: "#1e3a8a",
 
-    fontSize: "14pt",
+    fontSize: "14.5pt",
 
     fontWeight: 900,
   };
@@ -3593,13 +3589,13 @@ const noteLegalBodySection:
 
 const noteLegalParagraph:
   CSSProperties = {
-    margin: "1.4mm 0",
+    margin: "1.2mm 0",
 
     color: "#111827",
 
-    fontSize: "10.4pt",
+    fontSize: "10.8pt",
 
-    lineHeight: 1.75,
+    lineHeight: 1.67,
 
     textAlign: "justify",
   };
@@ -3641,7 +3637,7 @@ const notePartyBoxTitle:
 
     color: "#0f2b55",
 
-    fontSize: "11pt",
+    fontSize: "11.2pt",
 
     fontWeight: 900,
   };
@@ -3658,7 +3654,7 @@ const noteDataRow:
 
     minWidth: 0,
 
-    fontSize: "9.5pt",
+    fontSize: "9.8pt",
 
     lineHeight: 1.45,
   };
@@ -3700,7 +3696,7 @@ const noteNotesBox:
 
     color: "#334155",
 
-    fontSize: "9.5pt",
+    fontSize: "9.8pt",
 
     lineHeight: 1.6,
 
@@ -3741,21 +3737,21 @@ const noteSignatureTitle:
 
     color: "#111827",
 
-    fontSize: "11pt",
+    fontSize: "11.2pt",
 
     fontWeight: 900,
   };
 
 const noteSignatureName:
   CSSProperties = {
-    fontSize: "9.5pt",
+    fontSize: "9.8pt",
 
     marginBottom: "5mm",
   };
 
 const noteSignatureLine:
   CSSProperties = {
-    fontSize: "9.5pt",
+    fontSize: "9.8pt",
 
     paddingTop: "3mm",
   };
@@ -3780,7 +3776,7 @@ const noteGuarantorTitle:
 
     color: "#0f2b55",
 
-    fontSize: "10.5pt",
+    fontSize: "10.8pt",
 
     fontWeight: 900,
   };
@@ -3810,9 +3806,9 @@ const noteLegalFooterBox:
 
     color: "#111827",
 
-    fontSize: "8.6pt",
+    fontSize: "8.9pt",
 
-    lineHeight: 1.75,
+    lineHeight: 1.65,
 
     fontWeight: 800,
 
@@ -3915,22 +3911,26 @@ const whatsappButton:
 
 const backButton:
   CSSProperties = {
-    width: "100%",
+    width: "fit-content",
 
-    minHeight: 48,
+    minWidth: 105,
 
-    padding: "13px 16px",
+    minHeight: 38,
+
+    justifySelf: "center",
+
+    padding: "8px 16px",
 
     border: "none",
 
-    borderRadius: 14,
+    borderRadius: 10,
 
     background:
       "linear-gradient(135deg,#22c55e,#15803d)",
 
     color: "#ffffff",
 
-    fontSize: 15,
+    fontSize: 13,
 
     fontWeight: 900,
 
@@ -3940,5 +3940,5 @@ const backButton:
       "var(--font-almarai), sans-serif",
 
     boxShadow:
-      "0 7px 18px rgba(22,163,74,0.20)",
+      "0 5px 14px rgba(22,163,74,0.18)",
   };
