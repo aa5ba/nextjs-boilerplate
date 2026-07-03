@@ -336,7 +336,7 @@ export default function FinanceContractsPage() {
 
     const sessionRoles =
       normalizeStringArray(
-        session.roles
+        [session.role]
       );
 
     if (
