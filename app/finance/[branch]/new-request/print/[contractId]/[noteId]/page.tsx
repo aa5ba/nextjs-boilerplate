@@ -971,9 +971,14 @@ export default function PrintNewRequestPage() {
       }
 
       @media print {
+        @page {
+          size: A4 portrait;
+          margin: 6mm;
+        }
+
         html,
         body {
-          width: 210mm !important;
+          width: auto !important;
           height: auto !important;
           min-height: 0 !important;
           margin: 0 !important;
@@ -988,7 +993,7 @@ export default function PrintNewRequestPage() {
 
         .print-page-main {
           display: block !important;
-          width: 210mm !important;
+          width: auto !important;
           height: auto !important;
           min-height: 0 !important;
           margin: 0 !important;
@@ -1009,35 +1014,47 @@ export default function PrintNewRequestPage() {
         .contract-print-area,
         .note-print-area {
           position: relative !important;
-          width: 208mm !important;
-          height: 292mm !important;
-          min-height: 292mm !important;
-          max-height: 292mm !important;
+          width: 197mm !important;
+          height: 284mm !important;
+          min-height: 284mm !important;
+          max-height: 284mm !important;
           margin: 0 auto !important;
-          padding: 7mm 9mm !important;
+          padding: 5mm 7mm !important;
           border: none !important;
           border-radius: 0 !important;
           box-shadow: none !important;
           overflow: hidden !important;
           box-sizing: border-box !important;
           page-break-inside:
-            auto !important;
+            avoid !important;
           break-inside:
-            auto !important;
+            avoid-page !important;
         }
 
         .contract-print-area {
           page-break-before:
             auto !important;
-          page-break-after:
+          break-before:
             auto !important;
+          page-break-after:
+            always !important;
+          break-after:
+            page !important;
         }
 
         .note-print-area {
           page-break-before:
-            always !important;
-          page-break-after:
             auto !important;
+          break-before:
+            auto !important;
+          page-break-after:
+            avoid !important;
+          break-after:
+            auto !important;
+        }
+
+        .note-legal-footer {
+          margin-bottom: 5mm !important;
         }
 
         .print-document-header,
@@ -1051,14 +1068,14 @@ export default function PrintNewRequestPage() {
         .note-guarantor-box,
         .note-legal-footer {
           page-break-inside:
-            auto !important;
+            avoid !important;
           break-inside:
-            auto !important;
+            avoid-page !important;
         }
 
         p {
-          orphans: 1 !important;
-          widows: 1 !important;
+          orphans: 2 !important;
+          widows: 2 !important;
         }
       }
 
@@ -3321,14 +3338,14 @@ const contractHeader: CSSProperties = {
 
 const contractHeaderRight:
   CSSProperties = {
-    fontSize: 11.5,
+    fontSize: 12.2,
     lineHeight: 1.6,
     fontWeight: 900,
   };
 
 const contractHeaderLeft:
   CSSProperties = {
-    fontSize: 11.5,
+    fontSize: 12.2,
     lineHeight: 1.6,
     textAlign: "left",
     fontWeight: 900,
@@ -3342,7 +3359,7 @@ const contractDocumentTitle:
 
     color: "#111827",
 
-    fontSize: 22,
+    fontSize: 24,
 
     fontWeight: 900,
 
@@ -3361,9 +3378,9 @@ const contractParagraph:
   CSSProperties = {
     margin: "5px 0",
 
-    fontSize: 13,
+    fontSize: 13.7,
 
-    lineHeight: 1.52,
+    lineHeight: 1.5,
 
     textAlign: "justify",
   };
@@ -3391,7 +3408,7 @@ const contractSignatureBox:
 
     lineHeight: 1.58,
 
-    fontSize: 12.8,
+    fontSize: 13.3,
   };
 
 const contractGuarantorBox:
@@ -3405,7 +3422,7 @@ const contractGuarantorBox:
 
     lineHeight: 1.58,
 
-    fontSize: 12.8,
+    fontSize: 13.3,
   };
 
 const contractGuarantorGrid:
@@ -3445,8 +3462,8 @@ const noteCountryBlock:
 
     color: "#111827",
 
-    fontSize: "10.8pt",
-    lineHeight: 1.45,
+    fontSize: "11.3pt",
+    lineHeight: 1.42,
   };
 
 const noteTopMeta:
@@ -3456,19 +3473,19 @@ const noteTopMeta:
 
     textAlign: "left",
 
-    fontSize: "10.8pt",
-    lineHeight: 1.45,
+    fontSize: "11.3pt",
+    lineHeight: 1.42,
   };
 
 const noteDocumentTitle:
   CSSProperties = {
-    margin: "5mm 0 3mm",
+    margin: "4mm 0 2.5mm",
 
     textAlign: "center",
 
     color: "#0f172a",
 
-    fontSize: "26pt",
+    fontSize: "28pt",
 
     lineHeight: 1.2,
 
@@ -3488,7 +3505,7 @@ const noteDocumentAmountBox:
 
     gap: "4mm",
 
-    padding: "3mm 5mm",
+    padding: "2.5mm 5mm",
 
     border:
       "0.4mm solid #1e3a8a",
@@ -3502,7 +3519,7 @@ const noteDocumentAmountLabel:
   CSSProperties = {
     color: "#475569",
 
-    fontSize: "10.3pt",
+    fontSize: "10.8pt",
 
     fontWeight: 800,
   };
@@ -3511,26 +3528,26 @@ const noteDocumentAmountValue:
   CSSProperties = {
     color: "#1e3a8a",
 
-    fontSize: "14.5pt",
+    fontSize: "15.2pt",
 
     fontWeight: 900,
   };
 
 const noteLegalBodySection:
   CSSProperties = {
-    marginTop: "4mm",
+    marginTop: "3.2mm",
     flex: "0 0 auto",
   };
 
 const noteLegalParagraph:
   CSSProperties = {
-    margin: "1.2mm 0",
+    margin: "1mm 0",
 
     color: "#111827",
 
-    fontSize: "10.8pt",
+    fontSize: "11.6pt",
 
-    lineHeight: 1.67,
+    lineHeight: 1.58,
 
     textAlign: "justify",
   };
@@ -3542,9 +3559,9 @@ const notePartyGrid:
     gridTemplateColumns:
       "repeat(2,minmax(0,1fr))",
 
-    gap: "4mm",
+    gap: "3.5mm",
 
-    marginTop: "3.5mm",
+    marginTop: "2.8mm",
 
     flex: "0 0 auto",
   };
@@ -3556,7 +3573,7 @@ const notePartyBox:
 
     borderRadius: "2.5mm",
 
-    padding: "3mm 4mm",
+    padding: "2.5mm 3.5mm",
 
     minWidth: 0,
   };
@@ -3572,7 +3589,7 @@ const notePartyBoxTitle:
 
     color: "#0f2b55",
 
-    fontSize: "11.2pt",
+    fontSize: "11.6pt",
 
     fontWeight: 900,
   };
@@ -3589,7 +3606,7 @@ const noteDataRow:
 
     minWidth: 0,
 
-    fontSize: "9.8pt",
+    fontSize: "10.2pt",
 
     lineHeight: 1.45,
   };
@@ -3618,9 +3635,9 @@ const noteNotesBox:
 
     gap: "2mm",
 
-    marginTop: "3mm",
+    marginTop: "2.5mm",
 
-    padding: "2.5mm 3mm",
+    padding: "2.2mm 3mm",
 
     border:
       "0.3mm solid #dbeafe",
@@ -3631,7 +3648,7 @@ const noteNotesBox:
 
     color: "#334155",
 
-    fontSize: "9.8pt",
+    fontSize: "10.2pt",
 
     lineHeight: 1.6,
 
@@ -3649,16 +3666,16 @@ const noteSignatureGrid:
   CSSProperties = {
     display: "grid",
 
-    gap: "8mm",
+    gap: "6mm",
 
-    marginTop: "5mm",
+    marginTop: "3.5mm",
 
     flex: "0 0 auto",
   };
 
 const noteSignatureBox:
   CSSProperties = {
-    minHeight: "24mm",
+    minHeight: "19mm",
 
     borderTop:
       "0.4mm solid #111827",
@@ -3672,28 +3689,28 @@ const noteSignatureTitle:
 
     color: "#111827",
 
-    fontSize: "11.2pt",
+    fontSize: "11.6pt",
 
     fontWeight: 900,
   };
 
 const noteSignatureName:
   CSSProperties = {
-    fontSize: "9.8pt",
+    fontSize: "10.2pt",
 
-    marginBottom: "5mm",
+    marginBottom: "3mm",
   };
 
 const noteSignatureLine:
   CSSProperties = {
-    fontSize: "9.8pt",
+    fontSize: "10.2pt",
 
-    paddingTop: "3mm",
+    paddingTop: "1.5mm",
   };
 
 const noteGuarantorDetailsBox:
   CSSProperties = {
-    marginTop: "3mm",
+    marginTop: "2.5mm",
 
     border:
       "0.3mm solid #cbd5e1",
@@ -3711,7 +3728,7 @@ const noteGuarantorTitle:
 
     color: "#0f2b55",
 
-    fontSize: "10.8pt",
+    fontSize: "11.2pt",
 
     fontWeight: 900,
   };
@@ -3730,6 +3747,8 @@ const noteLegalFooterBox:
   CSSProperties = {
     marginTop: "auto",
 
+    marginBottom: "6mm",
+
     padding: "3mm 4mm",
 
     border:
@@ -3741,9 +3760,9 @@ const noteLegalFooterBox:
 
     color: "#111827",
 
-    fontSize: "8.9pt",
+    fontSize: "9.3pt",
 
-    lineHeight: 1.65,
+    lineHeight: 1.58,
 
     fontWeight: 800,
 
