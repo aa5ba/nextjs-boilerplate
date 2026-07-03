@@ -63,7 +63,7 @@ type ContractData = {
   legal_city?: string | null;
   notes?: string | null;
 
-  finance_customers?:
+  customer?:
     | CustomerRelation
     | CustomerRelation[]
     | null;
@@ -629,7 +629,7 @@ export default function EditContractPage() {
     currentContract: ContractData | null
   ) {
     const relation =
-      currentContract?.finance_customers;
+      currentContract?.customer;
 
     if (Array.isArray(relation)) {
       return relation[0] || null;
@@ -707,7 +707,7 @@ export default function EditContractPage() {
               payment_due_date,
               legal_city,
               notes,
-              finance_customers (
+              customer:finance_customers!finance_contracts_customer_id_fkey(
                 full_name
               )
             `
