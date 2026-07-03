@@ -974,6 +974,8 @@ export default function PrintNewRequestPage() {
         html,
         body {
           width: 210mm !important;
+          height: auto !important;
+          min-height: 0 !important;
           margin: 0 !important;
           padding: 0 !important;
           background: #ffffff !important;
@@ -985,13 +987,16 @@ export default function PrintNewRequestPage() {
         }
 
         .print-page-main {
-          width: 100% !important;
-          min-height: auto !important;
+          display: block !important;
+          width: 210mm !important;
+          height: auto !important;
+          min-height: 0 !important;
           margin: 0 !important;
           padding: 0 !important;
           background: #ffffff !important;
           background-image:
             none !important;
+          overflow: visible !important;
         }
 
         .print-action-buttons,
@@ -1003,10 +1008,11 @@ export default function PrintNewRequestPage() {
 
         .contract-print-area,
         .note-print-area {
+          position: relative !important;
           width: 210mm !important;
-          height: 297mm !important;
-          min-height: 297mm !important;
-          max-height: 297mm !important;
+          height: 296mm !important;
+          min-height: 296mm !important;
+          max-height: 296mm !important;
           margin: 0 !important;
           border: none !important;
           border-radius: 0 !important;
@@ -1021,6 +1027,10 @@ export default function PrintNewRequestPage() {
 
         .contract-print-area {
           padding: 8mm 10mm !important;
+          page-break-before:
+            auto !important;
+          break-before:
+            auto !important;
           page-break-after:
             always !important;
           break-after:
@@ -1032,6 +1042,10 @@ export default function PrintNewRequestPage() {
           page-break-before:
             auto !important;
           break-before:
+            auto !important;
+          page-break-after:
+            auto !important;
+          break-after:
             auto !important;
         }
 
@@ -1431,11 +1445,6 @@ export default function PrintNewRequestPage() {
       `مرفق لكم العقد رقم ${contractNumber} والسند لأمر رقم ${noteNumber} بصيغة PDF.`,
     ].join("\n");
 
-    const whatsappUrl =
-      `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(
-        whatsappMessage
-      )}`;
-
     setSharingWhatsapp(true);
     setActionFeedback(null);
 
@@ -1470,52 +1479,47 @@ export default function PrintNewRequestPage() {
         }
       }
 
-      if (canSharePdf) {
-        try {
-          await navigator.share({
-            title:
-              "العقد والسند لأمر",
-            text: whatsappMessage,
-            files: [pdfFile],
-          });
-        } catch (shareError) {
-          if (
-            isShareCancelled(
-              shareError
-            )
-          ) {
-            setActionFeedback({
-              type: "info",
-              message:
-                "تم إلغاء مشاركة ملف العقد والسند.",
-            });
-
-            return;
-          }
-
-          throw shareError;
-        }
-
-        openExternalUrl(
-          whatsappUrl
-        );
+      if (!canSharePdf) {
+        downloadBlob(blob, fileName);
 
         setActionFeedback({
-          type: "success",
+          type: "info",
           message:
-            `تم تجهيز ومشاركة ملف العقد والسند، وفتح محادثة العميل على الرقم +${whatsappPhone}.`,
+            `هذا المتصفح لا يدعم مشاركة ملف PDF مباشرة. تم حفظ الملف على جهازك؛ افتح واتساب وأرسله للعميل على الرقم +${whatsappPhone}.`,
         });
 
         return;
       }
 
-      downloadBlob(blob, fileName);
-      openExternalUrl(whatsappUrl);
+      try {
+        await navigator.share({
+          title:
+            "العقد والسند لأمر",
+          text: whatsappMessage,
+          files: [pdfFile],
+        });
+      } catch (shareError) {
+        if (
+          isShareCancelled(
+            shareError
+          )
+        ) {
+          setActionFeedback({
+            type: "info",
+            message:
+              "تم إلغاء مشاركة ملف العقد والسند.",
+          });
+
+          return;
+        }
+
+        throw shareError;
+      }
 
       setActionFeedback({
-        type: "info",
+        type: "success",
         message:
-          `جهازك لا يدعم إرفاق PDF مباشرة من المتصفح؛ تم حفظ الملف وفتح محادثة العميل على الرقم +${whatsappPhone}. أرفق الملف المحفوظ داخل المحادثة.`,
+          `تمت مشاركة ملف العقد والسند. تأكد أن المستلم هو العميل على الرقم +${whatsappPhone}.`,
       });
     } catch (error) {
       console.error(
@@ -2560,7 +2564,7 @@ export default function PrintNewRequestPage() {
           >
             {sharingWhatsapp
               ? "جاري تجهيز واتساب..."
-              : "إرسال واتساب"}
+              : "مشاركة عبر واتساب"}
           </button>
         </div>
 
@@ -2844,23 +2848,6 @@ function downloadBlob(
   window.setTimeout(() => {
     URL.revokeObjectURL(objectUrl);
   }, 1500);
-}
-
-function openExternalUrl(
-  url: string
-) {
-  const link =
-    document.createElement("a");
-
-  link.href = url;
-  link.target = "_self";
-  link.rel =
-    "noopener noreferrer";
-  link.style.display = "none";
-
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
 }
 
 function isShareCancelled(
