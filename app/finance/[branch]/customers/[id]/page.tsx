@@ -414,6 +414,12 @@ export default function FinanceCustomerProfilePage() {
 
       if (!customerData) {
         resetPageData();
+
+        router.replace(
+          `/finance/${branch}/customers`
+        );
+
+        router.refresh();
         return;
       }
 
@@ -825,13 +831,9 @@ export default function FinanceCustomerProfilePage() {
       return;
     }
 
-    const customerName =
-      customer.full_name?.trim() ||
-      "هذا العميل";
-
     const confirmed =
       window.confirm(
-        `هل أنت متأكد من نقل ملف العميل "${customerName}" إلى المحذوفات؟\n\nسيتم إخفاء العميل وعقوده وسنداته المرتبطة من جميع الصفحات التشغيلية، مع الاحتفاظ بها في الأرشيف لإمكانية الاسترجاع لاحقًا.`
+        "هل انت متأكد من حذف العميل ؟ في حال الحذف سيتم حذف العقود والسندات ان وجدت"
       );
 
     if (!confirmed) {
@@ -866,12 +868,17 @@ export default function FinanceCustomerProfilePage() {
       }
 
       alert(
-        "تم نقل العميل وعقوده وسنداته إلى المحذوفات بنجاح"
+        "تم حذف العميل والعقود والسندات المرتبطة بنجاح"
       );
 
-      router.push(
+      resetPageData();
+      setLoading(true);
+
+      router.replace(
         `/finance/${branch}/customers`
       );
+
+      router.refresh();
     } catch (error) {
       const message =
         error instanceof Error
@@ -926,7 +933,7 @@ export default function FinanceCustomerProfilePage() {
         "CUSTOMER_HAS_CONTRACTS"
       )
     ) {
-      return "لا يمكن حذف العميل لوجود عقود مرتبطة به";
+      return "تعذر حذف العميل والعقود المرتبطة به";
     }
 
     if (
@@ -934,7 +941,7 @@ export default function FinanceCustomerProfilePage() {
         "CUSTOMER_HAS_NOTES"
       )
     ) {
-      return "لا يمكن حذف العميل لوجود سندات مرتبطة به";
+      return "تعذر حذف العميل والسندات المرتبطة به";
     }
 
     if (
@@ -969,12 +976,12 @@ export default function FinanceCustomerProfilePage() {
         "CUSTOMER_DELETE_FAILED"
       )
     ) {
-      return "تعذر نقل العميل إلى المحذوفات";
+      return "تعذر حذف العميل والعقود والسندات المرتبطة";
     }
 
     return (
       combinedMessage ||
-      "تعذر نقل العميل إلى المحذوفات"
+      "تعذر حذف العميل والعقود والسندات المرتبطة"
     );
   }
 
