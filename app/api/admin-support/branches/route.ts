@@ -20,7 +20,7 @@ const MANAGER_USERNAME_PATTERN =
   /^[a-z0-9_]{3,30}$/;
 
 const MANAGER_PASSWORD_PATTERN =
-  /^\d{4,8}$/;
+  /^[\p{L}\p{N}]{4,8}$/u;
 
 type CreateBranchBody = {
   branch_name?: unknown;
@@ -302,11 +302,17 @@ function mapCreateBranchError(
     ) ||
     errorText.includes(
       "PASSWORD_MUST_BE_4_TO_8_NO_SPACES"
+    ) ||
+    errorText.includes(
+      "MANAGER_PASSWORD_MUST_BE_4_TO_8_ALPHANUMERIC"
+    ) ||
+    errorText.includes(
+      "PASSWORD_MUST_BE_4_TO_8_ALPHANUMERIC"
     )
   ) {
     return {
       message:
-        "كلمة مرور مدير الفرع يجب أن تكون من 4 إلى 8 أرقام",
+        "كلمة مرور مدير الفرع يجب أن تكون من 4 إلى 8 أحرف أو أرقام، بدون مسافات أو رموز",
       status: 400,
     };
   }
@@ -570,9 +576,10 @@ export async function POST(
       );
 
     const managerPassword =
-      cleanNumericText(
-        body.manager_password,
-        8
+      normalizeDigits(
+        cleanText(
+          body.manager_password
+        )
       );
 
     if (
@@ -672,7 +679,7 @@ export async function POST(
       )
     ) {
       return createErrorResponse(
-        "كلمة مرور مدير الفرع يجب أن تكون من 4 إلى 8 أرقام",
+        "كلمة مرور مدير الفرع يجب أن تكون من 4 إلى 8 أحرف أو أرقام، بدون مسافات أو رموز",
         400
       );
     }
