@@ -247,8 +247,18 @@ export default function NewRequestPage() {
   ] = useState("");
 
   const [
-    guarantorBirthHijri,
-    setGuarantorBirthHijri,
+    guarantorBirthDay,
+    setGuarantorBirthDay,
+  ] = useState("");
+
+  const [
+    guarantorBirthMonth,
+    setGuarantorBirthMonth,
+  ] = useState("");
+
+  const [
+    guarantorBirthYear,
+    setGuarantorBirthYear,
   ] = useState("");
 
   const [legalCity, setLegalCity] =
@@ -1093,7 +1103,9 @@ export default function NewRequestPage() {
     setGuarantorName("");
     setGuarantorNationalId("");
     setGuarantorPhone("");
-    setGuarantorBirthHijri("");
+    setGuarantorBirthDay("");
+    setGuarantorBirthMonth("");
+    setGuarantorBirthYear("");
   }
 
   function validateRequest() {
@@ -1255,9 +1267,21 @@ export default function NewRequestPage() {
       }
 
       if (
-        !guarantorBirthHijri.trim()
+        !guarantorBirthDay
       ) {
-        return "يرجى إدخال تاريخ ميلاد الكفيل";
+        return "يرجى إدخال يوم ميلاد الكفيل";
+      }
+
+      if (
+        !guarantorBirthMonth
+      ) {
+        return "يرجى إدخال شهر ميلاد الكفيل";
+      }
+
+      if (
+        !guarantorBirthYear
+      ) {
+        return "يرجى إدخال سنة ميلاد الكفيل";
       }
     }
 
@@ -1569,6 +1593,17 @@ export default function NewRequestPage() {
           "0"
         )}/${birthYear}`;
 
+      const guarantorBirthHijri =
+        hasGuarantor
+          ? `${guarantorBirthDay.padStart(
+              2,
+              "0"
+            )}/${guarantorBirthMonth.padStart(
+              2,
+              "0"
+            )}/${guarantorBirthYear}`
+          : "";
+
       const rpcPayload = {
         p_branch_id: branchId,
 
@@ -1672,9 +1707,7 @@ export default function NewRequestPage() {
             : "",
 
         p_guarantor_birth_hijri:
-          hasGuarantor
-            ? guarantorBirthHijri.trim()
-            : "",
+          guarantorBirthHijri,
       };
 
       const created =
@@ -2356,23 +2389,69 @@ export default function NewRequestPage() {
                 />
               </Field>
 
-              <Field label="تاريخ ميلاد الكفيل">
-                <input
-                  style={input}
-                  value={
-                    guarantorBirthHijri
-                  }
-                  onChange={(event) =>
-                    setGuarantorBirthHijri(
-                      normalizeHijriDate(
-                        event.target.value
+              <div style={dateFieldTitle}>
+                تاريخ ميلاد الكفيل بالهجري
+              </div>
+
+              <div
+                style={getDateGridStyle(
+                  isMobile
+                )}
+              >
+                <Field label="اليوم">
+                  <input
+                    style={input}
+                    inputMode="numeric"
+                    maxLength={2}
+                    value={
+                      guarantorBirthDay
+                    }
+                    onChange={(event) =>
+                      setGuarantorBirthDay(
+                        normalizeNumber(
+                          event.target.value
+                        ).slice(0, 2)
                       )
-                    )
-                  }
-                  inputMode="numeric"
-                  placeholder="مثال: 1446/12/15"
-                />
-              </Field>
+                    }
+                  />
+                </Field>
+
+                <Field label="الشهر">
+                  <input
+                    style={input}
+                    inputMode="numeric"
+                    maxLength={2}
+                    value={
+                      guarantorBirthMonth
+                    }
+                    onChange={(event) =>
+                      setGuarantorBirthMonth(
+                        normalizeNumber(
+                          event.target.value
+                        ).slice(0, 2)
+                      )
+                    }
+                  />
+                </Field>
+
+                <Field label="السنة">
+                  <input
+                    style={input}
+                    inputMode="numeric"
+                    maxLength={4}
+                    value={
+                      guarantorBirthYear
+                    }
+                    onChange={(event) =>
+                      setGuarantorBirthYear(
+                        normalizeNumber(
+                          event.target.value
+                        ).slice(0, 4)
+                      )
+                    }
+                  />
+                </Field>
+              </div>
             </>
           )}
 
@@ -3190,39 +3269,6 @@ function formatDisplayDate(
       day: "numeric",
     }
   ).format(date);
-}
-
-function normalizeHijriDate(
-  value: string
-) {
-  const normalized =
-    normalizeNumber(value).slice(
-      0,
-      8
-    );
-
-  if (
-    normalized.length <= 4
-  ) {
-    return normalized;
-  }
-
-  if (
-    normalized.length <= 6
-  ) {
-    return `${normalized.slice(
-      0,
-      4
-    )}/${normalized.slice(4)}`;
-  }
-
-  return `${normalized.slice(
-    0,
-    4
-  )}/${normalized.slice(
-    4,
-    6
-  )}/${normalized.slice(6)}`;
 }
 
 function getErrorMessage(
