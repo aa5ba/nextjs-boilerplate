@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { CSSProperties, ReactNode } from "react"
+import { createPortal } from "react-dom"
 import { useParams, useRouter } from "next/navigation"
 import html2canvas from "html2canvas"
 import jsPDF from "jspdf"
@@ -26,6 +27,83 @@ type StoredFinanceUser = {
   username?: string | null
   name?: string | null
 }
+
+type SelectOption = {
+  value: string
+  label: string
+  disabled?: boolean
+  description?: string
+}
+
+type DropdownRect = {
+  top: number
+  left: number
+  width: number
+  openUpward: boolean
+}
+
+const CALCULATION_TYPE_OPTIONS: SelectOption[] = [
+  {
+    value: "personal",
+    label: "تمويل شخصي",
+    description: "احتساب مبلغ التمويل والقسط والربح والرسوم والصافي",
+  },
+  {
+    value: "real",
+    label: "تمويل عقاري",
+    description: "احتساب التمويل العقاري والدفعة المقدمة وقيمة العقار",
+  },
+  {
+    value: "pos",
+    label: "تمويل نقاط بيع — قريبًا",
+    description: "سيتم توفير هذا النوع في تحديث لاحق",
+    disabled: true,
+  },
+]
+
+const SECTOR_OPTIONS: SelectOption[] = [
+  { value: "civil", label: "حكومي مدني" },
+  { value: "private", label: "قطاع خاص" },
+  { value: "military", label: "عسكري" },
+  { value: "retired", label: "متقاعد" },
+]
+
+const RANK_OPTIONS: SelectOption[] = [
+  { value: "soldier", label: "جندي / جندي أول" },
+  { value: "corporal", label: "عريف" },
+  { value: "agent", label: "وكيل رقيب" },
+  { value: "sergeant", label: "رقيب / رقيب أول" },
+  { value: "chief", label: "رئيس رقباء" },
+]
+
+const REAL_ESTATE_TYPE_OPTIONS: SelectOption[] = [
+  { value: "normal", label: "تمويل عقاري اعتيادي" },
+  { value: "supported", label: "تمويل عقاري مدعوم" },
+]
+
+const PRODUCT_OPTIONS: SelectOption[] = [
+  { value: "ready", label: "شراء وحدة جاهزة" },
+  { value: "selfBuild", label: "بناء ذاتي" },
+  { value: "land", label: "شراء أرض" },
+  { value: "mortgage", label: "رهن عقاري" },
+]
+
+const SUPPORT_TYPE_OPTIONS: SelectOption[] = [
+  { value: "none", label: "بدون دعم" },
+  { value: "monthly", label: "دعم شهري" },
+  { value: "package", label: "باقة الدفعة المقدمة" },
+]
+
+const BANK_OPTIONS: SelectOption[] = [
+  { value: "", label: "بدون تحديد" },
+  { value: "البنك الأهلي السعودي", label: "البنك الأهلي السعودي" },
+  { value: "مصرف الراجحي", label: "مصرف الراجحي" },
+  { value: "بنك الرياض", label: "بنك الرياض" },
+  { value: "مصرف الإنماء", label: "مصرف الإنماء" },
+  { value: "بنك البلاد", label: "بنك البلاد" },
+  { value: "البنك السعودي الفرنسي", label: "البنك السعودي الفرنسي" },
+  { value: "ساب", label: "ساب" },
+]
 
 function money(n: number) {
   return Number(n || 0).toLocaleString("en-US", {
@@ -52,13 +130,17 @@ function normalizeDecimalInput(value: string) {
 
   const [integerPart = "", ...decimalParts] = normalized.split(".")
 
-  if (decimalParts.length === 0) return integerPart
+  if (decimalParts.length === 0) {
+    return integerPart
+  }
 
   return `${integerPart}.${decimalParts.join("")}`
 }
 
 function parseArabicNumber(value: string | number | null | undefined) {
-  if (value === null || value === undefined || value === "") return 0
+  if (value === null || value === undefined || value === "") {
+    return 0
+  }
 
   const converted = normalizeDigits(String(value))
     .replace(/٫/g, ".")
@@ -69,9 +151,18 @@ function parseArabicNumber(value: string | number | null | undefined) {
 }
 
 function getInitialScreen(): ScreenType {
-  if (typeof window === "undefined") return "desktop"
-  if (window.innerWidth < 640) return "mobile"
-  if (window.innerWidth < 1024) return "tablet"
+  if (typeof window === "undefined") {
+    return "desktop"
+  }
+
+  if (window.innerWidth < 640) {
+    return "mobile"
+  }
+
+  if (window.innerWidth < 1024) {
+    return "tablet"
+  }
+
   return "desktop"
 }
 
@@ -110,6 +201,7 @@ export default function EhtisabPage() {
   const [bank, setBank] = useState("")
 
   const [result, setResult] = useState<EhtisabResult | null>(null)
+  const [sharing, setSharing] = useState(false)
 
   useEffect(() => {
     setScreen(getInitialScreen())
@@ -222,6 +314,13 @@ export default function EhtisabPage() {
     })
 
     setResult(res)
+
+    window.setTimeout(() => {
+      document.getElementById("ehtisab-report")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      })
+    }, 80)
   }
 
   function changePersonalMonths(value: string) {
@@ -251,54 +350,73 @@ export default function EhtisabPage() {
   }
 
   async function shareResultPDF() {
-    const element = document.getElementById("ehtisab-report")
-    if (!element) return
-
-    const canvas = await html2canvas(element, {
-      scale: 2,
-      backgroundColor: "#ffffff",
-    })
-
-    const imgData = canvas.toDataURL("image/png")
-    const pdf = new jsPDF("p", "mm", "a4")
-    const pageWidth = pdf.internal.pageSize.getWidth()
-    const pageHeight = pdf.internal.pageSize.getHeight()
-    const imgWidth = pageWidth
-    const imgHeight = (canvas.height * imgWidth) / canvas.width
-
-    let heightLeft = imgHeight
-    let position = 0
-
-    pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight)
-    heightLeft -= pageHeight
-
-    while (heightLeft > 0) {
-      position = heightLeft - imgHeight
-      pdf.addPage()
-      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight)
-      heightLeft -= pageHeight
+    if (sharing) {
+      return
     }
 
-    const pdfBlob = pdf.output("blob")
-    const file = new File([pdfBlob], "ehtisab-result.pdf", {
-      type: "application/pdf",
-    })
+    const element = document.getElementById("ehtisab-report")
+    if (!element) {
+      return
+    }
 
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({
-        title: "نتيجة احتساب التمويل",
-        text: "نتيجة احتساب التمويل",
-        files: [file],
+    try {
+      setSharing(true)
+
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        backgroundColor: "#ffffff",
+        useCORS: true,
       })
-    } else {
-      pdf.save("ehtisab-result.pdf")
+
+      const imgData = canvas.toDataURL("image/png")
+      const pdf = new jsPDF("p", "mm", "a4")
+      const pageWidth = pdf.internal.pageSize.getWidth()
+      const pageHeight = pdf.internal.pageSize.getHeight()
+      const imgWidth = pageWidth
+      const imgHeight = (canvas.height * imgWidth) / canvas.width
+
+      let heightLeft = imgHeight
+      let position = 0
+
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight)
+      heightLeft -= pageHeight
+
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight
+        pdf.addPage()
+        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight)
+        heightLeft -= pageHeight
+      }
+
+      const pdfBlob = pdf.output("blob")
+      const file = new File([pdfBlob], "ehtisab-result.pdf", {
+        type: "application/pdf",
+      })
+
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          title: "نتيجة احتساب التمويل",
+          text: "نتيجة احتساب التمويل",
+          files: [file],
+        })
+      } else {
+        pdf.save("ehtisab-result.pdf")
+      }
+    } catch (error) {
+      console.error("Share calculation result failed:", error)
+      alert("تعذرت مشاركة النتيجة حاليًا")
+    } finally {
+      setSharing(false)
     }
   }
 
   if (!authChecked) {
     return (
       <main dir="rtl" style={getPageStyle(screen)}>
-        <div style={loadingCardStyle}>جارٍ التحقق من تسجيل الدخول...</div>
+        <div style={loadingCardStyle}>
+          <span style={loadingSpinnerStyle} />
+          <span>جارٍ التحقق من تسجيل الدخول...</span>
+        </div>
       </main>
     )
   }
@@ -316,13 +434,18 @@ export default function EhtisabPage() {
             <div style={getHeroUserCardStyle(screen)}>
               <div style={employeeTopRowStyle}>
                 <div style={employeeIconStyle}>👤</div>
+
                 <div style={{ minWidth: 0 }}>
                   <div style={employeeLabelStyle}>الموظف</div>
                   <div style={getEmployeeNameStyle(screen)}>{employeeName}</div>
                 </div>
               </div>
 
-              <button type="button" onClick={handleLogout} style={logoutButtonStyle}>
+              <button
+                type="button"
+                onClick={handleLogout}
+                style={logoutButtonStyle}
+              >
                 تسجيل الخروج
               </button>
             </div>
@@ -337,155 +460,132 @@ export default function EhtisabPage() {
                 onClick={() => router.push(`/finance/${branch}`)}
                 style={mainWorkstationButtonStyle}
               >
-                محطة العمل الرئيسية
+                <span>🏠</span>
+                <span>محطة العمل الرئيسية</span>
               </button>
             </div>
           </div>
         </header>
 
         <section style={getCardStyle(screen)}>
-          <Field label="نوع الاحتساب">
-            <select
-              style={inputStyle}
+          <SectionHeading
+            icon="🧮"
+            title="ابدأ الاحتساب"
+            badge="اختر نوع التمويل"
+          />
+
+          <Field label="نوع الاحتساب" fullWidth>
+            <CustomSelect
               value={calculationType}
-              onChange={event =>
-                handleCalculationTypeChange(
-                  event.target.value as CalculationType
-                )
+              placeholder="اختر نوع الاحتساب"
+              options={CALCULATION_TYPE_OPTIONS}
+              onChange={value =>
+                handleCalculationTypeChange(value as CalculationType)
               }
-            >
-              <option value="">اختر نوع الاحتساب</option>
-              <option value="personal">تمويل شخصي</option>
-              <option value="real">تمويل عقاري</option>
-              <option value="pos" disabled>
-                تمويل نقاط بيع (قريبًا)
-              </option>
-            </select>
+            />
           </Field>
         </section>
 
         {calculationType && (
           <section style={getCardStyle(screen)}>
+            <SectionHeading
+              icon={calculationType === "personal" ? "💳" : "🏠"}
+              title={
+                calculationType === "personal"
+                  ? "بيانات التمويل الشخصي"
+                  : "بيانات التمويل العقاري"
+              }
+              badge="الحقول المطلوبة"
+            />
+
             <div style={getFieldsGridStyle(screen)}>
               <Field label="قطاع العمل">
-                <select
-                  style={inputStyle}
+                <CustomSelect
                   value={sector}
-                  onChange={event => setSector(event.target.value as Sector)}
-                >
-                  <option value="civil">حكومي مدني</option>
-                  <option value="private">قطاع خاص</option>
-                  <option value="military">عسكري</option>
-                  <option value="retired">متقاعد</option>
-                </select>
+                  placeholder="اختر قطاع العمل"
+                  options={SECTOR_OPTIONS}
+                  onChange={value => setSector(value as Sector)}
+                />
               </Field>
 
               {sector === "military" && (
                 <Field label="الرتبة العسكرية">
-                  <select
-                    style={inputStyle}
+                  <CustomSelect
                     value={rank}
-                    onChange={event => setRank(event.target.value as Rank)}
-                  >
-                    <option value="soldier">جندي / جندي أول</option>
-                    <option value="corporal">عريف</option>
-                    <option value="agent">وكيل رقيب</option>
-                    <option value="sergeant">رقيب / رقيب أول</option>
-                    <option value="chief">رئيس رقباء</option>
-                  </select>
+                    placeholder="اختر الرتبة العسكرية"
+                    options={RANK_OPTIONS}
+                    onChange={value => setRank(value as Rank)}
+                  />
                 </Field>
               )}
 
               <Field label="تاريخ الميلاد بالهجري" fullWidth>
-                <div style={birthDateGridStyle}>
-                  <input
-                    style={inputStyle}
-                    inputMode="numeric"
+                <div style={getBirthDateGridStyle(screen)}>
+                  <DatePartInput
+                    label="السنة"
                     maxLength={4}
-                    placeholder="السنة"
                     value={birthY}
-                    onChange={event =>
-                      setBirthY(normalizeIntegerInput(event.target.value))
-                    }
+                    onChange={setBirthY}
                   />
-                  <input
-                    style={inputStyle}
-                    inputMode="numeric"
+
+                  <DatePartInput
+                    label="الشهر"
                     maxLength={2}
-                    placeholder="الشهر"
                     value={birthM}
-                    onChange={event =>
-                      setBirthM(normalizeIntegerInput(event.target.value))
-                    }
+                    onChange={setBirthM}
                   />
-                  <input
-                    style={inputStyle}
-                    inputMode="numeric"
+
+                  <DatePartInput
+                    label="اليوم"
                     maxLength={2}
-                    placeholder="اليوم"
                     value={birthD}
-                    onChange={event =>
-                      setBirthD(normalizeIntegerInput(event.target.value))
-                    }
+                    onChange={setBirthD}
                   />
                 </div>
               </Field>
 
               <Field label="صافي الراتب">
-                <input
-                  style={inputStyle}
-                  type="text"
-                  inputMode="decimal"
-                  placeholder="0"
+                <NumberInput
                   value={salary}
-                  onChange={event =>
-                    setSalary(normalizeDecimalInput(event.target.value))
-                  }
+                  placeholder="أدخل صافي الراتب"
+                  decimal
+                  suffix="ر.س"
+                  onChange={setSalary}
                 />
               </Field>
 
               <Field label="الاستقطاعات الشهرية في سمة">
-                <input
-                  style={inputStyle}
-                  type="text"
-                  inputMode="decimal"
-                  placeholder="0"
+                <NumberInput
                   value={deductions}
-                  onChange={event =>
-                    setDeductions(normalizeDecimalInput(event.target.value))
-                  }
+                  placeholder="أدخل إجمالي الاستقطاعات"
+                  decimal
+                  suffix="ر.س"
+                  onChange={setDeductions}
                 />
               </Field>
 
               {calculationType === "personal" && (
                 <>
                   <Field label="هامش الربح السنوي للتمويل الشخصي">
-                    <input
-                      style={inputStyle}
-                      type="text"
-                      inputMode="decimal"
-                      placeholder="0"
+                    <NumberInput
                       value={personalAnnualRate}
-                      onChange={event =>
-                        setPersonalAnnualRate(
-                          normalizeDecimalInput(event.target.value)
-                        )
-                      }
+                      placeholder="مثال: 4.25"
+                      decimal
+                      suffix="%"
+                      onChange={setPersonalAnnualRate}
                     />
                   </Field>
 
-                  <Field
-                    label={`عدد الأقساط المتاحة للتمويل الشخصي - ${allowedPersonalMonths}`}
-                  >
-                    <input
-                      style={inputStyle}
-                      type="text"
-                      inputMode="numeric"
-                      placeholder="0"
+                  <Field label="عدد أقساط التمويل الشخصي">
+                    <NumberInput
                       value={personalMonths}
-                      onChange={event =>
-                        changePersonalMonths(event.target.value)
-                      }
+                      placeholder="عدد الأشهر"
+                      suffix="شهر"
+                      onChange={changePersonalMonths}
+                    />
+                    <LimitHint
+                      value={allowedPersonalMonths}
+                      label="الحد الأعلى المتاح"
                     />
                   </Field>
                 </>
@@ -494,98 +594,68 @@ export default function EhtisabPage() {
               {calculationType === "real" && (
                 <>
                   <Field label="هامش الربح السنوي للتمويل العقاري">
-                    <input
-                      style={inputStyle}
-                      type="text"
-                      inputMode="decimal"
-                      placeholder="0"
+                    <NumberInput
                       value={realEstateAnnualRate}
-                      onChange={event =>
-                        setRealEstateAnnualRate(
-                          normalizeDecimalInput(event.target.value)
-                        )
-                      }
+                      placeholder="مثال: 4.25"
+                      decimal
+                      suffix="%"
+                      onChange={setRealEstateAnnualRate}
                     />
                   </Field>
 
-                  <Field
-                    label={`عدد الأقساط المتاحة للتمويل العقاري - ${allowedRealEstateMonths}`}
-                  >
-                    <input
-                      style={inputStyle}
-                      type="text"
-                      inputMode="numeric"
-                      placeholder="0"
+                  <Field label="عدد أقساط التمويل العقاري">
+                    <NumberInput
                       value={realEstateMonths}
-                      onChange={event => changeRealMonths(event.target.value)}
+                      placeholder="عدد الأشهر"
+                      suffix="شهر"
+                      onChange={changeRealMonths}
+                    />
+                    <LimitHint
+                      value={allowedRealEstateMonths}
+                      label="الحد الأعلى المتاح"
                     />
                   </Field>
 
                   <Field label="نوع التمويل العقاري">
-                    <select
-                      style={inputStyle}
+                    <CustomSelect
                       value={realEstateType}
-                      onChange={event =>
-                        setRealEstateType(
-                          event.target.value as RealEstateType
-                        )
+                      placeholder="اختر نوع التمويل العقاري"
+                      options={REAL_ESTATE_TYPE_OPTIONS}
+                      onChange={value =>
+                        setRealEstateType(value as RealEstateType)
                       }
-                    >
-                      <option value="normal">اعتيادي</option>
-                      <option value="supported">مدعوم</option>
-                    </select>
+                    />
                   </Field>
 
                   <Field label="المنتج العقاري">
-                    <select
-                      style={inputStyle}
+                    <CustomSelect
                       value={product}
-                      onChange={event =>
-                        setProduct(event.target.value as Product)
-                      }
-                    >
-                      <option value="ready">شراء وحدة جاهزة</option>
-                      <option value="selfBuild">بناء ذاتي</option>
-                      <option value="land">شراء أرض</option>
-                      <option value="mortgage">رهن عقاري</option>
-                    </select>
+                      placeholder="اختر المنتج العقاري"
+                      options={PRODUCT_OPTIONS}
+                      onChange={value => setProduct(value as Product)}
+                    />
                   </Field>
 
                   {realEstateType === "supported" && (
                     <Field label="نوع الدعم">
-                      <select
-                        style={inputStyle}
+                      <CustomSelect
                         value={supportType}
-                        onChange={event =>
-                          setSupportType(event.target.value as SupportType)
+                        placeholder="اختر نوع الدعم"
+                        options={SUPPORT_TYPE_OPTIONS}
+                        onChange={value =>
+                          setSupportType(value as SupportType)
                         }
-                      >
-                        <option value="none">بدون</option>
-                        <option value="monthly">دعم شهري</option>
-                        <option value="package">باقة الدفعة المقدمة</option>
-                      </select>
+                      />
                     </Field>
                   )}
 
-                  <Field label="البنك (اختياري)">
-                    <select
-                      style={inputStyle}
+                  <Field label="البنك — اختياري">
+                    <CustomSelect
                       value={bank}
-                      onChange={event => setBank(event.target.value)}
-                    >
-                      <option value="">بدون تحديد</option>
-                      <option value="البنك الأهلي السعودي">
-                        البنك الأهلي السعودي
-                      </option>
-                      <option value="مصرف الراجحي">مصرف الراجحي</option>
-                      <option value="بنك الرياض">بنك الرياض</option>
-                      <option value="مصرف الإنماء">مصرف الإنماء</option>
-                      <option value="بنك البلاد">بنك البلاد</option>
-                      <option value="البنك السعودي الفرنسي">
-                        البنك السعودي الفرنسي
-                      </option>
-                      <option value="ساب">ساب</option>
-                    </select>
+                      placeholder="اختر البنك أو اتركه بدون تحديد"
+                      options={BANK_OPTIONS}
+                      onChange={setBank}
+                    />
                   </Field>
                 </>
               )}
@@ -596,7 +666,8 @@ export default function EhtisabPage() {
                   style={calculateButtonStyle}
                   onClick={handleCalculate}
                 >
-                  احسب
+                  <span style={calculateButtonIconStyle}>🧮</span>
+                  <span>احسب التمويل</span>
                 </button>
               </div>
             </div>
@@ -605,18 +676,36 @@ export default function EhtisabPage() {
 
         {result && (
           <section id="ehtisab-report" style={getResultCardStyle(screen)}>
-            <h2 style={resultTitleStyle}>النتائج</h2>
+            <SectionHeading
+              icon={result.accepted ? "✅" : "⚠️"}
+              title="نتيجة الاحتساب"
+              badge={result.accepted ? "مقبول مبدئيًا" : "تعذر الاحتساب"}
+            />
 
-            {!result.accepted && (
-              <div style={errorStyle}>{result.reason}</div>
-            )}
+            {!result.accepted && <div style={errorStyle}>{result.reason}</div>}
 
             {result.accepted && (
               <>
-                <Row title="العمر" value={`${result.ageYears} سنة`} />
+                <div style={summaryGridStyle}>
+                  <SummaryCard
+                    title="العمر"
+                    value={`${result.ageYears} سنة`}
+                    icon="🎂"
+                  />
+
+                  <SummaryCard
+                    title="نوع التمويل"
+                    value={
+                      calculationType === "personal"
+                        ? "تمويل شخصي"
+                        : "تمويل عقاري"
+                    }
+                    icon={calculationType === "personal" ? "💳" : "🏠"}
+                  />
+                </div>
 
                 {result.personal && (
-                  <ResultGroup title="التمويل الشخصي">
+                  <ResultGroup title="التمويل الشخصي" icon="💳">
                     <Row
                       title="عدد الأقساط"
                       value={`${result.personal.months} شهر`}
@@ -644,12 +733,13 @@ export default function EhtisabPage() {
                     <Row
                       title="الصافي"
                       value={`${money(result.personal.net)} ر.س`}
+                      emphasized
                     />
                   </ResultGroup>
                 )}
 
                 {result.realEstate && (
-                  <ResultGroup title="التمويل العقاري">
+                  <ResultGroup title="التمويل العقاري" icon="🏠">
                     <Row
                       title="عدد الأقساط"
                       value={`${result.realEstate.months} شهر`}
@@ -660,9 +750,7 @@ export default function EhtisabPage() {
                     />
                     <Row
                       title="قسط الفترة الأولى"
-                      value={`${money(
-                        result.realEstate.firstInstallment
-                      )} ر.س`}
+                      value={`${money(result.realEstate.firstInstallment)} ر.س`}
                     />
 
                     {result.realEstate.secondMonths > 0 && (
@@ -682,9 +770,7 @@ export default function EhtisabPage() {
 
                     <Row
                       title="مبلغ التمويل"
-                      value={`${money(
-                        result.realEstate.financeAmount
-                      )} ر.س`}
+                      value={`${money(result.realEstate.financeAmount)} ر.س`}
                     />
                     <Row
                       title="الربح"
@@ -701,6 +787,7 @@ export default function EhtisabPage() {
                     <Row
                       title="الصافي"
                       value={`${money(result.realEstate.net)} ر.س`}
+                      emphasized
                     />
                     <Row
                       title="مبلغ الدفعة المقدمة من العميل"
@@ -710,21 +797,16 @@ export default function EhtisabPage() {
                     />
                     <Row
                       title="باقة الدفعة المقدمة"
-                      value={`${money(
-                        result.realEstate.supportPackage
-                      )} ر.س`}
+                      value={`${money(result.realEstate.supportPackage)} ر.س`}
                     />
                     <Row
                       title="قيمة العقار"
-                      value={`${money(
-                        result.realEstate.propertyValue
-                      )} ر.س`}
+                      value={`${money(result.realEstate.propertyValue)} ر.س`}
+                      emphasized
                     />
                     <Row
                       title="مبلغ الشيك"
-                      value={`${money(
-                        result.realEstate.checkAmount
-                      )} ر.س`}
+                      value={`${money(result.realEstate.checkAmount)} ر.س`}
                     />
                   </ResultGroup>
                 )}
@@ -734,11 +816,17 @@ export default function EhtisabPage() {
             {result.accepted && (
               <button
                 type="button"
-                onClick={shareResultPDF}
-                style={shareButtonStyle}
+                onClick={() => void shareResultPDF()}
+                style={{
+                  ...shareButtonStyle,
+                  opacity: sharing ? 0.7 : 1,
+                  cursor: sharing ? "not-allowed" : "pointer",
+                }}
+                disabled={sharing}
                 data-html2canvas-ignore="true"
               >
-                مشاركة النتيجة
+                <span>📤</span>
+                <span>{sharing ? "جاري تجهيز الملف..." : "مشاركة النتيجة"}</span>
               </button>
             )}
           </section>
@@ -754,6 +842,8 @@ export default function EhtisabPage() {
           </button>
         </div>
       </div>
+
+      <GlobalStyles />
     </main>
   )
 }
@@ -766,51 +856,417 @@ type FieldProps = {
 
 function Field({ label, children, fullWidth = false }: FieldProps) {
   return (
-    <label style={fullWidth ? fullWidthFieldStyle : fieldStyle}>
-      <span style={fieldLabelStyle}>{label}</span>
+    <div style={fullWidth ? fullWidthFieldStyle : fieldStyle}>
+      <label style={fieldLabelStyle}>{label}</label>
       {children}
-    </label>
+    </div>
+  )
+}
+
+function SectionHeading({
+  icon,
+  title,
+  badge,
+}: {
+  icon: string
+  title: string
+  badge?: string
+}) {
+  return (
+    <div style={sectionHeadingStyle}>
+      <div style={sectionHeadingTitleWrapStyle}>
+        <span style={sectionHeadingIconStyle}>{icon}</span>
+        <h2 style={sectionHeadingTitleStyle}>{title}</h2>
+      </div>
+
+      {badge && <span style={sectionHeadingBadgeStyle}>{badge}</span>}
+    </div>
+  )
+}
+
+function DatePartInput({
+  label,
+  maxLength,
+  value,
+  onChange,
+}: {
+  label: string
+  maxLength: number
+  value: string
+  onChange: (value: string) => void
+}) {
+  return (
+    <div style={datePartBoxStyle}>
+      <span style={datePartLabelStyle}>{label}</span>
+      <input
+        style={datePartInputStyle}
+        inputMode="numeric"
+        maxLength={maxLength}
+        value={value}
+        onChange={event =>
+          onChange(normalizeIntegerInput(event.target.value).slice(0, maxLength))
+        }
+        aria-label={label}
+      />
+    </div>
+  )
+}
+
+function NumberInput({
+  value,
+  placeholder,
+  suffix,
+  decimal = false,
+  onChange,
+}: {
+  value: string
+  placeholder: string
+  suffix?: string
+  decimal?: boolean
+  onChange: (value: string) => void
+}) {
+  return (
+    <div style={numberInputWrapperStyle}>
+      <input
+        style={numberInputStyle}
+        type="text"
+        inputMode={decimal ? "decimal" : "numeric"}
+        placeholder={placeholder}
+        value={value}
+        onChange={event =>
+          onChange(
+            decimal
+              ? normalizeDecimalInput(event.target.value)
+              : normalizeIntegerInput(event.target.value)
+          )
+        }
+      />
+
+      {suffix && <span style={numberInputSuffixStyle}>{suffix}</span>}
+    </div>
+  )
+}
+
+function LimitHint({ value, label }: { value: number; label: string }) {
+  return (
+    <div style={limitHintStyle}>
+      <span>{label}</span>
+      <strong>{value} شهر</strong>
+    </div>
+  )
+}
+
+function CustomSelect({
+  value,
+  placeholder,
+  options,
+  onChange,
+}: {
+  value: string
+  placeholder: string
+  options: SelectOption[]
+  onChange: (value: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [menuRect, setMenuRect] = useState<DropdownRect | null>(null)
+  const wrapperRef = useRef<HTMLDivElement | null>(null)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+
+  const selectedOption = options.find(option => option.value === value)
+
+  function updateMenuPosition() {
+    if (!wrapperRef.current || typeof window === "undefined") {
+      return
+    }
+
+    const rect = wrapperRef.current.getBoundingClientRect()
+    const viewportPadding = 12
+    const preferredWidth = Math.max(rect.width, 310)
+    const width = Math.min(preferredWidth, window.innerWidth - viewportPadding * 2)
+    const left = Math.min(
+      Math.max(rect.left, viewportPadding),
+      window.innerWidth - width - viewportPadding
+    )
+    const estimatedMenuHeight = Math.min(330, options.length * 68 + 18)
+    const availableBelow = window.innerHeight - rect.bottom - viewportPadding
+    const availableAbove = rect.top - viewportPadding
+    const openUpward =
+      availableBelow < Math.min(estimatedMenuHeight, 220) &&
+      availableAbove > availableBelow
+
+    setMenuRect({
+      top: openUpward
+        ? Math.max(viewportPadding, rect.top - estimatedMenuHeight - 8)
+        : rect.bottom + 8,
+      left,
+      width,
+      openUpward,
+    })
+  }
+
+  function closeMenu() {
+    setOpen(false)
+    setMenuRect(null)
+  }
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+
+    updateMenuPosition()
+
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target as Node
+
+      if (wrapperRef.current?.contains(target)) {
+        return
+      }
+
+      if (menuRef.current?.contains(target)) {
+        return
+      }
+
+      closeMenu()
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        closeMenu()
+      }
+    }
+
+    function handlePositionChange() {
+      updateMenuPosition()
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown)
+    window.addEventListener("keydown", handleKeyDown)
+    window.addEventListener("resize", handlePositionChange)
+    window.addEventListener("scroll", handlePositionChange, true)
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown)
+      window.removeEventListener("keydown", handleKeyDown)
+      window.removeEventListener("resize", handlePositionChange)
+      window.removeEventListener("scroll", handlePositionChange, true)
+    }
+  }, [open, options.length])
+
+  return (
+    <div ref={wrapperRef} style={selectWrapperStyle}>
+      <button
+        type="button"
+        style={{
+          ...selectButtonStyle,
+          ...(open ? selectButtonOpenStyle : {}),
+        }}
+        onClick={() => {
+          if (open) {
+            closeMenu()
+          } else {
+            updateMenuPosition()
+            setOpen(true)
+          }
+        }}
+        aria-expanded={open}
+      >
+        <span style={selectTextWrapStyle}>
+          <span
+            style={selectedOption ? selectValueStyle : selectPlaceholderStyle}
+          >
+            {selectedOption?.label || placeholder}
+          </span>
+
+          {selectedOption?.description && (
+            <span style={selectSelectedDescriptionStyle}>
+              {selectedOption.description}
+            </span>
+          )}
+        </span>
+
+        <span
+          style={{
+            ...selectArrowStyle,
+            transform: open ? "rotate(180deg)" : "rotate(0deg)",
+          }}
+        >
+          ▼
+        </span>
+      </button>
+
+      {open &&
+        menuRect &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={menuRef}
+            style={{
+              ...selectMenuStyle,
+              top: menuRect.top,
+              left: menuRect.left,
+              width: menuRect.width,
+              transformOrigin: menuRect.openUpward ? "bottom" : "top",
+            }}
+          >
+            {options.map(option => (
+              <button
+                key={`${option.value}-${option.label}`}
+                type="button"
+                disabled={option.disabled}
+                style={{
+                  ...selectOptionStyle,
+                  ...(option.value === value ? selectOptionSelectedStyle : {}),
+                  ...(option.disabled ? selectOptionDisabledStyle : {}),
+                }}
+                onClick={() => {
+                  if (option.disabled) {
+                    return
+                  }
+
+                  onChange(option.value)
+                  closeMenu()
+                }}
+              >
+                <span style={selectOptionCheckStyle}>
+                  {option.value === value ? "✓" : ""}
+                </span>
+
+                <span style={selectOptionContentStyle}>
+                  <strong style={selectOptionLabelStyle}>{option.label}</strong>
+
+                  {option.description && (
+                    <small style={selectOptionDescriptionStyle}>
+                      {option.description}
+                    </small>
+                  )}
+                </span>
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
+    </div>
   )
 }
 
 type RowProps = {
   title: string
   value: string
+  emphasized?: boolean
 }
 
-function Row({ title, value }: RowProps) {
+function Row({ title, value, emphasized = false }: RowProps) {
   return (
-    <div style={rowStyle}>
+    <div
+      style={{
+        ...rowStyle,
+        ...(emphasized ? emphasizedRowStyle : {}),
+      }}
+    >
       <span style={rowTitleStyle}>{title}</span>
-      <b style={rowValueStyle}>{value}</b>
+      <b style={emphasized ? emphasizedRowValueStyle : rowValueStyle}>
+        {value}
+      </b>
     </div>
   )
 }
 
 type ResultGroupProps = {
   title: string
+  icon: string
   children: ReactNode
 }
 
-function ResultGroup({ title, children }: ResultGroupProps) {
+function ResultGroup({ title, icon, children }: ResultGroupProps) {
   return (
     <div style={resultGroupStyle}>
-      <h3 style={resultGroupTitleStyle}>{title}</h3>
-      {children}
+      <div style={resultGroupHeadingStyle}>
+        <span style={resultGroupIconStyle}>{icon}</span>
+        <h3 style={resultGroupTitleStyle}>{title}</h3>
+      </div>
+
+      <div style={resultRowsGridStyle}>{children}</div>
     </div>
+  )
+}
+
+function SummaryCard({
+  title,
+  value,
+  icon,
+}: {
+  title: string
+  value: string
+  icon: string
+}) {
+  return (
+    <div style={summaryCardStyle}>
+      <span style={summaryCardIconStyle}>{icon}</span>
+      <div style={summaryCardContentStyle}>
+        <span style={summaryCardTitleStyle}>{title}</span>
+        <strong style={summaryCardValueStyle}>{value}</strong>
+      </div>
+    </div>
+  )
+}
+
+function GlobalStyles() {
+  return (
+    <style jsx global>{`
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        overflow-x: hidden;
+      }
+
+      button,
+      input {
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      button:disabled {
+        cursor: not-allowed !important;
+      }
+
+      input::placeholder {
+        color: #94a3b8;
+      }
+
+      @keyframes ehtisabSpin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      @keyframes ehtisabMenuIn {
+        from {
+          opacity: 0;
+          transform: translateY(-5px) scale(0.985);
+        }
+
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+    `}</style>
   )
 }
 
 function getPageStyle(screen: ScreenType): CSSProperties {
   return {
     minHeight: "100vh",
-    padding: screen === "mobile" ? 10 : screen === "tablet" ? 16 : 24,
+    padding: screen === "mobile" ? 10 : screen === "tablet" ? 16 : 20,
     fontFamily: "var(--font-almarai), sans-serif",
+    backgroundColor: "#f6f9ff",
     backgroundImage:
-      "radial-gradient(circle at 12% 8%, rgba(56,189,248,0.12), transparent 28%), radial-gradient(circle at 88% 12%, rgba(34,197,94,0.10), transparent 24%), linear-gradient(rgba(239,246,255,0.88), rgba(248,250,252,0.94)), url('/backgrounds/v13-finance-bg-1.png')",
+      "radial-gradient(circle at 12% 12%, rgba(56,189,248,0.15), transparent 28%), radial-gradient(circle at 88% 14%, rgba(34,197,94,0.11), transparent 24%), radial-gradient(circle at 82% 88%, rgba(139,92,246,0.08), transparent 26%), linear-gradient(rgba(242,247,255,0.88), rgba(248,250,252,0.94)), url('/backgrounds/v13-finance-bg-1.png')",
     backgroundSize: "cover",
     backgroundPosition: "center",
-    backgroundAttachment: "fixed",
+    backgroundAttachment: screen === "mobile" ? "scroll" : "fixed",
     color: "#0f172a",
   }
 }
@@ -818,7 +1274,7 @@ function getPageStyle(screen: ScreenType): CSSProperties {
 function getContainerStyle(screen: ScreenType): CSSProperties {
   return {
     width: "100%",
-    maxWidth: screen === "desktop" ? 1180 : 900,
+    maxWidth: screen === "desktop" ? 1120 : 920,
     margin: "0 auto",
   }
 }
@@ -827,23 +1283,24 @@ function getHeroStyle(screen: ScreenType): CSSProperties {
   return {
     position: "relative",
     overflow: "hidden",
-    borderRadius: screen === "mobile" ? 22 : 28,
-    padding: screen === "mobile" ? 16 : screen === "tablet" ? 20 : 24,
+    borderRadius: screen === "mobile" ? 20 : 24,
+    padding: screen === "mobile" ? "18px 14px" : "22px 24px",
     background:
-      "linear-gradient(125deg, #0f2f5f 0%, #0b5aa6 52%, #0ea5e9 100%)",
-    boxShadow: "0 22px 55px rgba(15, 47, 95, 0.24)",
-    border: "1px solid rgba(255,255,255,0.18)",
+      "radial-gradient(circle at 15% 18%, rgba(255,255,255,0.08) 0, transparent 24%), radial-gradient(circle at 86% 18%, rgba(255,255,255,0.11) 0, transparent 26%), linear-gradient(105deg,#071c48 0%,#0a327d 30%,#0d65d9 60%,#23a8e4 82%,#6edce4 100%)",
+    boxShadow: "0 18px 42px rgba(15, 47, 95, 0.18)",
+    isolation: "isolate",
   }
 }
 
 function getHeroContentStyle(screen: ScreenType): CSSProperties {
   return {
     position: "relative",
-    zIndex: 2,
+    zIndex: 3,
     display: "grid",
-    gridTemplateColumns: screen === "desktop" ? "1fr 1.3fr 1fr" : "1fr",
+    gridTemplateColumns:
+      screen === "desktop" ? "minmax(250px, 1fr) 1.2fr minmax(220px, 1fr)" : "1fr",
     alignItems: "center",
-    gap: screen === "mobile" ? 12 : 16,
+    gap: screen === "mobile" ? 16 : 18,
   }
 }
 
@@ -856,9 +1313,10 @@ function getHeroUserCardStyle(screen: ScreenType): CSSProperties {
     minWidth: 0,
     padding: screen === "mobile" ? "10px 12px" : "11px 14px",
     borderRadius: 16,
-    background: "rgba(3, 20, 45, 0.28)",
-    border: "1px solid rgba(255,255,255,0.16)",
+    background: "rgba(3, 20, 45, 0.24)",
+    border: "1px solid rgba(255,255,255,0.18)",
     backdropFilter: "blur(10px)",
+    order: screen === "desktop" ? 0 : 2,
   }
 }
 
@@ -867,18 +1325,19 @@ function getEmployeeNameStyle(screen: ScreenType): CSSProperties {
     marginTop: 2,
     color: "#ffffff",
     fontSize: screen === "mobile" ? 13 : 14,
-    fontWeight: 800,
+    fontWeight: 900,
     whiteSpace: "nowrap",
     overflow: "hidden",
     textOverflow: "ellipsis",
-    maxWidth: screen === "mobile" ? 125 : 180,
+    maxWidth: screen === "mobile" ? 132 : 190,
   }
 }
 
 function getHeroTitleBoxStyle(screen: ScreenType): CSSProperties {
   return {
     textAlign: "center",
-    padding: screen === "mobile" ? "4px 0" : "8px 12px",
+    padding: screen === "mobile" ? "3px 0" : "8px 12px",
+    order: screen === "desktop" ? 0 : 1,
   }
 }
 
@@ -888,9 +1347,9 @@ function getTitleStyle(screen: ScreenType): CSSProperties {
     color: "#ffffff",
     fontFamily: "var(--font-almarai), sans-serif",
     fontWeight: 900,
-    fontSize: screen === "mobile" ? 23 : screen === "tablet" ? 28 : 32,
-    letterSpacing: "-0.5px",
-    textShadow: "0 8px 22px rgba(2, 20, 48, 0.28)",
+    fontSize: screen === "mobile" ? 25 : screen === "tablet" ? 29 : 32,
+    lineHeight: 1.45,
+    textShadow: "0 8px 22px rgba(2, 20, 48, 0.24)",
   }
 }
 
@@ -898,17 +1357,18 @@ function getHeroActionBoxStyle(screen: ScreenType): CSSProperties {
   return {
     display: "flex",
     justifyContent: screen === "desktop" ? "flex-end" : "center",
+    order: screen === "desktop" ? 0 : 3,
   }
 }
 
 function getCardStyle(screen: ScreenType): CSSProperties {
   return {
-    marginTop: 18,
-    padding: screen === "mobile" ? 16 : screen === "tablet" ? 20 : 24,
-    borderRadius: screen === "mobile" ? 20 : 24,
-    background: "rgba(255,255,255,0.94)",
+    marginTop: 16,
+    padding: screen === "mobile" ? 15 : screen === "tablet" ? 19 : 22,
+    borderRadius: screen === "mobile" ? 19 : 22,
+    background: "rgba(255,255,255,0.97)",
     border: "1px solid rgba(148,163,184,0.22)",
-    boxShadow: "0 18px 45px rgba(15,23,42,0.08)",
+    boxShadow: "0 14px 34px rgba(15,23,42,0.065)",
     backdropFilter: "blur(12px)",
   }
 }
@@ -917,14 +1377,25 @@ function getResultCardStyle(screen: ScreenType): CSSProperties {
   return {
     ...getCardStyle(screen),
     background: "#ffffff",
+    scrollMarginTop: 16,
   }
 }
 
 function getFieldsGridStyle(screen: ScreenType): CSSProperties {
   return {
     display: "grid",
-    gridTemplateColumns: screen === "desktop" ? "repeat(2, minmax(0, 1fr))" : "1fr",
-    gap: screen === "mobile" ? 14 : 18,
+    gridTemplateColumns:
+      screen === "desktop" ? "repeat(2, minmax(0, 1fr))" : "1fr",
+    gap: screen === "mobile" ? 14 : 17,
+  }
+}
+
+function getBirthDateGridStyle(screen: ScreenType): CSSProperties {
+  return {
+    display: "grid",
+    gridTemplateColumns:
+      screen === "mobile" ? "1fr" : "repeat(3, minmax(0, 1fr))",
+    gap: 10,
   }
 }
 
@@ -933,11 +1404,24 @@ const loadingCardStyle: CSSProperties = {
   margin: "18vh auto 0",
   padding: 22,
   borderRadius: 20,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 12,
   textAlign: "center",
-  background: "rgba(255,255,255,0.94)",
+  background: "rgba(255,255,255,0.96)",
   boxShadow: "0 18px 45px rgba(15,23,42,0.10)",
   fontFamily: "var(--font-almarai), sans-serif",
-  fontWeight: 700,
+  fontWeight: 800,
+}
+
+const loadingSpinnerStyle: CSSProperties = {
+  width: 24,
+  height: 24,
+  borderRadius: "50%",
+  border: "3px solid #dbeafe",
+  borderTopColor: "#2563eb",
+  animation: "ehtisabSpin 0.8s linear infinite",
 }
 
 const heroCircleOneStyle: CSSProperties = {
@@ -948,6 +1432,7 @@ const heroCircleOneStyle: CSSProperties = {
   top: -130,
   right: -70,
   background: "rgba(255,255,255,0.10)",
+  pointerEvents: "none",
 }
 
 const heroCircleTwoStyle: CSSProperties = {
@@ -958,6 +1443,7 @@ const heroCircleTwoStyle: CSSProperties = {
   bottom: -120,
   left: "18%",
   background: "rgba(125,211,252,0.13)",
+  pointerEvents: "none",
 }
 
 const heroCircleThreeStyle: CSSProperties = {
@@ -968,6 +1454,7 @@ const heroCircleThreeStyle: CSSProperties = {
   top: -46,
   left: -36,
   border: "20px solid rgba(255,255,255,0.06)",
+  pointerEvents: "none",
 }
 
 const heroDotsStyle: CSSProperties = {
@@ -977,8 +1464,10 @@ const heroDotsStyle: CSSProperties = {
   width: 100,
   height: 50,
   opacity: 0.25,
-  backgroundImage: "radial-gradient(rgba(255,255,255,0.85) 1.3px, transparent 1.3px)",
+  backgroundImage:
+    "radial-gradient(rgba(255,255,255,0.85) 1.3px, transparent 1.3px)",
   backgroundSize: "12px 12px",
+  pointerEvents: "none",
 }
 
 const employeeTopRowStyle: CSSProperties = {
@@ -989,13 +1478,14 @@ const employeeTopRowStyle: CSSProperties = {
 }
 
 const employeeIconStyle: CSSProperties = {
-  width: 34,
-  height: 34,
-  borderRadius: 11,
+  width: 36,
+  height: 36,
+  borderRadius: 12,
   display: "grid",
   placeItems: "center",
   flexShrink: 0,
   background: "rgba(255,255,255,0.14)",
+  border: "1px solid rgba(255,255,255,0.16)",
   fontSize: 16,
 }
 
@@ -1011,7 +1501,7 @@ const logoutButtonStyle: CSSProperties = {
   color: "#ffffff",
   fontFamily: "var(--font-almarai), sans-serif",
   fontSize: 11,
-  fontWeight: 800,
+  fontWeight: 900,
   cursor: "pointer",
   whiteSpace: "nowrap",
   padding: "7px 0 7px 8px",
@@ -1020,8 +1510,9 @@ const logoutButtonStyle: CSSProperties = {
 
 const mainWorkstationButtonStyle: CSSProperties = {
   border: "1px solid rgba(255,255,255,0.24)",
-  borderRadius: 13,
-  padding: "11px 14px",
+  borderRadius: 999,
+  minHeight: 44,
+  padding: "0 16px",
   background: "linear-gradient(135deg, #22c55e 0%, #15803d 100%)",
   color: "#ffffff",
   fontFamily: "var(--font-almarai), sans-serif",
@@ -1030,6 +1521,56 @@ const mainWorkstationButtonStyle: CSSProperties = {
   cursor: "pointer",
   whiteSpace: "nowrap",
   boxShadow: "0 10px 22px rgba(21,128,61,0.28)",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 8,
+}
+
+const sectionHeadingStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 12,
+  flexWrap: "wrap",
+  marginBottom: 18,
+}
+
+const sectionHeadingTitleWrapStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  minWidth: 0,
+}
+
+const sectionHeadingIconStyle: CSSProperties = {
+  width: 42,
+  height: 42,
+  borderRadius: 13,
+  background: "linear-gradient(135deg,#eff6ff,#dbeafe)",
+  display: "grid",
+  placeItems: "center",
+  fontSize: 20,
+  flexShrink: 0,
+}
+
+const sectionHeadingTitleStyle: CSSProperties = {
+  margin: 0,
+  color: "#0f3f76",
+  fontSize: 18,
+  fontWeight: 900,
+  fontFamily: "var(--font-almarai), sans-serif",
+}
+
+const sectionHeadingBadgeStyle: CSSProperties = {
+  padding: "7px 10px",
+  borderRadius: 999,
+  background: "#eff6ff",
+  color: "#1d4ed8",
+  border: "1px solid #bfdbfe",
+  fontSize: 11,
+  fontWeight: 900,
+  whiteSpace: "nowrap",
 }
 
 const fieldStyle: CSSProperties = {
@@ -1045,39 +1586,257 @@ const fullWidthFieldStyle: CSSProperties = {
 const fieldLabelStyle: CSSProperties = {
   display: "block",
   marginBottom: 8,
-  color: "#1e293b",
+  color: "#1e3a5f",
   fontSize: 13,
-  fontWeight: 800,
-}
-
-const inputStyle: CSSProperties = {
-  width: "100%",
-  boxSizing: "border-box",
-  padding: "13px 14px",
-  borderRadius: 13,
-  border: "1px solid #dbe4f0",
-  outline: "none",
-  background: "#ffffff",
-  color: "#0f172a",
-  fontFamily: "var(--font-almarai), sans-serif",
-  fontSize: 15,
-  fontWeight: 600,
-  boxShadow: "inset 0 1px 2px rgba(15,23,42,0.03)",
-}
-
-const birthDateGridStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-  gap: 8,
+  fontWeight: 900,
 }
 
 const fullWidthStyle: CSSProperties = {
   gridColumn: "1 / -1",
 }
 
+const datePartBoxStyle: CSSProperties = {
+  position: "relative",
+  minHeight: 58,
+  borderRadius: 14,
+  border: "1.5px solid #d6e2f1",
+  background: "#ffffff",
+  overflow: "hidden",
+  boxShadow: "inset 0 1px 2px rgba(15,23,42,0.025)",
+}
+
+const datePartLabelStyle: CSSProperties = {
+  position: "absolute",
+  top: 7,
+  right: 12,
+  color: "#64748b",
+  fontSize: 10,
+  fontWeight: 900,
+  pointerEvents: "none",
+}
+
+const datePartInputStyle: CSSProperties = {
+  width: "100%",
+  height: 58,
+  padding: "20px 12px 6px",
+  border: "none",
+  outline: "none",
+  background: "transparent",
+  color: "#0f172a",
+  textAlign: "center",
+  fontSize: 16,
+  fontWeight: 900,
+  fontFamily: "var(--font-almarai), sans-serif",
+}
+
+const numberInputWrapperStyle: CSSProperties = {
+  minHeight: 56,
+  display: "flex",
+  alignItems: "center",
+  borderRadius: 14,
+  border: "1.5px solid #d6e2f1",
+  background: "#ffffff",
+  overflow: "hidden",
+  boxShadow: "inset 0 1px 2px rgba(15,23,42,0.025)",
+}
+
+const numberInputStyle: CSSProperties = {
+  width: "100%",
+  minWidth: 0,
+  minHeight: 54,
+  padding: "0 14px",
+  border: "none",
+  outline: "none",
+  background: "transparent",
+  color: "#0f172a",
+  fontFamily: "var(--font-almarai), sans-serif",
+  fontSize: 15,
+  fontWeight: 800,
+}
+
+const numberInputSuffixStyle: CSSProperties = {
+  alignSelf: "stretch",
+  minWidth: 58,
+  padding: "0 11px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  borderInlineStart: "1px solid #e2e8f0",
+  background: "#f8fafc",
+  color: "#475569",
+  fontSize: 12,
+  fontWeight: 900,
+  whiteSpace: "nowrap",
+}
+
+const limitHintStyle: CSSProperties = {
+  marginTop: 7,
+  padding: "7px 9px",
+  borderRadius: 10,
+  background: "#f0fdf4",
+  border: "1px solid #bbf7d0",
+  color: "#166534",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 10,
+  fontSize: 11,
+  fontWeight: 800,
+}
+
+const selectWrapperStyle: CSSProperties = {
+  position: "relative",
+  width: "100%",
+}
+
+const selectButtonStyle: CSSProperties = {
+  width: "100%",
+  minHeight: 58,
+  padding: "10px 14px",
+  borderRadius: 14,
+  border: "1.5px solid #d6e2f1",
+  background: "#ffffff",
+  color: "#0f172a",
+  cursor: "pointer",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 12,
+  textAlign: "right",
+  direction: "rtl",
+  fontFamily: "var(--font-almarai), sans-serif",
+  boxShadow: "inset 0 1px 2px rgba(15,23,42,0.025)",
+}
+
+const selectButtonOpenStyle: CSSProperties = {
+  borderColor: "#3b82f6",
+  boxShadow: "0 0 0 4px rgba(59,130,246,0.10)",
+}
+
+const selectTextWrapStyle: CSSProperties = {
+  minWidth: 0,
+  flex: 1,
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "flex-start",
+  gap: 3,
+}
+
+const selectValueStyle: CSSProperties = {
+  width: "100%",
+  color: "#0f172a",
+  fontSize: 14,
+  fontWeight: 900,
+  whiteSpace: "normal",
+  overflowWrap: "anywhere",
+  lineHeight: 1.55,
+}
+
+const selectPlaceholderStyle: CSSProperties = {
+  ...selectValueStyle,
+  color: "#64748b",
+  fontWeight: 700,
+}
+
+const selectSelectedDescriptionStyle: CSSProperties = {
+  width: "100%",
+  color: "#64748b",
+  fontSize: 10,
+  fontWeight: 700,
+  lineHeight: 1.5,
+  whiteSpace: "normal",
+}
+
+const selectArrowStyle: CSSProperties = {
+  color: "#2563eb",
+  fontSize: 11,
+  transition: "transform 0.18s ease",
+  flexShrink: 0,
+}
+
+const selectMenuStyle: CSSProperties = {
+  position: "fixed",
+  maxHeight: "min(330px, calc(100vh - 24px))",
+  overflowY: "auto",
+  padding: 7,
+  borderRadius: 15,
+  border: "1px solid #cbd8eb",
+  background: "#ffffff",
+  boxShadow: "0 20px 55px rgba(15,23,42,0.24)",
+  zIndex: 300000,
+  direction: "rtl",
+  animation: "ehtisabMenuIn 0.15s ease both",
+  fontFamily: "var(--font-almarai), sans-serif",
+}
+
+const selectOptionStyle: CSSProperties = {
+  width: "100%",
+  minHeight: 52,
+  border: "none",
+  borderRadius: 11,
+  padding: "9px 10px",
+  background: "transparent",
+  color: "#1e293b",
+  textAlign: "right",
+  cursor: "pointer",
+  display: "grid",
+  gridTemplateColumns: "24px minmax(0, 1fr)",
+  alignItems: "center",
+  gap: 8,
+  fontFamily: "var(--font-almarai), sans-serif",
+}
+
+const selectOptionSelectedStyle: CSSProperties = {
+  background: "linear-gradient(135deg,#eff6ff,#e0f2fe)",
+  color: "#1d4ed8",
+}
+
+const selectOptionDisabledStyle: CSSProperties = {
+  opacity: 0.5,
+  cursor: "not-allowed",
+  background: "#f8fafc",
+}
+
+const selectOptionCheckStyle: CSSProperties = {
+  width: 24,
+  height: 24,
+  borderRadius: 8,
+  display: "grid",
+  placeItems: "center",
+  color: "#2563eb",
+  fontSize: 14,
+  fontWeight: 900,
+}
+
+const selectOptionContentStyle: CSSProperties = {
+  minWidth: 0,
+  display: "flex",
+  flexDirection: "column",
+  gap: 3,
+}
+
+const selectOptionLabelStyle: CSSProperties = {
+  color: "inherit",
+  fontSize: 13,
+  fontWeight: 900,
+  lineHeight: 1.65,
+  whiteSpace: "normal",
+  overflowWrap: "anywhere",
+}
+
+const selectOptionDescriptionStyle: CSSProperties = {
+  color: "#64748b",
+  fontSize: 10,
+  fontWeight: 700,
+  lineHeight: 1.6,
+  whiteSpace: "normal",
+  overflowWrap: "anywhere",
+}
+
 const calculateButtonStyle: CSSProperties = {
   width: "100%",
-  padding: "15px 18px",
+  minHeight: 54,
+  padding: "13px 18px",
   border: "none",
   borderRadius: 14,
   background: "linear-gradient(135deg, #0f5fae 0%, #0284c7 100%)",
@@ -1087,84 +1846,175 @@ const calculateButtonStyle: CSSProperties = {
   fontWeight: 900,
   cursor: "pointer",
   boxShadow: "0 12px 24px rgba(2,132,199,0.22)",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 9,
 }
 
-const resultTitleStyle: CSSProperties = {
-  margin: "0 0 16px",
-  color: "#0f4f8f",
-  fontFamily: "var(--font-almarai), sans-serif",
-  fontSize: 22,
+const calculateButtonIconStyle: CSSProperties = {
+  fontSize: 19,
+}
+
+const summaryGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+  gap: 10,
+  marginBottom: 14,
+}
+
+const summaryCardStyle: CSSProperties = {
+  minHeight: 78,
+  padding: 13,
+  borderRadius: 16,
+  background: "linear-gradient(135deg,#f8fbff,#eff6ff)",
+  border: "1px solid #dbeafe",
+  display: "flex",
+  alignItems: "center",
+  gap: 11,
+}
+
+const summaryCardIconStyle: CSSProperties = {
+  width: 44,
+  height: 44,
+  borderRadius: 14,
+  display: "grid",
+  placeItems: "center",
+  background: "#dbeafe",
+  fontSize: 20,
+  flexShrink: 0,
+}
+
+const summaryCardContentStyle: CSSProperties = {
+  minWidth: 0,
+  display: "flex",
+  flexDirection: "column",
+  gap: 3,
+}
+
+const summaryCardTitleStyle: CSSProperties = {
+  color: "#64748b",
+  fontSize: 11,
+  fontWeight: 800,
+}
+
+const summaryCardValueStyle: CSSProperties = {
+  color: "#0f3f76",
+  fontSize: 15,
   fontWeight: 900,
 }
 
 const resultGroupStyle: CSSProperties = {
-  marginTop: 18,
-  paddingTop: 16,
-  borderTop: "1px solid #e2e8f0",
+  marginTop: 15,
+  padding: 14,
+  borderRadius: 18,
+  background: "#fbfdff",
+  border: "1px solid #e2e8f0",
+}
+
+const resultGroupHeadingStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 9,
+  marginBottom: 12,
+}
+
+const resultGroupIconStyle: CSSProperties = {
+  width: 36,
+  height: 36,
+  borderRadius: 11,
+  display: "grid",
+  placeItems: "center",
+  background: "#eff6ff",
+  fontSize: 17,
 }
 
 const resultGroupTitleStyle: CSSProperties = {
-  margin: "0 0 12px",
+  margin: 0,
   color: "#0f172a",
   fontFamily: "var(--font-almarai), sans-serif",
-  fontSize: 17,
+  fontSize: 16,
   fontWeight: 900,
 }
 
+const resultRowsGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(245px, 1fr))",
+  gap: 8,
+}
+
 const rowStyle: CSSProperties = {
+  minHeight: 52,
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
   gap: 12,
-  marginBottom: 8,
-  padding: "12px 13px",
+  padding: "11px 12px",
   borderRadius: 12,
-  background: "#f4f8ff",
+  background: "#ffffff",
   border: "1px solid #e7eef8",
 }
 
+const emphasizedRowStyle: CSSProperties = {
+  background: "linear-gradient(135deg,#ecfdf5,#f0fdf4)",
+  border: "1px solid #bbf7d0",
+}
+
 const rowTitleStyle: CSSProperties = {
-  color: "#334155",
-  fontSize: 13,
-  fontWeight: 700,
+  color: "#475569",
+  fontSize: 12,
+  fontWeight: 800,
+  lineHeight: 1.6,
 }
 
 const rowValueStyle: CSSProperties = {
   color: "#0d5ca8",
   textAlign: "left",
-  fontSize: 13,
+  fontSize: 12,
   fontWeight: 900,
+  whiteSpace: "nowrap",
+}
+
+const emphasizedRowValueStyle: CSSProperties = {
+  ...rowValueStyle,
+  color: "#15803d",
 }
 
 const shareButtonStyle: CSSProperties = {
   width: "100%",
-  marginTop: 20,
-  padding: "14px 16px",
+  marginTop: 18,
+  minHeight: 50,
+  padding: "12px 16px",
   border: "none",
   borderRadius: 13,
   background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
   color: "#ffffff",
   fontFamily: "var(--font-almarai), sans-serif",
-  fontSize: 15,
+  fontSize: 14,
   fontWeight: 900,
   cursor: "pointer",
   boxShadow: "0 10px 22px rgba(37,99,235,0.20)",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 8,
 }
 
 const errorStyle: CSSProperties = {
-  marginTop: 12,
-  padding: 13,
-  borderRadius: 12,
-  background: "#fee2e2",
+  marginTop: 4,
+  padding: 14,
+  borderRadius: 13,
+  background: "#fef2f2",
   color: "#991b1b",
   border: "1px solid #fecaca",
-  fontWeight: 800,
+  fontWeight: 900,
+  lineHeight: 1.7,
 }
 
 const backWrapperStyle: CSSProperties = {
   display: "flex",
   justifyContent: "center",
-  padding: "22px 0 8px",
+  padding: "20px 0 8px",
 }
 
 const backButtonStyle: CSSProperties = {
