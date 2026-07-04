@@ -52,20 +52,19 @@ type Investor = {
 type Product = {
   id: string;
   product_name: string;
+  unit_price?: number | string | null;
   is_active?: boolean | null;
 };
 
-type CreatedRequest = {
-  contract_id?: string | null;
-  note_id?: string | null;
-  contract_number?: string | null;
-};
-
-type SupabaseRpcError = {
-  code?: string;
+type NewRequestApiResponse = {
+  ok?: boolean;
   message?: string;
-  details?: string;
-  hint?: string;
+  code?: string;
+  contractId?: string | null;
+  noteId?: string | null;
+  customerId?: string | null;
+  contractNumber?: string | number | null;
+  noteNumber?: string | number | null;
 };
 
 type DropdownRect = {
@@ -84,8 +83,6 @@ type ContractType =
   | ""
   | "عقد بيع"
   | "عقد تقسيط";
-
-const MAX_CONTRACT_CREATE_ATTEMPTS = 5;
 
 const SESSION_DURATION_MS =
   60 * 60 * 1000;
@@ -207,6 +204,11 @@ export default function NewRequestPage() {
     useState("");
 
   const [
+    paymentAmount,
+    setPaymentAmount,
+  ] = useState("");
+
+  const [
     installmentAmount,
     setInstallmentAmount,
   ] = useState("");
@@ -300,6 +302,47 @@ export default function NewRequestPage() {
     }));
 
   useEffect(() => {
+    const selectedProduct =
+      products.find(
+        (product) =>
+          product.id === productId
+      );
+
+    const quantity =
+      toNumber(productQuantity);
+
+    const unitPrice =
+      Number(
+        selectedProduct?.unit_price ??
+          0
+      );
+
+    if (
+      !selectedProduct ||
+      quantity <= 0 ||
+      !Number.isFinite(unitPrice) ||
+      unitPrice <= 0
+    ) {
+      return;
+    }
+
+    const calculatedAmount =
+      Math.round(
+        quantity *
+          unitPrice *
+          100
+      ) / 100;
+
+    setDebtAmount(
+      String(calculatedAmount)
+    );
+  }, [
+    productId,
+    productQuantity,
+    products,
+  ]);
+
+  useEffect(() => {
     function updateScreen() {
       const width =
         window.innerWidth;
@@ -370,7 +413,7 @@ export default function NewRequestPage() {
               "finance_products"
             )
             .select(
-              "id, product_name, is_active"
+              "id, product_name, unit_price, is_active"
             )
             .eq(
               "branch_id",
@@ -1074,12 +1117,30 @@ export default function NewRequestPage() {
     router.replace("/login");
   }
 
-  function logout() {
-    clearFinanceSession({
-      preserveReturnPath: false,
-    });
+  async function logout() {
+    try {
+      await fetch(
+        "/api/finance/login",
+        {
+          method: "DELETE",
+          credentials:
+            "same-origin",
+          cache: "no-store",
+        }
+      );
+    } catch (error) {
+      console.error(
+        "Finance logout request failed:",
+        error
+      );
+    } finally {
+      clearFinanceSession({
+        preserveReturnPath:
+          false,
+      });
 
-    router.replace("/login");
+      router.replace("/login");
+    }
   }
 
   function retryLists() {
@@ -1114,6 +1175,9 @@ export default function NewRequestPage() {
 
     const debt =
       toNumber(debtAmount);
+
+    const payment =
+      toNumber(paymentAmount);
 
     const deferredPayment =
       toNumber(
@@ -1192,7 +1256,11 @@ export default function NewRequestPage() {
     }
 
     if (debt <= 0) {
-      return "يرجى إدخال مبلغ استحقاق صحيح";
+      return "يرجى إدخال قيمة بضاعة صحيحة";
+    }
+
+    if (payment <= 0) {
+      return "يرجى إدخال مبلغ سداد صحيح";
     }
 
     if (isInstallmentContract) {
@@ -1212,6 +1280,15 @@ export default function NewRequestPage() {
         )
       ) {
         return "عدد الدفعات يجب أن يكون رقمًا صحيحًا";
+      }
+
+      if (
+        deferredCount > 1 &&
+        deferredPayment *
+          (deferredCount - 1) >=
+          payment
+      ) {
+        return "قيمة الدفعة وعدد الدفعات لا يتوافقان مع مبلغ السداد";
       }
     }
 
@@ -1288,125 +1365,46 @@ export default function NewRequestPage() {
     return "";
   }
 
-  function isDuplicateContractNumberError(
-    error:
-      | SupabaseRpcError
-      | null
-      | undefined
-  ) {
-    const combinedMessage = [
-      error?.message,
-      error?.details,
-      error?.hint,
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
-
-    return (
-      error?.code === "23505" ||
-      combinedMessage.includes(
-        "finance_contracts_branch_contract_number_key"
-      ) ||
-      combinedMessage.includes(
-        "duplicate key value"
-      ) ||
-      combinedMessage.includes(
-        "unique constraint"
-      )
-    );
-  }
-
-  function wait(
-    milliseconds: number
-  ) {
-    return new Promise<void>(
-      (resolve) => {
-        window.setTimeout(
-          resolve,
-          milliseconds
-        );
-      }
-    );
-  }
-
-  async function createAtomicRequestWithRetry(
-    rpcPayload: Record<
+  async function sendNewRequestToApi(
+    payload: Record<
       string,
       unknown
     >
-  ): Promise<CreatedRequest> {
-    let lastError:
-      | SupabaseRpcError
-      | null = null;
-
-    for (
-      let attempt = 1;
-      attempt <=
-      MAX_CONTRACT_CREATE_ATTEMPTS;
-      attempt += 1
-    ) {
-      const {
-        data,
-        error,
-      } = await supabase.rpc(
-        "create_new_request_atomic",
-        rpcPayload
-      );
-
-      if (!error) {
-        if (
-          Array.isArray(data)
-        ) {
-          return (
-            (data[0] as CreatedRequest) ||
-            {}
-          );
-        }
-
-        if (
-          data &&
-          typeof data ===
-            "object"
-        ) {
-          return data as CreatedRequest;
-        }
-
-        return {};
+  ): Promise<{
+    response: Response;
+    data: NewRequestApiResponse;
+  }> {
+    const response = await fetch(
+      "/api/finance/new-request",
+      {
+        method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+        body: JSON.stringify(
+          payload
+        ),
       }
+    );
 
-      lastError =
-        error as SupabaseRpcError;
+    let data:
+      NewRequestApiResponse = {};
 
-      if (
-        !isDuplicateContractNumberError(
-          lastError
-        )
-      ) {
-        throw new Error(
-          lastError.message ||
-            "تعذر إنشاء الطلب"
-        );
-      }
-
-      if (
-        attempt <
-        MAX_CONTRACT_CREATE_ATTEMPTS
-      ) {
-        await wait(
-          250 * attempt
-        );
-      }
+    try {
+      data =
+        (await response.json()) as
+          NewRequestApiResponse;
+    } catch {
+      data = {};
     }
 
-    console.error(
-      "Contract number duplicate after retries:",
-      lastError
-    );
-
-    throw new Error(
-      "تعذر إنشاء رقم عقد جديد بسبب تعارض مؤقت في تسلسل أرقام العقود. حاول مرة أخرى."
-    );
+    return {
+      response,
+      data,
+    };
   }
 
   async function createRequest() {
@@ -1482,6 +1480,9 @@ export default function NewRequestPage() {
     const debt =
       toNumber(debtAmount);
 
+    const payment =
+      toNumber(paymentAmount);
+
     const deferredPayment =
       isInstallmentContract
         ? toNumber(
@@ -1500,224 +1501,164 @@ export default function NewRequestPage() {
       setSaving(true);
       renewFinanceSession();
 
-      const {
-        data: stockData,
-        error: stockError,
-      } = await supabase
-        .from(
-          "finance_inventory"
-        )
-        .select("quantity")
-        .eq(
-          "branch_id",
-          branchId
-        )
-        .eq(
-          "investor_id",
-          investorId
-        )
-        .eq(
-          "product_id",
-          productId
-        )
-        .maybeSingle();
+      const birthHijri =
+        `${birthYear}/${birthMonth.padStart(
+          2,
+          "0"
+        )}/${birthDay.padStart(
+          2,
+          "0"
+        )}`;
 
-      if (stockError) {
-        throw new Error(
-          `تعذر التحقق من المخزون: ${stockError.message}`
-        );
-      }
+      const guarantorBirthHijri =
+        hasGuarantor
+          ? `${guarantorBirthYear}/${guarantorBirthMonth.padStart(
+              2,
+              "0"
+            )}/${guarantorBirthDay.padStart(
+              2,
+              "0"
+            )}`
+          : "";
 
-      const beforeQty =
-        Number(
-          stockData?.quantity ||
-            0
-        );
+      const requestPayload = {
+        fullName:
+          fullName.trim(),
 
-      if (beforeQty < qty) {
+        nationalId:
+          cleanNationalId,
+
+        birthHijri,
+
+        phone:
+          cleanPhone,
+
+        workName:
+          workName.trim(),
+
+        address:
+          address.trim(),
+
+        contractType,
+
+        investorId:
+          selectedInvestor.id,
+
+        productId:
+          selectedProduct.id,
+
+        productQuantity:
+          qty,
+
+        printPartyType,
+
+        debtAmount:
+          debt,
+
+        paymentAmount:
+          payment,
+
+        installmentAmount:
+          isInstallmentContract
+            ? deferredPayment
+            : null,
+
+        installmentsCount:
+          isInstallmentContract
+            ? deferredCount
+            : 1,
+
+        firstDueDate:
+          paymentDueDate,
+
+        contractIssueDate,
+
+        contractIssueDateHijri:
+          "",
+
+        legalCity:
+          legalCity.trim(),
+
+        notes:
+          notes.trim(),
+
+        hasGuarantor,
+
+        guarantorName:
+          hasGuarantor
+            ? guarantorName.trim()
+            : "",
+
+        guarantorNationalId:
+          hasGuarantor
+            ? cleanGuarantorNationalId
+            : "",
+
+        guarantorPhone:
+          hasGuarantor
+            ? cleanGuarantorPhone
+            : "",
+
+        guarantorBirthHijri,
+      };
+
+      let apiResult =
+        await sendNewRequestToApi({
+          ...requestPayload,
+          allowNegativeInventory:
+            false,
+        });
+
+      if (
+        !apiResult.response.ok &&
+        apiResult.data.code ===
+          "NEGATIVE_INVENTORY_CONFIRMATION_REQUIRED"
+      ) {
+        const stockText =
+          availableStock === null
+            ? ""
+            : ` المتوفر حاليًا (${availableStock}) والكمية المطلوبة (${qty}).`;
+
         const confirmContinue =
           window.confirm(
-            `الكمية المطلوبة (${qty}) أكبر من المتوفر في المخزون (${beforeQty}). هل تريد الاستمرار والسماح بوصول المخزون إلى السالب؟`
+            `الكمية المطلوبة أكبر من المخزون.${stockText} هل تريد الاستمرار والسماح بوصول المخزون إلى السالب؟`
           );
 
         if (!confirmContinue) {
           return;
         }
+
+        apiResult =
+          await sendNewRequestToApi({
+            ...requestPayload,
+            allowNegativeInventory:
+              true,
+          });
       }
-
-      const {
-        data: branchData,
-        error: branchError,
-      } = await supabase
-        .from(
-          "finance_branches"
-        )
-        .select(
-          "organization_name, commercial_record"
-        )
-        .eq("id", branchId)
-        .maybeSingle();
-
-      if (branchError) {
-        throw new Error(
-          `تعذر جلب بيانات الفرع: ${branchError.message}`
-        );
-      }
-
-      const printPartyName =
-        printPartyType ===
-        "organization"
-          ? branchData
-              ?.organization_name ||
-            localStorage.getItem(
-              "finance_organization_name"
-            ) ||
-            ""
-          : selectedInvestor.investor_name;
-
-      const printPartyIdentifier =
-        printPartyType ===
-        "organization"
-          ? branchData
-              ?.commercial_record ||
-            ""
-          : selectedInvestor.national_id ||
-            "";
-
-      const birthHijri =
-        `${birthDay.padStart(
-          2,
-          "0"
-        )}/${birthMonth.padStart(
-          2,
-          "0"
-        )}/${birthYear}`;
-
-      const guarantorBirthHijri =
-        hasGuarantor
-          ? `${guarantorBirthDay.padStart(
-              2,
-              "0"
-            )}/${guarantorBirthMonth.padStart(
-              2,
-              "0"
-            )}/${guarantorBirthYear}`
-          : "";
-
-      const rpcPayload = {
-        p_branch_id: branchId,
-
-        p_full_name:
-          fullName.trim(),
-
-        p_national_id:
-          cleanNationalId,
-
-        p_birth_hijri:
-          birthHijri,
-
-        p_phone:
-          cleanPhone,
-
-        p_work_name:
-          workName.trim(),
-
-        p_address:
-          address.trim(),
-
-        p_finance_type:
-          contractType,
-
-        p_investor_id:
-          selectedInvestor.id,
-
-        p_investor_name:
-          selectedInvestor.investor_name,
-
-        p_product_id:
-          selectedProduct.id,
-
-        p_product_name:
-          selectedProduct.product_name,
-
-        p_product_quantity:
-          qty,
-
-        p_print_party_type:
-          printPartyType,
-
-        p_print_party_name:
-          printPartyName,
-
-        p_print_party_identifier:
-          printPartyIdentifier ||
-          "",
-
-        p_debt_amount:
-          debt,
-
-        p_payment_amount:
-          debt,
-
-        p_has_deferred_payments:
-          isInstallmentContract,
-
-        p_installment_amount:
-          deferredPayment,
-
-        p_deferred_payments_count:
-          deferredCount,
-
-        p_payment_type:
-          isInstallmentContract
-            ? "دفعات شهرية"
-            : "دفعة آجلة واحدة",
-
-        p_payment_due_date:
-          paymentDueDate,
-
-        p_contract_issue_date_gregorian:
-          contractIssueDate,
-
-        p_contract_issue_date_hijri:
-          "",
-
-        p_legal_city:
-          legalCity.trim(),
-
-        p_notes:
-          notes.trim(),
-
-        p_has_guarantor:
-          hasGuarantor,
-
-        p_guarantor_name:
-          hasGuarantor
-            ? guarantorName.trim()
-            : "",
-
-        p_guarantor_national_id:
-          hasGuarantor
-            ? cleanGuarantorNationalId
-            : "",
-
-        p_guarantor_phone:
-          hasGuarantor
-            ? cleanGuarantorPhone
-            : "",
-
-        p_guarantor_birth_hijri:
-          guarantorBirthHijri,
-      };
-
-      const created =
-        await createAtomicRequestWithRetry(
-          rpcPayload
-        );
 
       if (
-        !created.contract_id ||
-        !created.note_id
+        apiResult.response.status ===
+          401 ||
+        apiResult.data.code ===
+          "INVALID_SESSION"
+      ) {
+        redirectToLogin(true);
+        return;
+      }
+
+      if (
+        !apiResult.response.ok ||
+        apiResult.data.ok !== true
+      ) {
+        throw new Error(
+          apiResult.data.message ||
+            "تعذر إنشاء الطلب الجديد"
+        );
+      }
+
+      if (
+        !apiResult.data.contractId ||
+        !apiResult.data.noteId
       ) {
         throw new Error(
           "تم إنشاء الطلب لكن لم يتم إرجاع بيانات العقد والسند للطباعة"
@@ -1729,7 +1670,7 @@ export default function NewRequestPage() {
       );
 
       router.push(
-        `/finance/${branch}/new-request/print/${created.contract_id}/${created.note_id}`
+        `/finance/${branch}/new-request/print/${apiResult.data.contractId}/${apiResult.data.noteId}`
       );
     } catch (error: unknown) {
       console.error(
@@ -1911,6 +1852,44 @@ export default function NewRequestPage() {
             </button>
           </section>
         )}
+
+        <section style={card}>
+          <h2 style={sectionTitle}>
+            نوع العقد
+          </h2>
+
+          <Field label="نوع العقد">
+            <CustomSelect
+              value={contractType}
+              placeholder="اختر نوع العقد"
+              options={[
+                {
+                  value: "عقد بيع",
+                  label: "عقد بيع",
+                },
+                {
+                  value: "عقد تقسيط",
+                  label: "عقد تقسيط",
+                },
+              ]}
+              onChange={(value) => {
+                const nextContractType =
+                  value as ContractType;
+
+                setContractType(
+                  nextContractType
+                );
+
+                if (
+                  nextContractType !==
+                  "عقد تقسيط"
+                ) {
+                  resetDeferredPaymentsFields();
+                }
+              }}
+            />
+          </Field>
+        </section>
 
         <section style={card}>
           <h2 style={sectionTitle}>
@@ -2185,45 +2164,28 @@ export default function NewRequestPage() {
             بيانات العقد والسند
           </h2>
 
-          <Field label="نوع العقد">
-            <CustomSelect
-              value={contractType}
-              placeholder="اختر نوع العقد"
-              options={[
-                {
-                  value: "عقد بيع",
-                  label: "عقد بيع",
-                },
-                {
-                  value: "عقد تقسيط",
-                  label: "عقد تقسيط",
-                },
-              ]}
-              onChange={(value) => {
-                const nextContractType =
-                  value as ContractType;
-
-                setContractType(
-                  nextContractType
-                );
-
-                if (
-                  nextContractType !==
-                  "عقد تقسيط"
-                ) {
-                  resetDeferredPaymentsFields();
-                }
-              }}
-            />
-          </Field>
-
-          <Field label="مبلغ الاستحقاق / مبلغ السند">
+          <Field label="قيمة البضاعة - للاستخدام الداخلي">
             <input
               style={input}
               inputMode="decimal"
               value={debtAmount}
               onChange={(event) =>
                 setDebtAmount(
+                  normalizeNumber(
+                    event.target.value
+                  )
+                )
+              }
+            />
+          </Field>
+
+          <Field label="مبلغ السداد / مبلغ العقد والسند">
+            <input
+              style={input}
+              inputMode="decimal"
+              value={paymentAmount}
+              onChange={(event) =>
+                setPaymentAmount(
                   normalizeNumber(
                     event.target.value
                   )
