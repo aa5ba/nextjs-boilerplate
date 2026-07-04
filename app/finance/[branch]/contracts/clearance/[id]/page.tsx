@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { useParams, useRouter } from "next/navigation";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
-import { exportElementToPdf } from "@/lib/exportElementToPdf";
 
 type ScreenType = "mobile" | "tablet" | "desktop";
 
@@ -34,6 +35,7 @@ type CustomerRelation = {
 type ContractData = {
   id: string;
   branch_id?: string | null;
+  customer_id?: string | null;
   contract_number?: string | null;
   contract_status?: string | null;
   customer_name?: string | null;
@@ -45,10 +47,7 @@ type ContractData = {
   remaining_amount?: number | string | null;
   closed_at?: string | null;
   updated_at?: string | null;
-  finance_customers?:
-    | CustomerRelation
-    | CustomerRelation[]
-    | null;
+  customer?: CustomerRelation | null;
 };
 
 type HeaderProps = {
@@ -97,6 +96,10 @@ export default function ContractClearancePage() {
   const [loading, setLoading] = useState(true);
   const [authChecked, setAuthChecked] = useState(false);
   const [pageError, setPageError] = useState("");
+
+  const [pdfAction, setPdfAction] = useState<
+    "download" | "whatsapp" | null
+  >(null);
 
   const [resolvedBranchId, setResolvedBranchId] =
     useState<string | null>(null);
@@ -431,6 +434,7 @@ export default function ContractClearancePage() {
             `
               id,
               branch_id,
+              customer_id,
               contract_number,
               contract_status,
               customer_name,
@@ -441,12 +445,7 @@ export default function ContractClearancePage() {
               paid_amount,
               remaining_amount,
               closed_at,
-              updated_at,
-              finance_customers(
-                full_name,
-                national_id,
-                phone
-              )
+              updated_at
             `
           )
           .eq("id", contractId)
@@ -518,6 +517,33 @@ export default function ContractClearancePage() {
       const loadedContract =
         contractResult.data as ContractData;
 
+      const customerId = String(
+        loadedContract.customer_id || ""
+      ).trim();
+
+      if (customerId) {
+        const customerResult = await supabase
+          .from("finance_customers")
+          .select("full_name, national_id, phone")
+          .eq("id", customerId)
+          .eq("branch_id", currentBranchId)
+          .maybeSingle();
+
+        if (isCancelled()) {
+          return;
+        }
+
+        if (customerResult.error) {
+          console.error(
+            "Load clearance customer error:",
+            customerResult.error
+          );
+        } else if (customerResult.data) {
+          loadedContract.customer =
+            customerResult.data as CustomerRelation;
+        }
+      }
+
       const remainingAmount = Number(
         loadedContract.remaining_amount ?? 0
       );
@@ -559,14 +585,7 @@ export default function ContractClearancePage() {
   }
 
   function getCustomer() {
-    const relation =
-      contract?.finance_customers;
-
-    if (Array.isArray(relation)) {
-      return relation[0] || null;
-    }
-
-    return relation || null;
+    return contract?.customer || null;
   }
 
   function getCustomerName() {
@@ -587,6 +606,277 @@ export default function ContractClearancePage() {
       contract?.customer_national_id ||
       "-"
     );
+  }
+
+  function getCustomerPhone() {
+    const customer = getCustomer();
+
+    return (
+      customer?.phone ||
+      contract?.customer_phone ||
+      ""
+    );
+  }
+
+  async function createClearancePdf() {
+    const sourceElement = document.getElementById(
+      "clearance-print-area"
+    );
+
+    if (!sourceElement) {
+      throw new Error(
+        "تعذر العثور على محتوى المخالصة"
+      );
+    }
+
+    if (document.fonts?.ready) {
+      await document.fonts.ready;
+    }
+
+    const exportElement =
+      sourceElement.cloneNode(true) as HTMLElement;
+
+    exportElement.removeAttribute("id");
+    exportElement.style.position = "fixed";
+    exportElement.style.top = "0";
+    exportElement.style.left = "-10000px";
+    exportElement.style.width = "190mm";
+    exportElement.style.minHeight = "0";
+    exportElement.style.height = "auto";
+    exportElement.style.margin = "0";
+    exportElement.style.padding = "10mm";
+    exportElement.style.borderRadius = "0";
+    exportElement.style.boxShadow = "none";
+    exportElement.style.overflow = "visible";
+    exportElement.style.background = "#ffffff";
+
+    document.body.appendChild(exportElement);
+
+    try {
+      const canvas = await html2canvas(
+        exportElement,
+        {
+          scale: 2,
+          backgroundColor: "#ffffff",
+          useCORS: true,
+          logging: false,
+          windowWidth:
+            exportElement.scrollWidth,
+          windowHeight:
+            exportElement.scrollHeight,
+        }
+      );
+
+      const pdf = new jsPDF(
+        "p",
+        "mm",
+        "a4"
+      );
+
+      const pageWidth =
+        pdf.internal.pageSize.getWidth();
+
+      const pageHeight =
+        pdf.internal.pageSize.getHeight();
+
+      const margin = 6;
+      const maxWidth =
+        pageWidth - margin * 2;
+      const maxHeight =
+        pageHeight - margin * 2;
+
+      const widthRatio =
+        maxWidth / canvas.width;
+
+      const heightRatio =
+        maxHeight / canvas.height;
+
+      const scale = Math.min(
+        widthRatio,
+        heightRatio
+      );
+
+      const imageWidth =
+        canvas.width * scale;
+
+      const imageHeight =
+        canvas.height * scale;
+
+      const x =
+        (pageWidth - imageWidth) / 2;
+
+      const imageData =
+        canvas.toDataURL(
+          "image/jpeg",
+          0.96
+        );
+
+      pdf.addImage(
+        imageData,
+        "JPEG",
+        x,
+        margin,
+        imageWidth,
+        imageHeight,
+        undefined,
+        "FAST"
+      );
+
+      return pdf;
+    } finally {
+      exportElement.remove();
+    }
+  }
+
+  async function downloadClearancePdf() {
+    if (pdfAction) {
+      return;
+    }
+
+    try {
+      setPdfAction("download");
+
+      const pdf =
+        await createClearancePdf();
+
+      pdf.save(`${pdfFileName}.pdf`);
+    } catch (error) {
+      console.error(
+        "Download clearance PDF error:",
+        error
+      );
+
+      alert(
+        error instanceof Error
+          ? error.message
+          : "تعذر تحميل المخالصة بصيغة PDF"
+      );
+    } finally {
+      setPdfAction(null);
+    }
+  }
+
+  async function shareClearanceOnWhatsApp() {
+    if (pdfAction) {
+      return;
+    }
+
+    const shareCapabilityFile = new File(
+      [""],
+      "clearance.pdf",
+      {
+        type: "application/pdf",
+      }
+    );
+
+    const canShareFiles =
+      typeof navigator.share ===
+        "function" &&
+      typeof navigator.canShare ===
+        "function" &&
+      navigator.canShare({
+        files: [shareCapabilityFile],
+      });
+
+    const fallbackWindow =
+      canShareFiles
+        ? null
+        : window.open(
+            "about:blank",
+            "_blank"
+          );
+
+    try {
+      setPdfAction("whatsapp");
+
+      const pdf =
+        await createClearancePdf();
+
+      const pdfBlob =
+        pdf.output("blob");
+
+      const fileName =
+        `${pdfFileName}.pdf`;
+
+      const pdfFile = new File(
+        [pdfBlob],
+        fileName,
+        {
+          type: "application/pdf",
+        }
+      );
+
+      const shareText =
+        `مخالصة نهائية للعقد رقم ${
+          contract?.contract_number || "-"
+        } باسم ${getCustomerName()}`;
+
+      if (canShareFiles) {
+        await navigator.share({
+          title: "مخالصة نهائية",
+          text: shareText,
+          files: [pdfFile],
+        });
+
+        return;
+      }
+
+      pdf.save(fileName);
+
+      const whatsappNumber =
+        formatWhatsAppNumber(
+          getCustomerPhone()
+        );
+
+      const whatsappBaseUrl =
+        whatsappNumber
+          ? `https://wa.me/${whatsappNumber}`
+          : "https://wa.me/";
+
+      const whatsappUrl =
+        `${whatsappBaseUrl}?text=${encodeURIComponent(
+          `${shareText}\nتم تحميل ملف المخالصة بصيغة PDF؛ أرفقه في المحادثة.`
+        )}`;
+
+      if (fallbackWindow) {
+        fallbackWindow.location.href =
+          whatsappUrl;
+      } else {
+        window.open(
+          whatsappUrl,
+          "_blank",
+          "noopener,noreferrer"
+        );
+      }
+
+      alert(
+        "تم تحميل ملف المخالصة وفتح واتساب. أرفق ملف PDF الذي تم تحميله في المحادثة."
+      );
+    } catch (error) {
+      if (fallbackWindow) {
+        fallbackWindow.close();
+      }
+
+      if (
+        error instanceof DOMException &&
+        error.name === "AbortError"
+      ) {
+        return;
+      }
+
+      console.error(
+        "Share clearance PDF error:",
+        error
+      );
+
+      alert(
+        error instanceof Error
+          ? error.message
+          : "تعذر مشاركة المخالصة"
+      );
+    } finally {
+      setPdfAction(null);
+    }
   }
 
   const clearanceDate = formatGregorianDate(
@@ -717,15 +1007,38 @@ export default function ContractClearancePage() {
 
           <button
             type="button"
-            style={pdfButton}
+            style={{
+              ...pdfButton,
+              ...(pdfAction
+                ? disabledActionButton
+                : {}),
+            }}
             onClick={() =>
-              exportElementToPdf(
-                "clearance-print-area",
-                pdfFileName
-              )
+              void downloadClearancePdf()
             }
+            disabled={Boolean(pdfAction)}
           >
-            📄 تحميل PDF
+            {pdfAction === "download"
+              ? "جاري تجهيز PDF..."
+              : "📄 تحميل PDF"}
+          </button>
+
+          <button
+            type="button"
+            style={{
+              ...whatsappButton,
+              ...(pdfAction
+                ? disabledActionButton
+                : {}),
+            }}
+            onClick={() =>
+              void shareClearanceOnWhatsApp()
+            }
+            disabled={Boolean(pdfAction)}
+          >
+            {pdfAction === "whatsapp"
+              ? "جاري تجهيز المشاركة..."
+              : "🟢 إرسال واتساب"}
           </button>
 
           <button
@@ -969,6 +1282,37 @@ function Info({
   );
 }
 
+function formatWhatsAppNumber(
+  value: string
+) {
+  const normalized = value
+    .replace(/[٠-٩]/g, (digit) =>
+      String(
+        digit.charCodeAt(0) - 1632
+      )
+    )
+    .replace(/[۰-۹]/g, (digit) =>
+      String(
+        digit.charCodeAt(0) - 1776
+      )
+    )
+    .replace(/[^0-9]/g, "");
+
+  if (/^05\d{8}$/.test(normalized)) {
+    return `966${normalized.slice(1)}`;
+  }
+
+  if (/^5\d{8}$/.test(normalized)) {
+    return `966${normalized}`;
+  }
+
+  if (/^9665\d{8}$/.test(normalized)) {
+    return normalized;
+  }
+
+  return "";
+}
+
 function formatGregorianDate(
   date?: string | null
 ) {
@@ -1180,6 +1524,19 @@ const pdfButton: CSSProperties = {
   ...printButton,
   background:
     "linear-gradient(135deg,#0d47a1,#1976d2)",
+};
+
+const whatsappButton: CSSProperties = {
+  ...printButton,
+  background:
+    "linear-gradient(135deg,#25d366,#128c4a)",
+  boxShadow:
+    "0 10px 24px rgba(18,140,74,0.28)",
+};
+
+const disabledActionButton: CSSProperties = {
+  opacity: 0.65,
+  cursor: "not-allowed",
 };
 
 const retryButton: CSSProperties = {
