@@ -1,3 +1,4 @@
+
 "use client";
 
 import {
@@ -225,9 +226,6 @@ const SESSION_KEYS = [
   "finance_last_activity_at",
   "finance_return_to",
 ] as const;
-
-const FIXED_DUE_PHRASE =
-  "وتستحق الدفع عند الطلب";
 
 const LEGAL_FOOTER_TEXT =
   "هذا السند واجب الدفع بموجب قرار مجلس الوزراء رقم ٦٩٢ و تاريخ ٢٦ / ٩ / ١٣٨٣ هـ\nوالمتوج بالمرسوم الملكي رقم ٣٧ و تاريخ ١١ / ١٠ / ١٣٨٣ هـ / نظام الأوراق التجاريه - ويسري على هذا السند جميع القرارات والأنظمه والتنظيمات في المملكة العربية السعودية";
@@ -1110,7 +1108,7 @@ export default function PrintNewRequestPage() {
         }
 
         .note-legal-body {
-          margin-top: 2mm !important;
+          margin-top: 1.5mm !important;
           flex: 0 0 auto !important;
         }
 
@@ -1851,6 +1849,11 @@ export default function PrintNewRequestPage() {
   const dueDate =
     formatDateOnly(rawDueDate);
 
+  const noteDueDateDisplay =
+    rawDueDate
+      ? dueDate
+      : "عند الطلب";
+
   const installmentAmount =
     Number(
       contract?.installment_amount ||
@@ -1929,9 +1932,9 @@ export default function PrintNewRequestPage() {
       : "رقم الهوية";
 
   const noteAmount = Number(
-    note?.amount ||
-      contract?.payment_amount ||
+    contract?.payment_amount ||
       contract?.debt_amount ||
+      note?.amount ||
       0
   );
 
@@ -1941,7 +1944,6 @@ export default function PrintNewRequestPage() {
       : 0;
 
   const amountWords =
-    note?.amount_words?.trim() ||
     amountToArabicWords(
       safeNoteAmount
     );
@@ -2473,6 +2475,21 @@ export default function PrintNewRequestPage() {
                   ريال سعودي
                 </strong>
               </div>
+
+              <div
+                style={
+                  noteDocumentDueBox
+                }
+              >
+                <span>
+                  الاستحقاق:
+                </span>
+
+                <strong>
+                  دفعة واحدة بتاريخ{" "}
+                  {noteDueDateDisplay}
+                </strong>
+              </div>
             </header>
 
             <section
@@ -2515,11 +2532,13 @@ export default function PrintNewRequestPage() {
               </p>
 
               <p style={noteLegalParagraph}>
-                وذلك قيمة المبلغ المستحق
-                على المدين للمستفيد،{" "}
+                وذلك قيمة كامل المبلغ
+                المستحق على المدين
+                للمستفيد، ويستحق كامل
+                مبلغ هذا السند{" "}
                 <strong>
-                  {note.due_phrase ||
-                    FIXED_DUE_PHRASE}
+                  دفعة واحدة بتاريخ{" "}
+                  {noteDueDateDisplay}
                 </strong>
                 .
               </p>
@@ -2667,11 +2686,8 @@ export default function PrintNewRequestPage() {
               className="note-signature-grid"
               style={{
                 ...noteSignatureGrid,
-
                 gridTemplateColumns:
-                  hasGuarantor
-                    ? "repeat(2,minmax(0,1fr))"
-                    : "minmax(0,1fr)",
+                  "minmax(0,1fr)",
               }}
             >
               <div
@@ -2703,39 +2719,6 @@ export default function PrintNewRequestPage() {
                   التوقيع:
                 </div>
               </div>
-
-              {hasGuarantor && (
-                <div
-                  style={
-                    noteSignatureBox
-                  }
-                >
-                  <h2
-                    style={
-                      noteSignatureTitle
-                    }
-                  >
-                    توقيع الكفيل
-                  </h2>
-
-                  <div
-                    style={
-                      noteSignatureName
-                    }
-                  >
-                    الاسم:{" "}
-                    {guarantorName}
-                  </div>
-
-                  <div
-                    style={
-                      noteSignatureLine
-                    }
-                  >
-                    التوقيع:
-                  </div>
-                </div>
-              )}
             </section>
 
             {hasGuarantor && (
@@ -2750,7 +2733,7 @@ export default function PrintNewRequestPage() {
                     noteGuarantorTitle
                   }
                 >
-                  بيانات الكفيل
+                  بيانات وتوقيع الكفيل
                 </h2>
 
                 <div
@@ -2780,6 +2763,13 @@ export default function PrintNewRequestPage() {
                     }
                   />
 
+                  <NoteDataRow
+                    label="تاريخ الميلاد"
+                    value={
+                      guarantorBirthHijri
+                    }
+                  />
+
                   {note.guarantor_work_name && (
                     <NoteDataRow
                       label="العمل"
@@ -2788,6 +2778,15 @@ export default function PrintNewRequestPage() {
                       }
                     />
                   )}
+                </div>
+
+                <div
+                  style={
+                    noteGuarantorSignatureLine
+                  }
+                >
+                  التوقيع:
+                  ................................
                 </div>
               </section>
             )}
@@ -3814,6 +3813,25 @@ const noteDocumentAmountValue:
     fontWeight: 900,
   };
 
+const noteDocumentDueBox:
+  CSSProperties = {
+    display: "flex",
+
+    alignItems: "center",
+
+    justifyContent: "center",
+
+    gap: "2mm",
+
+    marginTop: "1.8mm",
+
+    color: "#0f2b55",
+
+    fontSize: "10.8pt",
+
+    lineHeight: 1.45,
+  };
+
 const noteLegalBodySection:
   CSSProperties = {
     marginTop: "3.2mm",
@@ -4022,6 +4040,22 @@ const noteGuarantorDetailsGrid:
       "repeat(2,minmax(0,1fr))",
 
     columnGap: "5mm",
+  };
+
+const noteGuarantorSignatureLine:
+  CSSProperties = {
+    marginTop: "2mm",
+
+    paddingTop: "2mm",
+
+    borderTop:
+      "0.25mm solid #e2e8f0",
+
+    color: "#111827",
+
+    fontSize: "10.7pt",
+
+    fontWeight: 900,
   };
 
 const noteLegalFooterBox:
