@@ -467,6 +467,13 @@ export default function EhtisabPage() {
           </div>
         </header>
 
+        <div
+          role="note"
+          style={getResponsibleFinanceNoticeStyle(screen)}
+        >
+          يتم الاحتساب وفقًا لمبادئ التمويل المسؤول للأفراد حسب تعليمات البنك المركزي السعودي
+        </div>
+
         <section style={getCardStyle(screen)}>
           <SectionHeading
             icon="🧮"
@@ -1358,6 +1365,30 @@ function getHeroActionBoxStyle(screen: ScreenType): CSSProperties {
     display: "flex",
     justifyContent: screen === "desktop" ? "flex-end" : "center",
     order: screen === "desktop" ? 0 : 3,
+  }
+}
+
+function getResponsibleFinanceNoticeStyle(
+  screen: ScreenType
+): CSSProperties {
+  return {
+    width: "100%",
+    boxSizing: "border-box",
+    marginTop: screen === "mobile" ? 12 : 14,
+    padding:
+      screen === "mobile"
+        ? "9px 12px"
+        : "10px 16px",
+    borderRadius: 12,
+    border: "1px solid rgba(30, 64, 175, 0.16)",
+    background: "rgba(239, 246, 255, 0.92)",
+    color: "#173b72",
+    fontFamily: "var(--font-almarai), sans-serif",
+    fontSize: screen === "mobile" ? 11 : 12,
+    fontWeight: 800,
+    lineHeight: 1.8,
+    textAlign: "center",
+    boxShadow: "0 8px 20px rgba(30, 64, 175, 0.06)",
   }
 }
 
