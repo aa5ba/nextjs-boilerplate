@@ -1180,4 +1180,3 @@ const backButtonStyle: CSSProperties = {
   cursor: "pointer",
   boxShadow: "0 10px 22px rgba(21,128,61,0.22)",
 }
-
