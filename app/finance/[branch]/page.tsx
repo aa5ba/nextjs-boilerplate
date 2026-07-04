@@ -120,7 +120,7 @@ type MainSection = {
   icon: string;
   color: string;
   bg: string;
-  permission: string;
+  permission?: string;
 };
 
 type DrawerLink = {
@@ -282,12 +282,19 @@ const sections: MainSection[] = [
     permission: "follow_up",
   },
   {
-    title: "العملاء",
-    path: "customers",
-    icon: "👥",
-    color: "#0284c7",
-    bg: "linear-gradient(135deg,#f0f9ff,#e0f2fe)",
-    permission: "customers",
+    title: "احتساب التمويل",
+    path: "ehtisab",
+    icon: "🧮",
+    color: "#d97706",
+    bg: "linear-gradient(135deg,#fffbeb,#fef3c7)",
+  },
+  {
+    title: "المخزون",
+    path: "inventory",
+    icon: "📦",
+    color: "#0f766e",
+    bg: "linear-gradient(135deg,#f0fdfa,#ccfbf1)",
+    permission: "inventory",
   },
   {
     title: "طلب جديد",
@@ -306,12 +313,12 @@ const sections: MainSection[] = [
     permission: "payments",
   },
   {
-    title: "المخزون",
-    path: "inventory",
-    icon: "📦",
-    color: "#0f766e",
-    bg: "linear-gradient(135deg,#f0fdfa,#ccfbf1)",
-    permission: "inventory",
+    title: "العملاء",
+    path: "customers",
+    icon: "👥",
+    color: "#0284c7",
+    bg: "linear-gradient(135deg,#f0f9ff,#e0f2fe)",
+    permission: "customers",
   },
   {
     title: "العقود",
@@ -322,14 +329,6 @@ const sections: MainSection[] = [
     permission: "contracts",
   },
   {
-    title: "المصروفات",
-    path: "expenses",
-    icon: "🧾",
-    color: "#475569",
-    bg: "linear-gradient(135deg,#f8fafc,#e2e8f0)",
-    permission: "expenses",
-  },
-  {
     title: "الملاحظات",
     path: "notes",
     icon: "✏️",
@@ -338,20 +337,20 @@ const sections: MainSection[] = [
     permission: "notes",
   },
   {
-    title: "إدارة الموظفين والصلاحيات",
-    path: "permissions",
-    icon: "🔐",
-    color: "#334155",
-    bg: "linear-gradient(135deg,#f8fafc,#e2e8f0)",
-    permission: "permissions",
-  },
-  {
     title: "الإعدادات",
     path: "settings",
     icon: "⚙️",
     color: "#0f172a",
     bg: "linear-gradient(135deg,#f1f5f9,#e2e8f0)",
     permission: "settings",
+  },
+  {
+    title: "إدارة الموظفين والصلاحيات",
+    path: "permissions",
+    icon: "🔐",
+    color: "#334155",
+    bg: "linear-gradient(135deg,#f8fafc,#e2e8f0)",
+    permission: "permissions",
   },
 ];
 
@@ -556,6 +555,16 @@ export default function FinancePage() {
 
   const isSupportSession =
     sessionType === "admin_support";
+
+  const isManagerUser = useMemo(
+    () =>
+      roles.some((role) =>
+        MANAGER_ROLES.includes(
+          role.trim().toLowerCase()
+        )
+      ),
+    [roles]
+  );
 
   const today = new Date().toLocaleDateString(
     "en-CA"
@@ -1247,13 +1256,9 @@ export default function FinancePage() {
             "contracts"
           ),
         canViewInventory:
-          hasPermission(
-            "inventory"
-          ),
+          isManagerUser,
         canViewActivities:
-          hasPermission(
-            "workflow"
-          ),
+          isManagerUser,
       },
       () => cancelled
     );
@@ -1266,6 +1271,7 @@ export default function FinancePage() {
     branchId,
     permissions,
     roles,
+    isManagerUser,
   ]);
 
   useEffect(() => {
@@ -1320,8 +1326,10 @@ export default function FinancePage() {
       return [];
     }
 
-    return sections.filter((item) =>
-      hasPermission(item.permission)
+    return sections.filter(
+      (item) =>
+        !item.permission ||
+        hasPermission(item.permission)
     );
   }, [
     authorized,
@@ -2558,9 +2566,10 @@ export default function FinancePage() {
           </div>
         </section>
 
-        <section
-          style={compactInfoGrid}
-        >
+        {isManagerUser && (
+          <section
+            style={compactInfoGrid}
+          >
           <div style={compactPanel}>
             <div
               style={
@@ -2649,7 +2658,8 @@ export default function FinancePage() {
               )
             )}
           </div>
-        </section>
+          </section>
+        )}
       </div>
 
       <SideDrawer
