@@ -602,8 +602,7 @@ export async function POST(
       debtAmount === null ||
       paymentAmount === null ||
       !validIsoDate(firstDueDate) ||
-      !validIsoDate(contractIssueDate) ||
-      !legalCity
+      !validIsoDate(contractIssueDate)
     ) {
       return errorResponse(
         "تحقق من بيانات العميل والعقد والمبالغ والتواريخ",
@@ -677,7 +676,7 @@ export async function POST(
 
     const { data: rpcData, error: rpcError } =
       await supabaseAdmin.rpc(
-        "create_new_request_secure_atomic",
+        "create_new_request_secure_optional_city_atomic",
         {
           p_branch_id: session.branchId,
           p_employee_id: session.userId,
@@ -706,7 +705,7 @@ export async function POST(
           p_contract_issue_date_hijri:
             contractIssueDateHijri || null,
 
-          p_legal_city: legalCity,
+          p_legal_city: legalCity || null,
           p_notes: notes || null,
 
           p_has_guarantor: hasGuarantor,
