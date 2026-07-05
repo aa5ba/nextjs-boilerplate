@@ -2580,7 +2580,7 @@ export default function NewRequestPage() {
             <input
               style={input}
               value={legalCity}
-              placeholder="اتركه فارغًا عند عدم الحاجة"
+              placeholder="اختياري"
               onChange={(event) =>
                 setLegalCity(
                   event.target.value
