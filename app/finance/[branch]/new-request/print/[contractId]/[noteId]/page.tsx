@@ -1785,9 +1785,10 @@ export default function PrintNewRequestPage() {
     "................";
 
   const birthHijri =
-    customer?.birth_hijri ||
-    contract?.customer_birth_hijri ||
-    "................";
+    formatHijriDate(
+      customer?.birth_hijri ||
+        contract?.customer_birth_hijri
+    );
 
   const firstPartyType = String(
     contract?.print_party_type ||
@@ -1822,10 +1823,31 @@ export default function PrintNewRequestPage() {
         organizationSettings.commercialRecord ||
         "";
 
-  const firstPartyIdentifierLabel =
-    isInvestorParty
-      ? "رقم الهوية"
-      : "سجل تجاري رقم";
+  const contractFirstPartyName =
+    organizationSettings.name ||
+    "................";
+
+  const contractFirstPartyIdentifier =
+    organizationSettings.commercialRecord ||
+    "................";
+
+  const rawContractPaymentAmount =
+    Number(
+      contract?.payment_amount ||
+        0
+    );
+
+  const contractPaymentAmount =
+    Number.isFinite(
+      rawContractPaymentAmount
+    )
+      ? rawContractPaymentAmount
+      : 0;
+
+  const contractPaymentAmountWords =
+    amountToArabicWords(
+      contractPaymentAmount
+    );
 
   const contractIssueDate =
     formatDateOnly(
@@ -1853,23 +1875,6 @@ export default function PrintNewRequestPage() {
     rawDueDate
       ? dueDate
       : "عند الطلب";
-
-  const installmentAmount =
-    Number(
-      contract?.installment_amount ||
-        0
-    );
-
-  const deferredPaymentsCount =
-    Number(
-      contract?.deferred_payments_count ||
-        0
-    );
-
-  const hasDeferredPayments =
-    contract?.has_deferred_payments ===
-      true ||
-    installmentAmount > 0;
 
   const rawGuarantorName =
     guarantorCustomer?.full_name ||
@@ -1908,10 +1913,11 @@ export default function PrintNewRequestPage() {
     "................";
 
   const guarantorBirthHijri =
-    guarantorCustomer?.birth_hijri ||
-    contract?.guarantor_birth_hijri ||
-    note?.guarantor_birth_hijri ||
-    "................";
+    formatHijriDate(
+      guarantorCustomer?.birth_hijri ||
+        contract?.guarantor_birth_hijri ||
+        note?.guarantor_birth_hijri
+    );
 
   const beneficiaryName =
     note?.beneficiary_name?.trim() ||
@@ -1947,6 +1953,10 @@ export default function PrintNewRequestPage() {
     amountToArabicWords(
       safeNoteAmount
     );
+
+  const legalCity = String(
+    contract?.legal_city || ""
+  ).trim();
 
   const noteCity =
     note?.city ||
@@ -2107,13 +2117,12 @@ export default function PrintNewRequestPage() {
               rightInfo={
                 organizationSettings
               }
-              leftItems={[
-                `رقم العقد: ${
-                  contract.contract_number ||
-                  "-"
-                }`,
-                `تاريخ تحرير العقد: ${contractIssueDate}`,
-              ]}
+              contractNumber={
+                contract.contract_number
+              }
+              contractIssueDate={
+                contractIssueDate
+              }
             />
 
             <div
@@ -2136,8 +2145,10 @@ export default function PrintNewRequestPage() {
                 <strong>
                   {nationalId}
                 </strong>
-                ، تاريخ الميلاد /{" "}
-                <strong>
+                {" - "}تاريخ الميلاد /{" "}
+                <strong
+                  style={numericDateText}
+                >
                   {birthHijri}
                 </strong>
                 ، رقم الجوال /{" "}
@@ -2145,24 +2156,27 @@ export default function PrintNewRequestPage() {
                 ، بأني اشتريت من الطرف
                 الأول /{" "}
                 <strong>
-                  {firstPartyName}
+                  {contractFirstPartyName}
                 </strong>
-
-                {firstPartyIdentifier ? (
-                  <>
-                    ،{" "}
-                    {
-                      firstPartyIdentifierLabel
-                    }{" "}
-                    /{" "}
-                    <strong>
-                      {
-                        firstPartyIdentifier
-                      }
-                    </strong>
-                  </>
-                ) : null}
-                .
+                ، سجل تجاري رقم /{" "}
+                <strong>
+                  {
+                    contractFirstPartyIdentifier
+                  }
+                </strong>
+                . بمبلغ وقدره /{" "}
+                <strong>
+                  {formatMoney(
+                    contractPaymentAmount
+                  )}
+                </strong>{" "}
+                (
+                <strong>
+                  {
+                    contractPaymentAmountWords
+                  }
+                </strong>
+                ) ريال سعودي.
               </p>
 
               <p style={contractParagraph}>
@@ -2176,113 +2190,58 @@ export default function PrintNewRequestPage() {
                   {contract.product_quantity ||
                     "-"}
                 </strong>
-                ، بمبلغ دين وقدره /{" "}
-                <strong>
-                  {formatMoney(
-                    contract.debt_amount
-                  )}
-                </strong>{" "}
-                ريال سعودي.
+                .
               </p>
 
               <p style={contractParagraph}>
                 ويلتزم الطرف الثاني
-                بسداد مبلغ وقدره /{" "}
+                بسداد مبلغ الشراء وقدره
+                /{" "}
                 <strong>
                   {formatMoney(
-                    contract.payment_amount
+                    contractPaymentAmount
                   )}
                 </strong>{" "}
-                ريال سعودي
-
-                {hasDeferredPayments ? (
-                  <>
-                    ، على دفعات آجلة
-                    قيمة كل دفعة /{" "}
-                    <strong>
-                      {formatMoney(
-                        installmentAmount
-                      )}
-                    </strong>{" "}
-                    ريال سعودي
-
-                    {deferredPaymentsCount >
-                      0 && (
-                      <>
-                        ، وعددها /{" "}
-                        <strong>
-                          {
-                            deferredPaymentsCount
-                          }
-                        </strong>{" "}
-                        دفعات
-                      </>
-                    )}
-
-                    ، ويكون تاريخ
-                    الاستحقاق بتاريخ /{" "}
-                    <strong>
-                      {dueDate}
-                    </strong>
-                    .
-                  </>
-                ) : (
-                  <>
-                    ، ويكون تاريخ
-                    الاستحقاق بتاريخ /{" "}
-                    <strong>
-                      {dueDate}
-                    </strong>
-                    .
-                  </>
-                )}
-              </p>
-
-              <p style={contractParagraph}>
-                وتكون مدينة التقاضي /{" "}
+                (
                 <strong>
-                  {contract.legal_city ||
-                    "-"}
+                  {
+                    contractPaymentAmountWords
+                  }
+                </strong>
+                ) ريال سعودي، وأن يكون
+                تاريخ السداد بتاريخ /{" "}
+                <strong
+                  style={numericDateText}
+                >
+                  {dueDate}
                 </strong>
                 .
               </p>
 
-              {Number(
-                contract.judicial_amount ||
-                  0
-              ) > 0 && (
+              {legalCity && (
                 <p style={contractParagraph}>
-                  ويكون المبلغ القضائي
-                  المتفق عليه /{" "}
+                  وأن تكون مدينة التقاضي
+                  في حال المطالبة /{" "}
                   <strong>
-                    {formatMoney(
-                      contract.judicial_amount
-                    )}
-                  </strong>{" "}
-                  ريال سعودي.
+                    {legalCity}
+                  </strong>
+                  .
                 </p>
               )}
 
               <p style={contractParagraph}>
                 كما يقر الطرف الثاني
                 بأنه اطلع على كامل بنود
-                هذا العقد، وأنه ملتزم
-                بالسداد في المواعيد
-                المتفق عليها، وفي حال
+                هذا العقد، وأنه قبل
+                البيع وأنه ملتزم
+                بالسداد في الموعد
+                المتفق عليه والمذكور
+                في هذا العقد، وفي حال
                 التأخر يحق للطرف الأول
                 اتخاذ الإجراءات النظامية
                 اللازمة للمطالبة بكامل
                 المبلغ المتبقي.
               </p>
-
-              {contract.notes && (
-                <p style={contractParagraph}>
-                  ملاحظات:{" "}
-                  <strong>
-                    {contract.notes}
-                  </strong>
-                </p>
-              )}
             </div>
 
             <div
@@ -2298,16 +2257,14 @@ export default function PrintNewRequestPage() {
 
                 <div>
                   الاسم /{" "}
-                  {firstPartyName}
+                  {contractFirstPartyName}
                 </div>
 
                 <div>
+                  سجل تجاري رقم /{" "}
                   {
-                    firstPartyIdentifierLabel
-                  }{" "}
-                  /{" "}
-                  {firstPartyIdentifier ||
-                    "................"}
+                    contractFirstPartyIdentifier
+                  }
                 </div>
 
                 <div>
@@ -2377,9 +2334,15 @@ export default function PrintNewRequestPage() {
 
                   <div>
                     تاريخ الميلاد /{" "}
-                    {
-                      guarantorBirthHijri
-                    }
+                    <span
+                      style={
+                        numericDateText
+                      }
+                    >
+                      {
+                        guarantorBirthHijri
+                      }
+                    </span>
                   </div>
                 </div>
 
@@ -2809,11 +2772,17 @@ export default function PrintNewRequestPage() {
 function ContractPrintHeader({
   title,
   rightInfo,
-  leftItems,
+  contractNumber,
+  contractIssueDate,
 }: {
   title: string;
   rightInfo: OrganizationSettings;
-  leftItems: string[];
+  contractNumber:
+    | string
+    | number
+    | null
+    | undefined;
+  contractIssueDate: string;
 }) {
   return (
     <div
@@ -2826,11 +2795,6 @@ function ContractPrintHeader({
       >
         <div>
           المملكة العربية السعودية
-        </div>
-
-        <div>
-          {rightInfo.city ||
-            "................"}
         </div>
 
         <div>
@@ -2865,15 +2829,17 @@ function ContractPrintHeader({
         className="print-header-left"
         style={contractHeaderLeft}
       >
-        {leftItems.map(
-          (item, index) => (
-            <div
-              key={`${item}-${index}`}
-            >
-              {item}
-            </div>
-          )
-        )}
+        <div>
+          رقم العقد:{" "}
+          {contractNumber || "-"}
+        </div>
+
+        <div>
+          تاريخ تحرير العقد:{" "}
+          <span style={numericDateText}>
+            {contractIssueDate}
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -3082,6 +3048,26 @@ function formatMoney(
   ).format(number);
 }
 
+function normalizeDateDigits(
+  value: string
+) {
+  return value
+    .replace(/[٠-٩]/g, (digit) =>
+      String(
+        "٠١٢٣٤٥٦٧٨٩".indexOf(
+          digit
+        )
+      )
+    )
+    .replace(/[۰-۹]/g, (digit) =>
+      String(
+        "۰۱۲۳۴۵۶۷۸۹".indexOf(
+          digit
+        )
+      )
+    );
+}
+
 function formatDateOnly(
   value?: string | null
 ) {
@@ -3089,34 +3075,50 @@ function formatDateOnly(
     return "-";
   }
 
+  const normalized =
+    normalizeDateDigits(
+      String(value).trim()
+    );
+
   const directMatch =
-    /^(\d{4})-(\d{2})-(\d{2})$/.exec(
-      value
+    /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[T\s].*)?$/.exec(
+      normalized
     );
 
   if (directMatch) {
-    return `${directMatch[3]}/${directMatch[2]}/${directMatch[1]}`;
+    return `${directMatch[1]}/${directMatch[2].padStart(
+      2,
+      "0"
+    )}/${directMatch[3].padStart(
+      2,
+      "0"
+    )}`;
   }
 
   const parsedDate =
-    new Date(value);
+    new Date(normalized);
 
   if (
     Number.isNaN(
       parsedDate.getTime()
     )
   ) {
-    return String(value);
+    return normalized;
   }
 
-  return new Intl.DateTimeFormat(
-    "en-GB-u-ca-gregory",
-    {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    }
-  ).format(parsedDate);
+  const year = String(
+    parsedDate.getFullYear()
+  );
+
+  const month = String(
+    parsedDate.getMonth() + 1
+  ).padStart(2, "0");
+
+  const day = String(
+    parsedDate.getDate()
+  ).padStart(2, "0");
+
+  return `${year}/${month}/${day}`;
 }
 
 function formatDisplayDate(
@@ -3126,33 +3128,48 @@ function formatDisplayDate(
     return "—";
   }
 
-  const datePart =
-    String(value).slice(0, 10);
+  return formatDateOnly(value);
+}
+
+function formatHijriDate(
+  value?: string | null
+) {
+  if (!value) {
+    return "................";
+  }
+
+  const normalized =
+    normalizeDateDigits(
+      String(value).trim()
+    )
+      .replace(/[.\-]/g, "/")
+      .replace(/\s+/g, "");
 
   const parts =
-    datePart.split("-");
+    normalized.split("/");
 
-  if (
-    parts.length !== 3
-  ) {
-    return String(value);
+  if (parts.length !== 3) {
+    return normalized;
   }
 
-  const [
-    year,
-    month,
-    day,
-  ] = parts;
+  let year = "";
+  let month = "";
+  let day = "";
 
-  if (
-    !year ||
-    !month ||
-    !day
+  if (parts[0].length === 4) {
+    [year, month, day] = parts;
+  } else if (
+    parts[2].length === 4
   ) {
-    return String(value);
+    [day, month, year] = parts;
+  } else {
+    return normalized;
   }
 
-  return `${day}-${month}-${year}`;
+  return `${year}/${month.padStart(
+    2,
+    "0"
+  )}/${day.padStart(2, "0")}`;
 }
 
 function formatNoteNumber(
@@ -3663,6 +3680,16 @@ const contractParagraph:
     lineHeight: 1.5,
 
     textAlign: "justify",
+  };
+
+const numericDateText:
+  CSSProperties = {
+    display: "inline-block",
+    direction: "ltr",
+    unicodeBidi: "isolate",
+    whiteSpace: "nowrap",
+    fontVariantNumeric:
+      "tabular-nums",
   };
 
 const contractSignatures:
