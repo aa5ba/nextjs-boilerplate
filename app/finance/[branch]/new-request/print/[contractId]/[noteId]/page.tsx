@@ -2137,7 +2137,7 @@ export default function PrintNewRequestPage() {
 
               <p style={contractParagraph}>
                 أقر أنا الموقع أدناه
-                الطرف الثاني /{" "}
+                الطرف الثاني ( المشتري ) /{" "}
                 <strong>
                   {customerName}
                 </strong>
@@ -2154,7 +2154,7 @@ export default function PrintNewRequestPage() {
                 ، رقم الجوال /{" "}
                 <strong>{phone}</strong>
                 ، بأني اشتريت من الطرف
-                الأول /{" "}
+                الأول ( البائع ) /{" "}
                 <strong>
                   {contractFirstPartyName}
                 </strong>
