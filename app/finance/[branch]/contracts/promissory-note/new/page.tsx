@@ -2,7 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
+import {
+  useParams,
+  useRouter,
+} from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
 import { normalizeNumber, toNumber } from "@/lib/numberUtils";
@@ -11,9 +15,13 @@ type ScreenType = "mobile" | "tablet" | "desktop";
 type NoteMode = "independent" | "contract";
 type BeneficiaryType = "organization" | "investor" | "other";
 type BirthDateType = "hijri" | "gregorian";
+type DueMode = "on_demand" | "fixed_date";
+type CustomerLookupTarget = "debtor" | "beneficiary" | "guarantor";
+type LookupStatus = "idle" | "searching" | "not_found" | "error";
 
 type FinanceSessionUser = {
   id?: string;
+  user_id?: string;
   branch_id?: string;
   branch_slug?: string;
   full_name?: string;
@@ -68,6 +76,7 @@ type ContractSearchResult = {
   customer_birth_hijri: string | null;
   customer_work_name: string | null;
   payment_amount: number | null;
+  payment_due_date: string | null;
   legal_city: string | null;
   investor_id: string | null;
   investor_name: string | null;
@@ -84,8 +93,11 @@ type ContractSearchResult = {
   guarantor_phone: string | null;
   guarantor_birth_hijri: string | null;
   guarantor_work_name: string | null;
+  contract_status: string | null;
+  is_archived: boolean;
   customer?: CustomerData | null;
   guarantor_customer?: CustomerData | null;
+  first_installment_due_date?: string | null;
 };
 
 type PartyForm = {
@@ -103,7 +115,42 @@ type PartyForm = {
   notes: string;
 };
 
-type CustomerLookupTarget = "debtor" | "beneficiary" | "guarantor";
+type CustomerLookupApiResponse = {
+  ok?: boolean;
+  found?: boolean;
+  message?: string;
+  code?: string;
+  customer?: {
+    id?: string | null;
+    fullName?: string | null;
+    nationalId?: string | null;
+    birthHijri?: string | null;
+    phone?: string | null;
+    workName?: string | null;
+    address?: string | null;
+  } | null;
+};
+
+type CreateNoteApiResponse = {
+  ok?: boolean;
+  message?: string;
+  code?: string;
+  noteId?: string | null;
+  noteNumber?: string | number | null;
+  amount?: string | number | null;
+  dueDate?: string | null;
+  dueMode?: string | null;
+};
+
+type DropdownLookupState = Record<CustomerLookupTarget, LookupStatus>;
+type LookupMessageState = Record<CustomerLookupTarget, string>;
+
+type ContractBeneficiaryPreview = {
+  type: "organization" | "investor";
+  name: string;
+  identifier: string;
+  phone: string;
+};
 
 const EMPTY_PARTY: PartyForm = {
   customerId: null,
@@ -118,6 +165,18 @@ const EMPTY_PARTY: PartyForm = {
   workName: "",
   identitySource: "",
   notes: "",
+};
+
+const EMPTY_LOOKUP_STATUS: DropdownLookupState = {
+  debtor: "idle",
+  beneficiary: "idle",
+  guarantor: "idle",
+};
+
+const EMPTY_LOOKUP_MESSAGES: LookupMessageState = {
+  debtor: "",
+  beneficiary: "",
+  guarantor: "",
 };
 
 const MANAGER_ROLES = new Set([
@@ -150,93 +209,92 @@ const FINANCE_SESSION_KEYS = [
   "finance_return_to",
 ] as const;
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const HIJRI_DATE_PATTERN =
+  /^[0-9]{4}\/(0[1-9]|1[0-2])\/(0[1-9]|[12][0-9]|30)$/;
+const SESSION_DURATION_MS = 60 * 60 * 1000;
+const ACTIVITY_REFRESH_INTERVAL_MS = 60 * 1000;
+const CUSTOMER_LOOKUP_DELAY_MS = 300;
+
 export default function NewPromissoryNotePage() {
   const params = useParams();
   const router = useRouter();
 
-  const branch = String(params.branch || "");
+  const branch = String(params.branch || "").trim();
 
   const [screen, setScreen] = useState<ScreenType>("desktop");
+  const [requestedContractId, setRequestedContractId] = useState("");
   const [authChecked, setAuthChecked] = useState(false);
   const [loadingPage, setLoadingPage] = useState(true);
-
   const [branchId, setBranchId] = useState("");
   const [branchData, setBranchData] = useState<BranchData | null>(null);
-
   const [currentUser, setCurrentUser] =
     useState<FinanceSessionUser | null>(null);
-
   const [employeeName, setEmployeeName] = useState("الموظف");
-
   const [canCreate, setCanCreate] = useState(false);
   const [canLinkContract, setCanLinkContract] = useState(false);
   const [canManageGuarantor, setCanManageGuarantor] = useState(false);
 
   const [noteMode, setNoteMode] = useState<NoteMode>("independent");
-
   const [contractSearch, setContractSearch] = useState("");
-
   const [contractResults, setContractResults] = useState<
     ContractSearchResult[]
   >([]);
-
   const [selectedContract, setSelectedContract] =
     useState<ContractSearchResult | null>(null);
-
   const [searchingContracts, setSearchingContracts] = useState(false);
+  const [loadingRequestedContract, setLoadingRequestedContract] =
+    useState(false);
   const [showContractResults, setShowContractResults] = useState(false);
 
   const [beneficiaryType, setBeneficiaryType] =
     useState<BeneficiaryType>("organization");
-
   const [beneficiaryInvestorId, setBeneficiaryInvestorId] = useState("");
   const [investors, setInvestors] = useState<Investor[]>([]);
 
-  const [debtor, setDebtor] = useState<PartyForm>({
-    ...EMPTY_PARTY,
-  });
-
+  const [debtor, setDebtor] = useState<PartyForm>({ ...EMPTY_PARTY });
   const [beneficiary, setBeneficiary] = useState<PartyForm>({
     ...EMPTY_PARTY,
   });
-
   const [guarantor, setGuarantor] = useState<PartyForm>({
     ...EMPTY_PARTY,
   });
-
   const [hasGuarantor, setHasGuarantor] = useState(false);
 
   const [amount, setAmount] = useState("");
   const [city, setCity] = useState("");
   const [issueDate, setIssueDate] = useState(getTodayIsoDate());
+  const [dueMode, setDueMode] = useState<DueMode>("on_demand");
+  const [dueDate, setDueDate] = useState("");
   const [notes, setNotes] = useState("");
 
-  const [customerLookupTarget, setCustomerLookupTarget] =
-    useState<CustomerLookupTarget | null>(null);
-
-  const [customerLookupMessage, setCustomerLookupMessage] = useState<
-    Record<CustomerLookupTarget, string>
-  >({
-    debtor: "",
-    beneficiary: "",
-    guarantor: "",
-  });
-
+  const [lookupStatus, setLookupStatus] =
+    useState<DropdownLookupState>({ ...EMPTY_LOOKUP_STATUS });
+  const [lookupMessages, setLookupMessages] =
+    useState<LookupMessageState>({ ...EMPTY_LOOKUP_MESSAGES });
   const [saving, setSaving] = useState(false);
 
   const contractSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
-
+  const lookupTimers = useRef<
+    Partial<Record<CustomerLookupTarget, ReturnType<typeof setTimeout>>>
+  >({});
+  const lookupRequestCounters = useRef<
+    Record<CustomerLookupTarget, number>
+  >({
+    debtor: 0,
+    beneficiary: 0,
+    guarantor: 0,
+  });
   const skipNextContractSearch = useRef(false);
-  const lookupRequestCounter = useRef(0);
+  const loadedQueryContractRef = useRef("");
 
   const isMobile = screen === "mobile";
   const isTablet = screen === "tablet";
   const isCompact = isMobile || isTablet;
-
   const noteAmount = useMemo(() => toNumber(amount), [amount]);
-
   const amountWords = useMemo(() => {
     if (!Number.isFinite(noteAmount) || noteAmount <= 0) {
       return "";
@@ -247,10 +305,32 @@ export default function NewPromissoryNotePage() {
 
   const selectedInvestor = useMemo(
     () =>
-      investors.find((item) => item.id === beneficiaryInvestorId) ||
-      null,
+      investors.find((item) => item.id === beneficiaryInvestorId) || null,
     [investors, beneficiaryInvestorId]
   );
+
+  const contractBeneficiary = useMemo<ContractBeneficiaryPreview | null>(
+    () =>
+      selectedContract
+        ? getContractBeneficiaryPreview(
+            selectedContract,
+            branchData,
+            investors
+          )
+        : null,
+    [selectedContract, branchData, investors]
+  );
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setRequestedContractId(
+        String(
+          new URLSearchParams(window.location.search).get("contractId") ||
+            ""
+        ).trim()
+      );
+    }
+  }, []);
 
   useEffect(() => {
     function updateScreen() {
@@ -266,7 +346,6 @@ export default function NewPromissoryNotePage() {
     }
 
     updateScreen();
-
     window.addEventListener("resize", updateScreen);
 
     return () => {
@@ -286,11 +365,12 @@ export default function NewPromissoryNotePage() {
 
       const storedUser = readStoredFinanceUser();
 
-      if (!storedUser?.id) {
+      if (!storedUser?.id && !storedUser?.user_id) {
         redirectToLogin();
         return;
       }
 
+      const userId = String(storedUser.id || storedUser.user_id || "");
       const sessionExpiresAt = Number(
         localStorage.getItem("finance_session_expires_at") || "0"
       );
@@ -298,21 +378,10 @@ export default function NewPromissoryNotePage() {
       if (
         !Number.isFinite(sessionExpiresAt) ||
         sessionExpiresAt <= 0 ||
-        Date.now() >= sessionExpiresAt
+        Date.now() >= sessionExpiresAt ||
+        storedUser.is_active === false
       ) {
-        clearFinanceSession({
-          preserveReturnPath: true,
-        });
-
-        redirectToLogin();
-        return;
-      }
-
-      if (storedUser.is_active === false) {
-        clearFinanceSession({
-          preserveReturnPath: true,
-        });
-
+        clearFinanceSession({ preserveReturnPath: true });
         redirectToLogin();
         return;
       }
@@ -326,12 +395,10 @@ export default function NewPromissoryNotePage() {
         return;
       }
 
-      const storedBranchId =
+      let resolvedBranchId =
         storedUser.branch_id ||
         localStorage.getItem("finance_branch_id") ||
         "";
-
-      let resolvedBranchId = storedBranchId;
 
       if (!resolvedBranchId) {
         resolvedBranchId = (await getBranchId(branch)) || "";
@@ -351,89 +418,67 @@ export default function NewPromissoryNotePage() {
         storedUser.full_name ||
         storedUser.username ||
         "الموظف";
-
       const normalizedRole = normalizeRole(storedUser.role);
-
       const permissions = Array.isArray(storedUser.permissions)
         ? storedUser.permissions
         : [];
-
       const manager = MANAGER_ROLES.has(normalizedRole);
-
       const createPermission =
         manager || permissions.includes("promissory_note_create");
-
       const linkPermission =
         manager || permissions.includes("promissory_note_link_contract");
-
       const guarantorPermission =
-        manager ||
-        permissions.includes("promissory_note_manage_guarantor");
+        manager || permissions.includes("promissory_note_manage_guarantor");
+
+      const normalizedUser: FinanceSessionUser = {
+        ...storedUser,
+        id: userId,
+        branch_id: resolvedBranchId,
+      };
 
       if (!cancelled) {
-        setCurrentUser(storedUser);
+        setCurrentUser(normalizedUser);
         setEmployeeName(storedUserName);
         setBranchId(resolvedBranchId);
         setCanCreate(createPermission);
         setCanLinkContract(linkPermission);
         setCanManageGuarantor(guarantorPermission);
         setAuthChecked(true);
+        renewFinanceSession();
       }
 
-      const [
-        { data: fetchedBranch, error: branchError },
-        investorsResult,
-      ] = await Promise.all([
+      const [branchResult, investorsResult] = await Promise.all([
         supabase
           .from("finance_branches")
           .select(
-            `
-              id,
-              organization_name,
-              commercial_record,
-              organization_phone,
-              phone,
-              organization_address,
-              city
-            `
+            "id, organization_name, commercial_record, organization_phone, phone, organization_address, city"
           )
           .eq("id", resolvedBranchId)
           .maybeSingle(),
-
         supabase
           .from("finance_investors")
           .select("id, investor_name, national_id, phone, notes")
           .eq("branch_id", resolvedBranchId)
           .eq("is_active", true)
-          .order("is_primary", {
-            ascending: false,
-          })
-          .order("investor_name", {
-            ascending: true,
-          }),
+          .order("is_primary", { ascending: false })
+          .order("investor_name", { ascending: true }),
       ]);
 
       if (cancelled) {
         return;
       }
 
-      if (branchError) {
-        alert(branchError.message || "تعذر تحميل بيانات الفرع");
+      if (branchResult.error) {
+        alert(branchResult.error.message || "تعذر تحميل بيانات الفرع");
       } else {
         const normalizedBranchData =
-          (fetchedBranch as BranchData | null) || null;
-
+          (branchResult.data as BranchData | null) || null;
         setBranchData(normalizedBranchData);
-
-        if (!city && normalizedBranchData?.city) {
-          setCity(String(normalizedBranchData.city));
-        }
+        setCity(normalizedBranchData?.city || "");
       }
 
       if (investorsResult.error) {
-        alert(
-          investorsResult.error.message || "تعذر تحميل المستثمرين"
-        );
+        alert(investorsResult.error.message || "تعذر تحميل المستثمرين");
       } else {
         setInvestors((investorsResult.data as Investor[]) || []);
       }
@@ -449,8 +494,64 @@ export default function NewPromissoryNotePage() {
       if (contractSearchTimer.current) {
         clearTimeout(contractSearchTimer.current);
       }
+
+      Object.values(lookupTimers.current).forEach((timer) => {
+        if (timer) {
+          clearTimeout(timer);
+        }
+      });
     };
   }, [branch, router]);
+
+  useEffect(() => {
+    if (!authChecked || typeof window === "undefined") {
+      return;
+    }
+
+    let lastRefresh = 0;
+
+    function handleActivity() {
+      const now = Date.now();
+
+      if (now - lastRefresh < ACTIVITY_REFRESH_INTERVAL_MS) {
+        return;
+      }
+
+      lastRefresh = now;
+      renewFinanceSession();
+    }
+
+    const events: Array<keyof WindowEventMap> = [
+      "pointerdown",
+      "keydown",
+      "scroll",
+      "touchstart",
+    ];
+
+    events.forEach((eventName) => {
+      window.addEventListener(eventName, handleActivity, {
+        passive: true,
+      });
+    });
+
+    const timer = window.setInterval(() => {
+      const expiresAt = Number(
+        localStorage.getItem("finance_session_expires_at") || "0"
+      );
+
+      if (expiresAt > 0 && Date.now() >= expiresAt) {
+        redirectToLogin();
+      }
+    }, 30 * 1000);
+
+    return () => {
+      events.forEach((eventName) => {
+        window.removeEventListener(eventName, handleActivity);
+      });
+
+      window.clearInterval(timer);
+    };
+  }, [authChecked]);
 
   useEffect(() => {
     if (
@@ -492,13 +593,42 @@ export default function NewPromissoryNotePage() {
         clearTimeout(contractSearchTimer.current);
       }
     };
-  }, [
-    contractSearch,
-    authChecked,
-    branchId,
-    noteMode,
-    canLinkContract,
-  ]);
+  }, [contractSearch, authChecked, branchId, noteMode, canLinkContract]);
+
+  useEffect(() => {
+    if (
+      !authChecked ||
+      !branchId ||
+      !canLinkContract ||
+      !requestedContractId ||
+      loadedQueryContractRef.current === requestedContractId
+    ) {
+      return;
+    }
+
+    if (!UUID_PATTERN.test(requestedContractId)) {
+      loadedQueryContractRef.current = requestedContractId;
+      alert("رابط العقد غير صحيح");
+      return;
+    }
+
+    loadedQueryContractRef.current = requestedContractId;
+    setNoteMode("contract");
+    void loadRequestedContract(requestedContractId);
+  }, [authChecked, branchId, canLinkContract, requestedContractId]);
+
+  function renewFinanceSession() {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const now = Date.now();
+    localStorage.setItem("finance_last_activity_at", String(now));
+    localStorage.setItem(
+      "finance_session_expires_at",
+      String(now + SESSION_DURATION_MS)
+    );
+  }
 
   function clearFinanceSession({
     preserveReturnPath = false,
@@ -520,20 +650,28 @@ export default function NewPromissoryNotePage() {
 
   function redirectToLogin() {
     if (typeof window === "undefined") {
+      router.replace("/login");
       return;
     }
 
-    const returnTo =
-      window.location.pathname + window.location.search;
-
+    const returnTo = window.location.pathname + window.location.search;
     localStorage.setItem("finance_return_to", returnTo);
-
     router.replace(`/login?returnTo=${encodeURIComponent(returnTo)}`);
   }
 
-  function logout() {
-    clearFinanceSession();
-    router.replace("/login");
+  async function logout() {
+    try {
+      await fetch("/api/finance/login", {
+        method: "DELETE",
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+    } catch (error) {
+      console.error("Finance logout failed:", error);
+    } finally {
+      clearFinanceSession();
+      router.replace("/login");
+    }
   }
 
   function changeNoteMode(mode: NoteMode) {
@@ -543,40 +681,43 @@ export default function NewPromissoryNotePage() {
     }
 
     skipNextContractSearch.current = false;
-
     setNoteMode(mode);
     setSelectedContract(null);
     setContractSearch("");
     setContractResults([]);
     setShowContractResults(false);
+    setIssueDate(getTodayIsoDate());
+    setNotes("");
 
     if (mode === "independent") {
       resetFormForIndependentNote();
+    } else {
+      setDebtor({ ...EMPTY_PARTY });
+      setBeneficiary({ ...EMPTY_PARTY });
+      setGuarantor({ ...EMPTY_PARTY });
+      setHasGuarantor(false);
+      setAmount("");
+      setCity("");
+      setDueMode("fixed_date");
+      setDueDate("");
+      clearAllLookupStates();
     }
   }
 
   function resetFormForIndependentNote() {
-    setDebtor({
-      ...EMPTY_PARTY,
-    });
-
-    setBeneficiary({
-      ...EMPTY_PARTY,
-    });
-
-    setGuarantor({
-      ...EMPTY_PARTY,
-    });
-
+    setDebtor({ ...EMPTY_PARTY });
+    setBeneficiary({ ...EMPTY_PARTY });
+    setGuarantor({ ...EMPTY_PARTY });
     setBeneficiaryType("organization");
     setBeneficiaryInvestorId("");
     setHasGuarantor(false);
     setAmount("");
     setCity(branchData?.city || "");
     setIssueDate(getTodayIsoDate());
+    setDueMode("on_demand");
+    setDueDate("");
     setNotes("");
-
-    clearAllLookupMessages();
+    clearAllLookupStates();
   }
 
   async function searchContracts(query: string) {
@@ -590,10 +731,7 @@ export default function NewPromissoryNotePage() {
 
       const normalized = normalizeNumber(query);
       const escaped = escapePostgrestSearch(query);
-
-      const escapedNormalized =
-        escapePostgrestSearch(normalized);
-
+      const escapedNormalized = escapePostgrestSearch(normalized);
       const filters = [
         `customer_name.ilike.%${escaped}%`,
         `customer_national_id.ilike.%${escapedNormalized}%`,
@@ -606,137 +744,169 @@ export default function NewPromissoryNotePage() {
 
       const { data, error } = await supabase
         .from("finance_contracts")
-        .select(
-          `
-            id,
-            contract_number,
-            customer_id,
-            customer_name,
-            customer_national_id,
-            customer_phone,
-            customer_birth_hijri,
-            customer_work_name,
-            payment_amount,
-            legal_city,
-            investor_id,
-            investor_name,
-            print_party_type,
-            print_party_name,
-            print_party_identifier,
-            first_party_type,
-            first_party_name,
-            first_party_identifier,
-            has_guarantor,
-            guarantor_customer_id,
-            guarantor_name,
-            guarantor_national_id,
-            guarantor_phone,
-            guarantor_birth_hijri,
-            guarantor_work_name
-          `
-        )
+        .select(CONTRACT_SELECT_FIELDS)
         .eq("branch_id", branchId)
+        .eq("is_archived", false)
         .or(filters.join(","))
-        .order("created_at", {
-          ascending: false,
-        })
+        .order("created_at", { ascending: false })
         .limit(12);
 
       if (error) {
         throw new Error(error.message);
       }
 
-      const rows = (data as ContractSearchResult[]) || [];
-
-      if (rows.length === 0) {
-        setContractResults([]);
-        return;
-      }
-
-      const customerIds = Array.from(
-        new Set(
-          rows
-            .flatMap((item) => [
-              item.customer_id,
-              item.guarantor_customer_id,
-            ])
-            .filter((value): value is string => Boolean(value))
-        )
+      const hydrated = await hydrateContracts(
+        ((data as ContractSearchResult[]) || []).map((item) => ({
+          ...item,
+          is_archived: Boolean(item.is_archived),
+        }))
       );
 
-      let customersMap = new Map<string, CustomerData>();
-
-      if (customerIds.length > 0) {
-        const {
-          data: customerRows,
-          error: customerError,
-        } = await supabase
-          .from("finance_customers")
-          .select(
-            `
-              id,
-              full_name,
-              national_id,
-              phone,
-              birth_date_type,
-              birth_hijri,
-              birth_gregorian,
-              nationality,
-              address,
-              work,
-              work_name,
-              identity_source,
-              notes
-            `
-          )
-          .eq("branch_id", branchId)
-          .in("id", customerIds);
-
-        if (customerError) {
-          throw new Error(customerError.message);
-        }
-
-        customersMap = new Map(
-          ((customerRows as CustomerData[]) || []).map((item) => [
-            item.id,
-            item,
-          ])
-        );
-      }
-
-      const enrichedRows = rows.map((item) => ({
-        ...item,
-
-        customer: item.customer_id
-          ? customersMap.get(item.customer_id) || null
-          : null,
-
-        guarantor_customer: item.guarantor_customer_id
-          ? customersMap.get(item.guarantor_customer_id) || null
-          : null,
-      }));
-
-      setContractResults(enrichedRows);
+      setContractResults(hydrated);
     } catch (error) {
       setContractResults([]);
-
       alert(getErrorMessage(error, "تعذر البحث عن العقود"));
     } finally {
       setSearchingContracts(false);
     }
   }
 
-  function selectContract(contract: ContractSearchResult) {
-    skipNextContractSearch.current = true;
+  async function loadRequestedContract(contractId: string) {
+    if (!branchId || !canLinkContract) {
+      return;
+    }
 
-    setSelectedContract(contract);
+    try {
+      setLoadingRequestedContract(true);
 
-    setContractSearch(
-      `عقد رقم ${contract.contract_number} - ${
-        contract.customer_name || "بدون اسم"
-      }`
+      const { data, error } = await supabase
+        .from("finance_contracts")
+        .select(CONTRACT_SELECT_FIELDS)
+        .eq("id", contractId)
+        .eq("branch_id", branchId)
+        .eq("is_archived", false)
+        .maybeSingle();
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      if (!data) {
+        throw new Error("العقد غير موجود في هذا الفرع أو مؤرشف");
+      }
+
+      const hydrated = await hydrateContracts([
+        {
+          ...(data as ContractSearchResult),
+          is_archived: Boolean(
+            (data as ContractSearchResult).is_archived
+          ),
+        },
+      ]);
+
+      if (!hydrated[0]) {
+        throw new Error("تعذر تحميل بيانات العقد");
+      }
+
+      applySelectedContract(hydrated[0]);
+    } catch (error) {
+      alert(getErrorMessage(error, "تعذر تحميل العقد المرتبط"));
+    } finally {
+      setLoadingRequestedContract(false);
+    }
+  }
+
+  async function hydrateContracts(
+    rows: ContractSearchResult[]
+  ): Promise<ContractSearchResult[]> {
+    if (!branchId || rows.length === 0) {
+      return rows;
+    }
+
+    const customerIds = Array.from(
+      new Set(
+        rows
+          .flatMap((item) => [
+            item.customer_id,
+            item.guarantor_customer_id,
+          ])
+          .filter((value): value is string => Boolean(value))
+      )
+    );
+    const contractIds = rows.map((item) => item.id);
+    let customersMap = new Map<string, CustomerData>();
+    const installmentMap = new Map<string, string>();
+
+    const [customersResult, installmentsResult] = await Promise.all([
+      customerIds.length > 0
+        ? supabase
+            .from("finance_customers")
+            .select(
+              "id, full_name, national_id, phone, birth_date_type, birth_hijri, birth_gregorian, nationality, address, work, work_name, identity_source, notes"
+            )
+            .eq("branch_id", branchId)
+            .in("id", customerIds)
+        : Promise.resolve({ data: [], error: null }),
+      supabase
+        .from("finance_contract_installments")
+        .select("contract_id, installment_number, due_date")
+        .eq("branch_id", branchId)
+        .in("contract_id", contractIds)
+        .order("installment_number", { ascending: true }),
+    ]);
+
+    if (customersResult.error) {
+      throw new Error(customersResult.error.message);
+    }
+
+    if (installmentsResult.error) {
+      throw new Error(installmentsResult.error.message);
+    }
+
+    customersMap = new Map(
+      (((customersResult.data || []) as CustomerData[]) || []).map(
+        (item) => [item.id, item]
+      )
     );
 
+    (
+      (installmentsResult.data || []) as Array<{
+        contract_id: string;
+        installment_number: number;
+        due_date: string;
+      }>
+    ).forEach((item) => {
+      if (!installmentMap.has(item.contract_id)) {
+        installmentMap.set(item.contract_id, item.due_date);
+      }
+    });
+
+    return rows.map((item) => ({
+      ...item,
+      customer: item.customer_id
+        ? customersMap.get(item.customer_id) || null
+        : null,
+      guarantor_customer: item.guarantor_customer_id
+        ? customersMap.get(item.guarantor_customer_id) || null
+        : null,
+      first_installment_due_date:
+        installmentMap.get(item.id) ||
+        normalizeContractDueDate(item.payment_due_date),
+    }));
+  }
+
+  function applySelectedContract(contract: ContractSearchResult) {
+    const firstDueDate =
+      contract.first_installment_due_date ||
+      normalizeContractDueDate(contract.payment_due_date);
+
+    skipNextContractSearch.current = true;
+    setSelectedContract(contract);
+    setContractSearch(
+      `عقد رقم ${contract.contract_number} - ${
+        contract.customer_name || contract.customer?.full_name || "بدون اسم"
+      }`
+    );
     setShowContractResults(false);
     setContractResults([]);
 
@@ -754,16 +924,15 @@ export default function NewPromissoryNotePage() {
         };
 
     setDebtor(debtorParty);
-
     setAmount(
       contract.payment_amount != null
         ? normalizeNumber(String(contract.payment_amount))
         : ""
     );
-
-    setCity(contract.legal_city || branchData?.city || "");
-
-    applyContractBeneficiary(contract);
+    setCity(contract.legal_city || "");
+    setDueMode("fixed_date");
+    setDueDate(firstDueDate || "");
+    applyContractBeneficiaryState(contract);
 
     const contractHasGuarantor =
       Boolean(contract.has_guarantor) ||
@@ -771,21 +940,11 @@ export default function NewPromissoryNotePage() {
       Boolean(contract.guarantor_customer_id);
 
     if (contractHasGuarantor) {
-      if (!canManageGuarantor) {
-        setHasGuarantor(false);
+      setHasGuarantor(true);
 
-        setGuarantor({
-          ...EMPTY_PARTY,
-        });
-      } else if (contract.guarantor_customer) {
-        setHasGuarantor(true);
-
-        setGuarantor(
-          customerToParty(contract.guarantor_customer)
-        );
+      if (contract.guarantor_customer) {
+        setGuarantor(customerToParty(contract.guarantor_customer));
       } else {
-        setHasGuarantor(true);
-
         setGuarantor({
           ...EMPTY_PARTY,
           customerId: contract.guarantor_customer_id,
@@ -799,85 +958,46 @@ export default function NewPromissoryNotePage() {
       }
     } else {
       setHasGuarantor(false);
-
-      setGuarantor({
-        ...EMPTY_PARTY,
-      });
+      setGuarantor({ ...EMPTY_PARTY });
     }
 
-    clearAllLookupMessages();
+    clearAllLookupStates();
   }
 
-  function applyContractBeneficiary(
+  function applyContractBeneficiaryState(
     contract: ContractSearchResult
   ) {
     const partyType = String(
-      contract.print_party_type ||
-        contract.first_party_type ||
-        ""
+      contract.print_party_type || contract.first_party_type || "organization"
     ).toLowerCase();
 
-    if (
-      partyType === "investor" ||
-      contract.investor_id ||
-      contract.investor_name
-    ) {
+    if (partyType === "investor") {
       setBeneficiaryType("investor");
-
-      if (contract.investor_id) {
-        setBeneficiaryInvestorId(contract.investor_id);
-      } else {
-        const matchingInvestor = investors.find(
-          (item) =>
-            item.investor_name.trim() ===
-            String(contract.investor_name || "").trim()
-        );
-
-        setBeneficiaryInvestorId(matchingInvestor?.id || "");
-      }
-
-      setBeneficiary({
-        ...EMPTY_PARTY,
-      });
-
-      return;
-    }
-
-    if (
-      partyType === "organization" ||
-      contract.print_party_name ||
-      contract.first_party_name
-    ) {
+      setBeneficiaryInvestorId(contract.investor_id || "");
+    } else {
       setBeneficiaryType("organization");
       setBeneficiaryInvestorId("");
-
-      setBeneficiary({
-        ...EMPTY_PARTY,
-      });
-
-      return;
     }
 
-    setBeneficiaryType("organization");
-    setBeneficiaryInvestorId("");
-
-    setBeneficiary({
-      ...EMPTY_PARTY,
-    });
+    setBeneficiary({ ...EMPTY_PARTY });
   }
 
   function changeBeneficiaryType(type: BeneficiaryType) {
+    if (noteMode === "contract") {
+      return;
+    }
+
     setBeneficiaryType(type);
     setBeneficiaryInvestorId("");
-
-    setBeneficiary({
-      ...EMPTY_PARTY,
-    });
-
-    clearLookupMessage("beneficiary");
+    setBeneficiary({ ...EMPTY_PARTY });
+    clearLookupState("beneficiary");
   }
 
   function toggleGuarantor(nextValue: boolean) {
+    if (noteMode === "contract") {
+      return;
+    }
+
     if (nextValue && !canManageGuarantor) {
       alert("ليس لديك صلاحية إضافة أو تعديل الكفيل");
       return;
@@ -886,11 +1006,8 @@ export default function NewPromissoryNotePage() {
     setHasGuarantor(nextValue);
 
     if (!nextValue) {
-      setGuarantor({
-        ...EMPTY_PARTY,
-      });
-
-      clearLookupMessage("guarantor");
+      setGuarantor({ ...EMPTY_PARTY });
+      clearLookupState("guarantor");
     }
   }
 
@@ -899,153 +1016,156 @@ export default function NewPromissoryNotePage() {
     patch: Partial<PartyForm>
   ) {
     if (target === "debtor") {
-      setDebtor((current) => ({
-        ...current,
-        ...patch,
-      }));
-
+      setDebtor((current) => ({ ...current, ...patch }));
       return;
     }
 
     if (target === "beneficiary") {
-      setBeneficiary((current) => ({
-        ...current,
-        ...patch,
-      }));
-
+      setBeneficiary((current) => ({ ...current, ...patch }));
       return;
     }
 
-    setGuarantor((current) => ({
-      ...current,
-      ...patch,
-    }));
+    setGuarantor((current) => ({ ...current, ...patch }));
   }
 
-  function getParty(target: CustomerLookupTarget) {
-    if (target === "debtor") {
-      return debtor;
+  function handlePartyNationalIdChange(
+    target: CustomerLookupTarget,
+    rawValue: string
+  ) {
+    if (noteMode === "contract") {
+      return;
     }
 
-    if (target === "beneficiary") {
-      return beneficiary;
+    const nationalId = normalizeNumber(rawValue)
+      .replace(/[^0-9]/g, "")
+      .slice(0, 10);
+    const timer = lookupTimers.current[target];
+
+    if (timer) {
+      clearTimeout(timer);
     }
 
-    return guarantor;
+    lookupRequestCounters.current[target] += 1;
+    updateParty(target, {
+      ...EMPTY_PARTY,
+      nationalId,
+    });
+    clearLookupState(target);
+
+    if (nationalId.length === 10) {
+      lookupTimers.current[target] = setTimeout(() => {
+        void lookupCustomerByNationalId(target, nationalId);
+      }, CUSTOMER_LOOKUP_DELAY_MS);
+    }
   }
 
   async function lookupCustomerByNationalId(
-    target: CustomerLookupTarget
+    target: CustomerLookupTarget,
+    nationalId: string
   ) {
-    if (!branchId) {
+    if (!branch || nationalId.length !== 10) {
       return;
     }
 
-    const party = getParty(target);
-
-    const nationalId = normalizeNumber(
-      party.nationalId
-    ).trim();
-
-    if (nationalId.length < 5) {
-      clearLookupMessage(target);
-      return;
-    }
-
-    const requestId = ++lookupRequestCounter.current;
+    const requestId = lookupRequestCounters.current[target] + 1;
+    lookupRequestCounters.current[target] = requestId;
+    setLookupStatus((current) => ({
+      ...current,
+      [target]: "searching",
+    }));
+    setLookupMessages((current) => ({ ...current, [target]: "" }));
 
     try {
-      setCustomerLookupTarget(target);
-
-      setCustomerLookupMessage((current) => ({
-        ...current,
-        [target]: "جاري البحث عن العميل...",
-      }));
-
-      const { data, error } = await supabase
-        .from("finance_customers")
-        .select(
-          `
-            id,
-            full_name,
-            national_id,
-            phone,
-            birth_date_type,
-            birth_hijri,
-            birth_gregorian,
-            nationality,
-            address,
-            work,
-            work_name,
-            identity_source,
-            notes
-          `
-        )
-        .eq("branch_id", branchId)
-        .eq("national_id", nationalId)
-        .maybeSingle();
-
-      if (requestId !== lookupRequestCounter.current) {
-        return;
-      }
-
-      if (error) {
-        throw new Error(error.message);
-      }
-
-      if (!data) {
-        updateParty(target, {
-          customerId: null,
-          nationalId,
-        });
-
-        setCustomerLookupMessage((current) => ({
-          ...current,
-          [target]:
-            "لا يوجد ملف سابق، وسيتم إنشاء ملف عميل عند حفظ السند.",
-        }));
-
-        return;
-      }
-
-      updateParty(
-        target,
-        customerToParty(data as CustomerData)
+      const response = await fetch(
+        `/api/finance/customers?branchSlug=${encodeURIComponent(
+          branch
+        )}&nationalId=${encodeURIComponent(nationalId)}`,
+        {
+          method: "GET",
+          credentials: "same-origin",
+          cache: "no-store",
+        }
       );
 
-      setCustomerLookupMessage((current) => ({
-        ...current,
-        [target]:
-          "تم العثور على ملف سابق وتحميل بياناته. أي تعديل سيُحدّث الملف عند الحفظ.",
-      }));
-    } catch (error) {
-      setCustomerLookupMessage((current) => ({
-        ...current,
-        [target]: getErrorMessage(
-          error,
-          "تعذر البحث عن العميل"
-        ),
-      }));
-    } finally {
-      if (requestId === lookupRequestCounter.current) {
-        setCustomerLookupTarget(null);
+      let result: CustomerLookupApiResponse = {};
+
+      try {
+        result = (await response.json()) as CustomerLookupApiResponse;
+      } catch {
+        result = {};
       }
+
+      if (requestId !== lookupRequestCounters.current[target]) {
+        return;
+      }
+
+      if (response.status === 401 || result.code === "INVALID_SESSION") {
+        redirectToLogin();
+        return;
+      }
+
+      if (!response.ok || result.ok !== true) {
+        throw new Error(result.message || "تعذر البحث عن العميل");
+      }
+
+      if (result.found !== true || !result.customer) {
+        updateParty(target, {
+          ...EMPTY_PARTY,
+          nationalId,
+        });
+        setLookupStatus((current) => ({
+          ...current,
+          [target]: "not_found",
+        }));
+        setLookupMessages((current) => ({
+          ...current,
+          [target]:
+            "رقم الهوية غير مسجل في هذا الفرع. أكمل البيانات الجديدة.",
+        }));
+        return;
+      }
+
+      updateParty(target, {
+        ...EMPTY_PARTY,
+        customerId: result.customer.id || null,
+        fullName: String(result.customer.fullName || "").trim(),
+        nationalId: normalizeNumber(
+          String(result.customer.nationalId || nationalId)
+        ).slice(0, 10),
+        phone: normalizeNumber(String(result.customer.phone || "")).slice(
+          0,
+          10
+        ),
+        birthDateType: "hijri",
+        birthHijri: normalizeHijriInput(
+          String(result.customer.birthHijri || "")
+        ),
+        workName: String(result.customer.workName || "").trim(),
+        address: String(result.customer.address || "").trim(),
+      });
+      setLookupStatus((current) => ({ ...current, [target]: "idle" }));
+      setLookupMessages((current) => ({ ...current, [target]: "" }));
+    } catch (error) {
+      if (requestId !== lookupRequestCounters.current[target]) {
+        return;
+      }
+
+      setLookupStatus((current) => ({ ...current, [target]: "error" }));
+      setLookupMessages((current) => ({
+        ...current,
+        [target]: getErrorMessage(error, "تعذر البحث عن العميل"),
+      }));
     }
   }
 
-  function clearLookupMessage(target: CustomerLookupTarget) {
-    setCustomerLookupMessage((current) => ({
-      ...current,
-      [target]: "",
-    }));
+  function clearLookupState(target: CustomerLookupTarget) {
+    setLookupStatus((current) => ({ ...current, [target]: "idle" }));
+    setLookupMessages((current) => ({ ...current, [target]: "" }));
   }
 
-  function clearAllLookupMessages() {
-    setCustomerLookupMessage({
-      debtor: "",
-      beneficiary: "",
-      guarantor: "",
-    });
+  function clearAllLookupStates() {
+    setLookupStatus({ ...EMPTY_LOOKUP_STATUS });
+    setLookupMessages({ ...EMPTY_LOOKUP_MESSAGES });
   }
 
   function validateParty(
@@ -1056,26 +1176,26 @@ export default function NewPromissoryNotePage() {
       return `أدخل اسم ${partyLabel}`;
     }
 
-    if (!party.nationalId.trim()) {
-      return `أدخل رقم هوية ${partyLabel}`;
+    if (!/^\d{10}$/.test(normalizeNumber(party.nationalId))) {
+      return `رقم هوية ${partyLabel} يجب أن يكون 10 أرقام`;
     }
 
-    if (!party.phone.trim()) {
-      return `أدخل رقم جوال ${partyLabel}`;
+    if (!/^05\d{8}$/.test(normalizeNumber(party.phone))) {
+      return `رقم جوال ${partyLabel} يجب أن يكون 10 أرقام ويبدأ بـ 05`;
     }
 
     if (
       party.birthDateType === "hijri" &&
-      !party.birthHijri.trim()
+      !HIJRI_DATE_PATTERN.test(normalizeHijriInput(party.birthHijri))
     ) {
-      return `أدخل تاريخ ميلاد ${partyLabel} الهجري`;
+      return `تاريخ ميلاد ${partyLabel} الهجري غير صحيح`;
     }
 
     if (
       party.birthDateType === "gregorian" &&
-      !party.birthGregorian
+      !parseDateValue(party.birthGregorian)
     ) {
-      return `أدخل تاريخ ميلاد ${partyLabel} الميلادي`;
+      return `تاريخ ميلاد ${partyLabel} الميلادي غير صحيح`;
     }
 
     return null;
@@ -1086,6 +1206,10 @@ export default function NewPromissoryNotePage() {
       return "ليس لديك صلاحية إنشاء سند لأمر";
     }
 
+    if (!issueDate || !parseDateValue(issueDate)) {
+      return "حدد تاريخ تحرير السند";
+    }
+
     if (noteMode === "contract") {
       if (!canLinkContract) {
         return "ليس لديك صلاحية ربط السند بعقد";
@@ -1094,6 +1218,12 @@ export default function NewPromissoryNotePage() {
       if (!selectedContract) {
         return "اختر العقد المرتبط بالسند";
       }
+
+      if (!dueDate) {
+        return "تعذر تحديد تاريخ أول دفعة للعقد";
+      }
+
+      return null;
     }
 
     const debtorError = validateParty(debtor, "المدين");
@@ -1102,18 +1232,12 @@ export default function NewPromissoryNotePage() {
       return debtorError;
     }
 
-    if (
-      beneficiaryType === "investor" &&
-      !beneficiaryInvestorId
-    ) {
+    if (beneficiaryType === "investor" && !beneficiaryInvestorId) {
       return "اختر المستثمر المستفيد";
     }
 
     if (beneficiaryType === "other") {
-      const beneficiaryError = validateParty(
-        beneficiary,
-        "المستفيد"
-      );
+      const beneficiaryError = validateParty(beneficiary, "المستفيد");
 
       if (beneficiaryError) {
         return beneficiaryError;
@@ -1125,13 +1249,17 @@ export default function NewPromissoryNotePage() {
         return "ليس لديك صلاحية إضافة أو تعديل الكفيل";
       }
 
-      const guarantorError = validateParty(
-        guarantor,
-        "الكفيل"
-      );
+      const guarantorError = validateParty(guarantor, "الكفيل");
 
       if (guarantorError) {
         return guarantorError;
+      }
+
+      if (
+        normalizeNumber(guarantor.nationalId) ===
+        normalizeNumber(debtor.nationalId)
+      ) {
+        return "لا يمكن أن يكون المدين كفيلًا لنفسه";
       }
     }
 
@@ -1139,16 +1267,8 @@ export default function NewPromissoryNotePage() {
       return "أدخل مبلغ سند صحيح";
     }
 
-    if (!amountWords) {
-      return "تعذر توليد المبلغ كتابةً";
-    }
-
-    if (!city.trim()) {
-      return "أدخل مدينة تحرير السند";
-    }
-
-    if (!issueDate) {
-      return "حدد تاريخ تحرير السند";
+    if (dueMode === "fixed_date" && !parseDateValue(dueDate)) {
+      return "حدد تاريخ استحقاق صحيحًا";
     }
 
     return null;
@@ -1171,195 +1291,158 @@ export default function NewPromissoryNotePage() {
       return;
     }
 
+    const isContractMode = noteMode === "contract";
+    const isOtherBeneficiary =
+      !isContractMode && beneficiaryType === "other";
+    const hasIndependentGuarantor =
+      !isContractMode && hasGuarantor;
+
     try {
       setSaving(true);
+      renewFinanceSession();
 
-      const { data, error } = await supabase.rpc(
-        "create_promissory_note_complete_atomic",
-        {
-          p_branch_id: branchId,
-          p_employee_id: currentUser.id,
-          p_employee_name: employeeName,
+      const payload = {
+        noteMode,
+        contractId: isContractMode ? selectedContract?.id || "" : "",
+        amount: isContractMode ? null : noteAmount,
+        city: isContractMode ? selectedContract?.legal_city || "" : city,
+        issueDate,
+        notes: notes.trim(),
+        dueMode: isContractMode ? "fixed_date" : dueMode,
+        dueDate:
+          !isContractMode && dueMode === "fixed_date" ? dueDate : "",
+        beneficiaryType: isContractMode ? "organization" : beneficiaryType,
+        beneficiaryInvestorId:
+          !isContractMode && beneficiaryType === "investor"
+            ? beneficiaryInvestorId
+            : "",
+        beneficiaryFullName: isOtherBeneficiary
+          ? beneficiary.fullName.trim()
+          : "",
+        beneficiaryNationalId: isOtherBeneficiary
+          ? normalizeNumber(beneficiary.nationalId)
+          : "",
+        beneficiaryPhone: isOtherBeneficiary
+          ? normalizeNumber(beneficiary.phone)
+          : "",
+        beneficiaryBirthDateType: isOtherBeneficiary
+          ? beneficiary.birthDateType
+          : "",
+        beneficiaryBirthHijri:
+          isOtherBeneficiary && beneficiary.birthDateType === "hijri"
+            ? normalizeHijriInput(beneficiary.birthHijri)
+            : "",
+        beneficiaryBirthGregorian:
+          isOtherBeneficiary && beneficiary.birthDateType === "gregorian"
+            ? beneficiary.birthGregorian
+            : "",
+        beneficiaryNationality: isOtherBeneficiary
+          ? beneficiary.nationality.trim()
+          : "",
+        beneficiaryAddress: isOtherBeneficiary
+          ? beneficiary.address.trim()
+          : "",
+        beneficiaryWorkName: isOtherBeneficiary
+          ? beneficiary.workName.trim()
+          : "",
+        beneficiaryIdentitySource: isOtherBeneficiary
+          ? beneficiary.identitySource.trim()
+          : "",
+        beneficiaryNotes: isOtherBeneficiary
+          ? beneficiary.notes.trim()
+          : "",
+        debtorFullName: isContractMode ? "" : debtor.fullName.trim(),
+        debtorNationalId: isContractMode
+          ? ""
+          : normalizeNumber(debtor.nationalId),
+        debtorPhone: isContractMode ? "" : normalizeNumber(debtor.phone),
+        debtorBirthDateType: isContractMode ? "" : debtor.birthDateType,
+        debtorBirthHijri:
+          !isContractMode && debtor.birthDateType === "hijri"
+            ? normalizeHijriInput(debtor.birthHijri)
+            : "",
+        debtorBirthGregorian:
+          !isContractMode && debtor.birthDateType === "gregorian"
+            ? debtor.birthGregorian
+            : "",
+        debtorNationality: isContractMode
+          ? ""
+          : debtor.nationality.trim(),
+        debtorAddress: isContractMode ? "" : debtor.address.trim(),
+        debtorWorkName: isContractMode ? "" : debtor.workName.trim(),
+        debtorIdentitySource: isContractMode
+          ? ""
+          : debtor.identitySource.trim(),
+        debtorNotes: isContractMode ? "" : debtor.notes.trim(),
+        hasGuarantor: hasIndependentGuarantor,
+        guarantorFullName: hasIndependentGuarantor
+          ? guarantor.fullName.trim()
+          : "",
+        guarantorNationalId: hasIndependentGuarantor
+          ? normalizeNumber(guarantor.nationalId)
+          : "",
+        guarantorPhone: hasIndependentGuarantor
+          ? normalizeNumber(guarantor.phone)
+          : "",
+        guarantorBirthDateType: hasIndependentGuarantor
+          ? guarantor.birthDateType
+          : "",
+        guarantorBirthHijri:
+          hasIndependentGuarantor && guarantor.birthDateType === "hijri"
+            ? normalizeHijriInput(guarantor.birthHijri)
+            : "",
+        guarantorBirthGregorian:
+          hasIndependentGuarantor &&
+          guarantor.birthDateType === "gregorian"
+            ? guarantor.birthGregorian
+            : "",
+        guarantorNationality: hasIndependentGuarantor
+          ? guarantor.nationality.trim()
+          : "",
+        guarantorAddress: hasIndependentGuarantor
+          ? guarantor.address.trim()
+          : "",
+        guarantorWorkName: hasIndependentGuarantor
+          ? guarantor.workName.trim()
+          : "",
+        guarantorIdentitySource: hasIndependentGuarantor
+          ? guarantor.identitySource.trim()
+          : "",
+        guarantorNotes: hasIndependentGuarantor
+          ? guarantor.notes.trim()
+          : "",
+      };
 
-          p_note_mode: noteMode,
+      const response = await fetch("/api/finance/promissory-notes", {
+        method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
 
-          p_contract_id:
-            noteMode === "contract"
-              ? selectedContract?.id || null
-              : null,
+      let result: CreateNoteApiResponse = {};
 
-          p_amount: noteAmount,
-          p_amount_words: amountWords,
-          p_city: city.trim(),
-          p_note_issue_date: issueDate,
-          p_notes: notes.trim() || null,
-
-          p_beneficiary_type: beneficiaryType,
-
-          p_beneficiary_investor_id:
-            beneficiaryType === "investor"
-              ? beneficiaryInvestorId
-              : null,
-
-          p_beneficiary_full_name:
-            beneficiaryType === "other"
-              ? beneficiary.fullName.trim()
-              : null,
-
-          p_beneficiary_national_id:
-            beneficiaryType === "other"
-              ? normalizeNumber(beneficiary.nationalId)
-              : null,
-
-          p_beneficiary_phone:
-            beneficiaryType === "other"
-              ? normalizeNumber(beneficiary.phone)
-              : null,
-
-          p_beneficiary_birth_date_type:
-            beneficiaryType === "other"
-              ? beneficiary.birthDateType
-              : null,
-
-          p_beneficiary_birth_hijri:
-            beneficiaryType === "other" &&
-            beneficiary.birthDateType === "hijri"
-              ? beneficiary.birthHijri.trim()
-              : null,
-
-          p_beneficiary_birth_gregorian:
-            beneficiaryType === "other" &&
-            beneficiary.birthDateType === "gregorian"
-              ? beneficiary.birthGregorian
-              : null,
-
-          p_beneficiary_nationality:
-            beneficiaryType === "other"
-              ? beneficiary.nationality.trim() || null
-              : null,
-
-          p_beneficiary_address:
-            beneficiaryType === "other"
-              ? beneficiary.address.trim() || null
-              : null,
-
-          p_beneficiary_work_name:
-            beneficiaryType === "other"
-              ? beneficiary.workName.trim() || null
-              : null,
-
-          p_beneficiary_identity_source:
-            beneficiaryType === "other"
-              ? beneficiary.identitySource.trim() || null
-              : null,
-
-          p_beneficiary_notes:
-            beneficiaryType === "other"
-              ? beneficiary.notes.trim() || null
-              : null,
-
-          p_debtor_full_name: debtor.fullName.trim(),
-
-          p_debtor_national_id: normalizeNumber(
-            debtor.nationalId
-          ),
-
-          p_debtor_phone: normalizeNumber(debtor.phone),
-
-          p_debtor_birth_date_type: debtor.birthDateType,
-
-          p_debtor_birth_hijri:
-            debtor.birthDateType === "hijri"
-              ? debtor.birthHijri.trim()
-              : null,
-
-          p_debtor_birth_gregorian:
-            debtor.birthDateType === "gregorian"
-              ? debtor.birthGregorian
-              : null,
-
-          p_debtor_nationality:
-            debtor.nationality.trim() || null,
-
-          p_debtor_address: debtor.address.trim() || null,
-
-          p_debtor_work_name:
-            debtor.workName.trim() || null,
-
-          p_debtor_identity_source:
-            debtor.identitySource.trim() || null,
-
-          p_debtor_notes: debtor.notes.trim() || null,
-
-          p_has_guarantor: hasGuarantor,
-
-          p_guarantor_full_name: hasGuarantor
-            ? guarantor.fullName.trim()
-            : null,
-
-          p_guarantor_national_id: hasGuarantor
-            ? normalizeNumber(guarantor.nationalId)
-            : null,
-
-          p_guarantor_phone: hasGuarantor
-            ? normalizeNumber(guarantor.phone)
-            : null,
-
-          p_guarantor_birth_date_type: hasGuarantor
-            ? guarantor.birthDateType
-            : null,
-
-          p_guarantor_birth_hijri:
-            hasGuarantor &&
-            guarantor.birthDateType === "hijri"
-              ? guarantor.birthHijri.trim()
-              : null,
-
-          p_guarantor_birth_gregorian:
-            hasGuarantor &&
-            guarantor.birthDateType === "gregorian"
-              ? guarantor.birthGregorian
-              : null,
-
-          p_guarantor_nationality: hasGuarantor
-            ? guarantor.nationality.trim() || null
-            : null,
-
-          p_guarantor_address: hasGuarantor
-            ? guarantor.address.trim() || null
-            : null,
-
-          p_guarantor_work_name: hasGuarantor
-            ? guarantor.workName.trim() || null
-            : null,
-
-          p_guarantor_identity_source: hasGuarantor
-            ? guarantor.identitySource.trim() || null
-            : null,
-
-          p_guarantor_notes: hasGuarantor
-            ? guarantor.notes.trim() || null
-            : null,
-        }
-      );
-
-      if (error) {
-        throw new Error(error.message);
+      try {
+        result = (await response.json()) as CreateNoteApiResponse;
+      } catch {
+        result = {};
       }
 
-      const result = Array.isArray(data) ? data[0] : data;
-      const noteId = result?.note_id;
+      if (response.status === 401 || result.code === "INVALID_SESSION") {
+        redirectToLogin();
+        return;
+      }
 
-      if (!noteId) {
-        throw new Error(
-          "تم الحفظ ولكن تعذر تحديد رقم السند"
-        );
+      if (!response.ok || result.ok !== true || !result.noteId) {
+        throw new Error(result.message || "تعذر إنشاء السند");
       }
 
       alert("تم إنشاء سند لأمر بنجاح");
-
       router.push(
-        `/finance/${branch}/contracts/promissory-note/print/${noteId}`
+        `/finance/${branch}/contracts/promissory-note/print/${result.noteId}`
       );
     } catch (error) {
       alert(getErrorMessage(error, "تعذر إنشاء السند"));
@@ -1392,7 +1475,7 @@ export default function NewPromissoryNotePage() {
               <HeroUserArea
                 screen={screen}
                 employeeName={employeeName}
-                onLogout={logout}
+                onLogout={() => void logout()}
                 onHome={() => router.push(`/finance/${branch}`)}
               />
 
@@ -1406,9 +1489,7 @@ export default function NewPromissoryNotePage() {
 
           <section style={permissionDeniedCard}>
             <div style={permissionDeniedIcon}>!</div>
-
             <h2 style={permissionDeniedTitle}>غير مصرح</h2>
-
             <p style={permissionDeniedText}>
               ليس لديك صلاحية إنشاء سند لأمر.
             </p>
@@ -1441,7 +1522,7 @@ export default function NewPromissoryNotePage() {
             <HeroUserArea
               screen={screen}
               employeeName={employeeName}
-              onLogout={logout}
+              onLogout={() => void logout()}
               onHome={() => router.push(`/finance/${branch}`)}
             />
 
@@ -1475,6 +1556,10 @@ export default function NewPromissoryNotePage() {
             <div style={sectionBlock}>
               <SectionTitle>اختيار العقد</SectionTitle>
 
+              {loadingRequestedContract && (
+                <div style={linkedInfoBox}>جاري تحميل العقد المرتبط...</div>
+              )}
+
               <div style={searchWrapper}>
                 <label style={labelStyle}>البحث عن العقد</label>
 
@@ -1491,15 +1576,15 @@ export default function NewPromissoryNotePage() {
                     skipNextContractSearch.current = false;
                     setContractSearch(event.target.value);
                     setSelectedContract(null);
+                    setAmount("");
+                    setDueDate("");
                   }}
                 />
 
                 {showContractResults && (
                   <div style={searchResultsBox}>
                     {searchingContracts ? (
-                      <div style={searchStateText}>
-                        جاري البحث...
-                      </div>
+                      <div style={searchStateText}>جاري البحث...</div>
                     ) : contractResults.length === 0 ? (
                       <div style={searchStateText}>
                         لا توجد نتائج مطابقة
@@ -1510,24 +1595,20 @@ export default function NewPromissoryNotePage() {
                           key={contract.id}
                           type="button"
                           style={contractResultButton}
-                          onClick={() => selectContract(contract)}
+                          onClick={() => applySelectedContract(contract)}
                         >
                           <span style={contractResultNumber}>
                             عقد رقم {contract.contract_number}
                           </span>
-
                           <span style={contractResultName}>
-                            {contract.customer_name || "بدون اسم"}
+                            {contract.customer_name ||
+                              contract.customer?.full_name ||
+                              "بدون اسم"}
                           </span>
-
                           <span style={contractResultDetails}>
-                            الهوية:{" "}
-                            {contract.customer_national_id || "—"} ·
-                            الجوال: {contract.customer_phone || "—"} ·
-                            مبلغ العقد:{" "}
-                            {formatMoney(
-                              Number(contract.payment_amount || 0)
-                            )}{" "}
+                            الهوية: {contract.customer_national_id || "—"} ·
+                            الجوال: {contract.customer_phone || "—"} · مبلغ
+                            العقد: {formatMoney(Number(contract.payment_amount || 0))}{" "}
                             ر.س
                           </span>
                         </button>
@@ -1536,321 +1617,334 @@ export default function NewPromissoryNotePage() {
                   </div>
                 )}
               </div>
-
-              {selectedContract && (
-                <div style={selectedContractBox}>
-                  <div>
-                    <span style={selectedContractLabel}>
-                      العقد المحدد
-                    </span>
-
-                    <strong style={selectedContractValue}>
-                      رقم {selectedContract.contract_number}
-                    </strong>
-                  </div>
-
-                  <div>
-                    <span style={selectedContractLabel}>
-                      العميل
-                    </span>
-
-                    <strong style={selectedContractValue}>
-                      {selectedContract.customer_name || "—"}
-                    </strong>
-                  </div>
-
-                  <div>
-                    <span style={selectedContractLabel}>
-                      كامل مبلغ العقد
-                    </span>
-
-                    <strong style={selectedContractValue}>
-                      {formatMoney(
-                        Number(selectedContract.payment_amount || 0)
-                      )}{" "}
-                      ر.س
-                    </strong>
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
-          <div style={sectionBlock}>
-            <SectionTitle>المستفيد</SectionTitle>
+          {noteMode === "contract" && selectedContract && (
+            <div style={sectionBlock}>
+              <SectionTitle>بيانات السند المرتبط</SectionTitle>
 
-            <div style={getThreeColumnGridStyle(isCompact)}>
-              <ChoiceButton
-                active={beneficiaryType === "organization"}
-                onClick={() =>
-                  changeBeneficiaryType("organization")
-                }
-              >
-                المؤسسة
-              </ChoiceButton>
+              <div style={linkedInfoBox}>
+                جميع البيانات التالية مأخوذة من العقد مباشرة ولا يمكن
+                تعديلها من صفحة السند.
+              </div>
 
-              <ChoiceButton
-                active={beneficiaryType === "investor"}
-                onClick={() =>
-                  changeBeneficiaryType("investor")
-                }
-              >
-                مستثمر
-              </ChoiceButton>
-
-              <ChoiceButton
-                active={beneficiaryType === "other"}
-                onClick={() => changeBeneficiaryType("other")}
-              >
-                مستفيد آخر
-              </ChoiceButton>
-            </div>
-
-            {beneficiaryType === "organization" && (
               <div style={beneficiaryPreview}>
                 <PreviewItem
-                  title="اسم المستفيد"
-                  value={
-                    branchData?.organization_name || "غير مسجل"
-                  }
+                  title="رقم العقد"
+                  value={String(selectedContract.contract_number)}
                 />
-
                 <PreviewItem
-                  title="السجل التجاري"
-                  value={
-                    branchData?.commercial_record || "غير مسجل"
-                  }
+                  title="المدين"
+                  value={debtor.fullName || "—"}
                 />
-
                 <PreviewItem
-                  title="الجوال"
+                  title="رقم هوية المدين"
+                  value={debtor.nationalId || "—"}
+                />
+                <PreviewItem
+                  title="المستفيد"
+                  value={contractBeneficiary?.name || "—"}
+                />
+                <PreviewItem
+                  title="صفة المستفيد"
                   value={
-                    branchData?.organization_phone ||
-                    branchData?.phone ||
-                    "غير مسجل"
+                    contractBeneficiary?.type === "investor"
+                      ? "مستثمر"
+                      : "المؤسسة"
                   }
                 />
+                <PreviewItem
+                  title="معرّف المستفيد"
+                  value={contractBeneficiary?.identifier || "—"}
+                />
+                <PreviewItem
+                  title="مبلغ السند"
+                  value={`${formatMoney(noteAmount)} ر.س`}
+                />
+                <PreviewItem
+                  title="تاريخ الاستحقاق"
+                  value={dueDate ? formatDisplayDate(dueDate) : "—"}
+                />
+                <PreviewItem
+                  title="مدينة التقاضي"
+                  value={city || "غير محددة"}
+                />
+                <PreviewItem
+                  title="الكفيل"
+                  value={hasGuarantor ? guarantor.fullName || "—" : "بدون كفيل"}
+                />
+                {hasGuarantor && (
+                  <PreviewItem
+                    title="هوية الكفيل"
+                    value={guarantor.nationalId || "—"}
+                  />
+                )}
               </div>
-            )}
 
-            {beneficiaryType === "investor" && (
-              <>
-                <Field label="المستثمر المستفيد" required>
-                  <select
-                    style={input}
-                    value={beneficiaryInvestorId}
-                    onChange={(event) =>
-                      setBeneficiaryInvestorId(
-                        event.target.value
-                      )
-                    }
+              <Field label="المبلغ كتابةً">
+                <div style={amountWordsBox}>
+                  {amountWords || "تعذر قراءة مبلغ العقد"}
+                </div>
+              </Field>
+            </div>
+          )}
+
+          {noteMode === "independent" && (
+            <>
+              <div style={sectionBlock}>
+                <SectionTitle>المستفيد</SectionTitle>
+
+                <div style={getThreeColumnGridStyle(isCompact)}>
+                  <ChoiceButton
+                    active={beneficiaryType === "organization"}
+                    onClick={() => changeBeneficiaryType("organization")}
                   >
-                    <option value="">اختر المستثمر</option>
+                    المؤسسة
+                  </ChoiceButton>
+                  <ChoiceButton
+                    active={beneficiaryType === "investor"}
+                    onClick={() => changeBeneficiaryType("investor")}
+                  >
+                    مستثمر
+                  </ChoiceButton>
+                  <ChoiceButton
+                    active={beneficiaryType === "other"}
+                    onClick={() => changeBeneficiaryType("other")}
+                  >
+                    مستفيد آخر
+                  </ChoiceButton>
+                </div>
 
-                    {investors.map((investor) => (
-                      <option
-                        key={investor.id}
-                        value={investor.id}
-                      >
-                        {investor.investor_name}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-
-                {selectedInvestor && (
+                {beneficiaryType === "organization" && (
                   <div style={beneficiaryPreview}>
                     <PreviewItem
-                      title="اسم المستثمر"
-                      value={selectedInvestor.investor_name}
+                      title="اسم المستفيد"
+                      value={branchData?.organization_name || "غير مسجل"}
                     />
-
                     <PreviewItem
-                      title="رقم الهوية"
-                      value={
-                        selectedInvestor.national_id ||
-                        "غير مسجل"
-                      }
+                      title="السجل التجاري"
+                      value={branchData?.commercial_record || "غير مسجل"}
                     />
-
                     <PreviewItem
                       title="الجوال"
                       value={
-                        selectedInvestor.phone || "غير مسجل"
+                        branchData?.organization_phone ||
+                        branchData?.phone ||
+                        "غير مسجل"
                       }
                     />
                   </div>
                 )}
-              </>
-            )}
 
-            {beneficiaryType === "other" && (
-              <PartyFields
-                title="بيانات المستفيد"
-                party={beneficiary}
-                target="beneficiary"
-                isCompact={isCompact}
-                lookupMessage={
-                  customerLookupMessage.beneficiary
-                }
-                isLookingUp={
-                  customerLookupTarget === "beneficiary"
-                }
-                onChange={(patch) =>
-                  updateParty("beneficiary", patch)
-                }
-                onNationalIdBlur={() =>
-                  void lookupCustomerByNationalId("beneficiary")
-                }
-              />
-            )}
-          </div>
+                {beneficiaryType === "investor" && (
+                  <>
+                    <Field label="المستثمر المستفيد" required>
+                      <select
+                        style={input}
+                        value={beneficiaryInvestorId}
+                        onChange={(event) =>
+                          setBeneficiaryInvestorId(event.target.value)
+                        }
+                      >
+                        <option value="">اختر المستثمر</option>
+                        {investors.map((investor) => (
+                          <option key={investor.id} value={investor.id}>
+                            {investor.investor_name}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
 
-          <div style={sectionBlock}>
-            <PartyFields
-              title="بيانات المدين"
-              party={debtor}
-              target="debtor"
-              isCompact={isCompact}
-              lookupMessage={customerLookupMessage.debtor}
-              isLookingUp={customerLookupTarget === "debtor"}
-              onChange={(patch) =>
-                updateParty("debtor", patch)
-              }
-              onNationalIdBlur={() =>
-                void lookupCustomerByNationalId("debtor")
-              }
-            />
-          </div>
+                    {selectedInvestor && (
+                      <div style={beneficiaryPreview}>
+                        <PreviewItem
+                          title="اسم المستثمر"
+                          value={selectedInvestor.investor_name}
+                        />
+                        <PreviewItem
+                          title="رقم الهوية"
+                          value={selectedInvestor.national_id || "غير مسجل"}
+                        />
+                        <PreviewItem
+                          title="الجوال"
+                          value={selectedInvestor.phone || "غير مسجل"}
+                        />
+                      </div>
+                    )}
+                  </>
+                )}
 
-          <div style={sectionBlock}>
-            <SectionTitle>بيانات السند</SectionTitle>
-
-            <div style={getFormGridStyle(isCompact)}>
-              <Field label="مبلغ السند" required>
-                <input
-                  style={input}
-                  inputMode="decimal"
-                  placeholder="0"
-                  value={amount}
-                  onChange={(event) =>
-                    setAmount(
-                      normalizeAmountInput(event.target.value)
-                    )
-                  }
-                />
-              </Field>
-
-              <Field label="تاريخ تحرير السند" required>
-                <input
-                  style={input}
-                  type="date"
-                  value={issueDate}
-                  onChange={(event) =>
-                    setIssueDate(event.target.value)
-                  }
-                />
-              </Field>
-
-              <Field
-                label="مدينة التحرير / التقاضي"
-                required
-              >
-                <input
-                  style={input}
-                  placeholder="المدينة"
-                  value={city}
-                  onChange={(event) =>
-                    setCity(event.target.value)
-                  }
-                />
-              </Field>
-
-              <Field label="موعد الاستحقاق">
-                <div style={fixedValueBox}>
-                  وتستحق الدفع عند الطلب
-                </div>
-              </Field>
-            </div>
-
-            <Field label="المبلغ كتابةً">
-              <div style={amountWordsBox}>
-                {amountWords ||
-                  "سيظهر المبلغ كتابةً بعد إدخال الرقم"}
+                {beneficiaryType === "other" && (
+                  <PartyFields
+                    title="بيانات المستفيد"
+                    party={beneficiary}
+                    target="beneficiary"
+                    isCompact={isCompact}
+                    lookupStatus={lookupStatus.beneficiary}
+                    lookupMessage={lookupMessages.beneficiary}
+                    onChange={(patch) => updateParty("beneficiary", patch)}
+                    onNationalIdChange={(value) =>
+                      handlePartyNationalIdChange("beneficiary", value)
+                    }
+                  />
+                )}
               </div>
+
+              <div style={sectionBlock}>
+                <PartyFields
+                  title="بيانات المدين"
+                  party={debtor}
+                  target="debtor"
+                  isCompact={isCompact}
+                  lookupStatus={lookupStatus.debtor}
+                  lookupMessage={lookupMessages.debtor}
+                  onChange={(patch) => updateParty("debtor", patch)}
+                  onNationalIdChange={(value) =>
+                    handlePartyNationalIdChange("debtor", value)
+                  }
+                />
+              </div>
+
+              <div style={sectionBlock}>
+                <SectionTitle>بيانات السند</SectionTitle>
+
+                <div style={getFormGridStyle(isCompact)}>
+                  <Field label="مبلغ السند" required>
+                    <input
+                      style={input}
+                      inputMode="decimal"
+                      placeholder="0"
+                      value={amount}
+                      onChange={(event) =>
+                        setAmount(normalizeAmountInput(event.target.value))
+                      }
+                    />
+                  </Field>
+
+                  <Field label="مدينة التحرير / التقاضي - اختياري">
+                    <input
+                      style={input}
+                      placeholder="اتركها فارغة عند عدم الحاجة"
+                      value={city}
+                      onChange={(event) => setCity(event.target.value)}
+                    />
+                  </Field>
+                </div>
+
+                <Field label="طريقة الاستحقاق" required>
+                  <div style={getModeGridStyle(isMobile)}>
+                    <ChoiceButton
+                      active={dueMode === "on_demand"}
+                      onClick={() => {
+                        setDueMode("on_demand");
+                        setDueDate("");
+                      }}
+                    >
+                      عند الطلب
+                    </ChoiceButton>
+                    <ChoiceButton
+                      active={dueMode === "fixed_date"}
+                      onClick={() => setDueMode("fixed_date")}
+                    >
+                      بتاريخ محدد
+                    </ChoiceButton>
+                  </div>
+                </Field>
+
+                {dueMode === "fixed_date" && (
+                  <Field label="تاريخ الاستحقاق" required>
+                    <ProfessionalDatePicker
+                      value={dueDate}
+                      onChange={setDueDate}
+                      placeholder="اختر تاريخ الاستحقاق"
+                    />
+                  </Field>
+                )}
+
+                <Field label="المبلغ كتابةً">
+                  <div style={amountWordsBox}>
+                    {amountWords || "سيظهر المبلغ كتابةً بعد إدخال الرقم"}
+                  </div>
+                </Field>
+              </div>
+
+              <div style={sectionBlock}>
+                <div style={guarantorHeader}>
+                  <SectionTitle>الكفيل</SectionTitle>
+
+                  <label style={toggleLabel}>
+                    <input
+                      type="checkbox"
+                      checked={hasGuarantor}
+                      disabled={!canManageGuarantor}
+                      onChange={(event) =>
+                        toggleGuarantor(event.target.checked)
+                      }
+                    />
+                    <span>يوجد كفيل</span>
+                  </label>
+                </div>
+
+                {!canManageGuarantor && (
+                  <div style={permissionHint}>
+                    لا تملك صلاحية إضافة أو تعديل الكفيل.
+                  </div>
+                )}
+
+                {hasGuarantor && canManageGuarantor && (
+                  <PartyFields
+                    title="بيانات الكفيل"
+                    party={guarantor}
+                    target="guarantor"
+                    isCompact={isCompact}
+                    lookupStatus={lookupStatus.guarantor}
+                    lookupMessage={lookupMessages.guarantor}
+                    onChange={(patch) => updateParty("guarantor", patch)}
+                    onNationalIdChange={(value) =>
+                      handlePartyNationalIdChange("guarantor", value)
+                    }
+                  />
+                )}
+              </div>
+            </>
+          )}
+
+          <div style={sectionBlock}>
+            <SectionTitle>تحرير السند</SectionTitle>
+
+            <Field label="تاريخ تحرير السند" required>
+              <ProfessionalDatePicker
+                value={issueDate}
+                onChange={setIssueDate}
+                placeholder="اختر تاريخ تحرير السند"
+              />
             </Field>
 
             <Field label="ملاحظات السند">
               <textarea
                 style={textarea}
-                placeholder="الملاحظات التي ستظهر في طباعة السند"
+                placeholder="ملاحظات اختيارية"
                 value={notes}
-                onChange={(event) =>
-                  setNotes(event.target.value)
-                }
+                onChange={(event) => setNotes(event.target.value)}
               />
             </Field>
-          </div>
-
-          <div style={sectionBlock}>
-            <div style={guarantorHeader}>
-              <SectionTitle>الكفيل</SectionTitle>
-
-              <label style={toggleLabel}>
-                <input
-                  type="checkbox"
-                  checked={hasGuarantor}
-                  disabled={!canManageGuarantor}
-                  onChange={(event) =>
-                    toggleGuarantor(event.target.checked)
-                  }
-                />
-
-                <span>يوجد كفيل</span>
-              </label>
-            </div>
-
-            {!canManageGuarantor && (
-              <div style={permissionHint}>
-                لا تملك صلاحية إضافة أو تعديل الكفيل.
-              </div>
-            )}
-
-            {hasGuarantor && canManageGuarantor && (
-              <PartyFields
-                title="بيانات الكفيل"
-                party={guarantor}
-                target="guarantor"
-                isCompact={isCompact}
-                lookupMessage={
-                  customerLookupMessage.guarantor
-                }
-                isLookingUp={
-                  customerLookupTarget === "guarantor"
-                }
-                onChange={(patch) =>
-                  updateParty("guarantor", patch)
-                }
-                onNationalIdBlur={() =>
-                  void lookupCustomerByNationalId("guarantor")
-                }
-              />
-            )}
           </div>
 
           <button
             type="button"
             style={{
               ...primaryButton,
-              opacity: saving ? 0.7 : 1,
-              cursor: saving ? "not-allowed" : "pointer",
+              opacity: saving || loadingRequestedContract ? 0.7 : 1,
+              cursor:
+                saving || loadingRequestedContract
+                  ? "not-allowed"
+                  : "pointer",
             }}
             onClick={() => void createNote()}
-            disabled={saving}
+            disabled={saving || loadingRequestedContract}
           >
-            {saving
-              ? "جاري إنشاء السند..."
-              : "إنشاء سند لأمر"}
+            {saving ? "جاري إنشاء السند..." : "إنشاء سند لأمر"}
           </button>
         </section>
 
@@ -1866,6 +1960,117 @@ export default function NewPromissoryNotePage() {
       </div>
     </main>
   );
+}
+
+const CONTRACT_SELECT_FIELDS = `
+  id,
+  contract_number,
+  customer_id,
+  customer_name,
+  customer_national_id,
+  customer_phone,
+  customer_birth_hijri,
+  customer_work_name,
+  payment_amount,
+  payment_due_date,
+  legal_city,
+  investor_id,
+  investor_name,
+  print_party_type,
+  print_party_name,
+  print_party_identifier,
+  first_party_type,
+  first_party_name,
+  first_party_identifier,
+  has_guarantor,
+  guarantor_customer_id,
+  guarantor_name,
+  guarantor_national_id,
+  guarantor_phone,
+  guarantor_birth_hijri,
+  guarantor_work_name,
+  contract_status,
+  is_archived
+`;
+
+function getContractBeneficiaryPreview(
+  contract: ContractSearchResult,
+  branchData: BranchData | null,
+  investors: Investor[]
+): ContractBeneficiaryPreview {
+  const partyType = String(
+    contract.print_party_type || contract.first_party_type || "organization"
+  ).toLowerCase();
+
+  if (partyType === "investor") {
+    const investor = investors.find(
+      (item) => item.id === contract.investor_id
+    );
+
+    return {
+      type: "investor",
+      name:
+        contract.print_party_name ||
+        contract.first_party_name ||
+        investor?.investor_name ||
+        contract.investor_name ||
+        "غير مسجل",
+      identifier:
+        contract.print_party_identifier ||
+        contract.first_party_identifier ||
+        investor?.national_id ||
+        "غير مسجل",
+      phone: investor?.phone || "غير مسجل",
+    };
+  }
+
+  return {
+    type: "organization",
+    name:
+      contract.print_party_name ||
+      contract.first_party_name ||
+      branchData?.organization_name ||
+      "غير مسجل",
+    identifier:
+      contract.print_party_identifier ||
+      contract.first_party_identifier ||
+      branchData?.commercial_record ||
+      "غير مسجل",
+    phone:
+      branchData?.organization_phone || branchData?.phone || "غير مسجل",
+  };
+}
+
+function normalizeContractDueDate(value: string | null | undefined) {
+  const normalized = normalizeNumber(String(value || "")).trim();
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    return parseDateValue(normalized) ? normalized : null;
+  }
+
+  const dayFirst = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(normalized);
+
+  if (dayFirst) {
+    const iso = `${dayFirst[3]}-${dayFirst[2]}-${dayFirst[1]}`;
+    return parseDateValue(iso) ? iso : null;
+  }
+
+  const yearFirst = /^(\d{4})\/(\d{2})\/(\d{2})$/.exec(normalized);
+
+  if (yearFirst) {
+    const iso = `${yearFirst[1]}-${yearFirst[2]}-${yearFirst[3]}`;
+    return parseDateValue(iso) ? iso : null;
+  }
+
+  return null;
+}
+
+function normalizeHijriInput(value: string) {
+  return normalizeNumber(value)
+    .replace(/[.\-]/g, "/")
+    .replace(/[^0-9/]/g, "")
+    .replace(/\/{2,}/g, "/")
+    .slice(0, 10);
 }
 
 function HeroUserArea({
@@ -1921,65 +2126,60 @@ function PartyFields({
   party,
   target,
   isCompact,
+  lookupStatus,
   lookupMessage,
-  isLookingUp,
   onChange,
-  onNationalIdBlur,
+  onNationalIdChange,
 }: {
   title: string;
   party: PartyForm;
   target: CustomerLookupTarget;
   isCompact: boolean;
+  lookupStatus: LookupStatus;
   lookupMessage: string;
-  isLookingUp: boolean;
   onChange: (patch: Partial<PartyForm>) => void;
-  onNationalIdBlur: () => void;
+  onNationalIdChange: (value: string) => void;
 }) {
   return (
     <div>
       <SectionTitle>{title}</SectionTitle>
 
       <div style={getFormGridStyle(isCompact)}>
+        <Field label="رقم الهوية" required>
+          <input
+            style={input}
+            inputMode="numeric"
+            maxLength={10}
+            autoComplete="off"
+            placeholder="أدخل رقم الهوية للبحث تلقائيًا"
+            value={party.nationalId}
+            onChange={(event) => onNationalIdChange(event.target.value)}
+          />
+        </Field>
+
         <Field label="الاسم الكامل" required>
           <input
             style={input}
             placeholder="الاسم الرباعي"
             value={party.fullName}
             onChange={(event) =>
-              onChange({
-                fullName: event.target.value,
-              })
+              onChange({ fullName: event.target.value })
             }
-          />
-        </Field>
-
-        <Field label="رقم الهوية" required>
-          <input
-            style={input}
-            inputMode="numeric"
-            placeholder="رقم الهوية"
-            value={party.nationalId}
-            onChange={(event) => {
-              onChange({
-                customerId: null,
-                nationalId: normalizeNumber(
-                  event.target.value
-                ),
-              });
-            }}
-            onBlur={onNationalIdBlur}
           />
         </Field>
 
         <Field label="رقم الجوال" required>
           <input
             style={input}
-            inputMode="tel"
+            inputMode="numeric"
+            maxLength={10}
             placeholder="05xxxxxxxx"
             value={party.phone}
             onChange={(event) =>
               onChange({
-                phone: normalizeNumber(event.target.value),
+                phone: normalizeNumber(event.target.value)
+                  .replace(/[^0-9]/g, "")
+                  .slice(0, 10),
               })
             }
           />
@@ -1995,12 +2195,8 @@ function PartyFields({
 
               onChange({
                 birthDateType,
-
                 birthHijri:
-                  birthDateType === "hijri"
-                    ? party.birthHijri
-                    : "",
-
+                  birthDateType === "hijri" ? party.birthHijri : "",
                 birthGregorian:
                   birthDateType === "gregorian"
                     ? party.birthGregorian
@@ -2018,28 +2214,24 @@ function PartyFields({
             <input
               style={input}
               inputMode="numeric"
-              placeholder="مثال: ١٤١٠/٠٥/١٢"
+              maxLength={10}
+              placeholder="1440/05/12"
               value={party.birthHijri}
               onChange={(event) =>
                 onChange({
-                  birthHijri: normalizeNumber(
-                    event.target.value
-                  ),
+                  birthHijri: normalizeHijriInput(event.target.value),
                 })
               }
             />
           </Field>
         ) : (
           <Field label="تاريخ الميلاد الميلادي" required>
-            <input
-              style={input}
-              type="date"
+            <ProfessionalDatePicker
               value={party.birthGregorian}
-              onChange={(event) =>
-                onChange({
-                  birthGregorian: event.target.value,
-                })
+              onChange={(value) =>
+                onChange({ birthGregorian: value })
               }
+              placeholder="اختر تاريخ الميلاد"
             />
           </Field>
         )}
@@ -2050,9 +2242,7 @@ function PartyFields({
             placeholder="الجنسية"
             value={party.nationality}
             onChange={(event) =>
-              onChange({
-                nationality: event.target.value,
-              })
+              onChange({ nationality: event.target.value })
             }
           />
         </Field>
@@ -2063,9 +2253,7 @@ function PartyFields({
             placeholder="جهة أو مسمى العمل"
             value={party.workName}
             onChange={(event) =>
-              onChange({
-                workName: event.target.value,
-              })
+              onChange({ workName: event.target.value })
             }
           />
         </Field>
@@ -2076,9 +2264,7 @@ function PartyFields({
             placeholder="مصدر إصدار الهوية"
             value={party.identitySource}
             onChange={(event) =>
-              onChange({
-                identitySource: event.target.value,
-              })
+              onChange({ identitySource: event.target.value })
             }
           />
         </Field>
@@ -2089,53 +2275,304 @@ function PartyFields({
           style={input}
           placeholder="العنوان"
           value={party.address}
-          onChange={(event) =>
-            onChange({
-              address: event.target.value,
-            })
-          }
+          onChange={(event) => onChange({ address: event.target.value })}
         />
       </Field>
 
-      <Field
-        label={`ملاحظات ${getPartyDisplayLabel(target)}`}
-      >
+      <Field label={`ملاحظات ${getPartyDisplayLabel(target)}`}>
         <textarea
           style={smallTextarea}
           placeholder="ملاحظات اختيارية"
           value={party.notes}
-          onChange={(event) =>
-            onChange({
-              notes: event.target.value,
-            })
-          }
+          onChange={(event) => onChange({ notes: event.target.value })}
         />
       </Field>
 
-      {(lookupMessage || isLookingUp) && (
+      {lookupStatus !== "idle" && (
         <div
+          role={lookupStatus === "error" ? "alert" : "status"}
+          aria-live="polite"
           style={{
             ...lookupMessageBox,
-
-            borderColor: party.customerId
-              ? "#86efac"
-              : "#bfdbfe",
-
-            background: party.customerId
-              ? "#f0fdf4"
-              : "#eff6ff",
-
-            color: party.customerId
-              ? "#166534"
-              : "#1e40af",
+            ...(lookupStatus === "not_found"
+              ? lookupNotFoundBox
+              : {}),
+            ...(lookupStatus === "error" ? lookupErrorBox : {}),
           }}
         >
-          {isLookingUp
+          {lookupStatus === "searching"
             ? "جاري البحث عن العميل..."
             : lookupMessage}
         </div>
       )}
     </div>
+  );
+}
+
+function ProfessionalDatePicker({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  const initialDate = parseDateValue(value) || new Date();
+  const [open, setOpen] = useState(false);
+  const [visibleYear, setVisibleYear] = useState(
+    initialDate.getFullYear()
+  );
+  const [visibleMonth, setVisibleMonth] = useState(
+    initialDate.getMonth()
+  );
+
+  useEffect(() => {
+    const selectedDate = parseDateValue(value);
+
+    if (selectedDate) {
+      setVisibleYear(selectedDate.getFullYear());
+      setVisibleMonth(selectedDate.getMonth());
+    }
+  }, [value]);
+
+  const days = getCalendarDays(visibleYear, visibleMonth);
+
+  function selectDate(year: number, month: number, day: number) {
+    onChange(formatLocalDate(new Date(year, month, day)));
+    setOpen(false);
+  }
+
+  function goToPreviousMonth() {
+    if (visibleMonth === 0) {
+      setVisibleMonth(11);
+      setVisibleYear((current) => current - 1);
+    } else {
+      setVisibleMonth((current) => current - 1);
+    }
+  }
+
+  function goToNextMonth() {
+    if (visibleMonth === 11) {
+      setVisibleMonth(0);
+      setVisibleYear((current) => current + 1);
+    } else {
+      setVisibleMonth((current) => current + 1);
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        style={datePickerButton}
+        onClick={() => setOpen(true)}
+      >
+        <span
+          style={value ? datePickerValue : datePickerPlaceholder}
+        >
+          {value ? formatDisplayDate(value) : placeholder}
+        </span>
+
+        <CalendarIcon />
+      </button>
+
+      {open &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            style={calendarOverlay}
+            onPointerDown={() => setOpen(false)}
+          >
+            <div
+              style={calendarModal}
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <div style={calendarHeader}>
+                <button
+                  type="button"
+                  style={calendarNavigationButton}
+                  onClick={goToPreviousMonth}
+                >
+                  ‹
+                </button>
+
+                <strong style={calendarMonthTitle}>
+                  {String(visibleMonth + 1).padStart(2, "0")}/
+                  {visibleYear}
+                </strong>
+
+                <button
+                  type="button"
+                  style={calendarNavigationButton}
+                  onClick={goToNextMonth}
+                >
+                  ›
+                </button>
+              </div>
+
+              <div style={calendarWeekGrid}>
+                {ARABIC_WEEK_DAYS.map((day) => (
+                  <div key={day} style={calendarWeekDay}>
+                    {day}
+                  </div>
+                ))}
+              </div>
+
+              <div style={calendarDaysGrid}>
+                {days.map((item, index) => {
+                  if (!item) {
+                    return <div key={`empty-${index}`} />;
+                  }
+
+                  const currentValue = `${visibleYear}-${String(
+                    visibleMonth + 1
+                  ).padStart(2, "0")}-${String(item).padStart(2, "0")}`;
+                  const isSelected = currentValue === value;
+                  const isToday = currentValue === getTodayIsoDate();
+
+                  return (
+                    <button
+                      key={currentValue}
+                      type="button"
+                      style={{
+                        ...calendarDayButton,
+                        ...(isToday ? calendarTodayButton : {}),
+                        ...(isSelected ? calendarSelectedButton : {}),
+                      }}
+                      onClick={() =>
+                        selectDate(visibleYear, visibleMonth, item)
+                      }
+                    >
+                      {item}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div style={calendarFooter}>
+                <button
+                  type="button"
+                  style={calendarTodayAction}
+                  onClick={() => {
+                    const currentDate = new Date();
+                    setVisibleYear(currentDate.getFullYear());
+                    setVisibleMonth(currentDate.getMonth());
+                    onChange(formatLocalDate(currentDate));
+                    setOpen(false);
+                  }}
+                >
+                  اختيار اليوم
+                </button>
+
+                <button
+                  type="button"
+                  style={calendarCancelAction}
+                  onClick={() => setOpen(false)}
+                >
+                  إلغاء
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+    </>
+  );
+}
+
+const ARABIC_WEEK_DAYS = ["ح", "ن", "ث", "ر", "خ", "ج", "س"];
+
+function getCalendarDays(year: number, month: number) {
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const values: Array<number | null> = [];
+
+  for (let index = 0; index < firstDay; index += 1) {
+    values.push(null);
+  }
+
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    values.push(day);
+  }
+
+  while (values.length % 7 !== 0) {
+    values.push(null);
+  }
+
+  return values;
+}
+
+function formatLocalDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function parseDateValue(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+
+  if (!match) {
+    return null;
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  const date = new Date(year, month, day);
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return date;
+}
+
+function formatDisplayDate(value: string) {
+  const date = parseDateValue(value);
+
+  if (!date) {
+    return value;
+  }
+
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = String(date.getFullYear());
+
+  return `${day}/${month}/${year}`;
+}
+
+function CalendarIcon() {
+  return (
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <rect
+        x="3"
+        y="5"
+        width="18"
+        height="16"
+        rx="3"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M7 3v4M17 3v4M3 10h18"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
   );
 }
 
@@ -2335,10 +2772,7 @@ function readStoredFinanceUser(): FinanceSessionUser | null {
     return null;
   }
 
-  const possibleKeys = [
-    "finance_branch_user",
-    "finance_user",
-  ];
+  const possibleKeys = ["finance_branch_user", "finance_user"];
 
   for (const key of possibleKeys) {
     const rawValue = localStorage.getItem(key);
@@ -2348,22 +2782,96 @@ function readStoredFinanceUser(): FinanceSessionUser | null {
     }
 
     try {
-      const parsed =
-        JSON.parse(rawValue) as FinanceSessionUser;
+      const parsed = JSON.parse(rawValue) as FinanceSessionUser;
 
       if (
         parsed &&
         typeof parsed === "object" &&
         !Array.isArray(parsed)
       ) {
-        return parsed;
+        return {
+          ...parsed,
+          id:
+            parsed.id ||
+            parsed.user_id ||
+            localStorage.getItem("finance_user_id") ||
+            undefined,
+          branch_id:
+            parsed.branch_id ||
+            localStorage.getItem("finance_branch_id") ||
+            undefined,
+          branch_slug:
+            parsed.branch_slug ||
+            localStorage.getItem("finance_branch_slug") ||
+            undefined,
+          full_name:
+            parsed.full_name ||
+            localStorage.getItem("finance_user_name") ||
+            undefined,
+          username:
+            parsed.username ||
+            localStorage.getItem("finance_username") ||
+            undefined,
+          role:
+            parsed.role ||
+            localStorage.getItem("finance_role") ||
+            undefined,
+          permissions: Array.isArray(parsed.permissions)
+            ? parsed.permissions
+            : readStoredPermissions(),
+          is_active:
+            parsed.is_active === false
+              ? false
+              : localStorage.getItem("finance_is_active") !== "false",
+        };
       }
     } catch {
       continue;
     }
   }
 
-  return null;
+  const userId = localStorage.getItem("finance_user_id") || "";
+  const branchSlug = localStorage.getItem("finance_branch_slug") || "";
+
+  if (!userId || !branchSlug) {
+    return null;
+  }
+
+  return {
+    id: userId,
+    branch_id: localStorage.getItem("finance_branch_id") || undefined,
+    branch_slug: branchSlug,
+    full_name: localStorage.getItem("finance_user_name") || "الموظف",
+    username: localStorage.getItem("finance_username") || undefined,
+    role: localStorage.getItem("finance_role") || undefined,
+    permissions: readStoredPermissions(),
+    is_active: localStorage.getItem("finance_is_active") !== "false",
+  };
+}
+
+function readStoredPermissions() {
+  if (typeof window === "undefined") {
+    return [] as string[];
+  }
+
+  const rawPermissions = localStorage.getItem("finance_permissions");
+
+  if (!rawPermissions) {
+    return [] as string[];
+  }
+
+  try {
+    const parsed = JSON.parse(rawPermissions) as unknown;
+
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : [];
+  } catch {
+    return rawPermissions
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
 }
 
 function normalizeRole(role?: string) {
@@ -3293,32 +3801,8 @@ const searchStateText: CSSProperties = {
   fontWeight: 800,
 };
 
-const selectedContractBox: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns:
-    "repeat(auto-fit,minmax(170px,1fr))",
-  gap: 10,
-  padding: 15,
-  marginTop: 6,
-  borderRadius: 14,
-  border:
-    "1px solid #bbf7d0",
-  background: "#f0fdf4",
-};
 
-const selectedContractLabel: CSSProperties = {
-  display: "block",
-  color: "#64748b",
-  fontSize: 12,
-  fontWeight: 800,
-  marginBottom: 5,
-};
 
-const selectedContractValue: CSSProperties = {
-  color: "#166534",
-  fontSize: 14,
-  fontWeight: 900,
-};
 
 const beneficiaryPreview: CSSProperties = {
   display: "grid",
@@ -3352,20 +3836,6 @@ const previewValue: CSSProperties = {
   overflowWrap: "anywhere",
 };
 
-const fixedValueBox: CSSProperties = {
-  minHeight: 50,
-  padding: "12px 14px",
-  borderRadius: 13,
-  border:
-    "1px solid #cbd7ea",
-  background: "#f8fafc",
-  color: "#334155",
-  fontSize: 15,
-  fontWeight: 900,
-  boxSizing: "border-box",
-  display: "flex",
-  alignItems: "center",
-};
 
 const amountWordsBox: CSSProperties = {
   minHeight: 58,
@@ -3504,4 +3974,175 @@ const backButton: CSSProperties = {
     "0 5px 14px rgba(22,163,74,0.22)",
   fontFamily:
     "var(--font-almarai), sans-serif",
+};
+const linkedInfoBox: CSSProperties = {
+  marginBottom: 14,
+  padding: "12px 14px",
+  borderRadius: 13,
+  border: "1px solid #bfdbfe",
+  background: "#eff6ff",
+  color: "#1e40af",
+  fontSize: 13,
+  fontWeight: 900,
+  lineHeight: 1.8,
+};
+
+const lookupNotFoundBox: CSSProperties = {
+  borderColor: "#fde68a",
+  background: "#fffbeb",
+  color: "#92400e",
+};
+
+const lookupErrorBox: CSSProperties = {
+  borderColor: "#fecaca",
+  background: "#fef2f2",
+  color: "#991b1b",
+};
+
+const datePickerButton: CSSProperties = {
+  ...input,
+  cursor: "pointer",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  textAlign: "right",
+  direction: "rtl",
+  color: "#2563eb",
+};
+
+const datePickerValue: CSSProperties = {
+  color: "#0f172a",
+  fontWeight: 800,
+};
+
+const datePickerPlaceholder: CSSProperties = {
+  color: "#64748b",
+  fontWeight: 700,
+};
+
+const calendarOverlay: CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  zIndex: 200000,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 16,
+  background: "rgba(15,23,42,0.45)",
+  backdropFilter: "blur(5px)",
+};
+
+const calendarModal: CSSProperties = {
+  width: "100%",
+  maxWidth: 430,
+  padding: 20,
+  borderRadius: 22,
+  background: "#ffffff",
+  border: "1px solid #dbeafe",
+  boxShadow: "0 30px 80px rgba(15,23,42,0.28)",
+  direction: "rtl",
+  fontFamily: "var(--font-almarai), sans-serif",
+};
+
+const calendarHeader: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "48px 1fr 48px",
+  alignItems: "center",
+  gap: 10,
+  marginBottom: 18,
+};
+
+const calendarNavigationButton: CSSProperties = {
+  width: 48,
+  height: 48,
+  border: "none",
+  borderRadius: 14,
+  background: "#eff6ff",
+  color: "#1d4ed8",
+  cursor: "pointer",
+  fontSize: 30,
+  fontWeight: 900,
+};
+
+const calendarMonthTitle: CSSProperties = {
+  textAlign: "center",
+  color: "#0f172a",
+  fontSize: 18,
+  fontWeight: 900,
+};
+
+const calendarWeekGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(7,1fr)",
+  gap: 6,
+  marginBottom: 8,
+};
+
+const calendarWeekDay: CSSProperties = {
+  textAlign: "center",
+  color: "#64748b",
+  fontSize: 13,
+  fontWeight: 900,
+  padding: "6px 0",
+};
+
+const calendarDaysGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(7,1fr)",
+  gap: 6,
+};
+
+const calendarDayButton: CSSProperties = {
+  aspectRatio: "1 / 1",
+  minHeight: 42,
+  border: "none",
+  borderRadius: 12,
+  background: "#f8fafc",
+  color: "#1e293b",
+  cursor: "pointer",
+  fontSize: 15,
+  fontWeight: 800,
+  fontFamily: "var(--font-almarai), sans-serif",
+};
+
+const calendarTodayButton: CSSProperties = {
+  border: "1.5px solid #22c55e",
+  color: "#15803d",
+};
+
+const calendarSelectedButton: CSSProperties = {
+  background: "linear-gradient(135deg,#2563eb,#0ea5e9)",
+  color: "#ffffff",
+  boxShadow: "0 6px 14px rgba(37,99,235,0.24)",
+};
+
+const calendarFooter: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: 10,
+  marginTop: 18,
+};
+
+const calendarTodayAction: CSSProperties = {
+  minHeight: 46,
+  border: "none",
+  borderRadius: 13,
+  background: "linear-gradient(135deg,#22c55e,#15803d)",
+  color: "#ffffff",
+  cursor: "pointer",
+  fontSize: 14,
+  fontWeight: 900,
+  fontFamily: "var(--font-almarai), sans-serif",
+};
+
+const calendarCancelAction: CSSProperties = {
+  minHeight: 46,
+  border: "1px solid #cbd5e1",
+  borderRadius: 13,
+  background: "#ffffff",
+  color: "#475569",
+  cursor: "pointer",
+  fontSize: 14,
+  fontWeight: 900,
+  fontFamily: "var(--font-almarai), sans-serif",
 };
