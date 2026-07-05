@@ -2113,7 +2113,7 @@ export default function PrintNewRequestPage() {
             style={contractPrintArea}
           >
             <ContractPrintHeader
-              title="عقد اتفاق بيع"
+              title="عقد بيع * شراء"
               rightInfo={
                 organizationSettings
               }
@@ -2233,7 +2233,7 @@ export default function PrintNewRequestPage() {
                 كما يقر الطرف الثاني
                 بأنه اطلع على كامل بنود
                 هذا العقد، وأنه قبل
-                البيع وأنه ملتزم
+                الشراء وأنه ملتزم
                 بالسداد في الموعد
                 المتفق عليه والمذكور
                 في هذا العقد، وفي حال
