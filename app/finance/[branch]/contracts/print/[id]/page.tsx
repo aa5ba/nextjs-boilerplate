@@ -1308,7 +1308,7 @@ export default function PrintContractPage() {
             style={printArea}
           >
             <PrintHeader
-              title="عقد اتفاق بيع"
+              title="عقد بيع * شراء"
               organizationSettings={organizationSettings}
               contractNumber={contract.contract_number}
               contractIssueDate={contractIssueDate}
@@ -1359,7 +1359,7 @@ export default function PrintContractPage() {
 
               <p style={paragraph}>
                 كما يقر الطرف الثاني بأنه اطلع على كامل بنود هذا العقد،
-                وأنه قبل البيع وأنه ملتزم بالسداد في الموعد المتفق عليه
+                وأنه قبل الشراء وأنه ملتزم بالسداد في الموعد المتفق عليه
                 والمذكور في هذا العقد، وفي حال التأخر يحق للطرف الأول اتخاذ
                 الإجراءات النظامية اللازمة للمطالبة بكامل المبلغ المتبقي.
               </p>
