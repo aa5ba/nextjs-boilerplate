@@ -67,6 +67,29 @@ type NewRequestApiResponse = {
   noteNumber?: string | number | null;
 };
 
+type CustomerLookupStatus =
+  | "idle"
+  | "searching"
+  | "found"
+  | "not_found"
+  | "error";
+
+type CustomerLookupApiResponse = {
+  ok?: boolean;
+  found?: boolean;
+  message?: string;
+  code?: string;
+  customer?: {
+    id?: string | null;
+    fullName?: string | null;
+    nationalId?: string | null;
+    birthHijri?: string | null;
+    phone?: string | null;
+    workName?: string | null;
+    address?: string | null;
+  } | null;
+};
+
 type DropdownRect = {
   top: number;
   left: number;
@@ -89,6 +112,9 @@ const SESSION_DURATION_MS =
 
 const ACTIVITY_REFRESH_INTERVAL_MS =
   60 * 1000;
+
+const CUSTOMER_LOOKUP_DEBOUNCE_MS =
+  300;
 
 const SESSION_KEYS = [
   "finance_user",
@@ -150,6 +176,21 @@ export default function NewRequestPage() {
 
   const [nationalId, setNationalId] =
     useState("");
+
+  const [
+    customerLookupStatus,
+    setCustomerLookupStatus,
+  ] = useState<CustomerLookupStatus>(
+    "idle"
+  );
+
+  const [
+    customerLookupMessage,
+    setCustomerLookupMessage,
+  ] = useState("");
+
+  const customerLookupRequestRef =
+    useRef(0);
 
   const [birthDay, setBirthDay] =
     useState("");
@@ -301,6 +342,17 @@ export default function NewRequestPage() {
       label: product.product_name,
     }));
 
+  const clearCustomerDetails =
+    useCallback(() => {
+      setFullName("");
+      setBirthDay("");
+      setBirthMonth("");
+      setBirthYear("");
+      setPhone("");
+      setWorkName("");
+      setAddress("");
+    }, []);
+
   useEffect(() => {
     const selectedProduct =
       products.find(
@@ -340,6 +392,217 @@ export default function NewRequestPage() {
     productId,
     productQuantity,
     products,
+  ]);
+
+  useEffect(() => {
+    const cleanNationalId =
+      normalizeNumber(nationalId).slice(
+        0,
+        10
+      );
+
+    if (
+      !contractType ||
+      cleanNationalId.length !== 10
+    ) {
+      setCustomerLookupStatus(
+        "idle"
+      );
+      setCustomerLookupMessage("");
+      return;
+    }
+
+    const requestId =
+      customerLookupRequestRef.current +
+      1;
+
+    customerLookupRequestRef.current =
+      requestId;
+
+    const controller =
+      new AbortController();
+
+    const timer = window.setTimeout(
+      async () => {
+        setCustomerLookupStatus(
+          "searching"
+        );
+        setCustomerLookupMessage(
+          "جاري البحث عن العميل داخل الفرع..."
+        );
+
+        try {
+          const response = await fetch(
+            `/api/finance/customers?branchSlug=${encodeURIComponent(
+              branch
+            )}&nationalId=${encodeURIComponent(
+              cleanNationalId
+            )}`,
+            {
+              method: "GET",
+              credentials:
+                "same-origin",
+              cache: "no-store",
+              signal:
+                controller.signal,
+            }
+          );
+
+          let result:
+            CustomerLookupApiResponse =
+            {};
+
+          try {
+            result =
+              (await response.json()) as
+                CustomerLookupApiResponse;
+          } catch {
+            result = {};
+          }
+
+          if (
+            controller.signal.aborted ||
+            requestId !==
+              customerLookupRequestRef.current
+          ) {
+            return;
+          }
+
+          if (
+            response.status === 401 ||
+            result.code ===
+              "INVALID_SESSION"
+          ) {
+            redirectToLogin(true);
+            return;
+          }
+
+          if (
+            !response.ok ||
+            result.ok !== true
+          ) {
+            throw new Error(
+              result.message ||
+                "تعذر البحث عن بيانات العميل"
+            );
+          }
+
+          if (
+            result.found !== true ||
+            !result.customer
+          ) {
+            clearCustomerDetails();
+            setCustomerLookupStatus(
+              "not_found"
+            );
+            setCustomerLookupMessage(
+              "رقم الهوية غير مسجل في هذا الفرع. أكمل بيانات العميل الجديد."
+            );
+            return;
+          }
+
+          const birthParts =
+            parseHijriDateParts(
+              String(
+                result.customer
+                  .birthHijri || ""
+              )
+            );
+
+          setFullName(
+            String(
+              result.customer.fullName ||
+                ""
+            ).trim()
+          );
+
+          setPhone(
+            normalizeNumber(
+              String(
+                result.customer.phone ||
+                  ""
+              )
+            ).slice(0, 10)
+          );
+
+          setWorkName(
+            String(
+              result.customer.workName ||
+                ""
+            ).trim()
+          );
+
+          setAddress(
+            String(
+              result.customer.address ||
+                ""
+            ).trim()
+          );
+
+          setBirthYear(
+            birthParts?.year || ""
+          );
+          setBirthMonth(
+            birthParts?.month || ""
+          );
+          setBirthDay(
+            birthParts?.day || ""
+          );
+
+          setCustomerLookupStatus(
+            "found"
+          );
+          setCustomerLookupMessage(
+            "تم العثور على العميل وتعبئة بياناته تلقائيًا. يمكنك تعديلها قبل الحفظ."
+          );
+        } catch (error) {
+          if (
+            controller.signal.aborted ||
+            (
+              error instanceof
+                DOMException &&
+              error.name ===
+                "AbortError"
+            )
+          ) {
+            return;
+          }
+
+          console.error(
+            "Customer lookup error:",
+            error
+          );
+
+          if (
+            requestId !==
+            customerLookupRequestRef.current
+          ) {
+            return;
+          }
+
+          setCustomerLookupStatus(
+            "error"
+          );
+          setCustomerLookupMessage(
+            getErrorMessage(
+              error,
+              "تعذر البحث عن بيانات العميل"
+            )
+          );
+        }
+      },
+      CUSTOMER_LOOKUP_DEBOUNCE_MS
+    );
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [
+    branch,
+    clearCustomerDetails,
+    contractType,
+    nationalId,
   ]);
 
   useEffect(() => {
@@ -1155,6 +1418,31 @@ export default function NewRequestPage() {
     void loadLists(branchId);
   }
 
+  function handleNationalIdChange(
+    rawValue: string
+  ) {
+    const nextNationalId =
+      normalizeNumber(rawValue).slice(
+        0,
+        10
+      );
+
+    if (
+      nextNationalId !== nationalId
+    ) {
+      customerLookupRequestRef.current +=
+        1;
+
+      clearCustomerDetails();
+      setCustomerLookupStatus(
+        "idle"
+      );
+      setCustomerLookupMessage("");
+    }
+
+    setNationalId(nextNationalId);
+  }
+
   function resetDeferredPaymentsFields() {
     setInstallmentAmount("");
     setDeferredPaymentsCount("");
@@ -1896,6 +2184,65 @@ export default function NewRequestPage() {
             بيانات العميل
           </h2>
 
+          <Field label="رقم الهوية">
+            <input
+              style={{
+                ...input,
+                ...(!contractType
+                  ? disabledInput
+                  : {}),
+              }}
+              inputMode="numeric"
+              maxLength={10}
+              autoComplete="off"
+              placeholder={
+                contractType
+                  ? "أدخل رقم الهوية للبحث تلقائيًا"
+                  : "اختر نوع العقد أولًا"
+              }
+              disabled={
+                !contractType ||
+                saving
+              }
+              value={nationalId}
+              onChange={(event) =>
+                handleNationalIdChange(
+                  event.target.value
+                )
+              }
+            />
+          </Field>
+
+          {customerLookupStatus !==
+            "idle" && (
+            <div
+              role={
+                customerLookupStatus ===
+                "error"
+                  ? "alert"
+                  : "status"
+              }
+              aria-live="polite"
+              style={{
+                ...customerLookupNotice,
+                ...(customerLookupStatus ===
+                "found"
+                  ? customerLookupFound
+                  : {}),
+                ...(customerLookupStatus ===
+                "not_found"
+                  ? customerLookupNotFound
+                  : {}),
+                ...(customerLookupStatus ===
+                "error"
+                  ? customerLookupError
+                  : {}),
+              }}
+            >
+              {customerLookupMessage}
+            </div>
+          )}
+
           <Field label="اسم العميل">
             <input
               style={input}
@@ -1903,22 +2250,6 @@ export default function NewRequestPage() {
               onChange={(event) =>
                 setFullName(
                   event.target.value
-                )
-              }
-            />
-          </Field>
-
-          <Field label="رقم الهوية">
-            <input
-              style={input}
-              inputMode="numeric"
-              maxLength={10}
-              value={nationalId}
-              onChange={(event) =>
-                setNationalId(
-                  normalizeNumber(
-                    event.target.value
-                  ).slice(0, 10)
                 )
               }
             />
@@ -3151,6 +3482,66 @@ function getCalendarDays(
   return values;
 }
 
+function parseHijriDateParts(
+  value: string
+): {
+  year: string;
+  month: string;
+  day: string;
+} | null {
+  const normalized =
+    normalizeNumber(value)
+      .trim()
+      .replace(/[.\-]/g, "/")
+      .replace(/\s+/g, "")
+      .replace(/\/{2,}/g, "/");
+
+  const parts =
+    normalized.split("/");
+
+  if (parts.length !== 3) {
+    return null;
+  }
+
+  let year = "";
+  let month = "";
+  let day = "";
+
+  if (parts[0].length === 4) {
+    [year, month, day] = parts;
+  } else if (
+    parts[2].length === 4
+  ) {
+    [day, month, year] = parts;
+  } else {
+    return null;
+  }
+
+  const numericYear = Number(year);
+  const numericMonth = Number(month);
+  const numericDay = Number(day);
+
+  if (
+    !Number.isInteger(numericYear) ||
+    numericYear < 1300 ||
+    numericYear > 1600 ||
+    !Number.isInteger(numericMonth) ||
+    numericMonth < 1 ||
+    numericMonth > 12 ||
+    !Number.isInteger(numericDay) ||
+    numericDay < 1 ||
+    numericDay > 30
+  ) {
+    return null;
+  }
+
+  return {
+    year: String(numericYear),
+    month: String(numericMonth),
+    day: String(numericDay),
+  };
+}
+
 function getTodayDate() {
   return formatLocalDate(
     new Date()
@@ -3887,6 +4278,47 @@ const input:
   boxSizing: "border-box",
   fontFamily:
     "var(--font-almarai), sans-serif",
+};
+
+const disabledInput:
+  CSSProperties = {
+  cursor: "not-allowed",
+  background: "#f1f5f9",
+  color: "#94a3b8",
+};
+
+const customerLookupNotice:
+  CSSProperties = {
+  margin: "-2px 0 16px",
+  padding: "11px 13px",
+  borderRadius: 12,
+  border: "1px solid #bfdbfe",
+  background: "#eff6ff",
+  color: "#1d4ed8",
+  fontSize: 13,
+  fontWeight: 900,
+  lineHeight: 1.7,
+};
+
+const customerLookupFound:
+  CSSProperties = {
+  border: "1px solid #bbf7d0",
+  background: "#f0fdf4",
+  color: "#166534",
+};
+
+const customerLookupNotFound:
+  CSSProperties = {
+  border: "1px solid #fde68a",
+  background: "#fffbeb",
+  color: "#92400e",
+};
+
+const customerLookupError:
+  CSSProperties = {
+  border: "1px solid #fecaca",
+  background: "#fef2f2",
+  color: "#991b1b",
 };
 
 const textarea:
