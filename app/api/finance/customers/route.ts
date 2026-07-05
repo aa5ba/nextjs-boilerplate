@@ -47,6 +47,7 @@ type CustomerLookupRow = {
   phone: string | null;
   work_name: string | null;
   work: string | null;
+  address: string | null;
   salary: number | string | null;
   bank: string | null;
   broker: string | null;
@@ -517,34 +518,6 @@ async function authenticateFinanceRequest(
     return createInvalidSessionResponse();
   }
 
-  const { data: hasPermission, error: permissionError } =
-    await supabaseAdmin.rpc("finance_user_has_permission", {
-      p_branch_id: session.branchId,
-      p_user_id: session.userId,
-      p_permission_key: "customers_create",
-    });
-
-  if (permissionError) {
-    console.error(
-      "Finance customers permission check failed:",
-      permissionError
-    );
-
-    return createErrorResponse(
-      "تعذر التحقق من صلاحية إنشاء العملاء",
-      500,
-      "PERMISSION_CHECK_FAILED"
-    );
-  }
-
-  if (hasPermission !== true) {
-    return createErrorResponse(
-      "لا تملك صلاحية إنشاء أو تحديث العملاء",
-      403,
-      "PERMISSION_DENIED"
-    );
-  }
-
   const employeeName =
     cleanText(userData.full_name) ||
     cleanText(userData.username) ||
@@ -558,6 +531,50 @@ async function authenticateFinanceRequest(
   };
 }
 
+async function userHasAnyFinancePermission(
+  auth: AuthenticatedFinanceContext,
+  permissionKeys: readonly string[]
+): Promise<boolean | NextResponse> {
+  const checks = await Promise.all(
+    permissionKeys.map(async (permissionKey) => {
+      const { data, error } = await supabaseAdmin.rpc(
+        "finance_user_has_permission",
+        {
+          p_branch_id: auth.branchId,
+          p_user_id: auth.employeeId,
+          p_permission_key: permissionKey,
+        }
+      );
+
+      return {
+        permissionKey,
+        allowed: data === true,
+        error,
+      };
+    })
+  );
+
+  const failedCheck = checks.find((check) => check.error);
+
+  if (failedCheck) {
+    console.error(
+      "Finance customer permission check failed:",
+      {
+        permissionKey: failedCheck.permissionKey,
+        error: failedCheck.error,
+      }
+    );
+
+    return createErrorResponse(
+      "تعذر التحقق من صلاحيات الموظف",
+      500,
+      "PERMISSION_CHECK_FAILED"
+    );
+  }
+
+  return checks.some((check) => check.allowed);
+}
+
 export async function GET(
   request: NextRequest
 ): Promise<NextResponse> {
@@ -566,6 +583,28 @@ export async function GET(
 
     if (auth instanceof NextResponse) {
       return auth;
+    }
+
+    const lookupPermission = await userHasAnyFinancePermission(
+      auth,
+      [
+        "customers_create",
+        "contracts_create",
+        "new_request_create",
+        "promissory_note_create",
+      ]
+    );
+
+    if (lookupPermission instanceof NextResponse) {
+      return lookupPermission;
+    }
+
+    if (!lookupPermission) {
+      return createErrorResponse(
+        "لا تملك صلاحية البحث عن بيانات العملاء",
+        403,
+        "PERMISSION_DENIED"
+      );
     }
 
     const requestedBranchSlug = normalizeBranchSlug(
@@ -598,7 +637,7 @@ export async function GET(
     const { data, error } = await supabaseAdmin
       .from("finance_customers")
       .select(
-        "id, group_id, full_name, national_id, birth_hijri, phone, work_name, work, salary, bank, broker"
+        "id, group_id, full_name, national_id, birth_hijri, phone, work_name, work, address, salary, bank, broker"
       )
       .eq("branch_id", auth.branchId)
       .eq("national_id", nationalId)
@@ -638,6 +677,7 @@ export async function GET(
           phone: normalizePhone(data.phone),
           workName:
             cleanText(data.work_name) || cleanText(data.work),
+          address: cleanText(data.address),
           salary:
             data.salary === null ? null : Number(data.salary),
           bank: cleanText(data.bank),
@@ -694,6 +734,23 @@ export async function POST(
 
     if (auth instanceof NextResponse) {
       return auth;
+    }
+
+    const savePermission = await userHasAnyFinancePermission(
+      auth,
+      ["customers_create"]
+    );
+
+    if (savePermission instanceof NextResponse) {
+      return savePermission;
+    }
+
+    if (!savePermission) {
+      return createErrorResponse(
+        "لا تملك صلاحية إنشاء أو تحديث العملاء",
+        403,
+        "PERMISSION_DENIED"
+      );
     }
 
     let parsedBody: unknown;
