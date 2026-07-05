@@ -271,6 +271,11 @@ export default function FinanceContractDetailsPage() {
       "contracts",
     ]);
 
+  const canCreateLinkedPromissoryNote =
+    isManager ||
+    (sessionPermissions.includes("promissory_note_create") &&
+      sessionPermissions.includes("promissory_note_link_contract"));
+
   const canCloseFromMenu =
     isManager ||
     hasAnyPermission(sessionPermissions, [
@@ -328,6 +333,8 @@ export default function FinanceContractDetailsPage() {
               .select("id, note_number, amount, due_date, status")
               .eq("contract_id", contractId)
               .eq("branch_id", currentBranchId)
+              .eq("is_archived", false)
+              .eq("status", "نشط")
               .order("created_at", { ascending: false })
               .limit(1)
               .maybeSingle(),
@@ -964,29 +971,55 @@ export default function FinanceContractDetailsPage() {
     setSharingContract(true);
     renewFinanceSession();
 
-    let printWindow: Window | null = null;
+    let iframe: HTMLIFrameElement | null = null;
 
     try {
+      iframe = document.createElement("iframe");
+      iframe.setAttribute("aria-hidden", "true");
+      iframe.style.position = "fixed";
+      iframe.style.left = "-12000px";
+      iframe.style.top = "0";
+      iframe.style.width = "1280px";
+      iframe.style.height = "2200px";
+      iframe.style.opacity = "0";
+      iframe.style.pointerEvents = "none";
+      iframe.style.border = "0";
+      iframe.style.zIndex = "-1";
+
       const printUrl = `/finance/${branch}/new-request/print/${contractId}/${note.id}`;
 
-      printWindow = window.open(
-        printUrl,
-        `contract-pdf-${contractId}`,
-        "popup=yes,width=1280,height=900,resizable=yes,scrollbars=yes"
-      );
+      const loaded = new Promise<void>((resolve, reject) => {
+        const timer = window.setTimeout(() => {
+          reject(new Error("انتهت مهلة تجهيز صفحة الطباعة"));
+        }, 20000);
 
-      if (!printWindow) {
-        throw new Error(
-          "تعذر فتح نافذة تجهيز الملف. اسمح بالنوافذ المنبثقة لهذا الموقع ثم حاول مرة أخرى"
-        );
+        iframe!.onload = () => {
+          window.clearTimeout(timer);
+          resolve();
+        };
+
+        iframe!.onerror = () => {
+          window.clearTimeout(timer);
+          reject(new Error("تعذر فتح صفحة الطباعة"));
+        };
+      });
+
+      document.body.appendChild(iframe);
+      iframe.src = printUrl;
+      await loaded;
+
+      const frameDocument = iframe.contentDocument;
+
+      if (!frameDocument) {
+        throw new Error("تعذر الوصول إلى مستند الطباعة");
       }
 
-      const { contractElement, noteElement, printDocument } =
-        await waitForPrintWindowElements(printWindow);
-
-      if (printDocument.fonts?.ready) {
-        await printDocument.fonts.ready;
+      if (frameDocument.fonts?.ready) {
+        await frameDocument.fonts.ready;
       }
+
+      const { contractElement, noteElement } =
+        await waitForPrintElements(frameDocument);
 
       const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
         import("html2canvas"),
@@ -1011,9 +1044,6 @@ export default function FinanceContractDetailsPage() {
           backgroundColor: "#ffffff",
           logging: false,
           windowWidth: 1280,
-          windowHeight: 2200,
-          scrollX: 0,
-          scrollY: 0,
         });
 
         if (index > 0) pdf.addPage("a4", "portrait");
@@ -1085,10 +1115,7 @@ export default function FinanceContractDetailsPage() {
         "error"
       );
     } finally {
-      if (printWindow && !printWindow.closed) {
-        printWindow.close();
-      }
-
+      iframe?.remove();
       setSharingContract(false);
     }
   }
@@ -1636,6 +1663,20 @@ export default function FinanceContractDetailsPage() {
                 />
               )}
 
+              {!note && canCreateLinkedPromissoryNote && (
+                <ActionButton
+                  icon="📝"
+                  title="إنشاء سند مرتبط"
+                  onClick={() =>
+                    router.push(
+                      `/finance/${branch}/contracts/promissory-note/new?contractId=${encodeURIComponent(
+                        contractId
+                      )}`
+                    )
+                  }
+                />
+              )}
+
               {canPrintClearanceOrReopen && (
                 <ActionButton
                   icon="📄"
@@ -2113,40 +2154,25 @@ function isHiddenContract(currentContract: Contract) {
   );
 }
 
-async function waitForPrintWindowElements(printWindow: Window) {
-  const timeoutAt = Date.now() + 30000;
+async function waitForPrintElements(frameDocument: Document) {
+  const timeoutAt = Date.now() + 15000;
 
   while (Date.now() < timeoutAt) {
-    if (printWindow.closed) {
-      throw new Error("تم إغلاق نافذة تجهيز الملف قبل اكتمال العملية");
-    }
+    const contractElement = frameDocument.querySelector<HTMLElement>(
+      ".contract-print-area"
+    );
+    const noteElement = frameDocument.querySelector<HTMLElement>(
+      ".note-print-area"
+    );
 
-    try {
-      const printDocument = printWindow.document;
-      const contractElement = printDocument.querySelector<HTMLElement>(
-        ".contract-print-area"
-      );
-      const noteElement = printDocument.querySelector<HTMLElement>(
-        ".note-print-area"
-      );
-
-      if (contractElement && noteElement) {
-        return {
-          contractElement,
-          noteElement,
-          printDocument,
-        };
-      }
-    } catch {
-      // قد تكون النافذة في مرحلة الانتقال إلى صفحة الطباعة؛ ننتظر اكتمالها.
+    if (contractElement && noteElement) {
+      return { contractElement, noteElement };
     }
 
     await new Promise((resolve) => window.setTimeout(resolve, 250));
   }
 
-  throw new Error(
-    "تعذر تجهيز صفحة الطباعة خلال الوقت المحدد. أعد المحاولة وتأكد من السماح بالنوافذ المنبثقة"
-  );
+  throw new Error("تعذر تجهيز صفحات العقد والسند داخل ملف PDF");
 }
 
 function isShareCancellation(error: unknown) {
