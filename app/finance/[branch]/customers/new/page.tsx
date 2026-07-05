@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
@@ -9,18 +9,110 @@ import { normalizeNumber, toNumber } from "@/lib/numberUtils";
 
 type ScreenType = "mobile" | "tablet" | "desktop";
 
+type CustomerGroup = {
+  id: string;
+  name: string | null;
+};
+
+type CustomerLookupData = {
+  id: string;
+  groupId: string | null;
+  fullName: string;
+  nationalId: string;
+  birthHijri: string;
+  phone: string;
+  workName: string;
+  salary: number | null;
+  bank: string;
+  broker: string;
+};
+
+type CustomerLookupResponse = {
+  ok?: boolean;
+  found?: boolean;
+  customer?: CustomerLookupData | null;
+  message?: string;
+  code?: string;
+};
+
+type CustomerSaveResponse = {
+  ok?: boolean;
+  customer?: {
+    id?: string;
+    name?: string;
+    wasCreated?: boolean;
+  };
+  message?: string;
+  code?: string;
+};
+
+function cleanDigits(value: string, maxLength: number): string {
+  return normalizeNumber(value)
+    .replace(/\D/g, "")
+    .slice(0, maxLength);
+}
+
+function splitHijriDate(value: string): {
+  year: string;
+  month: string;
+  day: string;
+} | null {
+  const normalized = normalizeNumber(value)
+    .trim()
+    .replace(/[.\-]/g, "/")
+    .replace(/\s+/g, "")
+    .replace(/\/{2,}/g, "/");
+
+  const parts = normalized.split("/");
+
+  if (parts.length !== 3) {
+    return null;
+  }
+
+  if (parts[0].length === 4) {
+    return {
+      year: parts[0],
+      month: parts[1],
+      day: parts[2],
+    };
+  }
+
+  if (parts[2].length === 4) {
+    return {
+      year: parts[2],
+      month: parts[1],
+      day: parts[0],
+    };
+  }
+
+  return null;
+}
+
+async function readJsonResponse<T>(response: Response): Promise<T | null> {
+  try {
+    return (await response.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
 export default function NewFinanceCustomerPage() {
   const params = useParams();
   const router = useRouter();
 
-  const branch = params.branch as string;
+  const branchParam = params.branch;
+  const branch = Array.isArray(branchParam)
+    ? branchParam[0] ?? ""
+    : typeof branchParam === "string"
+      ? branchParam
+      : "";
 
   const [screen, setScreen] = useState<ScreenType>("desktop");
   const [employeeName, setEmployeeName] = useState("الموظف");
+  const [authChecked, setAuthChecked] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
-  const [groups, setGroups] = useState<any[]>([]);
-  const [branchId, setBranchId] = useState<string | null>(null);
-
+  const [groups, setGroups] = useState<CustomerGroup[]>([]);
   const [groupId, setGroupId] = useState("");
   const [fullName, setFullName] = useState("");
   const [nationalId, setNationalId] = useState("");
@@ -34,11 +126,25 @@ export default function NewFinanceCustomerPage() {
   const [broker, setBroker] = useState("");
 
   const [loadingGroups, setLoadingGroups] = useState(true);
+  const [lookingUpCustomer, setLookingUpCustomer] = useState(false);
+  const [lookupStatus, setLookupStatus] = useState<
+    "idle" | "found" | "not-found" | "error"
+  >("idle");
+  const [lookupMessage, setLookupMessage] = useState("");
+  const [existingCustomerId, setExistingCustomerId] = useState<string | null>(
+    null
+  );
+  const [resolvedNationalId, setResolvedNationalId] = useState("");
   const [saving, setSaving] = useState(false);
 
   const isMobile = screen === "mobile";
   const isTablet = screen === "tablet";
   const isCompact = isMobile || isTablet;
+
+  const normalizedNationalId = useMemo(
+    () => cleanDigits(nationalId, 10),
+    [nationalId]
+  );
 
   useEffect(() => {
     function updateScreen() {
@@ -60,70 +166,248 @@ export default function NewFinanceCustomerPage() {
   }, []);
 
   useEffect(() => {
-    loadEmployeeName();
-    loadGroups();
-  }, [branch]);
-
-  function loadEmployeeName() {
-    if (typeof window === "undefined") return;
-
-    const newName = localStorage.getItem("finance_user_name");
-
-    if (newName) {
-      setEmployeeName(newName);
+    if (typeof window === "undefined") {
       return;
     }
 
-    const oldUser = localStorage.getItem("finance_user");
+    const storedName = localStorage.getItem("finance_user_name")?.trim() ?? "";
+    const storedUser =
+      localStorage.getItem("finance_branch_user") ||
+      localStorage.getItem("finance_user");
 
-    if (oldUser) {
+    let fallbackName = "";
+
+    if (storedUser) {
       try {
-        const parsed = JSON.parse(oldUser);
-        setEmployeeName(parsed?.full_name || parsed?.username || "الموظف");
+        const parsed = JSON.parse(storedUser) as {
+          full_name?: unknown;
+          username?: unknown;
+          name?: unknown;
+        };
+
+        fallbackName =
+          (typeof parsed.full_name === "string" && parsed.full_name.trim()) ||
+          (typeof parsed.username === "string" && parsed.username.trim()) ||
+          (typeof parsed.name === "string" && parsed.name.trim()) ||
+          "";
       } catch {
-        setEmployeeName("الموظف");
+        fallbackName = "";
       }
     }
-  }
 
-  function logout() {
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("finance_user");
-      localStorage.removeItem("finance_user_name");
-      localStorage.removeItem("finance_branch_user");
-    }
-
-    router.push(`/finance/${branch}/login`);
-  }
-
-  async function loadGroups() {
-    setLoadingGroups(true);
-
-    const currentBranchId = await getBranchId(branch);
-
-    setBranchId(currentBranchId);
-
-    if (!currentBranchId) {
-      setGroups([]);
-      setLoadingGroups(false);
+    if (!storedName && !storedUser) {
+      router.replace("/login");
       return;
     }
 
-    const { data, error } = await supabase
-      .from("finance_customer_groups")
-      .select("*")
-      .eq("branch_id", currentBranchId)
-      .order("created_at", { ascending: false });
+    setEmployeeName(storedName || fallbackName || "الموظف");
+    setAuthChecked(true);
+  }, [router]);
 
-    if (error) {
-      alert(error.message || "تعذر تحميل مجموعات العملاء");
-      setGroups([]);
-      setLoadingGroups(false);
+  useEffect(() => {
+    if (!authChecked || !branch) {
       return;
     }
 
-    setGroups(data || []);
-    setLoadingGroups(false);
+    let cancelled = false;
+
+    async function loadGroups() {
+      setLoadingGroups(true);
+
+      try {
+        const currentBranchId = await getBranchId(branch);
+
+        if (cancelled) {
+          return;
+        }
+
+        if (!currentBranchId) {
+          setGroups([]);
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from("finance_customer_groups")
+          .select("id, name")
+          .eq("branch_id", currentBranchId)
+          .order("created_at", { ascending: false });
+
+        if (cancelled) {
+          return;
+        }
+
+        if (error) {
+          throw new Error(error.message || "تعذر تحميل مجموعات العملاء");
+        }
+
+        setGroups((data ?? []) as CustomerGroup[]);
+      } catch (error) {
+        if (!cancelled) {
+          setGroups([]);
+          alert(
+            error instanceof Error
+              ? error.message
+              : "تعذر تحميل مجموعات العملاء"
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingGroups(false);
+        }
+      }
+    }
+
+    void loadGroups();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authChecked, branch]);
+
+  useEffect(() => {
+    if (
+      !authChecked ||
+      !branch ||
+      normalizedNationalId.length !== 10
+    ) {
+      setLookingUpCustomer(false);
+
+      if (normalizedNationalId.length !== 10) {
+        setLookupStatus("idle");
+        setLookupMessage("");
+      }
+
+      return;
+    }
+
+    const controller = new AbortController();
+
+    const timeoutId = window.setTimeout(async () => {
+      setLookingUpCustomer(true);
+      setLookupStatus("idle");
+      setLookupMessage("جاري البحث عن العميل...");
+
+      try {
+        const query = new URLSearchParams({
+          branchSlug: branch,
+          nationalId: normalizedNationalId,
+        });
+
+        const response = await fetch(
+          `/api/finance/customers?${query.toString()}`,
+          {
+            method: "GET",
+            credentials: "same-origin",
+            cache: "no-store",
+            signal: controller.signal,
+          }
+        );
+
+        const result = await readJsonResponse<CustomerLookupResponse>(response);
+
+        if (response.status === 401 || result?.code === "INVALID_SESSION") {
+          clearLocalFinanceSession();
+          router.replace("/login");
+          return;
+        }
+
+        if (!response.ok || result?.ok !== true) {
+          throw new Error(result?.message || "تعذر البحث عن بيانات العميل");
+        }
+
+        if (result.found === true && result.customer) {
+          const customer = result.customer;
+          const birth = splitHijriDate(customer.birthHijri);
+
+          setExistingCustomerId(customer.id);
+          setGroupId(customer.groupId ?? "");
+          setFullName(customer.fullName ?? "");
+          setPhone(cleanDigits(customer.phone ?? "", 10));
+          setWork(customer.workName ?? "");
+          setSalary(
+            customer.salary === null || customer.salary === undefined
+              ? ""
+              : String(customer.salary)
+          );
+          setBank(customer.bank ?? "");
+          setBroker(customer.broker ?? "");
+
+          if (birth) {
+            setBirthYear(cleanDigits(birth.year, 4));
+            setBirthMonth(cleanDigits(birth.month, 2));
+            setBirthDay(cleanDigits(birth.day, 2));
+          } else {
+            setBirthYear("");
+            setBirthMonth("");
+            setBirthDay("");
+          }
+
+          setLookupStatus("found");
+          setLookupMessage(
+            "تم العثور على العميل وتعبئة بياناته. أي تعديل تحفظه سيعتمد كبياناته الجديدة."
+          );
+        } else {
+          setExistingCustomerId(null);
+          setLookupStatus("not-found");
+          setLookupMessage(
+            "رقم الهوية غير مسجل في هذا الفرع، وسيتم إنشاء عميل جديد."
+          );
+        }
+
+        setResolvedNationalId(normalizedNationalId);
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setExistingCustomerId(null);
+        setLookupStatus("error");
+        setLookupMessage(
+          error instanceof Error
+            ? error.message
+            : "تعذر البحث عن بيانات العميل"
+        );
+      } finally {
+        if (!controller.signal.aborted) {
+          setLookingUpCustomer(false);
+        }
+      }
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [authChecked, branch, normalizedNationalId, router]);
+
+  function clearCustomerFieldsAfterIdentityChange() {
+    setGroupId("");
+    setFullName("");
+    setBirthDay("");
+    setBirthMonth("");
+    setBirthYear("");
+    setPhone("");
+    setWork("");
+    setSalary("");
+    setBank("");
+    setBroker("");
+    setExistingCustomerId(null);
+  }
+
+  function handleNationalIdChange(value: string) {
+    const nextNationalId = cleanDigits(value, 10);
+
+    if (
+      resolvedNationalId &&
+      nextNationalId !== resolvedNationalId
+    ) {
+      clearCustomerFieldsAfterIdentityChange();
+      setResolvedNationalId("");
+      setLookupStatus("idle");
+      setLookupMessage("");
+    }
+
+    setNationalId(nextNationalId);
   }
 
   function isValidHijriDate(day: string, month: string, year: string) {
@@ -135,27 +419,27 @@ export default function NewFinanceCustomerPage() {
   }
 
   async function createCustomer() {
-    if (saving) return;
+    if (saving || lookingUpCustomer) {
+      return;
+    }
+
+    const cleanNationalId = cleanDigits(nationalId, 10);
+    const cleanPhone = cleanDigits(phone, 10);
+    const cleanBirthDay = cleanDigits(birthDay, 2);
+    const cleanBirthMonth = cleanDigits(birthMonth, 2);
+    const cleanBirthYear = cleanDigits(birthYear, 4);
 
     if (
-      !branchId ||
-      !groupId ||
       !fullName.trim() ||
-      !nationalId ||
-      !birthDay ||
-      !birthMonth ||
-      !birthYear ||
-      !phone
+      !cleanNationalId ||
+      !cleanBirthDay ||
+      !cleanBirthMonth ||
+      !cleanBirthYear ||
+      !cleanPhone
     ) {
       alert("أكمل البيانات المطلوبة");
       return;
     }
-
-    const cleanNationalId = normalizeNumber(nationalId);
-    const cleanPhone = normalizeNumber(phone);
-    const cleanBirthDay = normalizeNumber(birthDay);
-    const cleanBirthMonth = normalizeNumber(birthMonth);
-    const cleanBirthYear = normalizeNumber(birthYear);
 
     if (cleanNationalId.length !== 10) {
       alert("رقم الهوية يجب أن يكون 10 أرقام");
@@ -172,79 +456,116 @@ export default function NewFinanceCustomerPage() {
       return;
     }
 
-    const salaryAmount = salary ? toNumber(salary) : null;
+    const salaryAmount = salary.trim() ? toNumber(salary) : null;
 
-    if (salary && (!salaryAmount || salaryAmount <= 0)) {
+    if (
+      salary.trim() &&
+      (!Number.isFinite(salaryAmount) || Number(salaryAmount) <= 0)
+    ) {
       alert("أدخل الراتب بشكل صحيح");
       return;
     }
 
+    const birthHijri = [
+      cleanBirthYear.padStart(4, "0"),
+      cleanBirthMonth.padStart(2, "0"),
+      cleanBirthDay.padStart(2, "0"),
+    ].join("/");
+
     try {
       setSaving(true);
 
-      const { data: duplicateCustomer, error: duplicateError } = await supabase
-        .from("finance_customers")
-        .select("id, full_name, national_id, phone")
-        .eq("branch_id", branchId)
-        .or(`national_id.eq.${cleanNationalId},phone.eq.${cleanPhone}`)
-        .maybeSingle();
+      const response = await fetch("/api/finance/customers", {
+        method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          branchSlug: branch,
+          nationalId: cleanNationalId,
+          fullName: fullName.trim(),
+          birthHijri,
+          phone: cleanPhone,
+          groupId: groupId || null,
+          workName: work.trim() || null,
+          salary: salaryAmount,
+          bank: bank.trim() || null,
+          broker: broker.trim() || null,
+        }),
+      });
 
-      if (duplicateError) {
-        throw new Error(duplicateError.message);
-      }
+      const result = await readJsonResponse<CustomerSaveResponse>(response);
 
-      if (duplicateCustomer) {
-        alert("يوجد عميل مسجل مسبقًا بنفس رقم الهوية أو رقم الجوال");
+      if (response.status === 401 || result?.code === "INVALID_SESSION") {
+        clearLocalFinanceSession();
+        router.replace("/login");
         return;
       }
 
-      const birthHijri = `${cleanBirthDay}/${cleanBirthMonth}/${cleanBirthYear}`;
-
-      const { data: customerData, error } = await supabase
-        .from("finance_customers")
-        .insert([
-          {
-            branch_id: branchId,
-            group_id: groupId,
-            full_name: fullName.trim(),
-            national_id: cleanNationalId,
-            birth_hijri: birthHijri,
-            phone: cleanPhone,
-            work: work.trim(),
-            work_name: work.trim(),
-            salary: salaryAmount,
-            bank: bank.trim(),
-            broker: broker.trim(),
-          },
-        ])
-        .select()
-        .single();
-
-      if (error) {
-        throw new Error(error.message);
+      if (!response.ok || result?.ok !== true) {
+        throw new Error(result?.message || "تعذر حفظ بيانات العميل");
       }
 
-      await supabase.from("finance_activity_logs").insert([
-        {
-          branch_id: branchId,
-          activity_type: "إنشاء عميل",
-          description: `تم إنشاء عميل جديد باسم ${fullName.trim()}`,
-          customer_id: customerData.id,
-          customer_name: fullName.trim(),
-          employee_name: employeeName || "الموظف",
-          status: "جديد",
-        },
-      ]);
+      const customerId = result.customer?.id?.trim() ?? "";
 
-      alert("تم إنشاء العميل بنجاح");
+      if (!customerId) {
+        throw new Error("تم الحفظ لكن تعذر قراءة معرف العميل");
+      }
 
-      router.push(`/finance/${branch}/customers/${customerData.id}`);
-    } catch (error: any) {
-      alert(error.message || "تعذر إنشاء العميل");
+      alert(
+        result.message ||
+          (result.customer?.wasCreated
+            ? "تم إنشاء العميل بنجاح"
+            : "تم تحديث بيانات العميل بنجاح")
+      );
+
+      router.push(`/finance/${branch}/customers/${customerId}`);
+    } catch (error) {
+      alert(
+        error instanceof Error
+          ? error.message
+          : "تعذر حفظ بيانات العميل"
+      );
     } finally {
       setSaving(false);
     }
   }
+
+  async function logout() {
+    if (loggingOut) {
+      return;
+    }
+
+    setLoggingOut(true);
+
+    try {
+      await fetch("/api/finance/login", {
+        method: "DELETE",
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+    } catch {
+      // يستمر تسجيل الخروج محليًا حتى لو تعذر الاتصال بالخادم.
+    } finally {
+      clearLocalFinanceSession();
+      router.replace("/login");
+      setLoggingOut(false);
+    }
+  }
+
+  if (!authChecked) {
+    return null;
+  }
+
+  const saveButtonText = saving
+    ? existingCustomerId
+      ? "جاري تحديث العميل..."
+      : "جاري إنشاء العميل..."
+    : existingCustomerId
+      ? "تحديث بيانات العميل"
+      : "إنشاء العميل";
 
   return (
     <main dir="rtl" style={getPageStyle(isMobile)}>
@@ -268,9 +589,13 @@ export default function NewFinanceCustomerPage() {
 
                 {!isMobile && <div style={employeeDividerSmall} />}
 
-                <button style={logoutInlineButton} onClick={logout}>
+                <button
+                  style={logoutInlineButton}
+                  onClick={() => void logout()}
+                  disabled={loggingOut}
+                >
                   <LogoutIcon />
-                  <span>تسجيل الخروج</span>
+                  <span>{loggingOut ? "جاري الخروج..." : "تسجيل الخروج"}</span>
                 </button>
               </div>
 
@@ -292,19 +617,44 @@ export default function NewFinanceCustomerPage() {
         </header>
 
         <section style={card}>
+          <input
+            style={input}
+            inputMode="numeric"
+            autoComplete="off"
+            maxLength={10}
+            placeholder="رقم الهوية"
+            value={nationalId}
+            onChange={(event) => handleNationalIdChange(event.target.value)}
+            disabled={saving}
+          />
+
+          {(lookingUpCustomer || lookupMessage) && (
+            <div
+              style={getLookupStatusStyle(
+                lookingUpCustomer ? "loading" : lookupStatus
+              )}
+              role="status"
+              aria-live="polite"
+            >
+              {lookingUpCustomer ? "جاري البحث عن العميل..." : lookupMessage}
+            </div>
+          )}
+
           <select
             style={input}
             value={groupId}
-            onChange={(e) => setGroupId(e.target.value)}
+            onChange={(event) => setGroupId(event.target.value)}
             disabled={loadingGroups || saving}
           >
             <option value="">
-              {loadingGroups ? "جاري تحميل المجموعات..." : "اختر مجموعة العملاء"}
+              {loadingGroups
+                ? "جاري تحميل المجموعات..."
+                : "مجموعة العملاء - اختياري"}
             </option>
 
             {groups.map((group) => (
               <option key={group.id} value={group.id}>
-                {group.name}
+                {group.name || "مجموعة بدون اسم"}
               </option>
             ))}
           </select>
@@ -313,41 +663,45 @@ export default function NewFinanceCustomerPage() {
             style={input}
             placeholder="الاسم كاملاً"
             value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-          />
-
-          <input
-            style={input}
-            inputMode="numeric"
-            maxLength={10}
-            placeholder="رقم الهوية"
-            value={nationalId}
-            onChange={(e) => setNationalId(normalizeNumber(e.target.value))}
+            onChange={(event) => setFullName(event.target.value)}
+            disabled={saving}
           />
 
           <div style={isCompact ? dateGridCompact : dateGrid}>
             <input
               style={input}
               inputMode="numeric"
+              maxLength={2}
               placeholder="اليوم هجري"
               value={birthDay}
-              onChange={(e) => setBirthDay(normalizeNumber(e.target.value))}
+              onChange={(event) =>
+                setBirthDay(cleanDigits(event.target.value, 2))
+              }
+              disabled={saving}
             />
 
             <input
               style={input}
               inputMode="numeric"
+              maxLength={2}
               placeholder="الشهر هجري"
               value={birthMonth}
-              onChange={(e) => setBirthMonth(normalizeNumber(e.target.value))}
+              onChange={(event) =>
+                setBirthMonth(cleanDigits(event.target.value, 2))
+              }
+              disabled={saving}
             />
 
             <input
               style={input}
               inputMode="numeric"
+              maxLength={4}
               placeholder="السنة هجري"
               value={birthYear}
-              onChange={(e) => setBirthYear(normalizeNumber(e.target.value))}
+              onChange={(event) =>
+                setBirthYear(cleanDigits(event.target.value, 4))
+              }
+              disabled={saving}
             />
           </div>
 
@@ -357,54 +711,121 @@ export default function NewFinanceCustomerPage() {
             maxLength={10}
             placeholder="رقم الجوال"
             value={phone}
-            onChange={(e) => setPhone(normalizeNumber(e.target.value))}
+            onChange={(event) => setPhone(cleanDigits(event.target.value, 10))}
+            disabled={saving}
           />
 
           <input
             style={input}
             placeholder="العمل ( اختياري )"
             value={work}
-            onChange={(e) => setWork(e.target.value)}
+            onChange={(event) => setWork(event.target.value)}
+            disabled={saving}
           />
 
           <input
             style={input}
-            inputMode="numeric"
+            inputMode="decimal"
             placeholder="الراتب ( اختياري )"
             value={salary}
-            onChange={(e) => setSalary(normalizeNumber(e.target.value))}
+            onChange={(event) => setSalary(normalizeNumber(event.target.value))}
+            disabled={saving}
           />
 
           <input
             style={input}
             placeholder="البنك ( اختياري )"
             value={bank}
-            onChange={(e) => setBank(e.target.value)}
+            onChange={(event) => setBank(event.target.value)}
+            disabled={saving}
           />
 
           <input
             style={input}
             placeholder="الوسيط ( اختياري )"
             value={broker}
-            onChange={(e) => setBroker(e.target.value)}
+            onChange={(event) => setBroker(event.target.value)}
+            disabled={saving}
           />
 
-          <button style={primaryButton} onClick={createCustomer} disabled={saving}>
-            {saving ? "جاري إنشاء العميل..." : "إنشاء العميل"}
+          <button
+            style={primaryButton}
+            onClick={() => void createCustomer()}
+            disabled={saving || lookingUpCustomer}
+          >
+            {saveButtonText}
           </button>
         </section>
 
         <div style={backWrapper}>
-          <button
-            style={backButton}
-            onClick={() => router.push(`/finance/${branch}/customers`)}
-          >
-            الرجوع للعملاء
+          <button style={backButton} onClick={() => router.back()}>
+            ← رجوع
           </button>
         </div>
       </div>
     </main>
   );
+}
+
+function clearLocalFinanceSession() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const keys = [
+    "finance_user",
+    "finance_user_name",
+    "finance_branch_user",
+    "finance_role",
+    "finance_permissions",
+  ];
+
+  for (const key of keys) {
+    localStorage.removeItem(key);
+  }
+}
+
+function getLookupStatusStyle(
+  status: "loading" | "found" | "not-found" | "error" | "idle"
+): CSSProperties {
+  const palette = {
+    loading: {
+      background: "rgba(37,99,235,0.08)",
+      border: "1px solid rgba(37,99,235,0.22)",
+      color: "#1d4ed8",
+    },
+    found: {
+      background: "rgba(22,163,74,0.08)",
+      border: "1px solid rgba(22,163,74,0.24)",
+      color: "#15803d",
+    },
+    "not-found": {
+      background: "rgba(217,119,6,0.08)",
+      border: "1px solid rgba(217,119,6,0.24)",
+      color: "#b45309",
+    },
+    error: {
+      background: "rgba(220,38,38,0.08)",
+      border: "1px solid rgba(220,38,38,0.22)",
+      color: "#b91c1c",
+    },
+    idle: {
+      background: "rgba(100,116,139,0.08)",
+      border: "1px solid rgba(100,116,139,0.18)",
+      color: "#475569",
+    },
+  }[status];
+
+  return {
+    width: "100%",
+    boxSizing: "border-box",
+    borderRadius: 14,
+    padding: "11px 13px",
+    fontSize: 13,
+    fontWeight: 800,
+    lineHeight: 1.7,
+    ...palette,
+  };
 }
 
 function UserIcon() {
