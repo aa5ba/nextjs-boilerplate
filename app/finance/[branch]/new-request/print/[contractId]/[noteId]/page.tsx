@@ -1,4 +1,3 @@
-
 "use client";
 
 import {
@@ -1099,8 +1098,9 @@ export default function PrintNewRequestPage() {
         }
 
         .note-document-title {
-          margin: 3mm 0 2mm !important;
+          margin: 3mm 0 4mm !important;
           font-size: 22pt !important;
+          line-height: 1.35 !important;
         }
 
         .note-document-header {
@@ -1871,11 +1871,6 @@ export default function PrintNewRequestPage() {
   const dueDate =
     formatDateOnly(rawDueDate);
 
-  const noteDueDateDisplay =
-    rawDueDate
-      ? dueDate
-      : "عند الطلب";
-
   const rawGuarantorName =
     guarantorCustomer?.full_name ||
     contract?.guarantor_name ||
@@ -1957,13 +1952,6 @@ export default function PrintNewRequestPage() {
   const legalCity = String(
     contract?.legal_city || ""
   ).trim();
-
-  const noteCity =
-    note?.city ||
-    contract?.legal_city ||
-    branchData?.city ||
-    branchData?.branch_name ||
-    "................";
 
   const documentsUnavailable =
     loading ||
@@ -2113,7 +2101,7 @@ export default function PrintNewRequestPage() {
             style={contractPrintArea}
           >
             <ContractPrintHeader
-              title="عقد بيع * شراء"
+              title="عقد اتفاق بيع"
               rightInfo={
                 organizationSettings
               }
@@ -2137,7 +2125,7 @@ export default function PrintNewRequestPage() {
 
               <p style={contractParagraph}>
                 أقر أنا الموقع أدناه
-                الطرف الثاني ( المشتري ) /{" "}
+                الطرف الثاني /{" "}
                 <strong>
                   {customerName}
                 </strong>
@@ -2154,7 +2142,7 @@ export default function PrintNewRequestPage() {
                 ، رقم الجوال /{" "}
                 <strong>{phone}</strong>
                 ، بأني اشتريت من الطرف
-                الأول ( البائع ) /{" "}
+                الأول /{" "}
                 <strong>
                   {contractFirstPartyName}
                 </strong>
@@ -2233,7 +2221,7 @@ export default function PrintNewRequestPage() {
                 كما يقر الطرف الثاني
                 بأنه اطلع على كامل بنود
                 هذا العقد، وأنه قبل
-                الشراء وأنه ملتزم
+                البيع وأنه ملتزم
                 بالسداد في الموعد
                 المتفق عليه والمذكور
                 في هذا العقد، وفي حال
@@ -2378,8 +2366,7 @@ export default function PrintNewRequestPage() {
                   </strong>
 
                   <span>
-                    {branchData?.city ||
-                      branchData?.branch_name ||
+                    {branchData?.city?.trim() ||
                       "................"}
                   </span>
                 </div>
@@ -2439,20 +2426,6 @@ export default function PrintNewRequestPage() {
                 </strong>
               </div>
 
-              <div
-                style={
-                  noteDocumentDueBox
-                }
-              >
-                <span>
-                  الاستحقاق:
-                </span>
-
-                <strong>
-                  دفعة واحدة بتاريخ{" "}
-                  {noteDueDateDisplay}
-                </strong>
-              </div>
             </header>
 
             <section
@@ -2460,58 +2433,45 @@ export default function PrintNewRequestPage() {
               style={noteLegalBodySection}
             >
               <p style={noteLegalParagraph}>
-                حُرر هذا السند في مدينة{" "}
+                حُرّر هذا السند في مدينة{" "}
                 <strong>
-                  {noteCity}
+                  {branchData?.city?.trim() ||
+                    "................"}
                 </strong>{" "}
-                بتاريخ{" "}
+                بتاريخ /{" "}
                 <strong>
                   {formatDisplayDate(
                     noteIssueDate
                   )}
-                </strong>{" "}
-                وقيمة السند{" "}
-                <strong>
-                  {formatMoney(
-                    safeNoteAmount
-                  )}
-                </strong>{" "}
-                ريال سعودي.
+                </strong>
+                .
               </p>
 
               <p style={noteLegalParagraph}>
-                بموجب هذا السند أتعهد
+                وبموجب هذا السند أتعهد
                 أنا الموقع أدناه بأن
                 أدفع لأمر{" "}
                 <strong>
                   {beneficiaryName}
                 </strong>{" "}
-                المستفيد، المبلغ الموضح
-                أعلاه وقدره{" "}
+                المبلغ الموضح أعلاه
+                وقدره{" "}
                 <strong>
                   {amountWords}
-                </strong>
-                .
-              </p>
-
-              <p style={noteLegalParagraph}>
-                وذلك قيمة كامل المبلغ
-                المستحق على المدين
-                للمستفيد، ويستحق كامل
-                مبلغ هذا السند{" "}
-                <strong>
-                  دفعة واحدة بتاريخ{" "}
-                  {noteDueDateDisplay}
-                </strong>
-                .
+                </strong>{" "}
+                وذلك قيمة المبلغ المستحق
+                على المدين للمستفيد،
+                ويستحق كامل مبلغ هذا
+                السند دفعة واحده لدى
+                الإطلاع.
               </p>
 
               <p style={noteLegalParagraph}>
                 وبموجب هذا السند يسقط
                 المدين كافة حقوق التقديم
-                والمطالبة والاحتجاج
-                والإخطار بالامتناع عن
-                الوفاء.
+                والمطالبة والإحتجاج
+                والإخطار بالإمتناع عن
+                الوفاء،
               </p>
 
               <p style={noteLegalParagraph}>
@@ -2523,7 +2483,7 @@ export default function PrintNewRequestPage() {
 
               <p style={noteLegalParagraph}>
                 وللمستفيد حق الرجوع بدون
-                مصروفات أو احتجاج أو
+                مصروفات او إحتجاج او
                 إخطار لعدم الوفاء، وهذا
                 السند واجب الدفع دون
                 تعطيل.
@@ -3786,7 +3746,7 @@ const noteTopMeta:
 
 const noteDocumentTitle:
   CSSProperties = {
-    margin: "4mm 0 2.5mm",
+    margin: "4mm 0 5mm",
 
     textAlign: "center",
 
@@ -3794,7 +3754,7 @@ const noteDocumentTitle:
 
     fontSize: "28pt",
 
-    lineHeight: 1.2,
+    lineHeight: 1.35,
 
     fontWeight: 900,
 
@@ -3838,25 +3798,6 @@ const noteDocumentAmountValue:
     fontSize: "15.2pt",
 
     fontWeight: 900,
-  };
-
-const noteDocumentDueBox:
-  CSSProperties = {
-    display: "flex",
-
-    alignItems: "center",
-
-    justifyContent: "center",
-
-    gap: "2mm",
-
-    marginTop: "1.8mm",
-
-    color: "#0f2b55",
-
-    fontSize: "10.8pt",
-
-    lineHeight: 1.45,
   };
 
 const noteLegalBodySection:
