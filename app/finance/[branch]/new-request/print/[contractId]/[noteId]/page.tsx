@@ -2113,7 +2113,7 @@ export default function PrintNewRequestPage() {
             style={contractPrintArea}
           >
             <ContractPrintHeader
-              title="عقد بيع * شراء"
+              title="عقد اتفاق بيع"
               rightInfo={
                 organizationSettings
               }
@@ -2170,13 +2170,13 @@ export default function PrintNewRequestPage() {
                     contractPaymentAmount
                   )}
                 </strong>{" "}
-                (
+                ريال سعودي (
                 <strong>
                   {
                     contractPaymentAmountWords
                   }
                 </strong>
-                ) ريال سعودي.
+                ).
               </p>
 
               <p style={contractParagraph}>
@@ -2202,13 +2202,13 @@ export default function PrintNewRequestPage() {
                     contractPaymentAmount
                   )}
                 </strong>{" "}
-                (
+                ريال سعودي (
                 <strong>
                   {
                     contractPaymentAmountWords
                   }
                 </strong>
-                ) ريال سعودي، وأن يكون
+                )، وأن يكون
                 تاريخ السداد بتاريخ /{" "}
                 <strong
                   style={numericDateText}
