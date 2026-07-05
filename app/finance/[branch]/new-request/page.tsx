@@ -2488,7 +2488,7 @@ export default function NewRequestPage() {
             بيانات العقد والسند
           </h2>
 
-          <Field label="قيمة البضاعة - للاستخدام الداخلي">
+          <Field label="قيمة البضاعة المباعه">
             <input
               style={input}
               inputMode="decimal"
