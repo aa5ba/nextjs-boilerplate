@@ -2223,10 +2223,6 @@ export default function NewRequestPage() {
               style={{
                 ...customerLookupNotice,
                 ...(customerLookupStatus ===
-                "found"
-                  ? customerLookupFound
-                  : {}),
-                ...(customerLookupStatus ===
                 "not_found"
                   ? customerLookupNotFound
                   : {}),
@@ -4286,13 +4282,6 @@ const customerLookupNotice:
   lineHeight: 1.7,
 };
 
-const customerLookupFound:
-  CSSProperties = {
-  border: "1px solid #bbf7d0",
-  background: "#f0fdf4",
-  color: "#166534",
-};
-
 const customerLookupNotFound:
   CSSProperties = {
   border: "1px solid #fde68a",
@@ -4682,5 +4671,3 @@ const backButton:
   boxShadow:
     "0 5px 14px rgba(22,163,74,0.22)",
   fontFamily:
-    "var(--font-almarai), sans-serif",
-};
