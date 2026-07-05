@@ -552,9 +552,7 @@ export default function NewRequestPage() {
           setCustomerLookupStatus(
             "found"
           );
-          setCustomerLookupMessage(
-            "تم العثور على العميل وتعبئة بياناته تلقائيًا. يمكنك تعديلها قبل الحفظ."
-          );
+          setCustomerLookupMessage("");
         } catch (error) {
           if (
             controller.signal.aborted ||
@@ -1588,10 +1586,6 @@ export default function NewRequestPage() {
       return "يرجى اختيار تاريخ تحرير العقد";
     }
 
-    if (!legalCity.trim()) {
-      return "يرجى إدخال مدينة التقاضي";
-    }
-
     if (hasGuarantor) {
       const cleanGuarantorNationalId =
         normalizeNumber(
@@ -2214,7 +2208,10 @@ export default function NewRequestPage() {
           </Field>
 
           {customerLookupStatus !==
-            "idle" && (
+            "idle" &&
+            customerLookupStatus !==
+              "found" &&
+            customerLookupMessage && (
             <div
               role={
                 customerLookupStatus ===
@@ -2583,10 +2580,11 @@ export default function NewRequestPage() {
             />
           </Field>
 
-          <Field label="مدينة التقاضي">
+          <Field label="مدينة التقاضي - اختياري">
             <input
               style={input}
               value={legalCity}
+              placeholder="اتركه فارغًا عند عدم الحاجة"
               onChange={(event) =>
                 setLegalCity(
                   event.target.value
@@ -3250,12 +3248,10 @@ function ProfessionalDatePicker({
                     calendarMonthTitle
                   }
                 >
-                  {
-                    ARABIC_MONTHS[
-                      visibleMonth
-                    ]
-                  }{" "}
-                  {visibleYear}
+                  {String(
+                    visibleMonth + 1
+                  ).padStart(2, "0")}
+                  /{visibleYear}
                 </strong>
 
                 <button
@@ -3410,21 +3406,6 @@ function ProfessionalDatePicker({
     </>
   );
 }
-
-const ARABIC_MONTHS = [
-  "يناير",
-  "فبراير",
-  "مارس",
-  "أبريل",
-  "مايو",
-  "يونيو",
-  "يوليو",
-  "أغسطس",
-  "سبتمبر",
-  "أكتوبر",
-  "نوفمبر",
-  "ديسمبر",
-];
 
 const ARABIC_WEEK_DAYS = [
   "ح",
@@ -3614,14 +3595,19 @@ function formatDisplayDate(
     return value;
   }
 
-  return new Intl.DateTimeFormat(
-    "ar-SA-u-ca-gregory",
-    {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    }
-  ).format(date);
+  const day = String(
+    date.getDate()
+  ).padStart(2, "0");
+
+  const month = String(
+    date.getMonth() + 1
+  ).padStart(2, "0");
+
+  const year = String(
+    date.getFullYear()
+  );
+
+  return `${day}/${month}/${year}`;
 }
 
 function getErrorMessage(
