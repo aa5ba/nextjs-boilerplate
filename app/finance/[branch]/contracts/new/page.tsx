@@ -33,6 +33,7 @@ type InvestorRecord = {
 type ProductRecord = {
   id: string;
   product_name: string;
+  unit_price: number | string | null;
 };
 
 type BranchSession = {
@@ -55,11 +56,15 @@ type SelectOption = {
   disabled?: boolean;
 };
 
-type CompleteCreationResult = {
-  contract_id?: string | null;
-  note_id?: string | null;
-  contract_number?: number | string | null;
-  note_number?: number | string | null;
+type ContractApiResponse = {
+  ok?: boolean;
+  message?: string;
+  code?: string;
+  contractId?: string | null;
+  noteId?: string | null;
+  customerId?: string | null;
+  contractNumber?: number | string | null;
+  noteNumber?: number | string | null;
 };
 
 type DropdownRect = {
@@ -71,17 +76,18 @@ type DropdownRect = {
 const MANAGER_ROLES = [
   "main_admin",
   "branch_manager",
+  "admin",
+  "manager",
   "مدير رئيسي",
   "مدير فرع",
   "مدير",
 ];
 
-const NOTE_PERMISSION_KEYS = [
-  "promissory_note_create",
-  "promissory_notes_create",
-  "create_promissory_note",
-  "notes_create",
-];
+const NOTE_CREATE_PERMISSION_KEY =
+  "promissory_note_create";
+
+const NOTE_LINK_PERMISSION_KEY =
+  "promissory_note_link_contract";
 
 const FINANCE_SESSION_KEYS = [
   "finance_user",
@@ -236,8 +242,8 @@ export default function NewFinanceContractPage() {
     setGuarantorWasFound,
   ] = useState(false);
 
-  const [financeType, setFinanceType] =
-    useState("");
+  const [contractType, setContractType] =
+    useState<"" | "عقد بيع" | "عقد تقسيط">("");
 
   const [investorId, setInvestorId] =
     useState("");
@@ -266,12 +272,24 @@ export default function NewFinanceContractPage() {
     useState("");
 
   const [
+    debtAmountManuallyEdited,
+    setDebtAmountManuallyEdited,
+  ] = useState(false);
+
+  const [
     paymentAmount,
     setPaymentAmount,
   ] = useState("");
 
-  const [paymentType, setPaymentType] =
-    useState("موعد محدد");
+  const [
+    installmentAmount,
+    setInstallmentAmount,
+  ] = useState("");
+
+  const [
+    installmentsCount,
+    setInstallmentsCount,
+  ] = useState("");
 
   const [
     paymentDueDate,
@@ -302,6 +320,11 @@ export default function NewFinanceContractPage() {
   const [saving, setSaving] =
     useState(false);
 
+  const [
+    referenceDataRefreshKey,
+    setReferenceDataRefreshKey,
+  ] = useState(0);
+
   const isMobile = screen === "mobile";
   const isTablet = screen === "tablet";
   const isCompact = isMobile || isTablet;
@@ -316,11 +339,13 @@ export default function NewFinanceContractPage() {
         return true;
       }
 
-      return employeePermissions.some(
-        (permission) =>
-          NOTE_PERMISSION_KEYS.includes(
-            permission
-          )
+      return (
+        employeePermissions.includes(
+          NOTE_CREATE_PERMISSION_KEY
+        ) &&
+        employeePermissions.includes(
+          NOTE_LINK_PERMISSION_KEY
+        )
       );
     }, [
       employeePermissions,
@@ -569,7 +594,7 @@ export default function NewFinanceContractPage() {
           supabase
             .from("finance_products")
             .select(
-              "id, product_name"
+              "id, product_name, unit_price"
             )
             .eq(
               "branch_id",
@@ -702,7 +727,11 @@ export default function NewFinanceContractPage() {
     return () => {
       cancelled = true;
     };
-  }, [branch, router]);
+  }, [
+    branch,
+    referenceDataRefreshKey,
+    router,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1052,13 +1081,28 @@ export default function NewFinanceContractPage() {
     );
   }
 
-  function logout() {
-    clearFinanceSession();
-    router.replace("/login");
+  async function logout() {
+    try {
+      await fetch("/api/finance/login", {
+        method: "DELETE",
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+    } catch (error) {
+      console.error(
+        "Finance logout request failed:",
+        error
+      );
+    } finally {
+      clearFinanceSession();
+      router.replace("/login");
+    }
   }
 
   function retryReferenceData() {
-    window.location.reload();
+    setReferenceDataRefreshKey(
+      (current) => current + 1
+    );
   }
 
   function applyCustomerData(
@@ -1128,12 +1172,7 @@ export default function NewFinanceContractPage() {
     ) {
       setCustomerId(null);
       setCustomerWasFound(false);
-
-      if (
-        normalized.length < 10
-      ) {
-        clearCustomerFields();
-      }
+      clearCustomerFields();
     }
 
     setCustomerNationalId(
@@ -1156,12 +1195,7 @@ export default function NewFinanceContractPage() {
     ) {
       setGuarantorId(null);
       setGuarantorWasFound(false);
-
-      if (
-        normalized.length < 10
-      ) {
-        clearGuarantorDataFields();
-      }
+      clearGuarantorDataFields();
     }
 
     setGuarantorNationalId(
@@ -1204,6 +1238,91 @@ export default function NewFinanceContractPage() {
     }
   }
 
+  function calculateDebtAmount(
+    nextProductId: string,
+    nextQuantity: string
+  ) {
+    const selectedProduct =
+      products.find(
+        (product) =>
+          product.id === nextProductId
+      );
+
+    const unitPrice = toNumber(
+      String(
+        selectedProduct?.unit_price ?? 0
+      )
+    );
+
+    const quantity = toNumber(
+      nextQuantity
+    );
+
+    if (
+      unitPrice <= 0 ||
+      quantity <= 0
+    ) {
+      setDebtAmount("");
+      return;
+    }
+
+    const calculated =
+      Math.round(
+        unitPrice * quantity * 100
+      ) / 100;
+
+    setDebtAmount(
+      String(calculated)
+    );
+  }
+
+  function handleProductChange(
+    value: string
+  ) {
+    setProductId(value);
+    setDebtAmountManuallyEdited(false);
+    calculateDebtAmount(
+      value,
+      productQuantity
+    );
+  }
+
+  function handleProductQuantityChange(
+    value: string
+  ) {
+    const normalized =
+      normalizeNumber(value);
+
+    setProductQuantity(normalized);
+
+    if (!debtAmountManuallyEdited) {
+      calculateDebtAmount(
+        productId,
+        normalized
+      );
+    }
+  }
+
+  function handleContractTypeChange(
+    value: string
+  ) {
+    const nextType:
+      | ""
+      | "عقد بيع"
+      | "عقد تقسيط" =
+      value === "عقد بيع" ||
+      value === "عقد تقسيط"
+        ? value
+        : "";
+
+    setContractType(nextType);
+
+    if (nextType !== "عقد تقسيط") {
+      setInstallmentAmount("");
+      setInstallmentsCount("");
+    }
+  }
+
   function validateForm() {
     if (!branchId) {
       return "بيانات الفرع ما زالت قيد التحميل";
@@ -1213,9 +1332,7 @@ export default function NewFinanceContractPage() {
       return "تعذر تحديد الموظف المسجل";
     }
 
-    if (
-      referenceDataLoading
-    ) {
+    if (referenceDataLoading) {
       return "انتظر حتى يكتمل تحميل المستثمرين والمنتجات";
     }
 
@@ -1229,30 +1346,27 @@ export default function NewFinanceContractPage() {
       return "تعذر تحميل المستثمرين أو المنتجات";
     }
 
-    if (
-      customerNationalId.length !==
-      10
-    ) {
+    if (!contractType) {
+      return "اختر نوع العقد";
+    }
+
+    if (customerNationalId.length !== 10) {
       return "رقم هوية العميل يجب أن يكون 10 أرقام";
     }
 
-    if (
-      !customerFullName.trim()
-    ) {
+    if (!customerFullName.trim()) {
       return "أدخل اسم العميل";
     }
 
     if (
-      !customerBirthHijri.trim()
-    ) {
-      return "أدخل تاريخ ميلاد العميل بالهجري";
-    }
-
-    if (
-      !/^05\d{8}$/.test(
-        customerPhone
+      !/^[0-9]{4}\/(0[1-9]|1[0-2])\/(0[1-9]|[12][0-9]|30)$/.test(
+        customerBirthHijri
       )
     ) {
+      return "أدخل تاريخ ميلاد العميل بالهجري بصيغة YYYY/MM/DD";
+    }
+
+    if (!/^05\d{8}$/.test(customerPhone)) {
       return "رقم جوال العميل يجب أن يكون 10 أرقام ويبدأ بـ 05";
     }
 
@@ -1264,71 +1378,78 @@ export default function NewFinanceContractPage() {
       return "اختر المنتج";
     }
 
-    const quantity =
-      toNumber(productQuantity);
+    const quantity = toNumber(productQuantity);
 
     if (quantity <= 0) {
       return "أدخل كمية صحيحة";
     }
 
-    if (
-      toNumber(debtAmount) <= 0
-    ) {
-      return "أدخل مبلغ الدين";
+    const totalPaymentAmount =
+      toNumber(paymentAmount);
+
+    if (toNumber(debtAmount) <= 0) {
+      return "أدخل قيمة البضاعة";
     }
 
-    if (
-      toNumber(paymentAmount) <=
-      0
-    ) {
+    if (totalPaymentAmount <= 0) {
       return "أدخل مبلغ السداد";
-    }
-
-    if (!paymentType) {
-      return "اختر نوع السداد";
     }
 
     if (!contractIssueDate) {
       return "اختر تاريخ تحرير العقد";
     }
 
-    if (
-      paymentType ===
-        "موعد محدد" &&
-      !paymentDueDate
-    ) {
-      return "اختر موعد السداد";
+    if (!paymentDueDate) {
+      return contractType === "عقد تقسيط"
+        ? "اختر تاريخ أول دفعة"
+        : "اختر موعد السداد";
     }
 
-    if (
-      creationMode ===
-        "contract_and_note" &&
-      !canCreatePromissoryNote
-    ) {
-      return "لا تملك صلاحية إنشاء سند";
+    if (paymentDueDate < contractIssueDate) {
+      return "تاريخ الاستحقاق لا يمكن أن يسبق تاريخ تحرير العقد";
     }
 
-    if (
-      creationMode ===
-        "contract_and_note" &&
-      !paymentDueDate
-    ) {
-      return "اختر تاريخ استحقاق السند";
-    }
-
-    if (
-      creationMode ===
-        "contract_and_note" &&
-      !legalCity.trim()
-    ) {
+    if (!legalCity.trim()) {
       return "أدخل مدينة التقاضي";
     }
 
-    if (hasGuarantor) {
+    if (contractType === "عقد تقسيط") {
+      const regularInstallment =
+        toNumber(installmentAmount);
+
+      const count =
+        toNumber(installmentsCount);
+
+      if (regularInstallment <= 0) {
+        return "أدخل قيمة الدفعة";
+      }
+
       if (
-        guarantorNationalId.length !==
-        10
+        count <= 0 ||
+        !Number.isInteger(count)
       ) {
+        return "أدخل عدد دفعات صحيح";
+      }
+
+      if (
+        count > 1 &&
+        regularInstallment *
+          (count - 1) >=
+          totalPaymentAmount
+      ) {
+        return "قيمة الدفعة وعدد الدفعات يتجاوزان مبلغ السداد قبل الدفعة الأخيرة";
+      }
+    }
+
+    if (
+      creationMode === "contract_and_note" &&
+      !canCreatePromissoryNote
+    ) {
+      return "لا تملك صلاحية إنشاء سند مرتبط بالعقد";
+    }
+
+    if (hasGuarantor) {
+      if (guarantorNationalId.length !== 10) {
         return "رقم هوية الكفيل يجب أن يكون 10 أرقام";
       }
 
@@ -1339,28 +1460,167 @@ export default function NewFinanceContractPage() {
         return "لا يمكن أن يكون العميل كفيلًا لنفسه";
       }
 
-      if (
-        !guarantorFullName.trim()
-      ) {
+      if (!guarantorFullName.trim()) {
         return "أدخل اسم الكفيل";
       }
 
       if (
-        !guarantorBirthHijri.trim()
-      ) {
-        return "أدخل تاريخ ميلاد الكفيل بالهجري";
-      }
-
-      if (
-        !/^05\d{8}$/.test(
-          guarantorPhone
+        !/^[0-9]{4}\/(0[1-9]|1[0-2])\/(0[1-9]|[12][0-9]|30)$/.test(
+          guarantorBirthHijri
         )
       ) {
+        return "أدخل تاريخ ميلاد الكفيل بالهجري بصيغة YYYY/MM/DD";
+      }
+
+      if (!/^05\d{8}$/.test(guarantorPhone)) {
         return "رقم جوال الكفيل يجب أن يكون 10 أرقام ويبدأ بـ 05";
       }
     }
 
     return null;
+  }
+
+  async function submitContractRequest(
+    allowNegativeInventory: boolean
+  ): Promise<ContractApiResponse | null> {
+    const response = await fetch(
+      "/api/finance/contracts/create",
+      {
+        method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          customerFullName:
+            customerFullName.trim(),
+          customerNationalId,
+          customerBirthHijri:
+            customerBirthHijri.trim(),
+          customerPhone,
+          customerWorkName:
+            customerWorkName.trim(),
+          customerAddress:
+            customerAddress.trim(),
+
+          contractType,
+          investorId,
+          productId,
+          productQuantity:
+            toNumber(productQuantity),
+          printPartyType,
+
+          debtAmount:
+            toNumber(debtAmount),
+          paymentAmount:
+            toNumber(paymentAmount),
+
+          installmentAmount:
+            contractType === "عقد تقسيط"
+              ? toNumber(installmentAmount)
+              : null,
+          installmentsCount:
+            contractType === "عقد تقسيط"
+              ? toNumber(installmentsCount)
+              : 1,
+
+          firstDueDate:
+            paymentDueDate,
+          contractIssueDate,
+          contractIssueDateHijri: "",
+
+          legalCity: legalCity.trim(),
+          judicialAmount:
+            toNumber(judicialAmount),
+          notes: notes.trim(),
+
+          hasGuarantor,
+          guarantorFullName:
+            hasGuarantor
+              ? guarantorFullName.trim()
+              : "",
+          guarantorNationalId:
+            hasGuarantor
+              ? guarantorNationalId
+              : "",
+          guarantorBirthHijri:
+            hasGuarantor
+              ? guarantorBirthHijri.trim()
+              : "",
+          guarantorPhone:
+            hasGuarantor
+              ? guarantorPhone
+              : "",
+          guarantorWorkName:
+            hasGuarantor
+              ? guarantorWorkName.trim()
+              : "",
+          guarantorAddress:
+            hasGuarantor
+              ? guarantorAddress.trim()
+              : "",
+
+          createPromissoryNote:
+            creationMode ===
+            "contract_and_note",
+          allowNegativeInventory,
+        }),
+      }
+    );
+
+    let payload: ContractApiResponse = {};
+
+    try {
+      payload =
+        (await response.json()) as ContractApiResponse;
+    } catch {
+      payload = {};
+    }
+
+    if (response.status === 401) {
+      clearFinanceSession();
+      router.replace("/login");
+
+      throw new Error(
+        payload.message ||
+          "انتهت جلسة تسجيل الدخول"
+      );
+    }
+
+    if (!response.ok || payload.ok !== true) {
+      if (
+        payload.code ===
+          "NEGATIVE_INVENTORY_CONFIRMATION_REQUIRED" &&
+        !allowNegativeInventory
+      ) {
+        const quantity =
+          toNumber(productQuantity);
+
+        const stockText =
+          availableStock === null
+            ? "المتوفر الحالي"
+            : String(availableStock);
+
+        const shouldContinue =
+          window.confirm(
+            `الكمية المطلوبة (${quantity}) أكبر من ${stockText}. هل تريد الاستمرار والسماح بوصول المخزون إلى السالب؟`
+          );
+
+        if (!shouldContinue) {
+          return null;
+        }
+
+        return submitContractRequest(true);
+      }
+
+      throw new Error(
+        payload.message ||
+          "تعذر إنشاء العقد"
+      );
+    }
+
+    return payload;
   }
 
   async function createContract() {
@@ -1376,207 +1636,25 @@ export default function NewFinanceContractPage() {
       return;
     }
 
-    if (!branchId || !employeeId) {
-      return;
-    }
-
-    const selectedInvestor =
-      investors.find(
-        (investor) =>
-          investor.id === investorId
-      );
-
-    const selectedProduct =
-      products.find(
-        (product) =>
-          product.id === productId
-      );
-
-    if (!selectedInvestor) {
-      alert(
-        "تعذر تحديد المستثمر"
-      );
-
-      return;
-    }
-
-    if (!selectedProduct) {
-      alert("تعذر تحديد المنتج");
-      return;
-    }
-
-    const quantity =
-      toNumber(productQuantity);
-
-    if (
-      availableStock !== null &&
-      quantity > availableStock
-    ) {
-      const shouldContinue =
-        window.confirm(
-          `الكمية المطلوبة (${quantity}) أكبر من المتوفر في المخزون (${availableStock}). هل تريد الاستمرار والسماح بوصول المخزون إلى السالب؟`
-        );
-
-      if (!shouldContinue) {
-        return;
-      }
-    }
-
-    const printPartyName =
-      printPartyType ===
-      "organization"
-        ? organizationName
-        : selectedInvestor.investor_name;
-
-    const printPartyIdentifier =
-      printPartyType ===
-      "organization"
-        ? organizationIdentifier
-        : selectedInvestor.national_id ||
-          "";
-
     try {
       setSaving(true);
 
-      const {
-        data,
-        error,
-      } = await supabase.rpc(
-        "create_finance_contract_complete_atomic",
-        {
-          p_branch_id: branchId,
-          p_employee_id: employeeId,
-          p_employee_name: employeeName,
+      const result =
+        await submitContractRequest(false);
 
-          p_customer_full_name:
-            customerFullName.trim(),
-
-          p_customer_national_id:
-            customerNationalId,
-
-          p_customer_birth_hijri:
-            customerBirthHijri.trim(),
-
-          p_customer_phone:
-            customerPhone,
-
-          p_customer_work_name:
-            customerWorkName.trim(),
-
-          p_customer_address:
-            customerAddress.trim(),
-
-          p_finance_type:
-            financeType.trim(),
-
-          p_investor_id:
-            selectedInvestor.id,
-
-          p_investor_name:
-            selectedInvestor.investor_name,
-
-          p_product_id:
-            selectedProduct.id,
-
-          p_product_name:
-            selectedProduct.product_name,
-
-          p_product_quantity:
-            quantity,
-
-          p_print_party_type:
-            printPartyType,
-
-          p_print_party_name:
-            printPartyName || "",
-
-          p_print_party_identifier:
-            printPartyIdentifier || "",
-
-          p_debt_amount:
-            toNumber(debtAmount),
-
-          p_payment_amount:
-            toNumber(paymentAmount),
-
-          p_payment_type:
-            paymentType,
-
-          p_payment_due_date:
-            paymentDueDate || "",
-
-          p_contract_issue_date:
-            contractIssueDate,
-
-          p_legal_city:
-            legalCity.trim(),
-
-          p_judicial_amount:
-            toNumber(judicialAmount),
-
-          p_notes:
-            notes.trim(),
-
-          p_has_guarantor:
-            hasGuarantor,
-
-          p_guarantor_full_name:
-            hasGuarantor
-              ? guarantorFullName.trim()
-              : "",
-
-          p_guarantor_national_id:
-            hasGuarantor
-              ? guarantorNationalId
-              : "",
-
-          p_guarantor_birth_hijri:
-            hasGuarantor
-              ? guarantorBirthHijri.trim()
-              : "",
-
-          p_guarantor_phone:
-            hasGuarantor
-              ? guarantorPhone
-              : "",
-
-          p_guarantor_work_name:
-            hasGuarantor
-              ? guarantorWorkName.trim()
-              : "",
-
-          p_guarantor_address:
-            hasGuarantor
-              ? guarantorAddress.trim()
-              : "",
-
-          p_create_promissory_note:
-            creationMode ===
-            "contract_and_note",
-        }
-      );
-
-      if (error) {
-        throw new Error(
-          getRpcErrorMessage(
-            error.message
-          )
-        );
+      if (!result) {
+        return;
       }
 
-      const result =
-        extractCreationResult(data);
-
-      if (!result.contract_id) {
+      if (!result.contractId) {
         throw new Error(
           "تم تنفيذ العملية لكن لم يتم إرجاع معرف العقد"
         );
       }
 
       if (
-        creationMode ===
-          "contract_and_note" &&
-        !result.note_id
+        creationMode === "contract_and_note" &&
+        !result.noteId
       ) {
         throw new Error(
           "لم يتم إرجاع معرف السند"
@@ -1584,27 +1662,26 @@ export default function NewFinanceContractPage() {
       }
 
       if (
-        creationMode ===
-          "contract_and_note" &&
-        result.note_id
+        creationMode === "contract_and_note" &&
+        result.noteId
       ) {
         alert(
-          `تم إنشاء العقد رقم ${result.contract_number || ""} والسند رقم ${result.note_number || ""} بنجاح`
+          `تم إنشاء العقد رقم ${result.contractNumber || ""} والسند رقم ${result.noteNumber || ""} بنجاح`
         );
 
         router.push(
-          `/finance/${branch}/new-request/print/${result.contract_id}/${result.note_id}`
+          `/finance/${branch}/new-request/print/${result.contractId}/${result.noteId}`
         );
 
         return;
       }
 
       alert(
-        `تم إنشاء العقد رقم ${result.contract_number || ""} بنجاح`
+        `تم إنشاء العقد رقم ${result.contractNumber || ""} بنجاح`
       );
 
       router.push(
-        `/finance/${branch}/contracts/print/${result.contract_id}`
+        `/finance/${branch}/contracts/print/${result.contractId}`
       );
     } catch (error: unknown) {
       alert(
@@ -1765,6 +1842,36 @@ export default function NewFinanceContractPage() {
             </button>
           </section>
         )}
+
+        <section style={card}>
+          <h2 style={sectionTitle}>
+            نوع العقد
+          </h2>
+
+          <Field
+            label="نوع العقد"
+            required
+            fullWidth
+          >
+            <CustomSelect
+              value={contractType}
+              placeholder="اختر نوع العقد"
+              options={[
+                {
+                  value: "عقد بيع",
+                  label: "عقد بيع",
+                },
+                {
+                  value: "عقد تقسيط",
+                  label: "عقد تقسيط",
+                },
+              ]}
+              onChange={
+                handleContractTypeChange
+              }
+            />
+          </Field>
+        </section>
 
         <section style={card}>
           <h2 style={sectionTitle}>
@@ -1997,7 +2104,7 @@ export default function NewFinanceContractPage() {
                   productOptions
                 }
                 onChange={
-                  setProductId
+                  handleProductChange
                 }
               />
             </Field>
@@ -2014,10 +2121,8 @@ export default function NewFinanceContractPage() {
                   productQuantity
                 }
                 onChange={(event) =>
-                  setProductQuantity(
-                    normalizeNumber(
-                      event.target.value
-                    )
+                  handleProductQuantityChange(
+                    event.target.value
                   )
                 }
               />
@@ -2087,24 +2192,8 @@ export default function NewFinanceContractPage() {
             )}
           >
             <Field
-              label="نوع التمويل"
-              hint="اختياري"
-              fullWidth
-            >
-              <input
-                style={fieldInput}
-                placeholder="مثال: تمويل منتج"
-                value={financeType}
-                onChange={(event) =>
-                  setFinanceType(
-                    event.target.value
-                  )
-                }
-              />
-            </Field>
-
-            <Field
-              label="مبلغ الدين (القيمه المسلّمه للعميل )"
+              label="قيمة البضاعة المباعة" 
+              hint="تُحسب تلقائيًا ويمكن تعديلها، ولن تظهر في طباعة العقد"
               required
             >
               <input
@@ -2112,13 +2201,14 @@ export default function NewFinanceContractPage() {
                 inputMode="decimal"
                 placeholder="0.00"
                 value={debtAmount}
-                onChange={(event) =>
+                onChange={(event) => {
+                  setDebtAmountManuallyEdited(true);
                   setDebtAmount(
                     normalizeNumber(
                       event.target.value
                     )
-                  )
-                }
+                  );
+                }}
               />
             </Field>
 
@@ -2143,32 +2233,55 @@ export default function NewFinanceContractPage() {
               />
             </Field>
 
-            <Field
-              label="نوع السداد"
-              required
-            >
-              <CustomSelect
-                value={paymentType}
-                placeholder="اختر نوع السداد"
-                options={[
-                  {
-                    value:
-                      "موعد محدد",
-                    label:
-                      "موعد محدد",
-                  },
-                  {
-                    value:
-                      "شهري مجدول",
-                    label:
-                      "شهري مجدول",
-                  },
-                ]}
-                onChange={
-                  setPaymentType
-                }
-              />
-            </Field>
+            {contractType ===
+              "عقد تقسيط" && (
+              <>
+                <Field
+                  label="قيمة الدفعة"
+                  required
+                >
+                  <input
+                    style={fieldInput}
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={
+                      installmentAmount
+                    }
+                    onChange={(event) =>
+                      setInstallmentAmount(
+                        normalizeNumber(
+                          event.target.value
+                        )
+                      )
+                    }
+                  />
+                </Field>
+
+                <Field
+                  label="عدد الدفعات"
+                  required
+                >
+                  <input
+                    style={fieldInput}
+                    inputMode="numeric"
+                    placeholder="مثال: 12"
+                    value={
+                      installmentsCount
+                    }
+                    onChange={(event) =>
+                      setInstallmentsCount(
+                        normalizeDigits(
+                          event.target.value
+                        ).replace(
+                          /[^0-9]/g,
+                          ""
+                        )
+                      )
+                    }
+                  />
+                </Field>
+              </>
+            )}
 
             <Field
               label="تاريخ تحرير العقد"
@@ -2186,13 +2299,13 @@ export default function NewFinanceContractPage() {
             </Field>
 
             <Field
-              label="موعد السداد / استحقاق السند"
-              required={
-                paymentType ===
-                  "موعد محدد" ||
-                creationMode ===
-                  "contract_and_note"
+              label={
+                contractType ===
+                "عقد تقسيط"
+                  ? "تاريخ أول دفعة / استحقاق السند"
+                  : "موعد السداد / استحقاق السند"
               }
+              required
               fullWidth
             >
               <ProfessionalDatePicker
@@ -2206,7 +2319,10 @@ export default function NewFinanceContractPage() {
               />
             </Field>
 
-            <Field label="مدينة التقاضي">
+            <Field
+              label="مدينة التقاضي"
+              required
+            >
               <input
                 style={fieldInput}
                 placeholder="اسم المدينة"
@@ -3407,133 +3523,6 @@ function normalizeHijriDate(
     4,
     6
   )}/${limited.slice(6)}`;
-}
-
-function extractCreationResult(
-  data: unknown
-): CompleteCreationResult {
-  if (Array.isArray(data)) {
-    return (
-      (data[0] as CompleteCreationResult) ||
-      {}
-    );
-  }
-
-  if (
-    data &&
-    typeof data === "object"
-  ) {
-    return data as CompleteCreationResult;
-  }
-
-  return {};
-}
-
-function getRpcErrorMessage(
-  message: string
-) {
-  const mappings:
-    Array<[string, string]> = [
-    [
-      "BRANCH_REQUIRED",
-      "تعذر تحديد الفرع",
-    ],
-    [
-      "EMPLOYEE_REQUIRED",
-      "تعذر تحديد الموظف",
-    ],
-    [
-      "INVALID_EMPLOYEE_SESSION",
-      "جلسة الموظف غير صالحة",
-    ],
-    [
-      "PROMISSORY_NOTE_PERMISSION_DENIED",
-      "لا تملك صلاحية إنشاء سند",
-    ],
-    [
-      "INVESTOR_NOT_FOUND",
-      "المستثمر غير موجود في الفرع",
-    ],
-    [
-      "PRODUCT_NOT_FOUND",
-      "المنتج غير موجود في الفرع",
-    ],
-    [
-      "INVALID_PRODUCT_QUANTITY",
-      "كمية المنتج غير صحيحة",
-    ],
-    [
-      "INVALID_DEBT_AMOUNT",
-      "مبلغ الدين غير صحيح",
-    ],
-    [
-      "INVALID_PAYMENT_AMOUNT",
-      "مبلغ السداد غير صحيح",
-    ],
-    [
-      "CONTRACT_ISSUE_DATE_REQUIRED",
-      "تاريخ تحرير العقد مطلوب",
-    ],
-    [
-      "NOTE_DUE_DATE_REQUIRED",
-      "تاريخ استحقاق السند مطلوب",
-    ],
-    [
-      "LEGAL_CITY_REQUIRED",
-      "مدينة التقاضي مطلوبة عند إنشاء السند",
-    ],
-    [
-      "INVALID_CUSTOMER_NATIONAL_ID",
-      "رقم هوية العميل غير صحيح",
-    ],
-    [
-      "CUSTOMER_NAME_REQUIRED",
-      "اسم العميل مطلوب",
-    ],
-    [
-      "CUSTOMER_BIRTH_REQUIRED",
-      "تاريخ ميلاد العميل مطلوب",
-    ],
-    [
-      "CUSTOMER_PHONE_REQUIRED",
-      "رقم جوال العميل مطلوب",
-    ],
-    [
-      "INVALID_GUARANTOR_NATIONAL_ID",
-      "رقم هوية الكفيل غير صحيح",
-    ],
-    [
-      "GUARANTOR_SAME_AS_CUSTOMER",
-      "لا يمكن أن يكون العميل كفيلًا لنفسه",
-    ],
-    [
-      "GUARANTOR_NAME_REQUIRED",
-      "اسم الكفيل مطلوب",
-    ],
-    [
-      "GUARANTOR_BIRTH_REQUIRED",
-      "تاريخ ميلاد الكفيل مطلوب",
-    ],
-    [
-      "GUARANTOR_PHONE_REQUIRED",
-      "رقم جوال الكفيل مطلوب",
-    ],
-  ];
-
-  for (
-    const [
-      code,
-      translated,
-    ] of mappings
-  ) {
-    if (
-      message.includes(code)
-    ) {
-      return translated;
-    }
-  }
-
-  return message;
 }
 
 function getErrorMessage(
