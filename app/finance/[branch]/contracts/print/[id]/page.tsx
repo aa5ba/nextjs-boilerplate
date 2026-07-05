@@ -1308,7 +1308,7 @@ export default function PrintContractPage() {
             style={printArea}
           >
             <PrintHeader
-              title="عقد بيع * شراء"
+              title="عقد اتفاق بيع"
               organizationSettings={organizationSettings}
               contractNumber={contract.contract_number}
               contractIssueDate={contractIssueDate}
@@ -1332,7 +1332,7 @@ export default function PrintContractPage() {
                 <strong>{contractFirstPartyIdentifier}</strong>
                 . بمبلغ وقدره /{" "}
                 <strong>{formatMoney(contractPaymentAmount)}</strong>{" "}
-                (<strong>{contractPaymentAmountWords}</strong>) ريال سعودي.
+                ريال سعودي (<strong>{contractPaymentAmountWords}</strong>).
               </p>
 
               <p style={paragraph}>
@@ -1345,7 +1345,7 @@ export default function PrintContractPage() {
               <p style={paragraph}>
                 ويلتزم الطرف الثاني بسداد مبلغ الشراء وقدره /{" "}
                 <strong>{formatMoney(contractPaymentAmount)}</strong>{" "}
-                (<strong>{contractPaymentAmountWords}</strong>) ريال سعودي،
+                ريال سعودي (<strong>{contractPaymentAmountWords}</strong>)،
                 وأن يكون تاريخ السداد بتاريخ /{" "}
                 <strong style={numericDateText}>{paymentDueDate}</strong>.
               </p>
