@@ -1320,13 +1320,13 @@ export default function PrintContractPage() {
               </p>
 
               <p style={paragraph}>
-                أقر أنا الموقع أدناه الطرف الثاني /{" "}
+                أقر أنا الموقع أدناه الطرف الثاني (المشتري) /{" "}
                 <strong>{customerName}</strong>
                 ، رقم الهوية / <strong>{nationalId}</strong>
                 {" - "}تاريخ الميلاد /{" "}
                 <strong style={numericDateText}>{birthHijri}</strong>
                 ، رقم الجوال / <strong>{phone}</strong>
-                ، بأني اشتريت من الطرف الأول /{" "}
+                ، بأني اشتريت من الطرف الأول (البائع ) /{" "}
                 <strong>{contractFirstPartyName}</strong>
                 ، سجل تجاري رقم /{" "}
                 <strong>{contractFirstPartyIdentifier}</strong>
