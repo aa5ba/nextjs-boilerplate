@@ -2113,7 +2113,7 @@ export default function PrintNewRequestPage() {
             style={contractPrintArea}
           >
             <ContractPrintHeader
-              title="عقد اتفاق بيع"
+              title="عقد بيع * شراء"
               rightInfo={
                 organizationSettings
               }
