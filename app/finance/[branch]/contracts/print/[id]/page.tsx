@@ -1308,7 +1308,7 @@ export default function PrintContractPage() {
             style={printArea}
           >
             <PrintHeader
-              title="عقد اتفاق بيع"
+              title="عقد بيع * شراء"
               organizationSettings={organizationSettings}
               contractNumber={contract.contract_number}
               contractIssueDate={contractIssueDate}
