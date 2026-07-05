@@ -151,8 +151,6 @@ const FINANCE_SESSION_KEYS = [
   "finance_return_to",
 ] as const;
 
-const FIXED_DUE_PHRASE = "وتستحق الدفع عند الطلب";
-
 const LEGAL_FOOTER_TEXT =
   "هذا السند واجب الدفع بموجب قرار مجلس الوزراء رقم ٦٩٢ و تاريخ ٢٦ / ٩ / ١٣٨٣ هـ\nوالمتوج بالمرسوم الملكي رقم ٣٧ و تاريخ ١١ / ١٠ / ١٣٨٣ هـ / نظام الأوراق التجاريه - ويسري على هذا السند جميع القرارات والأنظمه والتنظيمات في المملكة العربية السعودية";
 
@@ -1267,18 +1265,27 @@ export default function PrintPromissoryNotePage() {
               style={printSheet}
             >
               <header style={documentHeader}>
-                <div style={documentTopMeta}>
-                  <span>
-                    رقم السند:{" "}
-                    <strong>{formatNoteNumber(note.note_number)}</strong>
-                  </span>
+                <div style={documentTopRow}>
+                  <div style={documentCountryBlock}>
+                    <strong>المملكة العربية السعودية</strong>
+                    <span>
+                      {branchData?.city?.trim() || "................"}
+                    </span>
+                  </div>
 
-                  <span>
-                    تاريخ التحرير:{" "}
-                    <strong style={dateValueStyle}>
-                      {formatGregorianDate(issueDate)}
-                    </strong>
-                  </span>
+                  <div style={documentTopMeta}>
+                    <span>
+                      رقم السند:{" "}
+                      <strong>{formatNoteNumber(note.note_number)}</strong>
+                    </span>
+
+                    <span>
+                      تاريخ التحرير:{" "}
+                      <strong style={dateValueStyle}>
+                        {formatGregorianDate(issueDate)}
+                      </strong>
+                    </span>
+                  </div>
                 </div>
 
                 <h1 style={documentTitle}>سند لأمر</h1>
@@ -1293,32 +1300,29 @@ export default function PrintPromissoryNotePage() {
 
               <section style={legalBodySection}>
                 <p style={legalParagraph}>
-                  حُرر هذا السند في مدينة{" "}
+                  حُرّر هذا السند في مدينة{" "}
                   <strong>
-                    {note.city || branchData?.city || "................"}
+                    {branchData?.city?.trim() || "................"}
                   </strong>{" "}
-                  بتاريخ{" "}
+                  بتاريخ /{" "}
                   <strong style={dateValueStyle}>
                     {formatGregorianDate(issueDate)}
-                  </strong>{" "}
-                  وقيمة السند{" "}
-                  <strong>{formatMoney(noteAmount)}</strong> ريال سعودي.
+                  </strong>
+                  .
                 </p>
 
                 <p style={legalParagraph}>
-                  بموجب هذا السند أتعهد أنا الموقع أدناه بأن أدفع لأمر{" "}
-                  <strong>{beneficiaryName}</strong> المستفيد، المبلغ الموضح
-                  أعلاه وقدره <strong>{amountWords}</strong>.
-                </p>
-
-                <p style={legalParagraph}>
-                  وذلك قيمة المبلغ المستحق على المدين للمستفيد،{" "}
-                  <strong>{note.due_phrase || FIXED_DUE_PHRASE}</strong>.
+                  وبموجب هذا السند أتعهد أنا الموقع أدناه بأن أدفع لأمر{" "}
+                  <strong>{beneficiaryName}</strong>{" "}
+                  المبلغ الموضح أعلاه وقدره{" "}
+                  <strong>{amountWords}</strong>{" "}
+                  وذلك قيمة المبلغ المستحق على المدين للمستفيد، ويستحق كامل
+                  مبلغ هذا السند دفعة واحده لدى الإطلاع.
                 </p>
 
                 <p style={legalParagraph}>
                   وبموجب هذا السند يسقط المدين كافة حقوق التقديم والمطالبة
-                  والاحتجاج والإخطار بالامتناع عن الوفاء.
+                  والإحتجاج والإخطار بالإمتناع عن الوفاء،
                 </p>
 
                 <p style={legalParagraph}>
@@ -1327,7 +1331,7 @@ export default function PrintPromissoryNotePage() {
                 </p>
 
                 <p style={legalParagraph}>
-                  وللمستفيد حق الرجوع بدون مصروفات أو احتجاج أو إخطار لعدم
+                  وللمستفيد حق الرجوع بدون مصروفات او إحتجاج او إخطار لعدم
                   الوفاء، وهذا السند واجب الدفع دون تعطيل.
                 </p>
 
@@ -2477,22 +2481,37 @@ const documentHeader: CSSProperties = {
   flex: "0 0 auto",
 };
 
-const documentTopMeta: CSSProperties = {
+const documentTopRow: CSSProperties = {
   display: "flex",
+  alignItems: "flex-start",
   justifyContent: "space-between",
   gap: "8mm",
   borderBottom: "0.3mm solid #cbd5e1",
   paddingBottom: "2.5mm",
+};
+
+const documentCountryBlock: CSSProperties = {
+  display: "grid",
+  gap: "1mm",
+  color: "#111827",
+  fontSize: "10.5pt",
+  lineHeight: 1.5,
+};
+
+const documentTopMeta: CSSProperties = {
+  display: "grid",
+  gap: "1mm",
+  textAlign: "left",
   fontSize: "10.5pt",
   lineHeight: 1.5,
 };
 
 const documentTitle: CSSProperties = {
-  margin: "5mm 0 3mm",
+  margin: "5mm 0 5mm",
   textAlign: "center",
   color: "#0f172a",
   fontSize: "25pt",
-  lineHeight: 1.2,
+  lineHeight: 1.35,
   fontWeight: 900,
   fontFamily: "var(--font-almarai), sans-serif",
 };
