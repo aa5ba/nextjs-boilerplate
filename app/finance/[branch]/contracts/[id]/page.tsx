@@ -761,17 +761,30 @@ export default function FinanceContractDetailsPage() {
       setCancellingPaymentId(payment.id);
       renewFinanceSession();
 
-      const { data, error } = await supabase.rpc("cancel_payment_atomic", {
-        p_branch_id: branchId,
-        p_contract_id: contract.id,
-        p_payment_id: payment.id,
-        p_employee_name: employeeName || "الموظف",
+      const response = await fetch("/finance/api/payments/cancel", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          branch,
+          contractId: contract.id,
+          paymentId: payment.id,
+        }),
       });
 
-      if (error) throw new Error(getCancelErrorMessage(error.message));
+      const result = (await response.json().catch(() => null)) as
+        | (CancelPaymentResult & {
+            ok?: boolean;
+            message?: string;
+          })
+        | null;
 
-      const rawResult = Array.isArray(data) ? data[0] : data;
-      const result = rawResult as CancelPaymentResult | null;
+      if (!response.ok || !result?.ok) {
+        throw new Error(
+          getCancelErrorMessage(result?.message || "تعذر إلغاء الدفعة")
+        );
+      }
 
       if (!result?.payment_id) {
         throw new Error("لم يتم استلام نتيجة إلغاء الدفعة");

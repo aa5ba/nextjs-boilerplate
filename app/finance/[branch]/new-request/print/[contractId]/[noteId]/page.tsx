@@ -1060,7 +1060,6 @@ export default function PrintNewRequestPage() {
         .note-legal-body,
         .note-party-grid,
         .note-signature-grid,
-        .note-guarantor-box,
         .note-legal-footer {
           page-break-inside:
             auto !important;
@@ -1141,12 +1140,6 @@ export default function PrintNewRequestPage() {
           padding-top: 1.5mm !important;
         }
 
-        .note-guarantor-box {
-          margin-top: 2mm !important;
-          padding: 2mm 3mm !important;
-          flex: 0 0 auto !important;
-        }
-
         .note-legal-footer {
           margin-top: auto !important;
           margin-bottom: 8mm !important;
@@ -1183,8 +1176,7 @@ export default function PrintNewRequestPage() {
 
         .print-signatures,
         .print-guarantor-grid,
-        .note-party-grid,
-        .note-guarantor-grid {
+        .note-party-grid {
           grid-template-columns:
             1fr !important;
         }
@@ -2644,76 +2636,6 @@ export default function PrintNewRequestPage() {
               </div>
             </section>
 
-            {hasGuarantor && (
-              <section
-                className="note-guarantor-box"
-                style={
-                  noteGuarantorDetailsBox
-                }
-              >
-                <h2
-                  style={
-                    noteGuarantorTitle
-                  }
-                >
-                  بيانات وتوقيع الكفيل
-                </h2>
-
-                <div
-                  className="note-guarantor-grid"
-                  style={
-                    noteGuarantorDetailsGrid
-                  }
-                >
-                  <NoteDataRow
-                    label="الاسم"
-                    value={
-                      guarantorName
-                    }
-                  />
-
-                  <NoteDataRow
-                    label="رقم الهوية"
-                    value={
-                      guarantorNationalId
-                    }
-                  />
-
-                  <NoteDataRow
-                    label="رقم الجوال"
-                    value={
-                      guarantorPhone
-                    }
-                  />
-
-                  <NoteDataRow
-                    label="تاريخ الميلاد"
-                    value={
-                      guarantorBirthHijri
-                    }
-                  />
-
-                  {note.guarantor_work_name && (
-                    <NoteDataRow
-                      label="العمل"
-                      value={
-                        note.guarantor_work_name
-                      }
-                    />
-                  )}
-                </div>
-
-                <div
-                  style={
-                    noteGuarantorSignatureLine
-                  }
-                >
-                  التوقيع:
-                  ................................
-                </div>
-              </section>
-            )}
-
             <footer
               className="note-legal-footer"
               style={noteLegalFooterBox}
@@ -3973,57 +3895,6 @@ const noteSignatureLine:
     fontSize: "10.7pt",
 
     paddingTop: "1.5mm",
-  };
-
-const noteGuarantorDetailsBox:
-  CSSProperties = {
-    marginTop: "2.5mm",
-
-    border:
-      "0.3mm solid #cbd5e1",
-
-    borderRadius: "2mm",
-
-    padding: "2.5mm 3mm",
-
-    flex: "0 0 auto",
-  };
-
-const noteGuarantorTitle:
-  CSSProperties = {
-    margin: "0 0 1.5mm",
-
-    color: "#0f2b55",
-
-    fontSize: "11.7pt",
-
-    fontWeight: 900,
-  };
-
-const noteGuarantorDetailsGrid:
-  CSSProperties = {
-    display: "grid",
-
-    gridTemplateColumns:
-      "repeat(2,minmax(0,1fr))",
-
-    columnGap: "5mm",
-  };
-
-const noteGuarantorSignatureLine:
-  CSSProperties = {
-    marginTop: "2mm",
-
-    paddingTop: "2mm",
-
-    borderTop:
-      "0.25mm solid #e2e8f0",
-
-    color: "#111827",
-
-    fontSize: "10.7pt",
-
-    fontWeight: 900,
   };
 
 const noteLegalFooterBox:

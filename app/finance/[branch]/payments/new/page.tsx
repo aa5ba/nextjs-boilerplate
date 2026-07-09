@@ -729,32 +729,64 @@ export default function NewPaymentPage() {
     async function executePayment(
       allowOverpayment: boolean
     ) {
-      return supabase.rpc(
-        "record_payment_atomic",
-        {
-          p_branch_id:
-            branchId,
+      const response =
+        await fetch(
+          "/finance/api/payments/record",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            credentials:
+              "same-origin",
+            body: JSON.stringify({
+              branch,
+              contractId:
+                safeContractId,
+              paymentAmount:
+                paid,
+              paymentType,
+              paymentMethod:
+                method,
+              allowOverpayment,
+            }),
+          }
+        );
 
-          p_contract_id:
-            safeContractId,
+      const payload =
+        (await response
+          .json()
+          .catch(
+            () => null
+          )) as
+          | {
+              ok?: boolean;
+              payment?: unknown;
+              payment_id?: unknown;
+              message?: string;
+              code?: string;
+            }
+          | null;
 
-          p_payment_amount:
-            paid,
+      if (!response.ok) {
+        return {
+          data: null,
+          error: {
+            message:
+              payload?.message ||
+              payload?.code ||
+              "تعذر تسجيل السداد",
+          },
+        };
+      }
 
-          p_payment_type:
-            paymentType,
-
-          p_payment_method:
-            method,
-
-          p_employee_name:
-            employeeName ||
-            "الموظف",
-
-          p_allow_overpayment:
-            allowOverpayment,
-        }
-      );
+      return {
+        data:
+          payload?.payment ??
+          payload,
+        error: null,
+      };
     }
 
     try {

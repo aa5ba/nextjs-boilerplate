@@ -721,42 +721,48 @@ export default function FinancePaymentsPage() {
 
       renewFinanceSession(true);
 
-      const { data, error } =
-        await supabase.rpc(
-          "cancel_payment_atomic",
+      const response =
+        await fetch(
+          "/finance/api/payments/cancel",
           {
-            p_branch_id:
-              branchId,
-
-            p_contract_id:
-              payment.contract_id,
-
-            p_payment_id:
-              payment.id,
-
-            p_employee_name:
-              employeeName ||
-              "الموظف",
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              branch,
+              contractId:
+                payment.contract_id,
+              paymentId:
+                payment.id,
+            }),
           }
         );
 
-      if (error) {
+      const result =
+        (await response
+          .json()
+          .catch(
+            () => null
+          )) as
+          | (CancelPaymentResult & {
+              ok?: boolean;
+              message?: string;
+            })
+          | null;
+
+      if (
+        !response.ok ||
+        !result?.ok
+      ) {
         throw new Error(
           getCancelErrorMessage(
-            error.message
+            result?.message ||
+              "تعذر إلغاء عملية السداد"
           )
         );
       }
-
-      const rawResult =
-        Array.isArray(data)
-          ? data[0]
-          : data;
-
-      const result =
-        rawResult as
-          | CancelPaymentResult
-          | null;
 
       if (!result?.payment_id) {
         throw new Error(
