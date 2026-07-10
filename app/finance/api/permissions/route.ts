@@ -176,6 +176,38 @@ function getDatabaseErrorMessage(
   return fallback;
 }
 
+function getSingleResult(
+  data: unknown
+): Record<string, unknown> | null {
+  const value = Array.isArray(data)
+    ? data[0] ?? null
+    : data;
+
+  return value &&
+    typeof value === "object" &&
+    !Array.isArray(value)
+    ? (value as Record<
+        string,
+        unknown
+      >)
+    : null;
+}
+
+function getResultId(
+  data: unknown
+): string {
+  const result =
+    getSingleResult(data);
+
+  const id =
+    result?.id ??
+    result?.user_id;
+
+  return typeof id === "string"
+    ? id
+    : "";
+}
+
 async function readRequestBody(
   request: Request
 ): Promise<RequestBody | null> {
@@ -253,6 +285,7 @@ export async function GET(
             role,
             permissions,
             investor_id,
+            phone,
             is_active,
             created_at,
             updated_at,
@@ -444,6 +477,12 @@ export async function POST(
           body.investorId
         ) || null;
 
+      const phone =
+        normalizeNumericValue(
+          body.phone,
+          10
+        );
+
       if (
         fullName.length < 2 ||
         fullName.length > 100
@@ -500,6 +539,26 @@ export async function POST(
         );
       }
 
+      if (!phone) {
+        return createErrorResponse(
+          "رقم الجوال مطلوب",
+          400,
+          "PHONE_REQUIRED"
+        );
+      }
+
+      if (
+        !/^05\d{8}$/.test(
+          phone
+        )
+      ) {
+        return createErrorResponse(
+          "رقم الجوال يجب أن يبدأ بـ 05 ويتكون من 10 أرقام",
+          400,
+          "INVALID_PHONE"
+        );
+      }
+
       const {
         data,
         error,
@@ -545,12 +604,98 @@ export async function POST(
         );
       }
 
+      let createdUserId =
+        getResultId(data);
+
+      if (!createdUserId) {
+        const {
+          data: createdUser,
+          error: userLookupError,
+        } = await supabaseAdmin
+          .from(
+            "finance_branch_users"
+          )
+          .select("id")
+          .eq(
+            "branch_id",
+            session.branchId
+          )
+          .eq(
+            "username",
+            username
+          )
+          .maybeSingle();
+
+        if (userLookupError) {
+          console.error(
+            "Created finance user lookup failed:",
+            userLookupError
+          );
+
+          return createErrorResponse(
+            "تم إنشاء المستخدم لكن تعذر حفظ رقم الجوال",
+            500,
+            "USER_PHONE_SAVE_FAILED"
+          );
+        }
+
+        createdUserId =
+          typeof createdUser?.id ===
+          "string"
+            ? createdUser.id
+            : "";
+      }
+
+      const {
+        data: updatedUser,
+        error: phoneError,
+      } = await supabaseAdmin
+        .from(
+          "finance_branch_users"
+        )
+        .update({ phone })
+        .eq(
+          "branch_id",
+          session.branchId
+        )
+        .eq("id", createdUserId)
+        .select(
+          `
+            id,
+            branch_id,
+            full_name,
+            username,
+            role,
+            permissions,
+            investor_id,
+            phone,
+            is_active,
+            created_at,
+            updated_at,
+            last_login_at
+          `
+        )
+        .maybeSingle();
+
+      if (
+        phoneError ||
+        !updatedUser
+      ) {
+        console.error(
+          "Create finance user phone save failed:",
+          phoneError
+        );
+
+        return createErrorResponse(
+          "تم إنشاء المستخدم لكن تعذر حفظ رقم الجوال",
+          500,
+          "USER_PHONE_SAVE_FAILED"
+        );
+      }
+
       return createResponse({
         ok: true,
-        user:
-          Array.isArray(data)
-            ? data[0] ?? null
-            : data,
+        user: updatedUser,
         message:
           "تم إنشاء المستخدم بنجاح",
       });

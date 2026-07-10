@@ -2039,6 +2039,12 @@ export default function AdminSupportPage() {
     useState("");
 
   const [
+    managerPhone,
+    setManagerPhone,
+  ] =
+    useState("");
+
+  const [
     showUserForm,
     setShowUserForm,
   ] =
@@ -3126,6 +3132,7 @@ export default function AdminSupportPage() {
       setManagerFullName("");
       setManagerUsername("");
       setManagerPassword("");
+      setManagerPhone("");
 
       setShowBranchForm(
         false
@@ -3239,6 +3246,7 @@ export default function AdminSupportPage() {
     setManagerFullName("");
     setManagerUsername("");
     setManagerPassword("");
+    setManagerPhone("");
 
     setShowBranchForm(
       true
@@ -3432,6 +3440,12 @@ export default function AdminSupportPage() {
           8
         );
 
+      const cleanManagerPhone =
+        normalizePhoneValue(
+          managerPhone,
+          10
+        );
+
       if (
         cleanBranchName.length < 2 ||
         cleanBranchName.length > 100
@@ -3541,6 +3555,26 @@ export default function AdminSupportPage() {
           );
           return;
         }
+
+        if (!cleanManagerPhone) {
+          showNotice(
+            "رقم جوال مدير الفرع مطلوب",
+            "error"
+          );
+          return;
+        }
+
+        if (
+          !/^05\d{8}$/.test(
+            cleanManagerPhone
+          )
+        ) {
+          showNotice(
+            "رقم جوال مدير الفرع يجب أن يبدأ بـ 05 ويتكون من 10 أرقام",
+            "error"
+          );
+          return;
+        }
       }
 
       const requestBody = {
@@ -3607,6 +3641,9 @@ export default function AdminSupportPage() {
 
                   manager_password:
                     cleanManagerPassword,
+
+                  manager_phone:
+                    cleanManagerPhone,
                 }),
               }
             );
@@ -6119,6 +6156,36 @@ export default function AdminSupportPage() {
                                   setManagerFullName(
                                     event.target
                                       .value
+                                  )
+                                }
+                                disabled={
+                                  branchSaveBusy
+                                }
+                              />
+                            </Field>
+
+                            <Field
+                              id="manager-phone"
+                              label="رقم جوال مدير الفرع *"
+                            >
+                              <input
+                                id="manager-phone"
+                                style={input}
+                                value={
+                                  managerPhone
+                                }
+                                maxLength={10}
+                                inputMode="tel"
+                                dir="ltr"
+                                onChange={(
+                                  event
+                                ) =>
+                                  setManagerPhone(
+                                    normalizePhoneValue(
+                                      event.target
+                                        .value,
+                                      10
+                                    )
                                   )
                                 }
                                 disabled={

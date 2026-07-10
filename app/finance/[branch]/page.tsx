@@ -282,6 +282,13 @@ const sections: MainSection[] = [
     permission: "follow_up",
   },
   {
+    title: "عروض الطلب الموجه",
+    path: "directed-offers",
+    icon: "🎯",
+    color: "#0f766e",
+    bg: "linear-gradient(135deg,#ecfeff,#ccfbf1)",
+  },
+  {
     title: "احتساب التمويل",
     path: "ehtisab",
     icon: "🧮",
@@ -397,6 +404,12 @@ const drawerGroups: DrawerGroup[] = [
         title: "طلب جديد",
         path: "new-request",
         icon: "➕",
+        permission: "contracts_create",
+      },
+      {
+        title: "عروض الطلب الموجه",
+        path: "directed-offers",
+        icon: "🎯",
         permission: "contracts_create",
       },
       {

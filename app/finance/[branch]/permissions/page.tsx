@@ -30,6 +30,7 @@ type FinanceUser = {
   role: string;
   permissions: string[];
   investor_id?: string | null;
+  phone?: string | null;
   is_active: boolean;
   created_at?: string | null;
   updated_at?: string | null;
@@ -242,6 +243,7 @@ function sessionToFinanceUser(user: FinanceSessionUser): FinanceUser {
     role: String(user.role || "").trim(),
     permissions: normalizePermissions(user.permissions),
     investor_id: user.investor_id ? String(user.investor_id).trim() : null,
+    phone: user.phone ? String(user.phone).trim() : null,
     is_active: user.is_active !== false,
     last_login_at: user.last_login_at || null,
   };
@@ -261,6 +263,7 @@ function normalizeApiUser(value: unknown): FinanceUser {
     role: String(user.role ?? ""),
     permissions: normalizePermissions(user.permissions),
     investor_id: user.investor_id ? String(user.investor_id) : null,
+    phone: user.phone ? String(user.phone) : null,
     is_active: user.is_active !== false,
     created_at: user.created_at ? String(user.created_at) : null,
     updated_at: user.updated_at ? String(user.updated_at) : null,
@@ -318,6 +321,7 @@ export default function FinancePermissionsPage() {
   const [employeeNameInput, setEmployeeNameInput] = useState("");
   const [employeeUsername, setEmployeeUsername] = useState("");
   const [employeePassword, setEmployeePassword] = useState("");
+  const [employeePhone, setEmployeePhone] = useState("");
   const [selectedRole, setSelectedRole] = useState<UserRole>("موظف");
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([
     ...DEFAULT_PERMISSIONS.موظف,
@@ -551,6 +555,7 @@ export default function FinancePermissionsPage() {
     setEmployeeNameInput("");
     setEmployeeUsername("");
     setEmployeePassword("");
+    setEmployeePhone("");
     setSelectedRole("موظف");
     setSelectedPermissions([...DEFAULT_PERMISSIONS.موظف]);
     setSelectedInvestorId("");
@@ -579,6 +584,7 @@ export default function FinancePermissionsPage() {
     setEmployeeNameInput(user.full_name || "");
     setEmployeeUsername(user.username || "");
     setEmployeePassword("");
+    setEmployeePhone(user.phone || "");
     setSelectedRole(normalizedRole);
     setSelectedPermissions(
       normalizedRole === "مستثمر"
@@ -591,6 +597,9 @@ export default function FinancePermissionsPage() {
   }
 
   async function saveUser() {
+    const cleanEmployeePhone =
+      normalizeIdentifierDigits(employeePhone, 10);
+
     if (!employeeNameInput.trim()) {
       window.alert("يرجى إدخال الاسم الكامل");
       return;
@@ -617,6 +626,21 @@ export default function FinancePermissionsPage() {
       return;
     }
 
+    if (!editingUserId && !cleanEmployeePhone) {
+      window.alert("رقم الجوال مطلوب");
+      return;
+    }
+
+    if (
+      !editingUserId &&
+      !/^05\d{8}$/.test(cleanEmployeePhone)
+    ) {
+      window.alert(
+        "رقم الجوال يجب أن يبدأ بـ 05 ويتكون من 10 أرقام"
+      );
+      return;
+    }
+
     if (selectedRole === "مستثمر" && !selectedInvestorId) {
       window.alert("اختر المستثمر المرتبط بالحساب");
       return;
@@ -636,6 +660,7 @@ export default function FinancePermissionsPage() {
           fullName: employeeNameInput.trim(),
           username: employeeUsername,
           password: employeePassword,
+          phone: editingUserId ? undefined : cleanEmployeePhone,
           role: selectedRole,
           permissions:
             selectedRole === "مستثمر"
@@ -997,6 +1022,25 @@ export default function FinancePermissionsPage() {
                 />
               </Field>
 
+              {!editingUserId && (
+                <Field label="رقم الجوال *">
+                  <input
+                    className="permissions-input"
+                    style={input}
+                    value={employeePhone}
+                    inputMode="tel"
+                    maxLength={10}
+                    onChange={(event) =>
+                      setEmployeePhone(
+                        normalizeIdentifierDigits(event.target.value, 10)
+                      )
+                    }
+                    placeholder="05xxxxxxxx"
+                    dir="ltr"
+                  />
+                </Field>
+              )}
+
               <Field
                 label={
                   editingUserId
@@ -1151,6 +1195,10 @@ export default function FinancePermissionsPage() {
                         </div>
 
                         <div style={mutedText}>النوع: {user.role || "-"}</div>
+
+                        <div style={mutedText}>
+                          الجوال: {user.phone || "-"}
+                        </div>
 
                         {user.role === "مستثمر" && (
                           <div style={mutedText}>

@@ -15,6 +15,7 @@ import {
   useParams,
   usePathname,
   useRouter,
+  useSearchParams,
 } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
@@ -65,6 +66,27 @@ type NewRequestApiResponse = {
   customerId?: string | null;
   contractNumber?: string | number | null;
   noteNumber?: string | number | null;
+};
+
+type DirectedOfferPrefill = {
+  id?: string | null;
+  requestType?: string | null;
+  customerName?: string | null;
+  customerNationalId?: string | null;
+  customerPhone?: string | null;
+  city?: string | null;
+  requestedAmount?: number | string | null;
+  workName?: string | null;
+  birthHijriDay?: number | string | null;
+  birthHijriMonth?: number | string | null;
+  birthHijriYear?: number | string | null;
+};
+
+type DirectedOffersApiResponse = {
+  ok?: boolean;
+  message?: string;
+  code?: string;
+  offers?: DirectedOfferPrefill[];
 };
 
 type CustomerLookupStatus =
@@ -140,9 +162,17 @@ export default function NewRequestPage() {
   const params = useParams();
   const pathname = usePathname();
   const router = useRouter();
+  const searchParams =
+    useSearchParams();
 
   const branch = String(
     params.branch ?? ""
+  ).trim();
+
+  const directedOfferId = String(
+    searchParams.get(
+      "directedOfferId"
+    ) || ""
   ).trim();
 
   const today = getTodayDate();
@@ -164,6 +194,22 @@ export default function NewRequestPage() {
 
   const [listsError, setListsError] =
     useState("");
+
+  const [
+    directedOfferLoading,
+    setDirectedOfferLoading,
+  ] = useState(false);
+
+  const [
+    directedOfferMessage,
+    setDirectedOfferMessage,
+  ] = useState("");
+
+  const directedOfferPrefillRef =
+    useRef("");
+
+  const directedOfferNationalIdRef =
+    useRef("");
 
   const [investors, setInvestors] =
     useState<Investor[]>([]);
@@ -491,7 +537,21 @@ export default function NewRequestPage() {
             result.found !== true ||
             !result.customer
           ) {
-            clearCustomerDetails();
+            const preserveDirectedOfferPrefill =
+              Boolean(
+                directedOfferId &&
+                  directedOfferPrefillRef.current ===
+                    directedOfferId &&
+                  directedOfferNationalIdRef.current ===
+                    cleanNationalId
+              );
+
+            if (
+              !preserveDirectedOfferPrefill
+            ) {
+              clearCustomerDetails();
+            }
+
             setCustomerLookupStatus(
               "not_found"
             );
@@ -600,6 +660,7 @@ export default function NewRequestPage() {
     branch,
     clearCustomerDetails,
     contractType,
+    directedOfferId,
     nationalId,
   ]);
 
@@ -989,6 +1050,213 @@ export default function NewRequestPage() {
       );
     };
   }, [pageReady, pathname]);
+
+  useEffect(() => {
+    if (
+      !pageReady ||
+      !directedOfferId ||
+      directedOfferPrefillRef.current ===
+        directedOfferId
+    ) {
+      return;
+    }
+
+    const controller =
+      new AbortController();
+
+    async function loadDirectedOffer() {
+      try {
+        setDirectedOfferLoading(
+          true
+        );
+        setDirectedOfferMessage("");
+
+        const response =
+          await fetch(
+            `/finance/api/directed-offers?branch=${encodeURIComponent(
+              branch
+            )}&scope=accepted&offerId=${encodeURIComponent(
+              directedOfferId
+            )}`,
+            {
+              method: "GET",
+              credentials:
+                "same-origin",
+              cache: "no-store",
+              signal:
+                controller.signal,
+            }
+          );
+
+        let result:
+          DirectedOffersApiResponse =
+          {};
+
+        try {
+          result =
+            (await response.json()) as
+              DirectedOffersApiResponse;
+        } catch {
+          result = {};
+        }
+
+        if (
+          controller.signal.aborted
+        ) {
+          return;
+        }
+
+        if (
+          response.status === 401 ||
+          result.code ===
+            "INVALID_SESSION"
+        ) {
+          redirectToLogin(true);
+          return;
+        }
+
+        if (
+          !response.ok ||
+          result.ok !== true
+        ) {
+          throw new Error(
+            result.message ||
+              "تعذر تحميل عرض الطلب الموجه"
+          );
+        }
+
+        const offer =
+          result.offers?.[0];
+
+        if (!offer) {
+          throw new Error(
+            "لم يتم العثور على عرض طلب موجه مقبول لهذا الفرع"
+          );
+        }
+
+        directedOfferPrefillRef.current =
+          directedOfferId;
+
+        const offerNationalId =
+          normalizeNumber(
+            String(
+              offer.customerNationalId ||
+                ""
+            )
+          ).slice(0, 10);
+
+        directedOfferNationalIdRef.current =
+          offerNationalId;
+
+        setFullName(
+          String(
+            offer.customerName || ""
+          ).trim()
+        );
+
+        setNationalId(
+          offerNationalId
+        );
+
+        setPhone(
+          normalizeNumber(
+            String(
+              offer.customerPhone ||
+                ""
+            )
+          ).slice(0, 10)
+        );
+
+        setBirthDay(
+          normalizeNumber(
+            String(
+              offer.birthHijriDay || ""
+            )
+          ).slice(0, 2)
+        );
+
+        setBirthMonth(
+          normalizeNumber(
+            String(
+              offer.birthHijriMonth ||
+                ""
+            )
+          ).slice(0, 2)
+        );
+
+        setBirthYear(
+          normalizeNumber(
+            String(
+              offer.birthHijriYear || ""
+            )
+          ).slice(0, 4)
+        );
+
+        setWorkName(
+          String(
+            offer.workName || ""
+          ).trim()
+        );
+
+        setPaymentAmount(
+          String(
+            Number(
+              offer.requestedAmount ||
+                0
+            ) || ""
+          )
+        );
+
+        setLegalCity(
+          String(
+            offer.city || ""
+          ).trim()
+        );
+
+        setDirectedOfferMessage(
+          "تم تحميل بيانات عرض الطلب الموجه. أكمل بيانات الجوال والمنتج ثم أنشئ العقد."
+        );
+      } catch (error) {
+        if (
+          controller.signal.aborted
+        ) {
+          return;
+        }
+
+        console.error(
+          "Directed offer prefill error:",
+          error
+        );
+
+        setDirectedOfferMessage(
+          getErrorMessage(
+            error,
+            "تعذر تحميل عرض الطلب الموجه"
+          )
+        );
+      } finally {
+        if (
+          !controller.signal.aborted
+        ) {
+          setDirectedOfferLoading(
+            false
+          );
+        }
+      }
+    }
+
+    void loadDirectedOffer();
+
+    return () => {
+      controller.abort();
+    };
+    // صفحة الطلب الجديد تستخدم redirectToLogin محليًا في عدة آثار قائمة.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    branch,
+    directedOfferId,
+    pageReady,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1431,6 +1699,15 @@ export default function NewRequestPage() {
       customerLookupRequestRef.current +=
         1;
 
+      if (
+        directedOfferNationalIdRef.current &&
+        nextNationalId !==
+          directedOfferNationalIdRef.current
+      ) {
+        directedOfferNationalIdRef.current =
+          "";
+      }
+
       clearCustomerDetails();
       setCustomerLookupStatus(
         "idle"
@@ -1687,6 +1964,65 @@ export default function NewRequestPage() {
       response,
       data,
     };
+  }
+
+  async function markDirectedOfferContractCreated(
+    contractId: string
+  ) {
+    if (!directedOfferId) {
+      return;
+    }
+
+    const response = await fetch(
+      "/finance/api/directed-offers",
+      {
+        method: "POST",
+        credentials:
+          "same-origin",
+        cache: "no-store",
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+        body: JSON.stringify({
+          branch,
+          action:
+            "markContractCreated",
+          offerId: directedOfferId,
+          contractId,
+        }),
+      }
+    );
+
+    let result:
+      DirectedOffersApiResponse = {};
+
+    try {
+      result =
+        (await response.json()) as
+          DirectedOffersApiResponse;
+    } catch {
+      result = {};
+    }
+
+    if (
+      response.status === 401 ||
+      result.code ===
+        "INVALID_SESSION"
+    ) {
+      redirectToLogin(true);
+      return;
+    }
+
+    if (
+      !response.ok ||
+      result.ok !== true
+    ) {
+      throw new Error(
+        result.message ||
+          "تعذر ربط عرض الطلب الموجه بالعقد"
+      );
+    }
   }
 
   async function createRequest() {
@@ -1947,6 +2283,26 @@ export default function NewRequestPage() {
         );
       }
 
+      if (directedOfferId) {
+        try {
+          await markDirectedOfferContractCreated(
+            apiResult.data.contractId
+          );
+        } catch (error) {
+          console.error(
+            "Directed offer contract link error:",
+            error
+          );
+
+          alert(
+            getErrorMessage(
+              error,
+              "تم إنشاء الطلب لكن تعذر ربط عرض الطلب الموجه بالعقد"
+            )
+          );
+        }
+      }
+
       alert(
         "تم إنشاء الطلب وخصم المخزون بنجاح"
       );
@@ -2132,6 +2488,17 @@ export default function NewRequestPage() {
             >
               إعادة المحاولة
             </button>
+          </section>
+        )}
+
+        {(directedOfferLoading ||
+          directedOfferMessage) && (
+          <section
+            style={inlineInfoCard}
+          >
+            {directedOfferLoading
+              ? "جاري تحميل بيانات عرض الطلب الموجه..."
+              : directedOfferMessage}
           </section>
         )}
 
@@ -4167,6 +4534,18 @@ const inlineErrorCard:
     "space-between",
   gap: 12,
   flexWrap: "wrap",
+  fontWeight: 900,
+};
+
+const inlineInfoCard:
+  CSSProperties = {
+  marginBottom: 14,
+  padding: "12px 14px",
+  borderRadius: 14,
+  border:
+    "1px solid #bae6fd",
+  background: "#f0f9ff",
+  color: "#075985",
   fontWeight: 900,
 };
 

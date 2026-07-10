@@ -33,6 +33,7 @@ type CreateBranchBody = {
   manager_full_name?: unknown;
   manager_username?: unknown;
   manager_password?: unknown;
+  manager_phone?: unknown;
 };
 
 type CreateBranchResult = {
@@ -582,6 +583,12 @@ export async function POST(
         )
       );
 
+    const managerPhone =
+      cleanNumericText(
+        body.manager_phone,
+        10
+      );
+
     if (
       branchName.length < 2 ||
       branchName.length > 100
@@ -680,6 +687,24 @@ export async function POST(
     ) {
       return createErrorResponse(
         "كلمة مرور مدير الفرع يجب أن تكون من 4 إلى 8 أحرف أو أرقام، بدون مسافات أو رموز",
+        400
+      );
+    }
+
+    if (!managerPhone) {
+      return createErrorResponse(
+        "رقم جوال مدير الفرع مطلوب",
+        400
+      );
+    }
+
+    if (
+      !/^05\d{8}$/.test(
+        managerPhone
+      )
+    ) {
+      return createErrorResponse(
+        "رقم جوال مدير الفرع يجب أن يبدأ بـ 05 ويتكون من 10 أرقام",
         400
       );
     }
@@ -819,6 +844,41 @@ export async function POST(
 
       return createErrorResponse(
         "تم تنفيذ العملية لكن تعذر قراءة نتيجتها",
+        500
+      );
+    }
+
+    const { error: phoneError } =
+      await supabaseAdmin
+        .from(
+          "finance_branch_users"
+        )
+        .update({
+          phone: managerPhone,
+        })
+        .eq("id", result.manager_id)
+        .eq(
+          "branch_id",
+          result.branch_id
+        );
+
+    if (phoneError) {
+      console.error(
+        "Manager phone update failed:",
+        {
+          code:
+            phoneError.code,
+          message:
+            phoneError.message,
+          details:
+            phoneError.details,
+          hint:
+            phoneError.hint,
+        }
+      );
+
+      return createErrorResponse(
+        "تعذر حفظ رقم جوال مدير الفرع",
         500
       );
     }
