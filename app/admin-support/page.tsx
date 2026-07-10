@@ -2821,13 +2821,43 @@ export default function AdminSupportPage() {
             ? "dashboard"
             : `dashboard_section:${section}`;
 
+        const replaceInitialDashboardLoad =
+          options?.fullLoader === true &&
+          action === "dashboard";
+
+        if (
+          replaceInitialDashboardLoad
+        ) {
+          dashboardAbortRef.current?.abort();
+
+          dashboardAbortRef.current =
+            null;
+
+          if (
+            busyActionsRef.current.delete(
+              action
+            ) &&
+            mountedRef.current
+          ) {
+            setBusyActions(
+              new Set(
+                busyActionsRef.current
+              )
+            );
+          }
+        }
+
         if (
           !beginAction(action)
         ) {
           return;
         }
 
-        dashboardAbortRef.current?.abort();
+        if (
+          !replaceInitialDashboardLoad
+        ) {
+          dashboardAbortRef.current?.abort();
+        }
 
         const controller =
           new AbortController();
@@ -2951,7 +2981,10 @@ export default function AdminSupportPage() {
 
           if (
             options?.fullLoader &&
-            mountedRef.current
+            mountedRef.current &&
+            requestSequence ===
+              dashboardRequestSequenceRef.current &&
+            !controller.signal.aborted
           ) {
             setLoading(false);
           }
@@ -2968,6 +3001,9 @@ export default function AdminSupportPage() {
   useEffect(() => {
     mountedRef.current =
       true;
+
+    const busyActions =
+      busyActionsRef.current;
 
     function updateScreen(): void {
       const width =
@@ -3006,6 +3042,24 @@ export default function AdminSupportPage() {
       );
 
       dashboardAbortRef.current?.abort();
+
+      dashboardAbortRef.current =
+        null;
+
+      for (const action of Array.from(
+        busyActions
+      )) {
+        if (
+          action === "dashboard" ||
+          action.startsWith(
+            "dashboard_section:"
+          )
+        ) {
+          busyActions.delete(
+            action
+          );
+        }
+      }
 
       verificationAbortRef.current?.abort();
 
@@ -5700,6 +5754,18 @@ export default function AdminSupportPage() {
               className="dashboard-grid"
               style={dashboardGrid}
             >
+              {!currentUser && (
+                <div
+                  style={panelCard}
+                >
+                  <div
+                    style={emptyBox}
+                  >
+                    تعذر عرض بيانات لوحة الدعم. حدّث الصفحة أو أعد تسجيل الدخول.
+                  </div>
+                </div>
+              )}
+
               <div
                 style={darkCard}
               >
