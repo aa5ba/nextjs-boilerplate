@@ -1,5 +1,10 @@
 export type FinanceType = "personal" | "real" | "both"
-export type Sector = "civil" | "private" | "military" | "retired"
+export type Sector =
+  | "civil"
+  | "private"
+  | "semi_government"
+  | "military"
+  | "retired"
 export type Rank = "soldier" | "corporal" | "agent" | "sergeant" | "chief"
 export type RealEstateType = "normal" | "supported"
 export type Product = "ready" | "selfBuild" | "land" | "mortgage"
@@ -85,6 +90,10 @@ function reject(reason: string): RejectResult {
   return { accepted: false, reason }
 }
 
+function isPrivateSalarySector(sector: Sector) {
+  return sector === "private" || sector === "semi_government"
+}
+
 export function todayHijri() {
   const parts = new Intl.DateTimeFormat("en-u-ca-islamic-umalqura", {
     year: "numeric",
@@ -122,14 +131,14 @@ export function getMinAgeMonths(sector: Sector) {
 }
 
 export function getPersonalMinSalary(sector: Sector) {
-  if (sector === "private") return 7000
+  if (isPrivateSalarySector(sector)) return 7000
   if (sector === "military") return 4000
   if (sector === "retired") return 2000
   return 3000
 }
 
 export function getRealEstateMinSalary(sector: Sector) {
-  if (sector === "private") return 7000
+  if (isPrivateSalarySector(sector)) return 7000
   return 5000
 }
 

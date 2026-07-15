@@ -159,6 +159,12 @@ const PERMISSION_GROUPS: PermissionGroup[] = [
     ],
   },
   {
+    title: "متجر البطاقات",
+    permissions: [
+      { key: "card_store", label: "متجر البطاقات" },
+    ],
+  },
+  {
     title: "الإدارة",
     permissions: [
       { key: "settings", label: "الإعدادات" },

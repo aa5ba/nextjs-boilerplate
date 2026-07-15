@@ -208,6 +208,41 @@ export async function POST(
       ) ||
       "الموظف";
 
+    const {
+      data: contract,
+      error: contractError,
+    } = await supabaseAdmin
+      .from("finance_contracts")
+      .select("id,is_archived")
+      .eq("id", contractId)
+      .eq(
+        "branch_id",
+        session.branchId
+      )
+      .maybeSingle();
+
+    if (contractError) {
+      throw new Error(
+        contractError.message
+      );
+    }
+
+    if (!contract) {
+      return createErrorResponse(
+        "العقد غير موجود أو لا يتبع هذا الفرع",
+        404,
+        "CONTRACT_NOT_FOUND"
+      );
+    }
+
+    if (contract.is_archived === true) {
+      return createErrorResponse(
+        "لا يمكن تسجيل سداد على عقد مؤرشف",
+        409,
+        "CONTRACT_ARCHIVED"
+      );
+    }
+
     const { data, error } =
       await supabaseAdmin.rpc(
         "record_payment_atomic_v2",

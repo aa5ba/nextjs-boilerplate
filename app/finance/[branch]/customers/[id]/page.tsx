@@ -843,26 +843,49 @@ export default function FinanceCustomerProfilePage() {
     try {
       setDeleting(true);
 
-      const { error } =
-        await supabase.rpc(
-          "delete_customer_atomic",
+      const response =
+        await fetch(
+          "/finance/api/customers/archive",
           {
-            p_branch_id:
-              branchId.trim(),
-
-            p_customer_id:
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            credentials:
+              "same-origin",
+            body: JSON.stringify({
+              branch,
               customerId,
-
-            p_employee_name:
-              employeeName ||
-              "الموظف",
+            }),
           }
         );
 
-      if (error) {
+      const payload =
+        (await response
+          .json()
+          .catch(
+            () => null
+          )) as
+          | {
+              ok?: boolean;
+              message?: string;
+              code?: string;
+            }
+          | null;
+
+      if (
+        !response.ok ||
+        payload?.ok === false
+      ) {
         throw new Error(
           getCustomerDeleteErrorMessage(
-            error as SupabaseRpcError
+            {
+              message:
+                payload?.message,
+              details:
+                payload?.code,
+            }
           )
         );
       }

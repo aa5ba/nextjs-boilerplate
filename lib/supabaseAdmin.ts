@@ -95,21 +95,13 @@ function getSupabaseUrl(): string {
     parsedUrl.protocol !==
       "https:" &&
     !(
-      !IS_PRODUCTION &&
+      parsedUrl.protocol ===
+        "http:" &&
       localDevelopmentHost
     )
   ) {
     throw new Error(
       "رابط Supabase يجب أن يستخدم HTTPS"
-    );
-  }
-
-  if (
-    IS_PRODUCTION &&
-    localDevelopmentHost
-  ) {
-    throw new Error(
-      "لا يمكن استخدام رابط Supabase محلي في بيئة الإنتاج"
     );
   }
 

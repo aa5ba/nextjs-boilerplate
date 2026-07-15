@@ -42,6 +42,10 @@ const SUPPORT_PERMISSIONS = [
     key: "manage_verification_results",
     label: "إدارة نتائج التحقق",
   },
+  {
+    key: "manage_ehtisab_settings",
+    label: "إدارة إعدادات احتساب",
+  },
 ] as const;
 
 const SUPPORT_ROLES = [
@@ -54,6 +58,40 @@ const VERIFICATION_POSITIONS = [
   "نشط",
   "متأخر",
   "متعثر",
+] as const;
+
+const EHTISAB_FINANCE_TYPE_OPTIONS = [
+  {
+    key: "personal",
+    label: "تمويل شخصي",
+  },
+  {
+    key: "real",
+    label: "تمويل عقاري",
+  },
+] as const;
+
+const EHTISAB_WORK_CATEGORY_OPTIONS = [
+  {
+    key: "civil",
+    label: "حكومي مدني",
+  },
+  {
+    key: "military",
+    label: "حكومي عسكري",
+  },
+  {
+    key: "retired",
+    label: "المتقاعدون",
+  },
+  {
+    key: "semi_government",
+    label: "القطاع الخاص - شبه حكومي",
+  },
+  {
+    key: "private",
+    label: "القطاع الخاص",
+  },
 ] as const;
 
 const BRANCHES_PAGE_SIZE = 15;
@@ -89,6 +127,7 @@ type TabType =
   | "branches"
   | "branch_managers"
   | "users"
+  | "ehtisab"
   | "verifications"
   | "logs";
 
@@ -118,6 +157,7 @@ type DashboardAccess = {
   system_settings: boolean;
   backup_restore: boolean;
   manage_verification_results: boolean;
+  manage_ehtisab_settings: boolean;
 };
 
 type Branch = {
@@ -176,6 +216,80 @@ type SupportLog = {
   target_id: string | null;
   details: string | null;
   created_at: string;
+};
+
+type EhtisabFinanceType =
+  | "personal"
+  | "real";
+
+type EhtisabWorkCategory =
+  | "civil"
+  | "military"
+  | "retired"
+  | "semi_government"
+  | "private";
+
+type EhtisabSectionTab =
+  | "providers"
+  | "rules";
+
+type EhtisabProviderFinanceType = {
+  id: string;
+  finance_type: EhtisabFinanceType;
+  is_active: boolean;
+};
+
+type EhtisabProvider = {
+  id: string;
+  provider_name: string;
+  display_order: number;
+  default_margin_rate: number;
+  is_active: boolean;
+  is_deleted: boolean;
+  created_at: string;
+  updated_at: string;
+  ehtisab_provider_finance_types: EhtisabProviderFinanceType[];
+};
+
+type EhtisabRuleProvider = {
+  id: string;
+  provider_name: string;
+};
+
+type EhtisabMarginRule = {
+  id: string;
+  provider_id: string;
+  finance_type: EhtisabFinanceType;
+  work_category: EhtisabWorkCategory;
+  salary_from: number;
+  salary_to: number;
+  term_months_from: number | null;
+  term_months_to: number | null;
+  margin_rate: number;
+  is_active: boolean;
+  is_deleted: boolean;
+  created_at: string;
+  updated_at: string;
+  ehtisab_finance_providers: EhtisabRuleProvider | null;
+};
+
+type EhtisabProviderForm = {
+  providerName: string;
+  displayOrder: string;
+  defaultMarginRate: string;
+  financeTypes: EhtisabFinanceType[];
+};
+
+type EhtisabRuleForm = {
+  providerId: string;
+  financeType: EhtisabFinanceType;
+  workCategory: EhtisabWorkCategory;
+  salaryFrom: string;
+  salaryTo: string;
+  termMonthsFrom: string;
+  termMonthsTo: string;
+  marginRate: string;
+  isActive: boolean;
 };
 
 type VerificationContract = {
@@ -322,6 +436,9 @@ type BusyAction =
   | "save_branch"
   | "logout"
   | "create_support_user"
+  | "ehtisab_load"
+  | "ehtisab_save_provider"
+  | "ehtisab_save_rule"
   | "verification_search"
   | "verification_refresh"
   | `dashboard_section:${DashboardSection}`
@@ -333,6 +450,9 @@ type BusyAction =
   | `manager_password:${string}`
   | `support_status:${string}`
   | `support_permissions:${string}`
+  | `ehtisab_provider_status:${string}`
+  | `ehtisab_provider_delete:${string}`
+  | `ehtisab_rule_delete:${string}`
   | `verification_set:${string}`
   | `verification_clear:${string}`;
 
@@ -368,6 +488,7 @@ const EMPTY_ACCESS: DashboardAccess = {
   system_settings: false,
   backup_restore: false,
   manage_verification_results: false,
+  manage_ehtisab_settings: false,
 };
 
 const EMPTY_BRANCHES_PAGINATION: PaginationState = {
@@ -585,6 +706,289 @@ function normalizeBoolean(
     : fallback;
 }
 
+function isEhtisabFinanceType(
+  value: unknown
+): value is EhtisabFinanceType {
+  return (
+    typeof value === "string" &&
+    EHTISAB_FINANCE_TYPE_OPTIONS.some(
+      (option) =>
+        option.key === value
+    )
+  );
+}
+
+function isEhtisabWorkCategory(
+  value: unknown
+): value is EhtisabWorkCategory {
+  return (
+    typeof value === "string" &&
+    EHTISAB_WORK_CATEGORY_OPTIONS.some(
+      (option) =>
+        option.key === value
+    )
+  );
+}
+
+function normalizeEhtisabFinanceType(
+  value: unknown,
+  fallback: EhtisabFinanceType = "personal"
+): EhtisabFinanceType {
+  return isEhtisabFinanceType(value)
+    ? value
+    : fallback;
+}
+
+function normalizeEhtisabWorkCategory(
+  value: unknown,
+  fallback: EhtisabWorkCategory = "civil"
+): EhtisabWorkCategory {
+  return isEhtisabWorkCategory(value)
+    ? value
+    : fallback;
+}
+
+function getEhtisabFinanceTypeLabel(
+  value: EhtisabFinanceType
+): string {
+  return (
+    EHTISAB_FINANCE_TYPE_OPTIONS.find(
+      (option) =>
+        option.key === value
+    )?.label ?? value
+  );
+}
+
+function getEhtisabWorkCategoryLabel(
+  value: EhtisabWorkCategory
+): string {
+  return (
+    EHTISAB_WORK_CATEGORY_OPTIONS.find(
+      (option) =>
+        option.key === value
+    )?.label ?? value
+  );
+}
+
+function normalizeEhtisabProvider(
+  value: unknown
+): EhtisabProvider | null {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  const id =
+    cleanTextValue(value.id);
+
+  const providerName =
+    cleanTextValue(
+      value.provider_name
+    );
+
+  if (
+    !isValidUuid(id) ||
+    providerName.length < 2
+  ) {
+    return null;
+  }
+
+  const financeTypesRaw =
+    Array.isArray(
+      value.ehtisab_provider_finance_types
+    )
+      ? value.ehtisab_provider_finance_types
+      : [];
+
+  const financeTypes =
+    financeTypesRaw
+      .map((item) => {
+        if (!isPlainObject(item)) {
+          return null;
+        }
+
+        const financeType =
+          normalizeEhtisabFinanceType(
+            item.finance_type
+          );
+
+        return {
+          id: cleanTextValue(item.id),
+          finance_type:
+            financeType,
+          is_active:
+            normalizeBoolean(
+              item.is_active,
+              true
+            ),
+        };
+      })
+      .filter(
+        (
+          item
+        ): item is EhtisabProviderFinanceType =>
+          item !== null
+      );
+
+  return {
+    id,
+    provider_name:
+      providerName,
+    display_order:
+      toFiniteNumber(
+        value.display_order
+      ),
+    default_margin_rate:
+      toFiniteNumber(
+        value.default_margin_rate
+      ),
+    is_active:
+      normalizeBoolean(
+        value.is_active,
+        true
+      ),
+    is_deleted:
+      normalizeBoolean(
+        value.is_deleted
+      ),
+    created_at:
+      normalizeDateText(
+        value.created_at
+      ),
+    updated_at:
+      normalizeDateText(
+        value.updated_at
+      ),
+    ehtisab_provider_finance_types:
+      financeTypes,
+  };
+}
+
+function normalizeEhtisabRule(
+  value: unknown
+): EhtisabMarginRule | null {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  const id =
+    cleanTextValue(value.id);
+
+  const providerId =
+    cleanTextValue(
+      value.provider_id
+    );
+
+  if (
+    !isValidUuid(id) ||
+    !isValidUuid(providerId)
+  ) {
+    return null;
+  }
+
+  const providerRelation =
+    isPlainObject(
+      value.ehtisab_finance_providers
+    )
+      ? {
+          id: cleanTextValue(
+            value.ehtisab_finance_providers
+              .id
+          ),
+          provider_name:
+            cleanTextValue(
+              value.ehtisab_finance_providers
+                .provider_name
+            ),
+        }
+      : null;
+
+  return {
+    id,
+    provider_id:
+      providerId,
+    finance_type:
+      normalizeEhtisabFinanceType(
+        value.finance_type
+      ),
+    work_category:
+      normalizeEhtisabWorkCategory(
+        value.work_category
+      ),
+    salary_from:
+      toFiniteNumber(
+        value.salary_from
+      ),
+    salary_to:
+      toFiniteNumber(
+        value.salary_to
+      ),
+    term_months_from:
+      value.term_months_from ===
+        null ||
+      value.term_months_from ===
+        undefined
+        ? null
+        : toFiniteNumber(
+            value.term_months_from
+          ),
+    term_months_to:
+      value.term_months_to ===
+        null ||
+      value.term_months_to ===
+        undefined
+        ? null
+        : toFiniteNumber(
+            value.term_months_to
+          ),
+    margin_rate:
+      toFiniteNumber(
+        value.margin_rate
+      ),
+    is_active:
+      normalizeBoolean(
+        value.is_active,
+        true
+      ),
+    is_deleted:
+      normalizeBoolean(
+        value.is_deleted
+      ),
+    created_at:
+      normalizeDateText(
+        value.created_at
+      ),
+    updated_at:
+      normalizeDateText(
+        value.updated_at
+      ),
+    ehtisab_finance_providers:
+      providerRelation,
+  };
+}
+
+function formatEhtisabMargin(
+  value: number
+): string {
+  return `${value.toLocaleString("ar-SA", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  })}%`;
+}
+
+function formatEhtisabTermRange(
+  from: number | null,
+  to: number | null
+): string {
+  if (
+    from === null &&
+    to === null
+  ) {
+    return "جميع المدد";
+  }
+
+  return `${from ?? "-"} إلى ${to ?? "-"} شهر`;
+}
+
 function normalizeDateText(
   value: unknown
 ): string {
@@ -723,6 +1127,11 @@ function normalizeDashboardAccess(
     manage_verification_results:
       normalizeBoolean(
         value.manage_verification_results
+      ),
+
+    manage_ehtisab_settings:
+      normalizeBoolean(
+        value.manage_ehtisab_settings
       ),
   };
 }
@@ -2147,6 +2556,79 @@ export default function AdminSupportPage() {
     setVerificationNotes,
   ] =
     useState("");
+
+  const [
+    ehtisabSectionTab,
+    setEhtisabSectionTab,
+  ] =
+    useState<EhtisabSectionTab>(
+      "providers"
+    );
+
+  const [
+    ehtisabProviders,
+    setEhtisabProviders,
+  ] =
+    useState<EhtisabProvider[]>(
+      []
+    );
+
+  const [
+    ehtisabRules,
+    setEhtisabRules,
+  ] =
+    useState<EhtisabMarginRule[]>(
+      []
+    );
+
+  const [
+    ehtisabLoaded,
+    setEhtisabLoaded,
+  ] =
+    useState(false);
+
+  const [
+    editingEhtisabProviderId,
+    setEditingEhtisabProviderId,
+  ] =
+    useState<string | null>(
+      null
+    );
+
+  const [
+    editingEhtisabRuleId,
+    setEditingEhtisabRuleId,
+  ] =
+    useState<string | null>(
+      null
+    );
+
+  const [
+    ehtisabProviderForm,
+    setEhtisabProviderForm,
+  ] =
+    useState<EhtisabProviderForm>({
+      providerName: "",
+      displayOrder: "0",
+      defaultMarginRate: "",
+      financeTypes: ["personal"],
+    });
+
+  const [
+    ehtisabRuleForm,
+    setEhtisabRuleForm,
+  ] =
+    useState<EhtisabRuleForm>({
+      providerId: "",
+      financeType: "personal",
+      workCategory: "civil",
+      salaryFrom: "",
+      salaryTo: "",
+      termMonthsFrom: "",
+      termMonthsTo: "",
+      marginRate: "",
+      isActive: true,
+    });
     const isMobile =
     screen === "mobile";
 
@@ -2616,6 +3098,134 @@ export default function AdminSupportPage() {
         }
       },
       [redirectToLogin]
+    );
+
+  const loadEhtisabSettings =
+    useCallback(
+      async (): Promise<void> => {
+        if (
+          !access.manage_ehtisab_settings
+        ) {
+          return;
+        }
+
+        if (
+          !beginAction(
+            "ehtisab_load"
+          )
+        ) {
+          return;
+        }
+
+        try {
+          const [
+            providersResult,
+            rulesResult,
+          ] = await Promise.all([
+            executeRequest(
+              "/api/admin-support/ehtisab/providers"
+            ),
+            executeRequest(
+              "/api/admin-support/ehtisab/margin-rules"
+            ),
+          ]);
+
+          if (
+            !providersResult.ok
+          ) {
+            showNotice(
+              providersResult.message,
+              "error"
+            );
+            return;
+          }
+
+          if (!rulesResult.ok) {
+            showNotice(
+              rulesResult.message,
+              "error"
+            );
+            return;
+          }
+
+          const providersPayload =
+            providersResult.payload as ApiResponse & {
+              providers?: unknown;
+            };
+
+          const rulesPayload =
+            rulesResult.payload as ApiResponse & {
+              rules?: unknown;
+            };
+
+          const nextProviders =
+            Array.isArray(
+              providersPayload.providers
+            )
+              ? providersPayload.providers
+                  .map(
+                    normalizeEhtisabProvider
+                  )
+                  .filter(
+                    (
+                      provider
+                    ): provider is EhtisabProvider =>
+                      provider !==
+                      null
+                  )
+              : [];
+
+          const nextRules =
+            Array.isArray(
+              rulesPayload.rules
+            )
+              ? rulesPayload.rules
+                  .map(
+                    normalizeEhtisabRule
+                  )
+                  .filter(
+                    (
+                      rule
+                    ): rule is EhtisabMarginRule =>
+                      rule !== null
+                  )
+              : [];
+
+          setEhtisabProviders(
+            nextProviders
+          );
+
+          setEhtisabRules(
+            nextRules
+          );
+
+          setEhtisabRuleForm(
+            (previous) => ({
+              ...previous,
+
+              providerId:
+                previous.providerId ||
+                nextProviders[0]?.id ||
+                "",
+            })
+          );
+
+          setEhtisabLoaded(
+            true
+          );
+        } finally {
+          endAction(
+            "ehtisab_load"
+          );
+        }
+      },
+      [
+        access.manage_ehtisab_settings,
+        beginAction,
+        endAction,
+        executeRequest,
+        showNotice,
+      ]
     );
 
   const applyDashboardPayload =
@@ -3145,6 +3755,11 @@ export default function AdminSupportPage() {
       ) ||
       (
         activeTab ===
+          "ehtisab" &&
+        access.manage_ehtisab_settings
+      ) ||
+      (
+        activeTab ===
           "verifications" &&
         access.manage_verification_results
       ) ||
@@ -3164,6 +3779,22 @@ export default function AdminSupportPage() {
   }, [
     access,
     activeTab,
+  ]);
+
+  useEffect(() => {
+    if (
+      activeTab ===
+        "ehtisab" &&
+      access.manage_ehtisab_settings &&
+      !ehtisabLoaded
+    ) {
+      void loadEhtisabSettings();
+    }
+  }, [
+    access.manage_ehtisab_settings,
+    activeTab,
+    ehtisabLoaded,
+    loadEhtisabSettings,
   ]);
 
   const resetBranchForm =
@@ -3212,6 +3843,125 @@ export default function AdminSupportPage() {
       );
     }, []);
 
+  const resetEhtisabProviderForm =
+    useCallback((): void => {
+      setEditingEhtisabProviderId(
+        null
+      );
+
+      setEhtisabProviderForm({
+        providerName: "",
+        displayOrder: "0",
+        defaultMarginRate: "",
+        financeTypes: ["personal"],
+      });
+    }, []);
+
+  const resetEhtisabRuleForm =
+    useCallback((): void => {
+      setEditingEhtisabRuleId(
+        null
+      );
+
+      setEhtisabRuleForm(
+        (previous) => ({
+          providerId:
+            previous.providerId ||
+            ehtisabProviders[0]?.id ||
+            "",
+          financeType: "personal",
+          workCategory: "civil",
+          salaryFrom: "",
+          salaryTo: "",
+          termMonthsFrom: "",
+          termMonthsTo: "",
+          marginRate: "",
+          isActive: true,
+        })
+      );
+    }, [ehtisabProviders]);
+
+  function editEhtisabProvider(
+    provider: EhtisabProvider
+  ): void {
+    setEditingEhtisabProviderId(
+      provider.id
+    );
+
+    setEhtisabProviderForm({
+      providerName:
+        provider.provider_name,
+      displayOrder: String(
+        provider.display_order
+      ),
+      defaultMarginRate: String(
+        provider.default_margin_rate
+      ),
+      financeTypes:
+        provider.ehtisab_provider_finance_types
+          .filter(
+            (financeType) =>
+              financeType.is_active
+          )
+          .map(
+            (financeType) =>
+              financeType.finance_type
+          ).length > 0
+          ? provider.ehtisab_provider_finance_types
+              .filter(
+                (financeType) =>
+                  financeType.is_active
+              )
+              .map(
+                (financeType) =>
+                  financeType.finance_type
+              )
+          : ["personal"],
+    });
+  }
+
+  function editEhtisabRule(
+    rule: EhtisabMarginRule
+  ): void {
+    setEditingEhtisabRuleId(
+      rule.id
+    );
+
+    setEhtisabRuleForm({
+      providerId:
+        rule.provider_id,
+      financeType:
+        rule.finance_type,
+      workCategory:
+        rule.work_category,
+      salaryFrom: String(
+        rule.salary_from
+      ),
+      salaryTo: String(
+        rule.salary_to
+      ),
+      termMonthsFrom:
+        rule.term_months_from ===
+        null
+          ? ""
+          : String(
+              rule.term_months_from
+            ),
+      termMonthsTo:
+        rule.term_months_to ===
+        null
+          ? ""
+          : String(
+              rule.term_months_to
+            ),
+      marginRate: String(
+        rule.margin_rate
+      ),
+      isActive:
+        rule.is_active,
+    });
+  }
+
   const closePermissionsEditor =
     useCallback((): void => {
       setEditingPermissionsUserId(
@@ -3222,6 +3972,545 @@ export default function AdminSupportPage() {
         []
       );
     }, []);
+
+  async function saveEhtisabProvider(): Promise<void> {
+    if (
+      !access.manage_ehtisab_settings
+    ) {
+      showNotice(
+        "لا تملك صلاحية إدارة احتساب",
+        "error"
+      );
+      return;
+    }
+
+    if (
+      !beginAction(
+        "ehtisab_save_provider"
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const providerName =
+        ehtisabProviderForm.providerName.trim();
+
+      const displayOrder =
+        Number(
+          ehtisabProviderForm.displayOrder
+        );
+
+      const defaultMarginRate =
+        Number(
+          ehtisabProviderForm.defaultMarginRate
+        );
+
+      if (
+        providerName.length < 2
+      ) {
+        showNotice(
+          "اسم جهة التمويل مطلوب",
+          "error"
+        );
+        return;
+      }
+
+      if (
+        !Number.isSafeInteger(
+          displayOrder
+        )
+      ) {
+        showNotice(
+          "ترتيب الظهور يجب أن يكون رقمًا صحيحًا",
+          "error"
+        );
+        return;
+      }
+
+      if (
+        !Number.isFinite(
+          defaultMarginRate
+        ) ||
+        defaultMarginRate <= 0
+      ) {
+        showNotice(
+          "هامش الربح الافتراضي غير صحيح",
+          "error"
+        );
+        return;
+      }
+
+      const financeTypes =
+        Array.from(
+          new Set(
+            ehtisabProviderForm.financeTypes.filter(
+              (financeType) =>
+                financeType ===
+                "personal"
+            )
+          )
+        );
+
+      if (
+        financeTypes.length === 0
+      ) {
+        showNotice(
+          "نوع التمويل الشخصي مطلوب حاليًا",
+          "error"
+        );
+        return;
+      }
+
+      const body =
+        JSON.stringify({
+          providerName,
+          displayOrder,
+          defaultMarginRate,
+          financeTypes,
+        });
+
+      const result =
+        editingEhtisabProviderId
+          ? await executeRequest(
+              `/api/admin-support/ehtisab/providers/${editingEhtisabProviderId}`,
+              {
+                method: "PATCH",
+                body,
+              }
+            )
+          : await executeRequest(
+              "/api/admin-support/ehtisab/providers",
+              {
+                method: "POST",
+                body,
+              }
+            );
+
+      if (!result.ok) {
+        showNotice(
+          result.message,
+          "error"
+        );
+        return;
+      }
+
+      showNotice(
+        editingEhtisabProviderId
+          ? "تم تعديل جهة التمويل"
+          : "تم إنشاء جهة التمويل",
+        "success"
+      );
+
+      resetEhtisabProviderForm();
+      await loadEhtisabSettings();
+    } finally {
+      endAction(
+        "ehtisab_save_provider"
+      );
+    }
+  }
+
+  async function toggleEhtisabProvider(
+    provider: EhtisabProvider
+  ): Promise<void> {
+    if (
+      !access.manage_ehtisab_settings
+    ) {
+      showNotice(
+        "لا تملك صلاحية إدارة احتساب",
+        "error"
+      );
+      return;
+    }
+
+    const action: BusyAction =
+      `ehtisab_provider_status:${provider.id}`;
+
+    if (!beginAction(action)) {
+      return;
+    }
+
+    try {
+      const confirmed =
+        await requestConfirmation(
+          provider.is_active
+            ? "سيتم تعطيل جهة التمويل ومنع ظهورها في احتساب."
+            : "سيتم تفعيل جهة التمويل وإتاحتها للاستخدام.",
+          {
+            title:
+              provider.is_active
+                ? "تعطيل جهة التمويل"
+                : "تفعيل جهة التمويل",
+            confirmLabel:
+              provider.is_active
+                ? "تعطيل"
+                : "تفعيل",
+            danger:
+              provider.is_active,
+          }
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      const result =
+        await executeRequest(
+          `/api/admin-support/ehtisab/providers/${provider.id}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({
+              action:
+                "set_active",
+              isActive:
+                !provider.is_active,
+            }),
+          }
+        );
+
+      if (!result.ok) {
+        showNotice(
+          result.message,
+          "error"
+        );
+        return;
+      }
+
+      showNotice(
+        provider.is_active
+          ? "تم تعطيل جهة التمويل"
+          : "تم تفعيل جهة التمويل",
+        "success"
+      );
+
+      await loadEhtisabSettings();
+    } finally {
+      endAction(action);
+    }
+  }
+
+  async function deleteEhtisabProvider(
+    provider: EhtisabProvider
+  ): Promise<void> {
+    if (
+      !access.manage_ehtisab_settings
+    ) {
+      showNotice(
+        "لا تملك صلاحية إدارة احتساب",
+        "error"
+      );
+      return;
+    }
+
+    const action: BusyAction =
+      `ehtisab_provider_delete:${provider.id}`;
+
+    if (!beginAction(action)) {
+      return;
+    }
+
+    try {
+      const confirmed =
+        await requestConfirmation(
+          `سيتم حذف جهة التمويل "${provider.provider_name}" حذفًا ناعمًا.`,
+          {
+            title:
+              "حذف جهة التمويل",
+            confirmLabel:
+              "حذف ناعم",
+            danger: true,
+          }
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      const result =
+        await executeRequest(
+          `/api/admin-support/ehtisab/providers/${provider.id}`,
+          {
+            method: "DELETE",
+          }
+        );
+
+      if (!result.ok) {
+        showNotice(
+          result.message,
+          "error"
+        );
+        return;
+      }
+
+      showNotice(
+        "تم حذف جهة التمويل حذفًا ناعمًا",
+        "success"
+      );
+
+      if (
+        editingEhtisabProviderId ===
+        provider.id
+      ) {
+        resetEhtisabProviderForm();
+      }
+
+      await loadEhtisabSettings();
+    } finally {
+      endAction(action);
+    }
+  }
+
+  async function saveEhtisabRule(): Promise<void> {
+    if (
+      !access.manage_ehtisab_settings
+    ) {
+      showNotice(
+        "لا تملك صلاحية إدارة احتساب",
+        "error"
+      );
+      return;
+    }
+
+    if (
+      !beginAction(
+        "ehtisab_save_rule"
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const salaryFrom =
+        Number(
+          ehtisabRuleForm.salaryFrom
+        );
+
+      const salaryTo =
+        Number(
+          ehtisabRuleForm.salaryTo
+        );
+
+      const marginRate =
+        Number(
+          ehtisabRuleForm.marginRate
+        );
+
+      const hasTermFrom =
+        ehtisabRuleForm.termMonthsFrom.trim() !==
+        "";
+
+      const hasTermTo =
+        ehtisabRuleForm.termMonthsTo.trim() !==
+        "";
+
+      const termMonthsFrom =
+        hasTermFrom
+          ? Number(
+              ehtisabRuleForm.termMonthsFrom
+            )
+          : null;
+
+      const termMonthsTo =
+        hasTermTo
+          ? Number(
+              ehtisabRuleForm.termMonthsTo
+            )
+          : null;
+
+      if (
+        !isValidUuid(
+          ehtisabRuleForm.providerId
+        )
+      ) {
+        showNotice(
+          "اختر جهة التمويل",
+          "error"
+        );
+        return;
+      }
+
+      if (
+        !Number.isFinite(salaryFrom) ||
+        !Number.isFinite(salaryTo) ||
+        salaryFrom <= 0 ||
+        salaryTo <= 0 ||
+        salaryFrom > salaryTo
+      ) {
+        showNotice(
+          "نطاق الراتب غير صحيح",
+          "error"
+        );
+        return;
+      }
+
+      if (
+        hasTermFrom !== hasTermTo ||
+        (
+          termMonthsFrom !== null &&
+          (
+            !Number.isSafeInteger(
+              termMonthsFrom
+            ) ||
+            !Number.isSafeInteger(
+              termMonthsTo
+            ) ||
+            termMonthsFrom <= 0 ||
+            (termMonthsTo ?? 0) <=
+              0 ||
+            termMonthsFrom >
+              (termMonthsTo ?? 0)
+          )
+        )
+      ) {
+        showNotice(
+          "نطاق مدة التمويل غير صحيح",
+          "error"
+        );
+        return;
+      }
+
+      if (
+        !Number.isFinite(
+          marginRate
+        ) ||
+        marginRate <= 0
+      ) {
+        showNotice(
+          "هامش الربح غير صحيح",
+          "error"
+        );
+        return;
+      }
+
+      const body =
+        JSON.stringify({
+          providerId:
+            ehtisabRuleForm.providerId,
+          financeType:
+            ehtisabRuleForm.financeType,
+          workCategory:
+            ehtisabRuleForm.workCategory,
+          salaryFrom,
+          salaryTo,
+          termMonthsFrom,
+          termMonthsTo,
+          marginRate,
+          isActive:
+            ehtisabRuleForm.isActive,
+        });
+
+      const result =
+        editingEhtisabRuleId
+          ? await executeRequest(
+              `/api/admin-support/ehtisab/margin-rules/${editingEhtisabRuleId}`,
+              {
+                method: "PATCH",
+                body,
+              }
+            )
+          : await executeRequest(
+              "/api/admin-support/ehtisab/margin-rules",
+              {
+                method: "POST",
+                body,
+              }
+            );
+
+      if (!result.ok) {
+        showNotice(
+          result.message,
+          "error"
+        );
+        return;
+      }
+
+      showNotice(
+        editingEhtisabRuleId
+          ? "تم تعديل قاعدة الهامش"
+          : "تم إنشاء قاعدة الهامش",
+        "success"
+      );
+
+      resetEhtisabRuleForm();
+      await loadEhtisabSettings();
+    } finally {
+      endAction(
+        "ehtisab_save_rule"
+      );
+    }
+  }
+
+  async function deleteEhtisabRule(
+    rule: EhtisabMarginRule
+  ): Promise<void> {
+    if (
+      !access.manage_ehtisab_settings
+    ) {
+      showNotice(
+        "لا تملك صلاحية إدارة احتساب",
+        "error"
+      );
+      return;
+    }
+
+    const action: BusyAction =
+      `ehtisab_rule_delete:${rule.id}`;
+
+    if (!beginAction(action)) {
+      return;
+    }
+
+    try {
+      const confirmed =
+        await requestConfirmation(
+          "سيتم حذف قاعدة الهامش حذفًا ناعمًا.",
+          {
+            title:
+              "حذف قاعدة هامش",
+            confirmLabel:
+              "حذف",
+            danger: true,
+          }
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      const result =
+        await executeRequest(
+          `/api/admin-support/ehtisab/margin-rules/${rule.id}`,
+          {
+            method: "DELETE",
+          }
+        );
+
+      if (!result.ok) {
+        showNotice(
+          result.message,
+          "error"
+        );
+        return;
+      }
+
+      showNotice(
+        "تم حذف قاعدة الهامش",
+        "success"
+      );
+
+      if (
+        editingEhtisabRuleId ===
+        rule.id
+      ) {
+        resetEhtisabRuleForm();
+      }
+
+      await loadEhtisabSettings();
+    } finally {
+      endAction(action);
+    }
+  }
 
   function openNewBranchForm(): void {
     if (
@@ -5349,6 +6638,9 @@ export default function AdminSupportPage() {
         users:
           access.manage_support_users,
 
+        ehtisab:
+          access.manage_ehtisab_settings,
+
         verifications:
           access.manage_verification_results,
 
@@ -5394,6 +6686,21 @@ export default function AdminSupportPage() {
   const verificationRefreshing =
     isBusy(
       "verification_refresh"
+    );
+
+  const ehtisabLoading =
+    isBusy(
+      "ehtisab_load"
+    );
+
+  const ehtisabProviderSaving =
+    isBusy(
+      "ehtisab_save_provider"
+    );
+
+  const ehtisabRuleSaving =
+    isBusy(
+      "ehtisab_save_rule"
     );
 
   const logoutBusy =
@@ -5817,6 +7124,20 @@ export default function AdminSupportPage() {
                       }
                     >
                       مستخدمو الدعم
+                    </button>
+                  )}
+
+                  {visibleTabs.ehtisab && (
+                    <button
+                      type="button"
+                      style={quickButton}
+                      onClick={() =>
+                        setActiveTab(
+                          "ehtisab"
+                        )
+                      }
+                    >
+                      إدارة احتساب
                     </button>
                   )}
 
@@ -7624,6 +8945,1066 @@ export default function AdminSupportPage() {
             )}
 
           {activeTab ===
+            "ehtisab" &&
+            visibleTabs.ehtisab && (
+              <>
+                <div
+                  style={sectionTop}
+                >
+                  <div>
+                    <h2
+                      style={sectionTitle}
+                    >
+                      إدارة احتساب
+                    </h2>
+
+                    <p
+                      style={sectionHint}
+                    >
+                      جهات التمويل وجداول هامش الربح المستخدمة في احتساب
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    style={getDisabledStyle(
+                      primaryButton,
+                      ehtisabLoading
+                    )}
+                    onClick={() =>
+                      void loadEhtisabSettings()
+                    }
+                    disabled={
+                      ehtisabLoading
+                    }
+                  >
+                    {ehtisabLoading
+                      ? "جاري التحديث..."
+                      : "تحديث البيانات"}
+                  </button>
+                </div>
+
+                <div
+                  style={branchTabs}
+                >
+                  <button
+                    type="button"
+                    style={
+                      ehtisabSectionTab ===
+                      "providers"
+                        ? branchTabActive
+                        : branchTab
+                    }
+                    onClick={() =>
+                      setEhtisabSectionTab(
+                        "providers"
+                      )
+                    }
+                  >
+                    جهات التمويل
+                    <span
+                      style={branchTabCount}
+                    >
+                      {
+                        ehtisabProviders.length
+                      }
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    style={
+                      ehtisabSectionTab ===
+                      "rules"
+                        ? branchTabActive
+                        : branchTab
+                    }
+                    onClick={() =>
+                      setEhtisabSectionTab(
+                        "rules"
+                      )
+                    }
+                  >
+                    جداول هامش الربح
+                    <span
+                      style={branchTabCount}
+                    >
+                      {ehtisabRules.length}
+                    </span>
+                  </button>
+                </div>
+
+                {ehtisabLoading ? (
+                  <SectionLoading />
+                ) : ehtisabSectionTab ===
+                  "providers" ? (
+                  <>
+                    <section
+                      style={formCard}
+                    >
+                      <h2
+                        style={formTitle}
+                      >
+                        {editingEhtisabProviderId
+                          ? "تعديل جهة تمويل"
+                          : "إضافة جهة تمويل"}
+                      </h2>
+
+                      <div
+                        style={formGrid}
+                      >
+                        <Field
+                          id="ehtisab-provider-name"
+                          label="اسم جهة التمويل *"
+                        >
+                          <input
+                            id="ehtisab-provider-name"
+                            style={input}
+                            value={
+                              ehtisabProviderForm.providerName
+                            }
+                            maxLength={150}
+                            onChange={(
+                              event
+                            ) =>
+                              setEhtisabProviderForm(
+                                (
+                                  previous
+                                ) => ({
+                                  ...previous,
+                                  providerName:
+                                    event.target
+                                      .value,
+                                })
+                              )
+                            }
+                            disabled={
+                              ehtisabProviderSaving
+                            }
+                          />
+                        </Field>
+
+                        <Field
+                          id="ehtisab-provider-margin"
+                          label="هامش الربح الافتراضي *"
+                        >
+                          <input
+                            id="ehtisab-provider-margin"
+                            style={input}
+                            value={
+                              ehtisabProviderForm.defaultMarginRate
+                            }
+                            inputMode="decimal"
+                            onChange={(
+                              event
+                            ) =>
+                              setEhtisabProviderForm(
+                                (
+                                  previous
+                                ) => ({
+                                  ...previous,
+                                  defaultMarginRate:
+                                    event.target
+                                      .value,
+                                })
+                              )
+                            }
+                            disabled={
+                              ehtisabProviderSaving
+                            }
+                          />
+                        </Field>
+
+                        <Field
+                          id="ehtisab-provider-order"
+                          label="ترتيب الظهور"
+                        >
+                          <input
+                            id="ehtisab-provider-order"
+                            style={input}
+                            value={
+                              ehtisabProviderForm.displayOrder
+                            }
+                            inputMode="numeric"
+                            onChange={(
+                              event
+                            ) =>
+                              setEhtisabProviderForm(
+                                (
+                                  previous
+                                ) => ({
+                                  ...previous,
+                                  displayOrder:
+                                    cleanNumericValue(
+                                      event.target
+                                        .value,
+                                      6
+                                    ) || "0",
+                                })
+                              )
+                            }
+                            disabled={
+                              ehtisabProviderSaving
+                            }
+                          />
+                        </Field>
+                      </div>
+
+                      <div
+                        style={permissionsBox}
+                      >
+                        {EHTISAB_FINANCE_TYPE_OPTIONS.map(
+                          (option) => {
+                            const disabled =
+                              option.key !==
+                              "personal";
+
+                            return (
+                              <label
+                                key={
+                                  option.key
+                                }
+                                style={permissionItem}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={ehtisabProviderForm.financeTypes.includes(
+                                    option.key
+                                  )}
+                                  disabled={
+                                    disabled ||
+                                    ehtisabProviderSaving
+                                  }
+                                  onChange={(
+                                    event
+                                  ) =>
+                                    setEhtisabProviderForm(
+                                      (
+                                        previous
+                                      ) => ({
+                                        ...previous,
+                                        financeTypes:
+                                          event
+                                            .target
+                                            .checked
+                                            ? Array.from(
+                                                new Set(
+                                                  [
+                                                    ...previous.financeTypes,
+                                                    option.key,
+                                                  ]
+                                                )
+                                              )
+                                            : previous.financeTypes.filter(
+                                                (
+                                                  value
+                                                ) =>
+                                                  value !==
+                                                  option.key
+                                              ),
+                                      })
+                                    )
+                                  }
+                                />
+
+                                {option.label}
+                                {disabled
+                                  ? " (لاحقًا)"
+                                  : ""}
+                              </label>
+                            );
+                          }
+                        )}
+                      </div>
+
+                      <div
+                        style={buttonsRow}
+                      >
+                        <button
+                          type="button"
+                          style={getDisabledStyle(
+                            smallGreenButton,
+                            ehtisabProviderSaving
+                          )}
+                          onClick={() =>
+                            void saveEhtisabProvider()
+                          }
+                          disabled={
+                            ehtisabProviderSaving
+                          }
+                        >
+                          {ehtisabProviderSaving
+                            ? "جاري الحفظ..."
+                            : editingEhtisabProviderId
+                              ? "حفظ التعديل"
+                              : "إضافة الجهة"}
+                        </button>
+
+                        {editingEhtisabProviderId && (
+                          <button
+                            type="button"
+                            style={smallButton}
+                            onClick={
+                              resetEhtisabProviderForm
+                            }
+                            disabled={
+                              ehtisabProviderSaving
+                            }
+                          >
+                            إلغاء التعديل
+                          </button>
+                        )}
+                      </div>
+                    </section>
+
+                    <section
+                      style={usersGrid}
+                    >
+                      {ehtisabProviders.length ===
+                      0 ? (
+                        <div
+                          style={emptyBox}
+                        >
+                          لا توجد جهات تمويل حتى الآن
+                        </div>
+                      ) : (
+                        ehtisabProviders.map(
+                          (provider) => {
+                            const statusAction:
+                              BusyAction =
+                              `ehtisab_provider_status:${provider.id}`;
+
+                            const deleteAction:
+                              BusyAction =
+                              `ehtisab_provider_delete:${provider.id}`;
+
+                            const providerBusy =
+                              isBusy(
+                                statusAction
+                              ) ||
+                              isBusy(
+                                deleteAction
+                              );
+
+                            return (
+                              <article
+                                key={
+                                  provider.id
+                                }
+                                style={userCard}
+                              >
+                                <div
+                                  style={userIcon}
+                                >
+                                  ح
+                                </div>
+
+                                <h3
+                                  style={userTitle}
+                                >
+                                  {
+                                    provider.provider_name
+                                  }
+                                </h3>
+
+                                <span
+                                  style={
+                                    provider.is_active
+                                      ? activeBadge
+                                      : inactiveBadge
+                                  }
+                                >
+                                  {provider.is_active
+                                    ? "نشط"
+                                    : "معطل"}
+                                </span>
+
+                                <p
+                                  style={muted}
+                                >
+                                  الهامش الافتراضي:{" "}
+                                  {formatEhtisabMargin(
+                                    provider.default_margin_rate
+                                  )}
+                                </p>
+
+                                <p
+                                  style={muted}
+                                >
+                                  ترتيب الظهور:{" "}
+                                  {
+                                    provider.display_order
+                                  }
+                                </p>
+
+                                <div
+                                  style={permissionsTags}
+                                >
+                                  {provider.ehtisab_provider_finance_types.length >
+                                  0 ? (
+                                    provider.ehtisab_provider_finance_types.map(
+                                      (
+                                        financeType
+                                      ) => (
+                                        <span
+                                          key={`${provider.id}-${financeType.finance_type}`}
+                                          style={permissionTag}
+                                        >
+                                          {getEhtisabFinanceTypeLabel(
+                                            financeType.finance_type
+                                          )}
+                                        </span>
+                                      )
+                                    )
+                                  ) : (
+                                    <span
+                                      style={permissionTag}
+                                    >
+                                      بدون أنواع تمويل
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div
+                                  style={rowActions}
+                                >
+                                  <button
+                                    type="button"
+                                    style={smallBlueButton}
+                                    onClick={() =>
+                                      editEhtisabProvider(
+                                        provider
+                                      )
+                                    }
+                                    disabled={
+                                      providerBusy
+                                    }
+                                  >
+                                    تعديل
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    style={getDisabledStyle(
+                                      provider.is_active
+                                        ? smallDangerButton
+                                        : smallGreenButton,
+                                      isBusy(
+                                        statusAction
+                                      )
+                                    )}
+                                    onClick={() =>
+                                      void toggleEhtisabProvider(
+                                        provider
+                                      )
+                                    }
+                                    disabled={isBusy(
+                                      statusAction
+                                    )}
+                                  >
+                                    {isBusy(
+                                      statusAction
+                                    )
+                                      ? "جاري التنفيذ..."
+                                      : provider.is_active
+                                        ? "تعطيل"
+                                        : "تفعيل"}
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    style={getDisabledStyle(
+                                      smallDangerButton,
+                                      isBusy(
+                                        deleteAction
+                                      )
+                                    )}
+                                    onClick={() =>
+                                      void deleteEhtisabProvider(
+                                        provider
+                                      )
+                                    }
+                                    disabled={isBusy(
+                                      deleteAction
+                                    )}
+                                  >
+                                    {isBusy(
+                                      deleteAction
+                                    )
+                                      ? "جاري الحذف..."
+                                      : "حذف ناعم"}
+                                  </button>
+                                </div>
+                              </article>
+                            );
+                          }
+                        )
+                      )}
+                    </section>
+                  </>
+                ) : (
+                  <>
+                    <section
+                      style={formCard}
+                    >
+                      <h2
+                        style={formTitle}
+                      >
+                        {editingEhtisabRuleId
+                          ? "تعديل قاعدة هامش"
+                          : "إضافة قاعدة هامش"}
+                      </h2>
+
+                      <div
+                        style={formGrid}
+                      >
+                        <Field
+                          id="ehtisab-rule-provider"
+                          label="جهة التمويل *"
+                        >
+                          <select
+                            id="ehtisab-rule-provider"
+                            style={input}
+                            value={
+                              ehtisabRuleForm.providerId
+                            }
+                            onChange={(
+                              event
+                            ) =>
+                              setEhtisabRuleForm(
+                                (
+                                  previous
+                                ) => ({
+                                  ...previous,
+                                  providerId:
+                                    event.target
+                                      .value,
+                                })
+                              )
+                            }
+                            disabled={
+                              ehtisabRuleSaving
+                            }
+                          >
+                            <option value="">
+                              اختر الجهة
+                            </option>
+
+                            {ehtisabProviders.map(
+                              (provider) => (
+                                <option
+                                  key={
+                                    provider.id
+                                  }
+                                  value={
+                                    provider.id
+                                  }
+                                >
+                                  {
+                                    provider.provider_name
+                                  }
+                                </option>
+                              )
+                            )}
+                          </select>
+                        </Field>
+
+                        <Field
+                          id="ehtisab-rule-finance-type"
+                          label="نوع التمويل"
+                        >
+                          <select
+                            id="ehtisab-rule-finance-type"
+                            style={input}
+                            value={
+                              ehtisabRuleForm.financeType
+                            }
+                            onChange={(
+                              event
+                            ) =>
+                              setEhtisabRuleForm(
+                                (
+                                  previous
+                                ) => ({
+                                  ...previous,
+                                  financeType:
+                                    normalizeEhtisabFinanceType(
+                                      event.target
+                                        .value
+                                    ),
+                                })
+                              )
+                            }
+                            disabled={
+                              ehtisabRuleSaving
+                            }
+                          >
+                            {EHTISAB_FINANCE_TYPE_OPTIONS.map(
+                              (option) => (
+                                <option
+                                  key={
+                                    option.key
+                                  }
+                                  value={
+                                    option.key
+                                  }
+                                  disabled={
+                                    option.key !==
+                                    "personal"
+                                  }
+                                >
+                                  {option.label}
+                                  {option.key !==
+                                  "personal"
+                                    ? " (لاحقًا)"
+                                    : ""}
+                                </option>
+                              )
+                            )}
+                          </select>
+                        </Field>
+
+                        <Field
+                          id="ehtisab-rule-work-category"
+                          label="جهة العمل"
+                        >
+                          <select
+                            id="ehtisab-rule-work-category"
+                            style={input}
+                            value={
+                              ehtisabRuleForm.workCategory
+                            }
+                            onChange={(
+                              event
+                            ) =>
+                              setEhtisabRuleForm(
+                                (
+                                  previous
+                                ) => ({
+                                  ...previous,
+                                  workCategory:
+                                    normalizeEhtisabWorkCategory(
+                                      event.target
+                                        .value
+                                    ),
+                                })
+                              )
+                            }
+                            disabled={
+                              ehtisabRuleSaving
+                            }
+                          >
+                            {EHTISAB_WORK_CATEGORY_OPTIONS.map(
+                              (option) => (
+                                <option
+                                  key={
+                                    option.key
+                                  }
+                                  value={
+                                    option.key
+                                  }
+                                >
+                                  {
+                                    option.label
+                                  }
+                                </option>
+                              )
+                            )}
+                          </select>
+                        </Field>
+
+                        <Field
+                          id="ehtisab-rule-salary-from"
+                          label="الراتب من *"
+                        >
+                          <input
+                            id="ehtisab-rule-salary-from"
+                            style={input}
+                            value={
+                              ehtisabRuleForm.salaryFrom
+                            }
+                            inputMode="decimal"
+                            onChange={(
+                              event
+                            ) =>
+                              setEhtisabRuleForm(
+                                (
+                                  previous
+                                ) => ({
+                                  ...previous,
+                                  salaryFrom:
+                                    event.target
+                                      .value,
+                                })
+                              )
+                            }
+                            disabled={
+                              ehtisabRuleSaving
+                            }
+                          />
+                        </Field>
+
+                        <Field
+                          id="ehtisab-rule-salary-to"
+                          label="الراتب إلى *"
+                        >
+                          <input
+                            id="ehtisab-rule-salary-to"
+                            style={input}
+                            value={
+                              ehtisabRuleForm.salaryTo
+                            }
+                            inputMode="decimal"
+                            onChange={(
+                              event
+                            ) =>
+                              setEhtisabRuleForm(
+                                (
+                                  previous
+                                ) => ({
+                                  ...previous,
+                                  salaryTo:
+                                    event.target
+                                      .value,
+                                })
+                              )
+                            }
+                            disabled={
+                              ehtisabRuleSaving
+                            }
+                          />
+                        </Field>
+
+                        <Field
+                          id="ehtisab-rule-term-from"
+                          label="المدة من"
+                        >
+                          <input
+                            id="ehtisab-rule-term-from"
+                            style={input}
+                            value={
+                              ehtisabRuleForm.termMonthsFrom
+                            }
+                            inputMode="numeric"
+                            onChange={(
+                              event
+                            ) =>
+                              setEhtisabRuleForm(
+                                (
+                                  previous
+                                ) => ({
+                                  ...previous,
+                                  termMonthsFrom:
+                                    cleanNumericValue(
+                                      event.target
+                                        .value,
+                                      4
+                                    ),
+                                })
+                              )
+                            }
+                            disabled={
+                              ehtisabRuleSaving
+                            }
+                          />
+                        </Field>
+
+                        <Field
+                          id="ehtisab-rule-term-to"
+                          label="المدة إلى"
+                        >
+                          <input
+                            id="ehtisab-rule-term-to"
+                            style={input}
+                            value={
+                              ehtisabRuleForm.termMonthsTo
+                            }
+                            inputMode="numeric"
+                            onChange={(
+                              event
+                            ) =>
+                              setEhtisabRuleForm(
+                                (
+                                  previous
+                                ) => ({
+                                  ...previous,
+                                  termMonthsTo:
+                                    cleanNumericValue(
+                                      event.target
+                                        .value,
+                                      4
+                                    ),
+                                })
+                              )
+                            }
+                            disabled={
+                              ehtisabRuleSaving
+                            }
+                          />
+                        </Field>
+
+                        <Field
+                          id="ehtisab-rule-margin"
+                          label="هامش الربح *"
+                        >
+                          <input
+                            id="ehtisab-rule-margin"
+                            style={input}
+                            value={
+                              ehtisabRuleForm.marginRate
+                            }
+                            inputMode="decimal"
+                            onChange={(
+                              event
+                            ) =>
+                              setEhtisabRuleForm(
+                                (
+                                  previous
+                                ) => ({
+                                  ...previous,
+                                  marginRate:
+                                    event.target
+                                      .value,
+                                })
+                              )
+                            }
+                            disabled={
+                              ehtisabRuleSaving
+                            }
+                          />
+                        </Field>
+
+                        <Field
+                          id="ehtisab-rule-status"
+                          label="حالة القاعدة"
+                        >
+                          <select
+                            id="ehtisab-rule-status"
+                            style={input}
+                            value={
+                              ehtisabRuleForm.isActive
+                                ? "active"
+                                : "inactive"
+                            }
+                            onChange={(
+                              event
+                            ) =>
+                              setEhtisabRuleForm(
+                                (
+                                  previous
+                                ) => ({
+                                  ...previous,
+                                  isActive:
+                                    event.target
+                                      .value ===
+                                    "active",
+                                })
+                              )
+                            }
+                            disabled={
+                              ehtisabRuleSaving
+                            }
+                          >
+                            <option value="active">
+                              نشطة
+                            </option>
+                            <option value="inactive">
+                              معطلة
+                            </option>
+                          </select>
+                        </Field>
+                      </div>
+
+                      <div
+                        style={buttonsRow}
+                      >
+                        <button
+                          type="button"
+                          style={getDisabledStyle(
+                            smallGreenButton,
+                            ehtisabRuleSaving
+                          )}
+                          onClick={() =>
+                            void saveEhtisabRule()
+                          }
+                          disabled={
+                            ehtisabRuleSaving
+                          }
+                        >
+                          {ehtisabRuleSaving
+                            ? "جاري الحفظ..."
+                            : editingEhtisabRuleId
+                              ? "حفظ التعديل"
+                              : "إضافة القاعدة"}
+                        </button>
+
+                        {editingEhtisabRuleId && (
+                          <button
+                            type="button"
+                            style={smallButton}
+                            onClick={
+                              resetEhtisabRuleForm
+                            }
+                            disabled={
+                              ehtisabRuleSaving
+                            }
+                          >
+                            إلغاء التعديل
+                          </button>
+                        )}
+                      </div>
+                    </section>
+
+                    <section
+                      style={usersGrid}
+                    >
+                      {ehtisabRules.length ===
+                      0 ? (
+                        <div
+                          style={emptyBox}
+                        >
+                          لا توجد قواعد هامش حتى الآن
+                        </div>
+                      ) : (
+                        ehtisabRules.map(
+                          (rule) => {
+                            const deleteAction:
+                              BusyAction =
+                              `ehtisab_rule_delete:${rule.id}`;
+
+                            return (
+                              <article
+                                key={rule.id}
+                                style={userCard}
+                              >
+                                <div
+                                  style={userIcon}
+                                >
+                                  %
+                                </div>
+
+                                <h3
+                                  style={userTitle}
+                                >
+                                  {rule.ehtisab_finance_providers?.provider_name ||
+                                    ehtisabProviders.find(
+                                      (
+                                        provider
+                                      ) =>
+                                        provider.id ===
+                                        rule.provider_id
+                                    )?.provider_name ||
+                                    "جهة غير محددة"}
+                                </h3>
+
+                                <span
+                                  style={
+                                    rule.is_active
+                                      ? activeBadge
+                                      : inactiveBadge
+                                  }
+                                >
+                                  {rule.is_active
+                                    ? "نشطة"
+                                    : "معطلة"}
+                                </span>
+
+                                <div
+                                  style={verificationInfoGrid}
+                                >
+                                  <InfoItem
+                                    label="نوع التمويل"
+                                    value={getEhtisabFinanceTypeLabel(
+                                      rule.finance_type
+                                    )}
+                                  />
+
+                                  <InfoItem
+                                    label="جهة العمل"
+                                    value={getEhtisabWorkCategoryLabel(
+                                      rule.work_category
+                                    )}
+                                  />
+
+                                  <InfoItem
+                                    label="نطاق الراتب"
+                                    value={`${formatMoney(
+                                      rule.salary_from
+                                    )} - ${formatMoney(
+                                      rule.salary_to
+                                    )}`}
+                                  />
+
+                                  <InfoItem
+                                    label="نطاق المدة"
+                                    value={formatEhtisabTermRange(
+                                      rule.term_months_from,
+                                      rule.term_months_to
+                                    )}
+                                  />
+
+                                  <InfoItem
+                                    label="هامش الربح"
+                                    value={formatEhtisabMargin(
+                                      rule.margin_rate
+                                    )}
+                                  />
+                                </div>
+
+                                <div
+                                  style={rowActions}
+                                >
+                                  <button
+                                    type="button"
+                                    style={smallBlueButton}
+                                    onClick={() =>
+                                      editEhtisabRule(
+                                        rule
+                                      )
+                                    }
+                                    disabled={isBusy(
+                                      deleteAction
+                                    )}
+                                  >
+                                    تعديل
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    style={getDisabledStyle(
+                                      smallDangerButton,
+                                      isBusy(
+                                        deleteAction
+                                      )
+                                    )}
+                                    onClick={() =>
+                                      void deleteEhtisabRule(
+                                        rule
+                                      )
+                                    }
+                                    disabled={isBusy(
+                                      deleteAction
+                                    )}
+                                  >
+                                    {isBusy(
+                                      deleteAction
+                                    )
+                                      ? "جاري الحذف..."
+                                      : "حذف"}
+                                  </button>
+                                </div>
+                              </article>
+                            );
+                          }
+                        )
+                      )}
+                    </section>
+                  </>
+                )}
+              </>
+            )}
+
+          {activeTab ===
             "verifications" &&
             visibleTabs.verifications && (
               <>
@@ -8869,6 +11250,7 @@ function SideNav({
     branches: boolean;
     branchManagers: boolean;
     users: boolean;
+    ehtisab: boolean;
     verifications: boolean;
     logs: boolean;
   };
@@ -8936,6 +11318,22 @@ function SideNav({
           }
         >
           مستخدمو الدعم
+        </NavButton>
+      )}
+
+      {visibleTabs.ehtisab && (
+        <NavButton
+          active={
+            activeTab ===
+            "ehtisab"
+          }
+          onClick={() =>
+            setActiveTab(
+              "ehtisab"
+            )
+          }
+        >
+          إدارة احتساب
         </NavButton>
       )}
 
@@ -9015,6 +11413,7 @@ function MobileNav({
     branches: boolean;
     branchManagers: boolean;
     users: boolean;
+    ehtisab: boolean;
     verifications: boolean;
     logs: boolean;
   };
@@ -9097,6 +11496,25 @@ function MobileNav({
           }
         >
           الدعم
+        </button>
+      )}
+
+      {visibleTabs.ehtisab && (
+        <button
+          type="button"
+          className={
+            activeTab ===
+            "ehtisab"
+              ? "mobile-tab active"
+              : "mobile-tab"
+          }
+          onClick={() =>
+            setActiveTab(
+              "ehtisab"
+            )
+          }
+        >
+          احتساب
         </button>
       )}
 

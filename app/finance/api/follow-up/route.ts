@@ -61,6 +61,7 @@ type FollowUpContractRow = {
   payment_amount: number | string | null;
   payment_due_date: string | null;
   contract_status: string | null;
+  is_archived?: boolean | null;
 };
 
 type CustomerRow = {
@@ -378,11 +379,15 @@ async function fetchAllContractsForBranch(
     } = await supabaseAdmin
       .from("finance_contracts")
       .select(
-        "id,branch_id,contract_number,customer_id,investor_id,investor_name,remaining_amount,debt_amount,payment_amount,payment_due_date,contract_status"
+        "id,branch_id,contract_number,customer_id,investor_id,investor_name,remaining_amount,debt_amount,payment_amount,payment_due_date,contract_status,is_archived"
       )
       .eq(
         "branch_id",
         branchId
+      )
+      .eq(
+        "is_archived",
+        false
       )
       .order(
         "payment_due_date",
@@ -864,7 +869,7 @@ async function ensureContractAccess(
   } = await supabaseAdmin
     .from("finance_contracts")
     .select(
-      "id,branch_id,contract_number,customer_id,investor_id,investor_name,remaining_amount,debt_amount,payment_amount,payment_due_date,contract_status"
+      "id,branch_id,contract_number,customer_id,investor_id,investor_name,remaining_amount,debt_amount,payment_amount,payment_due_date,contract_status,is_archived"
     )
     .eq("id", contractId)
     .eq("branch_id", branchId)
@@ -893,6 +898,22 @@ async function ensureContractAccess(
 
   const contract =
     data as unknown as FollowUpContractRow;
+
+  if (contract.is_archived === true) {
+    return {
+      ok: false as const,
+      response: json(
+        {
+          ok: false,
+          code:
+            "CONTRACT_ARCHIVED",
+          message:
+            "لا يمكن إضافة متابعة لعقد مؤرشف",
+        },
+        409
+      ),
+    };
+  }
 
   const today =
     getTodaySaudiDate();

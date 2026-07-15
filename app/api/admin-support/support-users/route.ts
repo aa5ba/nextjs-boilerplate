@@ -21,6 +21,7 @@ const ALLOWED_PERMISSIONS = [
   "view_logs",
   "backup_restore",
   "manage_verification_results",
+  "manage_ehtisab_settings",
 ] as const;
 
 type SupportRole = (typeof ALLOWED_ROLES)[number];

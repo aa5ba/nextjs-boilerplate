@@ -289,6 +289,14 @@ const sections: MainSection[] = [
     bg: "linear-gradient(135deg,#ecfeff,#ccfbf1)",
   },
   {
+    title: "متجر البطاقات",
+    path: "card-store",
+    icon: "🎟️",
+    color: "#0f2f5f",
+    bg: "linear-gradient(135deg,#eff6ff,#dbeafe)",
+    permission: "card_store",
+  },
+  {
     title: "احتساب التمويل",
     path: "ehtisab",
     icon: "🧮",
@@ -302,6 +310,22 @@ const sections: MainSection[] = [
     color: "#0f766e",
     bg: "linear-gradient(135deg,#f0fdfa,#ccfbf1)",
     permission: "inventory",
+  },
+  {
+    title: "العقود",
+    path: "contracts",
+    icon: "📄",
+    color: "#1d4ed8",
+    bg: "linear-gradient(135deg,#eef2ff,#dbeafe)",
+    permission: "contracts",
+  },
+  {
+    title: "العملاء",
+    path: "customers",
+    icon: "👥",
+    color: "#0284c7",
+    bg: "linear-gradient(135deg,#f0f9ff,#e0f2fe)",
+    permission: "customers",
   },
   {
     title: "طلب جديد",
@@ -320,20 +344,12 @@ const sections: MainSection[] = [
     permission: "payments",
   },
   {
-    title: "العملاء",
-    path: "customers",
-    icon: "👥",
-    color: "#0284c7",
-    bg: "linear-gradient(135deg,#f0f9ff,#e0f2fe)",
-    permission: "customers",
-  },
-  {
-    title: "العقود",
-    path: "contracts",
-    icon: "📄",
-    color: "#1d4ed8",
-    bg: "linear-gradient(135deg,#eef2ff,#dbeafe)",
-    permission: "contracts",
+    title: "المشتريات والمصروفات",
+    path: "expenses",
+    icon: "🧾",
+    color: "#475569",
+    bg: "linear-gradient(135deg,#f8fafc,#e2e8f0)",
+    permission: "expenses",
   },
   {
     title: "الملاحظات",
@@ -411,6 +427,12 @@ const drawerGroups: DrawerGroup[] = [
         path: "directed-offers",
         icon: "🎯",
         permission: "contracts_create",
+      },
+      {
+        title: "متجر البطاقات",
+        path: "card-store",
+        icon: "🎟️",
+        permission: "card_store",
       },
       {
         title: "جميع العقود",
@@ -525,6 +547,9 @@ export default function FinancePage() {
 
   const [authMessage, setAuthMessage] =
     useState("جاري فتح محطة العمل...");
+
+  const [sessionRestoreKey, setSessionRestoreKey] =
+    useState(0);
 
   const [logoutLoading, setLogoutLoading] =
     useState(false);
@@ -996,6 +1021,37 @@ export default function FinancePage() {
   }, [menuOpen]);
 
   useEffect(() => {
+    function handlePageShow(
+      event: PageTransitionEvent
+    ) {
+      if (!event.persisted) {
+        return;
+      }
+
+      setAuthMessage(
+        "جاري فتح محطة العمل..."
+      );
+
+      setSessionRestoreKey(
+        (currentKey) =>
+          currentKey + 1
+      );
+    }
+
+    window.addEventListener(
+      "pageshow",
+      handlePageShow
+    );
+
+    return () => {
+      window.removeEventListener(
+        "pageshow",
+        handlePageShow
+      );
+    };
+  }, []);
+
+  useEffect(() => {
     if (
       !branch ||
       !BRANCH_SLUG_PATTERN.test(
@@ -1219,6 +1275,7 @@ export default function FinancePage() {
     branch,
     getSupportSession,
     router,
+    sessionRestoreKey,
     verifyBranchUserInBackground,
   ]);
 

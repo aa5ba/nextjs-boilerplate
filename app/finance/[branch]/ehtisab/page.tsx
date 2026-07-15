@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { CSSProperties, ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { useParams, useRouter } from "next/navigation"
@@ -21,11 +21,24 @@ import {
 
 type ScreenType = "mobile" | "tablet" | "desktop"
 type CalculationType = "" | "personal" | "real"
+type WorkCategory =
+  | "civil"
+  | "military"
+  | "retired"
+  | "semi_government"
+  | "private"
+type ProvidersLoadStatus = "idle" | "loading" | "success" | "error"
 
 type StoredFinanceUser = {
   full_name?: string | null
   username?: string | null
   name?: string | null
+}
+
+type FinanceProvider = {
+  id: string
+  providerName: string
+  displayOrder: number
 }
 
 type SelectOption = {
@@ -46,27 +59,34 @@ const CALCULATION_TYPE_OPTIONS: SelectOption[] = [
   {
     value: "personal",
     label: "تمويل شخصي",
-    description: "احتساب مبلغ التمويل والقسط والربح والرسوم والصافي",
   },
   {
     value: "real",
-    label: "تمويل عقاري",
-    description: "احتساب التمويل العقاري والدفعة المقدمة وقيمة العقار",
+    label: "تمويل عقاري (قريبًا)",
+    disabled: true,
   },
   {
     value: "pos",
     label: "تمويل نقاط بيع — قريبًا",
-    description: "سيتم توفير هذا النوع في تحديث لاحق",
     disabled: true,
   },
 ]
 
 const SECTOR_OPTIONS: SelectOption[] = [
   { value: "civil", label: "حكومي مدني" },
-  { value: "private", label: "قطاع خاص" },
-  { value: "military", label: "عسكري" },
-  { value: "retired", label: "متقاعد" },
+  { value: "military", label: "حكومي عسكري" },
+  { value: "retired", label: "المتقاعدون" },
+  { value: "semi_government", label: "القطاع الخاص - شبه حكومي" },
+  { value: "private", label: "القطاع الخاص" },
 ]
+
+const WORK_CATEGORY_BY_SECTOR: Record<Sector, WorkCategory> = {
+  civil: "civil",
+  military: "military",
+  retired: "retired",
+  semi_government: "semi_government",
+  private: "private",
+}
 
 const RANK_OPTIONS: SelectOption[] = [
   { value: "soldier", label: "جندي / جندي أول" },
@@ -150,6 +170,22 @@ function parseArabicNumber(value: string | number | null | undefined) {
   return converted === "" ? 0 : Number(converted)
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function isFinanceProvider(value: unknown): value is FinanceProvider {
+  if (!isRecord(value)) {
+    return false
+  }
+
+  return (
+    typeof value.id === "string" &&
+    typeof value.providerName === "string" &&
+    typeof value.displayOrder === "number"
+  )
+}
+
 function getInitialScreen(): ScreenType {
   if (typeof window === "undefined") {
     return "desktop"
@@ -190,6 +226,15 @@ export default function EhtisabPage() {
   const [realEstateAnnualRate, setRealEstateAnnualRate] = useState("")
   const [personalMonths, setPersonalMonths] = useState("")
   const [realEstateMonths, setRealEstateMonths] = useState("")
+  const [providers, setProviders] = useState<FinanceProvider[]>([])
+  const [selectedProviderId, setSelectedProviderId] = useState("")
+  const [providersLoadStatus, setProvidersLoadStatus] =
+    useState<ProvidersLoadStatus>("idle")
+  const [providersError, setProvidersError] = useState("")
+  const [marginLoading, setMarginLoading] = useState(false)
+  const [marginError, setMarginError] = useState("")
+  const [autoMarginApplied, setAutoMarginApplied] = useState(false)
+  const [manualMarginEdited, setManualMarginEdited] = useState(false)
 
   const [allowedPersonalMonths, setAllowedPersonalMonths] = useState(0)
   const [allowedRealEstateMonths, setAllowedRealEstateMonths] = useState(0)
@@ -202,6 +247,27 @@ export default function EhtisabPage() {
 
   const [result, setResult] = useState<EhtisabResult | null>(null)
   const [sharing, setSharing] = useState(false)
+  const providerAbortRef = useRef<AbortController | null>(null)
+  const marginAbortRef = useRef<AbortController | null>(null)
+  const marginRequestSeqRef = useRef(0)
+  const providersLoading = providersLoadStatus === "loading"
+  const selectedProviderIsValid = useMemo(
+    () =>
+      selectedProviderId !== "" &&
+      providers.some(provider => provider.id === selectedProviderId),
+    [providers, selectedProviderId]
+  )
+
+  const resetPersonalMarginMatch = useCallback(() => {
+    marginAbortRef.current?.abort()
+    marginRequestSeqRef.current += 1
+    setPersonalAnnualRate("")
+    setMarginLoading(false)
+    setMarginError("")
+    setAutoMarginApplied(false)
+    setManualMarginEdited(false)
+    setResult(null)
+  }, [])
 
   useEffect(() => {
     setScreen(getInitialScreen())
@@ -243,11 +309,103 @@ export default function EhtisabPage() {
   }, [router])
 
   useEffect(() => {
+    if (calculationType !== "personal") {
+      providerAbortRef.current?.abort()
+      setProviders([])
+      setSelectedProviderId("")
+      setProvidersLoadStatus("idle")
+      setProvidersError("")
+      resetPersonalMarginMatch()
+      return
+    }
+
+    providerAbortRef.current?.abort()
+    const controller = new AbortController()
+    providerAbortRef.current = controller
+    setProvidersLoadStatus("loading")
+    setProvidersError("")
+
+    async function loadProviders() {
+      try {
+        const response = await fetch(
+          "/api/ehtisab/finance-providers?finance_type=personal",
+          {
+            credentials: "same-origin",
+            cache: "no-store",
+            signal: controller.signal,
+          }
+        )
+
+        const payload: unknown = await response.json().catch(() => null)
+
+        if (controller.signal.aborted) {
+          return
+        }
+
+        if (!response.ok || !isRecord(payload) || payload.ok !== true) {
+          throw new Error("PROVIDERS_LOAD_FAILED")
+        }
+
+        if (!Array.isArray(payload.providers)) {
+          throw new Error("PROVIDERS_LOAD_FAILED")
+        }
+
+        const nextProviders = payload.providers.filter(isFinanceProvider)
+
+        setProviders(nextProviders)
+        setProvidersLoadStatus("success")
+        setProvidersError("")
+      } catch {
+        if (controller.signal.aborted) {
+          return
+        }
+
+        setProviders([])
+        setSelectedProviderId("")
+        setProvidersLoadStatus("error")
+        setProvidersError("تعذر تحميل جهات التمويل، أعد المحاولة")
+        resetPersonalMarginMatch()
+      }
+    }
+
+    loadProviders()
+
+    return () => {
+      controller.abort()
+    }
+  }, [calculationType, resetPersonalMarginMatch])
+
+  useEffect(() => {
+    if (
+      providersLoadStatus !== "success" ||
+      selectedProviderId === "" ||
+      selectedProviderIsValid
+    ) {
+      return
+    }
+
+    setSelectedProviderId("")
+    resetPersonalMarginMatch()
+  }, [
+    providersLoadStatus,
+    resetPersonalMarginMatch,
+    selectedProviderId,
+    selectedProviderIsValid,
+  ])
+
+  useEffect(() => {
     if (!birthY || !birthM || !birthD) {
       setAllowedPersonalMonths(0)
       setAllowedRealEstateMonths(0)
       setPersonalMonths("")
       setRealEstateMonths("")
+      marginAbortRef.current?.abort()
+      marginRequestSeqRef.current += 1
+      setPersonalAnnualRate("")
+      setMarginLoading(false)
+      setMarginError("")
+      setAutoMarginApplied(false)
+      setManualMarginEdited(false)
       return
     }
 
@@ -265,7 +423,152 @@ export default function EhtisabPage() {
     setAllowedRealEstateMonths(realAllowed)
     setPersonalMonths(String(personalAllowed))
     setRealEstateMonths(String(realAllowed))
+    marginAbortRef.current?.abort()
+    marginRequestSeqRef.current += 1
+    setPersonalAnnualRate("")
+    setMarginLoading(false)
+    setMarginError("")
+    setAutoMarginApplied(false)
+    setManualMarginEdited(false)
   }, [birthY, birthM, birthD, sector, rank])
+
+  useEffect(() => {
+    if (manualMarginEdited) {
+      return
+    }
+
+    if (
+      calculationType !== "personal" ||
+      providersLoadStatus !== "success"
+    ) {
+      marginAbortRef.current?.abort()
+      marginRequestSeqRef.current += 1
+      setMarginLoading(false)
+      setAutoMarginApplied(false)
+      return
+    }
+
+    const providerId = selectedProviderId.trim()
+    const workCategory = WORK_CATEGORY_BY_SECTOR[sector]
+    const salaryValue = parseArabicNumber(salary)
+    const termMonths = parseArabicNumber(personalMonths)
+
+    if (
+      !providerId ||
+      !selectedProviderIsValid ||
+      !workCategory ||
+      !Number.isFinite(salaryValue) ||
+      salaryValue <= 0 ||
+      !Number.isFinite(termMonths) ||
+      !Number.isSafeInteger(termMonths) ||
+      termMonths <= 0
+    ) {
+      marginAbortRef.current?.abort()
+      marginRequestSeqRef.current += 1
+      setPersonalAnnualRate("")
+      setMarginLoading(false)
+      setMarginError("")
+      setAutoMarginApplied(false)
+      return
+    }
+
+    const requestSeq = marginRequestSeqRef.current + 1
+    marginRequestSeqRef.current = requestSeq
+    marginAbortRef.current?.abort()
+
+    const controller = new AbortController()
+    marginAbortRef.current = controller
+    setMarginLoading(true)
+    setMarginError("")
+    setAutoMarginApplied(false)
+    setPersonalAnnualRate("")
+
+    const snapshot = {
+      financeType: "personal",
+      providerId,
+      workCategory,
+      salary: salaryValue,
+      termMonths,
+    }
+
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const response = await fetch("/api/ehtisab/margin-match", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "same-origin",
+          signal: controller.signal,
+          body: JSON.stringify(snapshot),
+        })
+
+        const payload: unknown = await response.json().catch(() => null)
+
+        if (
+          controller.signal.aborted ||
+          marginRequestSeqRef.current !== requestSeq
+        ) {
+          return
+        }
+
+        if (!response.ok || !isRecord(payload) || payload.ok !== true) {
+          throw new Error("تعذر تحديد هامش الربح تلقائيًا")
+        }
+
+        const matchedMargin =
+          typeof payload.matchedMargin === "number"
+            ? payload.matchedMargin
+            : typeof payload.matchedMargin === "string"
+              ? Number(payload.matchedMargin)
+              : NaN
+
+        if (
+          !Number.isFinite(matchedMargin) ||
+          matchedMargin <= 0 ||
+          matchedMargin > 100
+        ) {
+          throw new Error("تعذر تحديد هامش الربح تلقائيًا")
+        }
+
+        setPersonalAnnualRate(String(matchedMargin))
+        setAutoMarginApplied(true)
+        setMarginError("")
+      } catch {
+        if (
+          controller.signal.aborted ||
+          marginRequestSeqRef.current !== requestSeq
+        ) {
+          return
+        }
+
+        setPersonalAnnualRate("")
+        setAutoMarginApplied(false)
+        setMarginError("تعذر تحديد هامش الربح تلقائيًا")
+      } finally {
+        if (
+          !controller.signal.aborted &&
+          marginRequestSeqRef.current === requestSeq
+        ) {
+          setMarginLoading(false)
+        }
+      }
+    }, 400)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+      controller.abort()
+    }
+  }, [
+    calculationType,
+    manualMarginEdited,
+    personalMonths,
+    providersLoadStatus,
+    salary,
+    sector,
+    selectedProviderId,
+    selectedProviderIsValid,
+  ])
 
   useEffect(() => {
     if (realEstateType !== "supported") {
@@ -282,14 +585,102 @@ export default function EhtisabPage() {
   }
 
   function handleCalculationTypeChange(value: CalculationType) {
+    if (value === "real") {
+      return
+    }
+
     setCalculationType(value)
     setResult(null)
+
+    providerAbortRef.current?.abort()
+    marginAbortRef.current?.abort()
+    marginRequestSeqRef.current += 1
+    setSelectedProviderId("")
+    setPersonalAnnualRate("")
+    setMarginLoading(false)
+    setMarginError("")
+    setAutoMarginApplied(false)
+    setManualMarginEdited(false)
+
+    if (value !== "personal") {
+      setProviders([])
+      setProvidersLoadStatus("idle")
+      setProvidersError("")
+    }
+  }
+
+  function handleProviderChange(value: string) {
+    setSelectedProviderId(value)
+    resetPersonalMarginMatch()
+  }
+
+  function handleSectorChange(value: string) {
+    setSector(value as Sector)
+    resetPersonalMarginMatch()
+  }
+
+  function handleSalaryChange(value: string) {
+    setSalary(value)
+    resetPersonalMarginMatch()
+  }
+
+  function handlePersonalAnnualRateChange(value: string) {
+    marginAbortRef.current?.abort()
+    marginRequestSeqRef.current += 1
+    setManualMarginEdited(true)
+    setAutoMarginApplied(false)
+    setMarginError("")
+    setMarginLoading(false)
+    setPersonalAnnualRate(value)
   }
 
   function handleCalculate() {
     if (!calculationType) {
-      alert("اختر نوع الاحتساب أولًا")
+      alert("اختر نوع التمويل أولًا")
       return
+    }
+
+    if (calculationType === "personal") {
+      if (
+        providersLoadStatus === "idle" ||
+        providersLoadStatus === "loading"
+      ) {
+        alert("انتظر حتى يكتمل تحميل جهات التمويل")
+        return
+      }
+
+      if (providersLoadStatus === "error") {
+        alert("تعذر تحميل جهات التمويل، أعد المحاولة")
+        return
+      }
+
+      if (providers.length === 0) {
+        alert("لا توجد جهات تمويل مفعلة حاليًا")
+        return
+      }
+
+      if (!selectedProviderId) {
+        alert("اختر جهة التمويل أولًا")
+        return
+      }
+
+      if (!selectedProviderIsValid) {
+        setSelectedProviderId("")
+        resetPersonalMarginMatch()
+        alert("جهة التمويل المختارة لم تعد متاحة، اختر جهة أخرى")
+        return
+      }
+
+      const personalRate = parseArabicNumber(personalAnnualRate)
+
+      if (
+        !Number.isFinite(personalRate) ||
+        personalRate <= 0 ||
+        personalRate > 100
+      ) {
+        alert("أدخل هامش ربح صحيح")
+        return
+      }
     }
 
     const res = calculateEhtisab({
@@ -330,10 +721,12 @@ export default function EhtisabPage() {
     if (months > allowedPersonalMonths) {
       alert("عدد الأشهر المدخلة يتجاوز المسموح")
       setPersonalMonths(String(allowedPersonalMonths))
+      resetPersonalMarginMatch()
       return
     }
 
     setPersonalMonths(normalizedValue)
+    resetPersonalMarginMatch()
   }
 
   function changeRealMonths(value: string) {
@@ -481,16 +874,53 @@ export default function EhtisabPage() {
             badge="اختر نوع التمويل"
           />
 
-          <Field label="نوع الاحتساب" fullWidth>
+          <Field label="نوع التمويل" fullWidth>
             <CustomSelect
               value={calculationType}
-              placeholder="اختر نوع الاحتساب"
+              placeholder="اختر نوع التمويل"
               options={CALCULATION_TYPE_OPTIONS}
               onChange={value =>
                 handleCalculationTypeChange(value as CalculationType)
               }
             />
           </Field>
+
+          {calculationType === "personal" && (
+            <Field label="جهة التمويل" fullWidth>
+              <CustomSelect
+                value={selectedProviderId}
+                placeholder={
+                  providersLoading
+                    ? "جاري تحميل جهات التمويل..."
+                    : "اختر جهة التمويل"
+                }
+                options={providers.map(provider => ({
+                  value: provider.id,
+                  label: provider.providerName,
+                }))}
+                onChange={handleProviderChange}
+              />
+
+              {providersLoading && (
+                <HelperMessage tone="info">
+                  جاري تحميل جهات التمويل...
+                </HelperMessage>
+              )}
+
+              {!providersLoading && providersError && (
+                <HelperMessage tone="danger">
+                  {providersError}
+                </HelperMessage>
+              )}
+
+              {providersLoadStatus === "success" &&
+                providers.length === 0 && (
+                  <HelperMessage tone="info">
+                    لا توجد جهات تمويل مفعلة حاليًا
+                  </HelperMessage>
+                )}
+            </Field>
+          )}
         </section>
 
         {calculationType && (
@@ -511,7 +941,7 @@ export default function EhtisabPage() {
                   value={sector}
                   placeholder="اختر قطاع العمل"
                   options={SECTOR_OPTIONS}
-                  onChange={value => setSector(value as Sector)}
+                  onChange={handleSectorChange}
                 />
               </Field>
 
@@ -529,10 +959,10 @@ export default function EhtisabPage() {
               <Field label="تاريخ الميلاد بالهجري" fullWidth>
                 <div style={getBirthDateGridStyle(screen)}>
                   <DatePartInput
-                    label="السنة"
-                    maxLength={4}
-                    value={birthY}
-                    onChange={setBirthY}
+                    label="اليوم"
+                    maxLength={2}
+                    value={birthD}
+                    onChange={setBirthD}
                   />
 
                   <DatePartInput
@@ -543,10 +973,10 @@ export default function EhtisabPage() {
                   />
 
                   <DatePartInput
-                    label="اليوم"
-                    maxLength={2}
-                    value={birthD}
-                    onChange={setBirthD}
+                    label="السنة"
+                    maxLength={4}
+                    value={birthY}
+                    onChange={setBirthY}
                   />
                 </div>
               </Field>
@@ -557,7 +987,7 @@ export default function EhtisabPage() {
                   placeholder="أدخل صافي الراتب"
                   decimal
                   suffix="ر.س"
-                  onChange={setSalary}
+                  onChange={handleSalaryChange}
                 />
               </Field>
 
@@ -579,8 +1009,26 @@ export default function EhtisabPage() {
                       placeholder="مثال: 4.25"
                       decimal
                       suffix="%"
-                      onChange={setPersonalAnnualRate}
+                      onChange={handlePersonalAnnualRateChange}
                     />
+
+                    {marginLoading && (
+                      <HelperMessage tone="info">
+                        جاري تحديد الهامش تلقائيًا...
+                      </HelperMessage>
+                    )}
+
+                    {!marginLoading && autoMarginApplied && (
+                      <HelperMessage tone="success">
+                        تم تحديد الهامش تلقائيًا حسب جهة التمويل
+                      </HelperMessage>
+                    )}
+
+                    {!marginLoading && marginError && (
+                      <HelperMessage tone="danger">
+                        {marginError}
+                      </HelperMessage>
+                    )}
                   </Field>
 
                   <Field label="عدد أقساط التمويل الشخصي">
@@ -963,6 +1411,26 @@ function LimitHint({ value, label }: { value: number; label: string }) {
   )
 }
 
+function HelperMessage({
+  children,
+  tone,
+}: {
+  children: ReactNode
+  tone: "info" | "success" | "danger"
+}) {
+  return (
+    <div
+      style={{
+        ...helperMessageStyle,
+        ...(tone === "success" ? helperMessageSuccessStyle : {}),
+        ...(tone === "danger" ? helperMessageDangerStyle : {}),
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
 function CustomSelect({
   value,
   placeholder,
@@ -981,7 +1449,7 @@ function CustomSelect({
 
   const selectedOption = options.find(option => option.value === value)
 
-  function updateMenuPosition() {
+  const updateMenuPosition = useCallback(() => {
     if (!wrapperRef.current || typeof window === "undefined") {
       return
     }
@@ -1009,12 +1477,12 @@ function CustomSelect({
       width,
       openUpward,
     })
-  }
+  }, [options.length])
 
-  function closeMenu() {
+  const closeMenu = useCallback(() => {
     setOpen(false)
     setMenuRect(null)
-  }
+  }, [])
 
   useEffect(() => {
     if (!open) {
@@ -1058,7 +1526,7 @@ function CustomSelect({
       window.removeEventListener("resize", handlePositionChange)
       window.removeEventListener("scroll", handlePositionChange, true)
     }
-  }, [open, options.length])
+  }, [closeMenu, open, options.length, updateMenuPosition])
 
   return (
     <div ref={wrapperRef} style={selectWrapperStyle}>
@@ -1713,6 +2181,30 @@ const limitHintStyle: CSSProperties = {
   gap: 10,
   fontSize: 11,
   fontWeight: 800,
+}
+
+const helperMessageStyle: CSSProperties = {
+  marginTop: 7,
+  padding: "8px 10px",
+  borderRadius: 10,
+  background: "#eff6ff",
+  border: "1px solid #bfdbfe",
+  color: "#1d4ed8",
+  fontSize: 11,
+  fontWeight: 900,
+  lineHeight: 1.7,
+}
+
+const helperMessageSuccessStyle: CSSProperties = {
+  background: "#f0fdf4",
+  border: "1px solid #bbf7d0",
+  color: "#166534",
+}
+
+const helperMessageDangerStyle: CSSProperties = {
+  background: "#fef2f2",
+  border: "1px solid #fecaca",
+  color: "#991b1b",
 }
 
 const selectWrapperStyle: CSSProperties = {

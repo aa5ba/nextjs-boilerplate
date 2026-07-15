@@ -200,7 +200,7 @@ export default function FinancePaymentsPage() {
               cancelled_by,
               created_at,
 
-              finance_contracts(
+              finance_contracts!inner(
                 id,
                 customer_id,
                 contract_number,
@@ -223,6 +223,10 @@ export default function FinancePaymentsPage() {
           .eq(
             "branch_id",
             currentBranchId
+          )
+          .eq(
+            "finance_contracts.is_archived",
+            false
           )
           .order("created_at", {
             ascending: false,

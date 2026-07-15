@@ -133,7 +133,9 @@ export default function SearchContractsPage() {
 
       let query = supabase
         .from("finance_contracts")
-        .select("*, finance_customers(full_name, national_id, phone)")
+        .select(
+          "*, finance_customers:finance_customers!finance_contracts_customer_id_fkey(full_name, national_id, phone)"
+        )
         .eq("branch_id", branchId)
         .order("created_at", { ascending: false });
 

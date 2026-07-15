@@ -395,6 +395,7 @@ export default function NewPaymentPage() {
             "branch_id",
             currentBranchId
           )
+          .eq("is_archived", false)
           .maybeSingle();
 
       if (isCancelled()) {
@@ -479,6 +480,7 @@ export default function NewPaymentPage() {
             "branch_id",
             branchId
           )
+          .eq("is_archived", false)
           .order("created_at", {
             ascending: false,
           })
@@ -604,6 +606,7 @@ export default function NewPaymentPage() {
           "branch_id",
           branchId
         )
+        .eq("is_archived", false)
         .maybeSingle();
 
     if (error || !data) {

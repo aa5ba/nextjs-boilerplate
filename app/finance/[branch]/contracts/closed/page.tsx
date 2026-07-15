@@ -352,7 +352,7 @@ export default function ClosedContractsPage() {
             paid_amount,
             contract_status,
             updated_at,
-            finance_customers (
+            finance_customers:finance_customers!finance_contracts_customer_id_fkey (
               full_name,
               national_id,
               phone

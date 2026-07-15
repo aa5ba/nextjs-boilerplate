@@ -369,6 +369,12 @@ export async function GET(
         "manage_verification_results"
       );
 
+    const canManageEhtisabSettings =
+      adminSupportHasPermission(
+        currentUser,
+        "manage_ehtisab_settings"
+      );
+
     const canReadBranches =
       canManageBranches ||
       canEnterBranches;
@@ -913,6 +919,9 @@ export async function GET(
 
           manage_verification_results:
             canManageVerificationResults,
+
+          manage_ehtisab_settings:
+            canManageEhtisabSettings,
         },
 
         requested_section:
