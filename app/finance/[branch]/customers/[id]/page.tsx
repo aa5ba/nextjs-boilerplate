@@ -747,47 +747,60 @@ export default function FinanceCustomerProfilePage() {
     try {
       setSaving(true);
 
-      const { error } =
-        await supabase.rpc(
-          "update_customer_atomic",
+      const response =
+        await fetch(
+          "/finance/api/customers/update",
           {
-            p_branch_id:
-              safeBranchId,
-
-            p_customer_id:
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            credentials:
+              "same-origin",
+            body: JSON.stringify({
+              branch,
               customerId,
-
-            p_full_name:
-              cleanFullName,
-
-            p_national_id:
-              cleanNationalId,
-
-            p_birth_hijri:
-              cleanBirthHijri ||
-              null,
-
-            p_phone:
-              cleanPhone,
-
-            p_work_name:
-              cleanWorkName ||
-              null,
-
-            p_address:
-              cleanAddress ||
-              null,
-
-            p_employee_name:
-              employeeName ||
-              "الموظف",
+              fullName:
+                cleanFullName,
+              nationalId:
+                cleanNationalId,
+              birthHijri:
+                cleanBirthHijri ||
+                null,
+              phone: cleanPhone,
+              workName:
+                cleanWorkName ||
+                null,
+              address:
+                cleanAddress ||
+                null,
+            }),
           }
         );
 
-      if (error) {
+      const payload =
+        (await response
+          .json()
+          .catch(
+            () => null
+          )) as
+          | {
+              ok?: boolean;
+              message?: string;
+              code?: string;
+            }
+          | null;
+
+      if (
+        !response.ok ||
+        payload?.ok === false
+      ) {
         throw new Error(
           getCustomerUpdateErrorMessage(
-            error.message
+            payload?.message ||
+              payload?.code ||
+              "تعذر حفظ بيانات العميل"
           )
         );
       }
