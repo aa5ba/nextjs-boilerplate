@@ -8,6 +8,14 @@ import { getBranchId } from "@/lib/getBranchId";
 import { normalizeNumber, toNumber } from "@/lib/numberUtils";
 
 type ScreenType = "mobile" | "tablet" | "desktop";
+type InvestorOption = {
+  id: string;
+  investor_name: string;
+};
+type ProductOption = {
+  id: string;
+  product_name: string;
+};
 
 export default function AddStockPage() {
   const params = useParams();
@@ -19,13 +27,14 @@ export default function AddStockPage() {
   const [screen, setScreen] = useState<ScreenType>("desktop");
   const [employeeName, setEmployeeName] = useState("الموظف");
 
-  const [investors, setInvestors] = useState<any[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
+  const [investors, setInvestors] = useState<InvestorOption[]>([]);
+  const [products, setProducts] = useState<ProductOption[]>([]);
 
   const [investorId, setInvestorId] = useState("");
   const [productId, setProductId] = useState("");
   const [quantity, setQuantity] = useState("");
   const [notes, setNotes] = useState("");
+  const [openSelect, setOpenSelect] = useState<"investor" | "product" | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -66,6 +75,22 @@ export default function AddStockPage() {
       cancelled = true;
     };
   }, [branch]);
+
+  useEffect(() => {
+    if (!openSelect) {
+      return;
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpenSelect(null);
+      }
+    }
+
+    window.addEventListener("keydown", closeOnEscape);
+
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [openSelect]);
 
   async function initializePage(isCancelled: () => boolean) {
     const isLoggedIn = checkLogin();
@@ -310,6 +335,48 @@ export default function AddStockPage() {
     }
   }
 
+  const selectedInvestorName =
+    investors.find((investor) => String(investor.id) === investorId)
+      ?.investor_name || "";
+
+  const selectedProductName =
+    products.find((product) => String(product.id) === productId)?.product_name ||
+    "";
+
+  const investorButtonText = selectedInvestorName
+    ? selectedInvestorName
+    : loading
+      ? "جاري تحميل المستثمرين..."
+      : "اختر المستثمر";
+
+  const productButtonText = selectedProductName
+    ? selectedProductName
+    : loading
+      ? "جاري تحميل المنتجات..."
+      : "اختر المنتج";
+
+  function openSelectModal(type: "investor" | "product") {
+    if (loading || saving) {
+      return;
+    }
+
+    setOpenSelect(type);
+  }
+
+  function closeSelectModal() {
+    setOpenSelect(null);
+  }
+
+  function selectInvestor(nextInvestorId: string) {
+    setInvestorId(nextInvestorId);
+    closeSelectModal();
+  }
+
+  function selectProduct(nextProductId: string) {
+    setProductId(nextProductId);
+    closeSelectModal();
+  }
+
   if (!authChecked) {
     return null;
   }
@@ -360,37 +427,25 @@ export default function AddStockPage() {
         </header>
 
         <section style={card}>
-          <select
-            style={input}
-            value={investorId}
-            onChange={(e) => setInvestorId(e.target.value)}
+          <button
+            type="button"
+            style={getSelectButtonStyle(!investorId, loading || saving)}
             disabled={loading || saving}
+            onClick={() => openSelectModal("investor")}
           >
-            <option value="">
-              {loading ? "جاري تحميل المستثمرين..." : "اختر المستثمر"}
-            </option>
-            {investors.map((investor) => (
-              <option key={investor.id} value={investor.id}>
-                {investor.investor_name}
-              </option>
-            ))}
-          </select>
+            <span style={selectButtonText}>{investorButtonText}</span>
+            <span style={selectButtonArrow}>⌄</span>
+          </button>
 
-          <select
-            style={input}
-            value={productId}
-            onChange={(e) => setProductId(e.target.value)}
+          <button
+            type="button"
+            style={getSelectButtonStyle(!productId, loading || saving)}
             disabled={loading || saving}
+            onClick={() => openSelectModal("product")}
           >
-            <option value="">
-              {loading ? "جاري تحميل المنتجات..." : "اختر المنتج"}
-            </option>
-            {products.map((product) => (
-              <option key={product.id} value={product.id}>
-                {product.product_name}
-              </option>
-            ))}
-          </select>
+            <span style={selectButtonText}>{productButtonText}</span>
+            <span style={selectButtonArrow}>⌄</span>
+          </button>
 
           <input
             style={input}
@@ -420,6 +475,69 @@ export default function AddStockPage() {
           >
             {saving ? "جاري الحفظ..." : "حفظ الكمية"}
           </button>
+
+          {openSelect && (
+            <div style={selectOverlay} onClick={closeSelectModal}>
+              <div
+                style={getSelectModalStyle(isMobile)}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div style={selectModalHeader}>
+                  <h2 style={selectModalTitle}>
+                    {openSelect === "investor" ? "اختر المستثمر" : "اختر المنتج"}
+                  </h2>
+
+                  <button
+                    type="button"
+                    style={selectCloseButton}
+                    onClick={closeSelectModal}
+                  >
+                    إغلاق
+                  </button>
+                </div>
+
+                <div style={selectOptionsList}>
+                  {openSelect === "investor"
+                    ? investors.map((investor) => {
+                        const itemId = String(investor.id);
+                        const isSelected = itemId === investorId;
+
+                        return (
+                          <button
+                            key={investor.id}
+                            type="button"
+                            style={getSelectOptionStyle(isSelected)}
+                            onClick={() => selectInvestor(itemId)}
+                          >
+                            <span>{investor.investor_name}</span>
+                            {isSelected && (
+                              <span style={selectedMark}>✓</span>
+                            )}
+                          </button>
+                        );
+                      })
+                    : products.map((product) => {
+                        const itemId = String(product.id);
+                        const isSelected = itemId === productId;
+
+                        return (
+                          <button
+                            key={product.id}
+                            type="button"
+                            style={getSelectOptionStyle(isSelected)}
+                            onClick={() => selectProduct(itemId)}
+                          >
+                            <span>{product.product_name}</span>
+                            {isSelected && (
+                              <span style={selectedMark}>✓</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                </div>
+              </div>
+            </div>
+          )}
         </section>
 
         <div style={backWrapper}>
@@ -857,6 +975,150 @@ const input: CSSProperties = {
   boxSizing: "border-box",
   background: "white",
   fontFamily: "var(--font-almarai), sans-serif",
+};
+
+function getSelectButtonStyle(
+  isPlaceholder: boolean,
+  isDisabled: boolean
+): CSSProperties {
+  return {
+    ...input,
+    minHeight: 52,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    textAlign: "right",
+    cursor: isDisabled ? "not-allowed" : "pointer",
+    color: isPlaceholder ? "#64748b" : "#0f2f5f",
+    fontWeight: isPlaceholder ? 700 : 900,
+    opacity: isDisabled ? 0.72 : 1,
+    appearance: "none",
+    WebkitAppearance: "none",
+  };
+}
+
+function getSelectModalStyle(isMobile: boolean): CSSProperties {
+  return {
+    width: "min(92vw, 460px)",
+    maxHeight: "min(76vh, 560px)",
+    borderRadius: isMobile ? 18 : 22,
+    background: "#ffffff",
+    border: "1px solid rgba(217,227,245,0.95)",
+    boxShadow: "0 24px 70px rgba(15,23,42,0.26)",
+    padding: isMobile ? 14 : 16,
+    direction: "rtl",
+    fontFamily: "var(--font-almarai), sans-serif",
+    display: "grid",
+    gap: 14,
+  };
+}
+
+function getSelectOptionStyle(isSelected: boolean): CSSProperties {
+  return {
+    width: "100%",
+    minHeight: 48,
+    borderRadius: 14,
+    border: isSelected
+      ? "1px solid rgba(13,71,161,0.32)"
+      : "1px solid rgba(217,227,245,0.95)",
+    background: isSelected
+      ? "linear-gradient(135deg,#eef6ff,#ffffff)"
+      : "#ffffff",
+    color: isSelected ? "#0f2f5f" : "#1f2937",
+    fontSize: 15,
+    fontWeight: isSelected ? 900 : 800,
+    fontFamily: "var(--font-almarai), sans-serif",
+    padding: "12px 14px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    cursor: "pointer",
+    textAlign: "right",
+  };
+}
+
+const selectButtonText: CSSProperties = {
+  minWidth: 0,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+};
+
+const selectButtonArrow: CSSProperties = {
+  width: 28,
+  height: 28,
+  borderRadius: "50%",
+  background: "#eef6ff",
+  color: "#0d47a1",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: 18,
+  fontWeight: 900,
+  flex: "0 0 auto",
+};
+
+const selectOverlay: CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  zIndex: 1000,
+  background: "rgba(15,23,42,0.34)",
+  backdropFilter: "blur(3px)",
+  WebkitBackdropFilter: "blur(3px)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 16,
+};
+
+const selectModalHeader: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 12,
+};
+
+const selectModalTitle: CSSProperties = {
+  margin: 0,
+  color: "#0f2f5f",
+  fontSize: 18,
+  fontWeight: 900,
+};
+
+const selectCloseButton: CSSProperties = {
+  border: "1px solid #d9e3f5",
+  background: "#f8fbff",
+  color: "#0d47a1",
+  borderRadius: 999,
+  padding: "8px 14px",
+  fontSize: 13,
+  fontWeight: 900,
+  cursor: "pointer",
+  fontFamily: "var(--font-almarai), sans-serif",
+};
+
+const selectOptionsList: CSSProperties = {
+  maxHeight: "min(58vh, 420px)",
+  overflowY: "auto",
+  display: "grid",
+  gap: 8,
+  padding: 2,
+};
+
+const selectedMark: CSSProperties = {
+  width: 24,
+  height: 24,
+  borderRadius: "50%",
+  background: "#0d47a1",
+  color: "#ffffff",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: 14,
+  fontWeight: 900,
+  flex: "0 0 auto",
 };
 
 const textarea: CSSProperties = {
