@@ -840,16 +840,33 @@ export default function FinanceContractDetailsPage() {
       setShowCloseDialog(false);
       renewFinanceSession();
 
-      const { data, error } = await supabase.rpc("close_contract_atomic", {
-        p_branch_id: branchId,
-        p_contract_id: contract.id,
-        p_employee_name: employeeName || "الموظف",
+      const response = await fetch("/finance/api/contracts/close", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          branch,
+          contractId: contract.id,
+        }),
       });
 
-      if (error) throw new Error(getCloseErrorMessage(error.message));
+      const result = (await response.json().catch(() => null)) as
+        | (Partial<CloseContractResult> & {
+            ok?: boolean;
+            message?: string;
+            code?: string;
+          })
+        | null;
 
-      const rawResult = Array.isArray(data) ? data[0] : data;
-      const result = rawResult as CloseContractResult | null;
+      if (!response.ok || !result?.ok) {
+        throw new Error(
+          getCloseErrorMessage(
+            result?.message || result?.code || "تعذر إغلاق العقد"
+          )
+        );
+      }
 
       if (!result?.contract_id) {
         throw new Error("لم يتم استلام نتيجة إغلاق العقد");
@@ -898,16 +915,33 @@ export default function FinanceContractDetailsPage() {
       setReopeningContract(true);
       renewFinanceSession();
 
-      const { data, error } = await supabase.rpc("reopen_contract_atomic", {
-        p_branch_id: branchId,
-        p_contract_id: contract.id,
-        p_employee_name: employeeName || "الموظف",
+      const response = await fetch("/finance/api/contracts/reopen", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          branch,
+          contractId: contract.id,
+        }),
       });
 
-      if (error) throw new Error(getReopenErrorMessage(error.message));
+      const result = (await response.json().catch(() => null)) as
+        | (Partial<ReopenContractResult> & {
+            ok?: boolean;
+            message?: string;
+            code?: string;
+          })
+        | null;
 
-      const rawResult = Array.isArray(data) ? data[0] : data;
-      const result = rawResult as ReopenContractResult | null;
+      if (!response.ok || !result?.ok) {
+        throw new Error(
+          getReopenErrorMessage(
+            result?.message || result?.code || "تعذر إعادة تنشيط العقد"
+          )
+        );
+      }
 
       if (!result?.contract_id) {
         throw new Error("لم يتم استلام نتيجة إعادة تنشيط العقد");
