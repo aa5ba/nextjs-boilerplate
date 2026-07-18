@@ -1419,55 +1419,72 @@ export default function EditContractPage() {
         return;
       }
 
-      const { data, error } = await supabase.rpc(
-        "update_finance_contract_atomic",
+      const response = await fetch(
+        "/finance/api/contracts/update",
         {
-          p_branch_id: branchId,
-          p_contract_id: contractId,
-
-          p_employee_id: employeeId,
-          p_employee_name:
-            employeeName || "الموظف",
-
-          p_investor_id: investorId,
-          p_investor_name:
-            selectedInvestor.investor_name,
-
-          p_product_id: productId,
-          p_product_name:
-            selectedProduct.product_name,
-
-          p_product_quantity: newQuantity,
-
-          p_print_party_type: printPartyType,
-          p_print_party_name: printPartyName,
-          p_print_party_identifier:
-            printPartyIdentifier || null,
-
-          p_debt_amount: debt,
-          p_payment_amount: payment,
-          p_installment_amount: installment,
-
-          p_payment_type: paymentType,
-          p_payment_due_date: paymentDueDate,
-
-          p_legal_city: legalCity.trim(),
-          p_notes: notes.trim() || null,
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          credentials:
+            "same-origin",
+          body: JSON.stringify({
+            branch,
+            contractId,
+            investorId,
+            investorName:
+              selectedInvestor.investor_name,
+            productId,
+            productName:
+              selectedProduct.product_name,
+            productQuantity:
+              newQuantity,
+            printPartyType,
+            printPartyName,
+            printPartyIdentifier:
+              printPartyIdentifier ||
+              null,
+            debtAmount: debt,
+            paymentAmount: payment,
+            installmentAmount:
+              installment,
+            paymentType,
+            paymentDueDate,
+            legalCity:
+              legalCity.trim(),
+            notes:
+              notes.trim() ||
+              null,
+          }),
         }
       );
 
-      if (error) {
+      const result =
+        (await response
+          .json()
+          .catch(
+            () => null
+          )) as
+          | (Partial<UpdateContractResult> & {
+              ok?: boolean;
+              message?: string;
+              code?: string;
+            })
+          | null;
+
+      if (
+        !response.ok ||
+        !result?.ok
+      ) {
         throw new Error(
-          getRpcErrorMessage(error.message)
+          getRpcErrorMessage(
+            result?.message ||
+              result?.code ||
+              "حدث خطأ أثناء تعديل العقد"
+          )
         );
       }
-
-      const rawResult = Array.isArray(data)
-        ? data[0]
-        : data;
-
-      const result =
-        rawResult as UpdateContractResult | null;
 
       if (!result?.contract_id) {
         throw new Error(

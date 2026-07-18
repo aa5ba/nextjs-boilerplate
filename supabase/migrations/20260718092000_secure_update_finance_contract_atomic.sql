@@ -1,0 +1,133 @@
+-- Migration: secure update_finance_contract_atomic execution.
+
+ALTER FUNCTION "public"."update_finance_contract_atomic"(
+  "p_branch_id" "uuid",
+  "p_contract_id" "uuid",
+  "p_employee_id" "uuid",
+  "p_employee_name" "text",
+  "p_investor_id" "uuid",
+  "p_investor_name" "text",
+  "p_product_id" "uuid",
+  "p_product_name" "text",
+  "p_product_quantity" "numeric",
+  "p_print_party_type" "text",
+  "p_print_party_name" "text",
+  "p_print_party_identifier" "text",
+  "p_debt_amount" "numeric",
+  "p_payment_amount" "numeric",
+  "p_installment_amount" "numeric",
+  "p_payment_type" "text",
+  "p_payment_due_date" "date",
+  "p_legal_city" "text",
+  "p_notes" "text"
+) SECURITY DEFINER;
+
+ALTER FUNCTION "public"."update_finance_contract_atomic"(
+  "p_branch_id" "uuid",
+  "p_contract_id" "uuid",
+  "p_employee_id" "uuid",
+  "p_employee_name" "text",
+  "p_investor_id" "uuid",
+  "p_investor_name" "text",
+  "p_product_id" "uuid",
+  "p_product_name" "text",
+  "p_product_quantity" "numeric",
+  "p_print_party_type" "text",
+  "p_print_party_name" "text",
+  "p_print_party_identifier" "text",
+  "p_debt_amount" "numeric",
+  "p_payment_amount" "numeric",
+  "p_installment_amount" "numeric",
+  "p_payment_type" "text",
+  "p_payment_due_date" "date",
+  "p_legal_city" "text",
+  "p_notes" "text"
+) SET search_path TO 'public';
+
+REVOKE ALL ON FUNCTION "public"."update_finance_contract_atomic"(
+  "p_branch_id" "uuid",
+  "p_contract_id" "uuid",
+  "p_employee_id" "uuid",
+  "p_employee_name" "text",
+  "p_investor_id" "uuid",
+  "p_investor_name" "text",
+  "p_product_id" "uuid",
+  "p_product_name" "text",
+  "p_product_quantity" "numeric",
+  "p_print_party_type" "text",
+  "p_print_party_name" "text",
+  "p_print_party_identifier" "text",
+  "p_debt_amount" "numeric",
+  "p_payment_amount" "numeric",
+  "p_installment_amount" "numeric",
+  "p_payment_type" "text",
+  "p_payment_due_date" "date",
+  "p_legal_city" "text",
+  "p_notes" "text"
+) FROM PUBLIC;
+
+REVOKE ALL ON FUNCTION "public"."update_finance_contract_atomic"(
+  "p_branch_id" "uuid",
+  "p_contract_id" "uuid",
+  "p_employee_id" "uuid",
+  "p_employee_name" "text",
+  "p_investor_id" "uuid",
+  "p_investor_name" "text",
+  "p_product_id" "uuid",
+  "p_product_name" "text",
+  "p_product_quantity" "numeric",
+  "p_print_party_type" "text",
+  "p_print_party_name" "text",
+  "p_print_party_identifier" "text",
+  "p_debt_amount" "numeric",
+  "p_payment_amount" "numeric",
+  "p_installment_amount" "numeric",
+  "p_payment_type" "text",
+  "p_payment_due_date" "date",
+  "p_legal_city" "text",
+  "p_notes" "text"
+) FROM "anon";
+
+REVOKE ALL ON FUNCTION "public"."update_finance_contract_atomic"(
+  "p_branch_id" "uuid",
+  "p_contract_id" "uuid",
+  "p_employee_id" "uuid",
+  "p_employee_name" "text",
+  "p_investor_id" "uuid",
+  "p_investor_name" "text",
+  "p_product_id" "uuid",
+  "p_product_name" "text",
+  "p_product_quantity" "numeric",
+  "p_print_party_type" "text",
+  "p_print_party_name" "text",
+  "p_print_party_identifier" "text",
+  "p_debt_amount" "numeric",
+  "p_payment_amount" "numeric",
+  "p_installment_amount" "numeric",
+  "p_payment_type" "text",
+  "p_payment_due_date" "date",
+  "p_legal_city" "text",
+  "p_notes" "text"
+) FROM "authenticated";
+
+GRANT EXECUTE ON FUNCTION "public"."update_finance_contract_atomic"(
+  "p_branch_id" "uuid",
+  "p_contract_id" "uuid",
+  "p_employee_id" "uuid",
+  "p_employee_name" "text",
+  "p_investor_id" "uuid",
+  "p_investor_name" "text",
+  "p_product_id" "uuid",
+  "p_product_name" "text",
+  "p_product_quantity" "numeric",
+  "p_print_party_type" "text",
+  "p_print_party_name" "text",
+  "p_print_party_identifier" "text",
+  "p_debt_amount" "numeric",
+  "p_payment_amount" "numeric",
+  "p_installment_amount" "numeric",
+  "p_payment_type" "text",
+  "p_payment_due_date" "date",
+  "p_legal_city" "text",
+  "p_notes" "text"
+) TO "service_role";
