@@ -1024,7 +1024,6 @@ export default function PrintNewRequestPage() {
           max-height: 296mm !important;
           margin: 0 !important;
           padding: 6mm 9mm !important;
-          border: none !important;
           border-radius: 0 !important;
           box-shadow: none !important;
           overflow: hidden !important;
@@ -1036,6 +1035,7 @@ export default function PrintNewRequestPage() {
         }
 
         .contract-print-area {
+          border: 1px solid #d1d5db !important;
           page-break-after:
             always !important;
           break-after:
@@ -2834,12 +2834,6 @@ function ContractPrintHeader({
           </div>
         )}
 
-        {rightInfo.phone && (
-          <div>
-            رقم التواصل /{" "}
-            {rightInfo.phone}
-          </div>
-        )}
       </div>
 
       <div
@@ -3597,6 +3591,7 @@ const contractPrintArea: CSSProperties = {
 
   margin: "0 auto",
   padding: "8mm 10mm",
+  border: "1px solid #d1d5db",
 
   overflow: "hidden",
 
@@ -3658,15 +3653,15 @@ const contractHeader: CSSProperties = {
 
 const contractHeaderRight:
   CSSProperties = {
-    fontSize: 17,
-    lineHeight: 1.5,
+    fontSize: 12,
+    lineHeight: 1.35,
     fontWeight: 900,
   };
 
 const contractHeaderLeft:
   CSSProperties = {
-    fontSize: 17,
-    lineHeight: 1.5,
+    fontSize: 12,
+    lineHeight: 1.35,
     textAlign: "left",
     fontWeight: 900,
   };

@@ -268,7 +268,7 @@ export default function PrintContractPage() {
           max-height: 297mm !important;
           margin: 0 !important;
           padding: 8mm 10mm !important;
-          border: none !important;
+          border: 1px solid #d1d5db !important;
           border-radius: 0 !important;
           box-shadow: none !important;
           overflow: hidden !important;
@@ -1644,9 +1644,6 @@ function PrintHeader({
           سجل تجاري رقم /{" "}
           {organizationSettings.commercialRecord || "................"}
         </div>
-        {organizationSettings.phone && (
-          <div>الجوال / {organizationSettings.phone}</div>
-        )}
       </div>
 
       <div style={documentTitle}>{title}</div>
@@ -2558,6 +2555,7 @@ const printArea: CSSProperties = {
   margin: "0 auto",
   overflow: "hidden",
   padding: "8mm 10mm",
+  border: "1px solid #d1d5db",
   borderRadius: 0,
   lineHeight: 1.45,
   color: "#111827",
@@ -2577,14 +2575,14 @@ const documentHeader: CSSProperties = {
 };
 
 const documentHeaderRight: CSSProperties = {
-  fontSize: 17,
-  lineHeight: 1.5,
+  fontSize: 12,
+  lineHeight: 1.35,
   fontWeight: 900,
 };
 
 const documentHeaderLeft: CSSProperties = {
-  fontSize: 17,
-  lineHeight: 1.5,
+  fontSize: 12,
+  lineHeight: 1.35,
   textAlign: "left",
   fontWeight: 900,
 };
