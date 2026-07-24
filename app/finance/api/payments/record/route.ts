@@ -213,7 +213,7 @@ export async function POST(
       error: contractError,
     } = await supabaseAdmin
       .from("finance_contracts")
-      .select("id,is_archived")
+      .select("id,is_archived,contract_status")
       .eq("id", contractId)
       .eq(
         "branch_id",
@@ -240,6 +240,18 @@ export async function POST(
         "لا يمكن تسجيل سداد على عقد مؤرشف",
         409,
         "CONTRACT_ARCHIVED"
+      );
+    }
+
+    if (
+      cleanText(
+        contract.contract_status
+      ) === "مغلق"
+    ) {
+      return createErrorResponse(
+        "العقد مغلق، أعد تنشيطه قبل تسجيل السداد.",
+        409,
+        "CONTRACT_CLOSED"
       );
     }
 
@@ -274,6 +286,18 @@ export async function POST(
       const message =
         error.message ||
         "تعذر تسجيل السداد";
+
+      if (
+        message.includes(
+          "CONTRACT_CLOSED"
+        )
+      ) {
+        return createErrorResponse(
+          "العقد مغلق، أعد تنشيطه قبل تسجيل السداد.",
+          409,
+          "CONTRACT_CLOSED"
+        );
+      }
 
       return createErrorResponse(
         message,

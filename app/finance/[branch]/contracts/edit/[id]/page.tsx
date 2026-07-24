@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
@@ -32,6 +32,8 @@ type FinanceSession = {
 
 type CustomerRelation = {
   full_name?: string | null;
+  national_id?: string | null;
+  phone?: string | null;
 };
 
 type ContractData = {
@@ -39,6 +41,8 @@ type ContractData = {
   branch_id?: string | null;
   customer_id?: string | null;
   contract_status?: string | null;
+  contract_type?: string | null;
+  free_sale_data?: Record<string, unknown> | null;
 
   investor_id?: string | null;
   investor_name?: string | null;
@@ -61,6 +65,12 @@ type ContractData = {
   payment_type?: string | null;
   payment_due_date?: string | null;
   legal_city?: string | null;
+  judicial_amount?: number | string | null;
+  has_guarantor?: boolean | null;
+  guarantor_customer_id?: string | null;
+  guarantor_name?: string | null;
+  guarantor_national_id?: string | null;
+  guarantor_phone?: string | null;
   notes?: string | null;
 
   customer?:
@@ -211,7 +221,70 @@ export default function EditContractPage() {
     useState("");
 
   const [legalCity, setLegalCity] = useState("");
+  const [judicialAmount, setJudicialAmount] =
+    useState("");
+  const [
+    freeSaleHasJudicialAmount,
+    setFreeSaleHasJudicialAmount,
+  ] = useState(false);
+  const [
+    freeSaleHasGuarantor,
+    setFreeSaleHasGuarantor,
+  ] = useState(false);
+  const [
+    freeSaleGuarantorName,
+    setFreeSaleGuarantorName,
+  ] = useState("");
+  const [
+    freeSaleGuarantorNationalId,
+    setFreeSaleGuarantorNationalId,
+  ] = useState("");
+  const [
+    freeSaleGuarantorPhone,
+    setFreeSaleGuarantorPhone,
+  ] = useState("");
   const [notes, setNotes] = useState("");
+
+  const [freeSaleDay, setFreeSaleDay] =
+    useState("");
+  const [freeSaleContractDate, setFreeSaleContractDate] =
+    useState("");
+  const [freeSaleCity, setFreeSaleCity] =
+    useState("");
+  const [freeSaleSellerName, setFreeSaleSellerName] =
+    useState("");
+  const [
+    freeSaleSellerNationalId,
+    setFreeSaleSellerNationalId,
+  ] = useState("");
+  const [freeSaleBuyerName, setFreeSaleBuyerName] =
+    useState("");
+  const [
+    freeSaleBuyerNationalId,
+    setFreeSaleBuyerNationalId,
+  ] = useState("");
+  const [freeSaleBuyerPhone, setFreeSaleBuyerPhone] =
+    useState("");
+  const [
+    freeSaleItemDescription,
+    setFreeSaleItemDescription,
+  ] = useState("");
+  const [freeSaleDueAmount, setFreeSaleDueAmount] =
+    useState("");
+  const [
+    freeSalePaymentMethod,
+    setFreeSalePaymentMethod,
+  ] = useState("");
+  const [freeSaleDueDate, setFreeSaleDueDate] =
+    useState("");
+  const [
+    freeSaleSellerSignatureName,
+    setFreeSaleSellerSignatureName,
+  ] = useState("");
+  const [
+    freeSaleBuyerSignatureName,
+    setFreeSaleBuyerSignatureName,
+  ] = useState("");
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -710,13 +783,23 @@ export default function EditContractPage() {
     return relation || null;
   }
 
-  function getCustomerName(
-    currentContract: ContractData | null
+  function normalizeDigitsInput(value: string) {
+    return normalizeNumber(value).replace(/\D/g, "");
+  }
+
+  function getFreeSaleText(
+    data: Record<string, unknown> | null | undefined,
+    key: string
   ) {
-    return (
-      getCustomer(currentContract)?.full_name ||
-      ""
-    );
+    const value = data?.[key];
+
+    if (typeof value === "number") {
+      return String(value);
+    }
+
+    return typeof value === "string"
+      ? value
+      : "";
   }
 
   function showDialog(
@@ -851,6 +934,8 @@ export default function EditContractPage() {
               branch_id,
               customer_id,
               contract_status,
+              contract_type,
+              free_sale_data,
               investor_id,
               investor_name,
               product_id,
@@ -867,9 +952,17 @@ export default function EditContractPage() {
               payment_type,
               payment_due_date,
               legal_city,
+              judicial_amount,
+              has_guarantor,
+              guarantor_customer_id,
+              guarantor_name,
+              guarantor_national_id,
+              guarantor_phone,
               notes,
               customer:finance_customers!finance_contracts_customer_id_fkey(
-                full_name
+                full_name,
+                national_id,
+                phone
               )
             `
           )
@@ -1016,7 +1109,123 @@ export default function EditContractPage() {
         loadedContract.legal_city || ""
       );
 
+      setJudicialAmount(
+        loadedContract.judicial_amount == null
+          ? ""
+          : String(loadedContract.judicial_amount)
+      );
+      const loadedJudicialAmount = Number(
+        loadedContract.judicial_amount || 0
+      );
+      setFreeSaleHasJudicialAmount(
+        Number.isFinite(loadedJudicialAmount) &&
+          loadedJudicialAmount > 0
+      );
+      const loadedHasGuarantor =
+        loadedContract.has_guarantor === true ||
+        Boolean(loadedContract.guarantor_customer_id) ||
+        Boolean(loadedContract.guarantor_name);
+      setFreeSaleHasGuarantor(loadedHasGuarantor);
+      setFreeSaleGuarantorName(
+        loadedHasGuarantor
+          ? loadedContract.guarantor_name || ""
+          : ""
+      );
+      setFreeSaleGuarantorNationalId(
+        loadedHasGuarantor
+          ? loadedContract.guarantor_national_id || ""
+          : ""
+      );
+      setFreeSaleGuarantorPhone(
+        loadedHasGuarantor
+          ? loadedContract.guarantor_phone || ""
+          : ""
+      );
+
       setNotes(loadedContract.notes || "");
+
+      const freeSaleData =
+        loadedContract.free_sale_data &&
+        typeof loadedContract.free_sale_data ===
+          "object" &&
+        !Array.isArray(loadedContract.free_sale_data)
+          ? loadedContract.free_sale_data
+          : {};
+
+      const customerRelation =
+        getCustomer(loadedContract);
+
+      setFreeSaleDay(
+        getFreeSaleText(freeSaleData, "sale_day")
+      );
+      setFreeSaleContractDate(
+        getFreeSaleText(freeSaleData, "contract_date")
+      );
+      setFreeSaleCity(
+        getFreeSaleText(freeSaleData, "city") ||
+          loadedContract.legal_city ||
+          ""
+      );
+      setFreeSaleSellerName(
+        getFreeSaleText(freeSaleData, "seller_name")
+      );
+      setFreeSaleSellerNationalId(
+        getFreeSaleText(
+          freeSaleData,
+          "seller_national_id"
+        )
+      );
+      setFreeSaleBuyerName(
+        getFreeSaleText(freeSaleData, "buyer_name") ||
+          customerRelation?.full_name ||
+          ""
+      );
+      setFreeSaleBuyerNationalId(
+        getFreeSaleText(
+          freeSaleData,
+          "buyer_national_id"
+        ) ||
+          customerRelation?.national_id ||
+          ""
+      );
+      setFreeSaleBuyerPhone(
+        getFreeSaleText(freeSaleData, "buyer_phone") ||
+          customerRelation?.phone ||
+          ""
+      );
+      setFreeSaleItemDescription(
+        getFreeSaleText(
+          freeSaleData,
+          "item_description"
+        )
+      );
+      setFreeSaleDueAmount(
+        getFreeSaleText(freeSaleData, "due_amount") ||
+          String(loadedContract.payment_amount ?? "")
+      );
+      setFreeSalePaymentMethod(
+        getFreeSaleText(
+          freeSaleData,
+          "payment_method"
+        )
+      );
+      setFreeSaleDueDate(
+        getFreeSaleText(freeSaleData, "due_date") ||
+          loadedContract.payment_due_date ||
+          ""
+      );
+      setFreeSaleSellerSignatureName(
+        getFreeSaleText(
+          freeSaleData,
+          "seller_signature_name"
+        )
+      );
+      setFreeSaleBuyerSignatureName(
+        getFreeSaleText(
+          freeSaleData,
+          "buyer_signature_name"
+        )
+      );
     } catch (error) {
       if (isCancelled()) {
         return;
@@ -1130,6 +1339,218 @@ export default function EditContractPage() {
         "تعذر إكمال التعديل",
         "تعذر تحديد العقد أو المستخدم أو الفرع"
       );
+      return;
+    }
+
+    if (contract.contract_type === "عقد بيع حر") {
+      if (freeSaleBuyerName.trim().length < 2) {
+        showError(
+          "بيانات غير مكتملة",
+          "أدخل اسم المشتري"
+        );
+        return;
+      }
+
+      if (freeSaleBuyerNationalId.length !== 10) {
+        showError(
+          "بيانات غير مكتملة",
+          "رقم هوية المشتري يجب أن يكون 10 أرقام"
+        );
+        return;
+      }
+
+      if (
+        freeSaleBuyerPhone &&
+        !/^05\d{8}$/.test(freeSaleBuyerPhone)
+      ) {
+        showError(
+          "رقم جوال غير صحيح",
+          "رقم جوال المشتري يجب أن يكون 10 أرقام ويبدأ بـ 05"
+        );
+        return;
+      }
+
+      const due = freeSaleDueAmount
+        ? toNumber(freeSaleDueAmount)
+        : 0;
+
+      const alreadyPaid = Number(
+        contract.paid_amount ?? 0
+      );
+
+      if (!Number.isFinite(due) || due < 0) {
+        showError(
+          "مبلغ غير صحيح",
+          "أدخل مبلغ استحقاق صحيحًا"
+        );
+        return;
+      }
+
+      if (
+        freeSaleHasJudicialAmount &&
+        toNumber(judicialAmount) <= 0
+      ) {
+        showError(
+          "مبلغ غير صحيح",
+          "أدخل المبلغ القضائي"
+        );
+        return;
+      }
+
+      if (freeSaleHasGuarantor) {
+        if (freeSaleGuarantorName.trim().length < 2) {
+          showError(
+            "بيانات غير مكتملة",
+            "أدخل اسم الكفيل"
+          );
+          return;
+        }
+
+        if (freeSaleGuarantorNationalId.length !== 10) {
+          showError(
+            "بيانات غير مكتملة",
+            "رقم هوية الكفيل يجب أن يتكون من 10 أرقام"
+          );
+          return;
+        }
+
+        if (
+          freeSaleGuarantorNationalId ===
+          freeSaleBuyerNationalId
+        ) {
+          showError(
+            "بيانات غير صحيحة",
+            "لا يمكن أن تكون هوية الكفيل مطابقة لهوية المشتري"
+          );
+          return;
+        }
+
+        if (
+          freeSaleGuarantorPhone &&
+          !/^05\d{8}$/.test(freeSaleGuarantorPhone)
+        ) {
+          showError(
+            "رقم جوال غير صحيح",
+            "رقم جوال الكفيل غير صحيح"
+          );
+          return;
+        }
+      }
+
+      if (due < alreadyPaid) {
+        showError(
+          "تعذر تعديل مبلغ الاستحقاق",
+          "مبلغ الاستحقاق الجديد لا يمكن أن يكون أقل من المبلغ المسدد فعليًا"
+        );
+        return;
+      }
+
+      if (
+        freeSaleContractDate &&
+        freeSaleDueDate &&
+        freeSaleDueDate < freeSaleContractDate
+      ) {
+        showError(
+          "تاريخ غير صحيح",
+          "تاريخ الاستحقاق لا يمكن أن يسبق تاريخ العقد"
+        );
+        return;
+      }
+
+      try {
+        setDialog(null);
+        setSaving(true);
+
+        const response = await fetch(
+          "/finance/api/contracts/update",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            credentials: "same-origin",
+            body: JSON.stringify({
+              branch,
+              contractId,
+              contractType: "عقد بيع حر",
+              freeSale: {
+                saleDay: freeSaleDay.trim(),
+                contractDate: freeSaleContractDate,
+                city: freeSaleCity.trim(),
+                sellerName: freeSaleSellerName.trim(),
+                sellerNationalId:
+                  freeSaleSellerNationalId,
+                buyerName: freeSaleBuyerName.trim(),
+                buyerNationalId:
+                  freeSaleBuyerNationalId,
+                buyerPhone: freeSaleBuyerPhone,
+                itemDescription:
+                  freeSaleItemDescription.trim(),
+                dueAmount: due,
+                paymentMethod: freeSalePaymentMethod,
+                dueDate: freeSaleDueDate,
+                sellerSignatureName:
+                  freeSaleSellerSignatureName.trim(),
+                buyerSignatureName:
+                  freeSaleBuyerSignatureName.trim(),
+              },
+              hasJudicialAmount:
+                freeSaleHasJudicialAmount,
+              judicialAmount:
+                freeSaleHasJudicialAmount
+                  ? toNumber(judicialAmount)
+                  : 0,
+              hasGuarantor:
+                freeSaleHasGuarantor,
+              guarantorName:
+                freeSaleHasGuarantor
+                  ? freeSaleGuarantorName.trim()
+                  : null,
+              guarantorNationalId:
+                freeSaleHasGuarantor
+                  ? freeSaleGuarantorNationalId
+                  : null,
+              guarantorPhone:
+                freeSaleHasGuarantor
+                  ? freeSaleGuarantorPhone
+                  : null,
+            }),
+          }
+        );
+
+        const result =
+          (await response.json().catch(
+            () => null
+          )) as
+            | {
+                ok?: boolean;
+                message?: string;
+              }
+            | null;
+
+        if (!response.ok || !result?.ok) {
+          throw new Error(
+            result?.message ||
+              "حدث خطأ أثناء تعديل العقد"
+          );
+        }
+
+        router.push(
+          `/finance/${branch}/contracts/${contractId}`
+        );
+      } catch (error) {
+        showError(
+          "تعذر تعديل العقد",
+          getRpcErrorMessage(
+            error instanceof Error
+              ? error.message
+              : ""
+          )
+        );
+      } finally {
+        setSaving(false);
+      }
+
       return;
     }
 
@@ -1284,6 +1705,17 @@ export default function EditContractPage() {
       showError(
         "قيمة قسط غير صحيحة",
         "أدخل قيمة قسط صحيحة"
+      );
+      return;
+    }
+
+    if (
+      judicialAmount &&
+      toNumber(judicialAmount) < 0
+    ) {
+      showError(
+        "مبلغ غير صحيح",
+        "مبلغ التقاضي غير صحيح"
       );
       return;
     }
@@ -1453,6 +1885,9 @@ export default function EditContractPage() {
             paymentDueDate,
             legalCity:
               legalCity.trim(),
+            judicialAmount: judicialAmount
+              ? toNumber(judicialAmount)
+              : 0,
             notes:
               notes.trim() ||
               null,
@@ -1605,6 +2040,13 @@ export default function EditContractPage() {
             <h1 style={getTitleStyle(screen)}>
               تعديل العقد
             </h1>
+            <p
+              style={getHeroDescriptionStyle(
+                screen
+              )}
+            >
+              راجع البيانات ثم احفظ التعديلات
+            </p>
           </div>
 
           <div
@@ -1618,6 +2060,8 @@ export default function EditContractPage() {
   const organizationOptionLabel =
     organizationName.trim() ||
     "اسم المؤسسة غير محدد";
+  const isFreeSaleContract =
+    contract?.contract_type === "عقد بيع حر";
 
   if (!authChecked) {
     return null;
@@ -1682,266 +2126,650 @@ export default function EditContractPage() {
       >
         {renderHero()}
 
-        <section style={card}>
-          <h2 style={sectionTitle}>
-            المخزون والطرف الأول
-          </h2>
+        <div
+          style={getFormStackStyle(isMobile)}
+        >
+        {isFreeSaleContract ? (
+          <>
+            <SectionCard
+              title="بيانات العقد"
+              description="اليوم والتاريخ والمدينة كما ستظهر في العقد."
+            >
+              <FieldGrid compact={isCompact}>
+                <FieldBlock label="اليوم">
+                  <input
+                    style={input}
+                    value={freeSaleDay}
+                    disabled={saving}
+                    onChange={(event) =>
+                      setFreeSaleDay(event.target.value)
+                    }
+                  />
+                </FieldBlock>
 
-          <label style={fieldLabel}>
-            المستثمر المرتبط بالمخزون
-          </label>
+                <FieldBlock label="تاريخ العقد">
+                  <input
+                    style={input}
+                    type="date"
+                    value={freeSaleContractDate}
+                    disabled={saving}
+                    onChange={(event) =>
+                      setFreeSaleContractDate(
+                        event.target.value
+                      )
+                    }
+                  />
+                </FieldBlock>
 
-          <select
-            style={input}
-            value={investorId}
+                <FieldBlock label="المدينة">
+                  <input
+                    style={input}
+                    value={freeSaleCity}
+                    disabled={saving}
+                    onChange={(event) =>
+                      setFreeSaleCity(event.target.value)
+                    }
+                  />
+                </FieldBlock>
+              </FieldGrid>
+            </SectionCard>
+
+            <SectionCard title="أطراف العقد">
+              <div style={subsectionLabel}>
+                بيانات البائع
+              </div>
+              <FieldGrid compact={isCompact}>
+                <FieldBlock label="اسم البائع">
+                  <input
+                    style={input}
+                    value={freeSaleSellerName}
+                    disabled={saving}
+                    onChange={(event) =>
+                      setFreeSaleSellerName(
+                        event.target.value
+                      )
+                    }
+                  />
+                </FieldBlock>
+
+                <FieldBlock label="هوية البائع">
+                  <input
+                    style={input}
+                    inputMode="numeric"
+                    value={freeSaleSellerNationalId}
+                    disabled={saving}
+                    onChange={(event) =>
+                      setFreeSaleSellerNationalId(
+                        normalizeDigitsInput(
+                          event.target.value
+                        )
+                      )
+                    }
+                  />
+                </FieldBlock>
+              </FieldGrid>
+
+              <div style={subsectionDivider} />
+              <div style={subsectionLabel}>
+                بيانات المشتري
+              </div>
+              <FieldGrid compact={isCompact}>
+                <FieldBlock label="اسم المشتري">
+                  <input
+                    style={input}
+                    value={freeSaleBuyerName}
+                    disabled={saving}
+                    onChange={(event) =>
+                      setFreeSaleBuyerName(
+                        event.target.value
+                      )
+                    }
+                  />
+                </FieldBlock>
+
+                <FieldBlock label="هوية المشتري">
+                  <input
+                    style={input}
+                    inputMode="numeric"
+                    value={freeSaleBuyerNationalId}
+                    disabled={saving}
+                    onChange={(event) =>
+                      setFreeSaleBuyerNationalId(
+                        normalizeDigitsInput(
+                          event.target.value
+                        ).slice(0, 10)
+                      )
+                    }
+                  />
+                </FieldBlock>
+
+                <FieldBlock label="جوال المشتري">
+                  <input
+                    style={input}
+                    inputMode="tel"
+                    value={freeSaleBuyerPhone}
+                    disabled={saving}
+                    onChange={(event) =>
+                      setFreeSaleBuyerPhone(
+                        normalizeDigitsInput(
+                          event.target.value
+                        ).slice(0, 10)
+                      )
+                    }
+                  />
+                </FieldBlock>
+              </FieldGrid>
+            </SectionCard>
+
+            <SectionCard title="تفاصيل المبيع والسداد">
+              <FieldGrid compact={isCompact}>
+                <FieldBlock
+                  label="وصف المبيع"
+                  full
+                >
+                  <textarea
+                    style={textarea}
+                    value={freeSaleItemDescription}
+                    disabled={saving}
+                    onChange={(event) =>
+                      setFreeSaleItemDescription(
+                        event.target.value
+                      )
+                    }
+                  />
+                </FieldBlock>
+
+                <FieldBlock label="مبلغ الاستحقاق">
+                  <input
+                    style={input}
+                    inputMode="decimal"
+                    value={freeSaleDueAmount}
+                    disabled={saving}
+                    onChange={(event) =>
+                      setFreeSaleDueAmount(
+                        normalizeNumber(
+                          event.target.value
+                        )
+                      )
+                    }
+                  />
+                </FieldBlock>
+
+                <FieldBlock label="طريقة السداد">
+                  <select
+                    style={input}
+                    value={freeSalePaymentMethod}
+                    disabled={saving}
+                    onChange={(event) =>
+                      setFreeSalePaymentMethod(
+                        event.target.value
+                      )
+                    }
+                  >
+                    <option value="">
+                      اختر طريقة السداد
+                    </option>
+                    <option value="على دفعة واحدة">
+                      على دفعة واحدة
+                    </option>
+                    <option value="على دفعات">
+                      على دفعات
+                    </option>
+                  </select>
+                </FieldBlock>
+
+                <FieldBlock label="تاريخ استحقاق السداد">
+                  <input
+                    style={input}
+                    type="date"
+                    value={freeSaleDueDate}
+                    disabled={saving}
+                    onChange={(event) =>
+                      setFreeSaleDueDate(event.target.value)
+                    }
+                  />
+                </FieldBlock>
+              </FieldGrid>
+
+              <fieldset style={freeSaleOptionSection}>
+                <legend style={freeSaleOptionTitle}>
+                  المبلغ القضائي
+                </legend>
+                <div style={freeSaleOptionGrid}>
+                  <button
+                    type="button"
+                    aria-pressed={!freeSaleHasJudicialAmount}
+                    disabled={saving}
+                    style={getFreeSaleChoiceStyle(
+                      !freeSaleHasJudicialAmount
+                    )}
+                    onClick={() => {
+                      setFreeSaleHasJudicialAmount(false);
+                      setJudicialAmount("");
+                    }}
+                  >
+                    لا يوجد مبلغ قضائي
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={freeSaleHasJudicialAmount}
+                    disabled={saving}
+                    style={getFreeSaleChoiceStyle(
+                      freeSaleHasJudicialAmount
+                    )}
+                    onClick={() =>
+                      setFreeSaleHasJudicialAmount(true)
+                    }
+                  >
+                    يوجد مبلغ قضائي
+                  </button>
+                </div>
+
+                {freeSaleHasJudicialAmount && (
+                  <FieldGrid compact={isCompact}>
+                    <FieldBlock label="المبلغ القضائي">
+                      <input
+                        style={input}
+                        inputMode="decimal"
+                        value={judicialAmount}
+                        disabled={saving}
+                        placeholder="0.00"
+                        onChange={(event) =>
+                          setJudicialAmount(
+                            normalizeNumber(
+                              event.target.value
+                            )
+                          )
+                        }
+                      />
+                    </FieldBlock>
+                  </FieldGrid>
+                )}
+              </fieldset>
+            </SectionCard>
+
+            <SectionCard
+              title="الكفيل"
+              description="أضف بيانات الكفيل عند الحاجة."
+            >
+              <fieldset style={freeSaleOptionSection}>
+                <legend style={freeSaleOptionTitle}>
+                  حالة الكفيل
+                </legend>
+                <div style={freeSaleOptionGrid}>
+                  <button
+                    type="button"
+                    aria-pressed={!freeSaleHasGuarantor}
+                    disabled={saving}
+                    style={getFreeSaleChoiceStyle(
+                      !freeSaleHasGuarantor
+                    )}
+                    onClick={() => {
+                      setFreeSaleHasGuarantor(false);
+                      setFreeSaleGuarantorName("");
+                      setFreeSaleGuarantorNationalId("");
+                      setFreeSaleGuarantorPhone("");
+                    }}
+                  >
+                    بدون كفيل
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={freeSaleHasGuarantor}
+                    disabled={saving}
+                    style={getFreeSaleChoiceStyle(
+                      freeSaleHasGuarantor
+                    )}
+                    onClick={() =>
+                      setFreeSaleHasGuarantor(true)
+                    }
+                  >
+                    يوجد كفيل
+                  </button>
+                </div>
+
+                {freeSaleHasGuarantor && (
+                  <FieldGrid compact={isCompact}>
+                    <FieldBlock label="اسم الكفيل">
+                      <input
+                        style={input}
+                        value={freeSaleGuarantorName}
+                        disabled={saving}
+                        onChange={(event) =>
+                          setFreeSaleGuarantorName(
+                            event.target.value
+                          )
+                        }
+                      />
+                    </FieldBlock>
+
+                    <FieldBlock label="هوية الكفيل">
+                      <input
+                        style={input}
+                        inputMode="numeric"
+                        value={freeSaleGuarantorNationalId}
+                        disabled={saving}
+                        onChange={(event) =>
+                          setFreeSaleGuarantorNationalId(
+                            normalizeDigitsInput(
+                              event.target.value
+                            ).slice(0, 10)
+                          )
+                        }
+                      />
+                    </FieldBlock>
+
+                    <FieldBlock label="رقم الجوال — اختياري">
+                      <input
+                        style={input}
+                        inputMode="tel"
+                        value={freeSaleGuarantorPhone}
+                        disabled={saving}
+                        placeholder="اختياري"
+                        onChange={(event) =>
+                          setFreeSaleGuarantorPhone(
+                            normalizeDigitsInput(
+                              event.target.value
+                            ).slice(0, 10)
+                          )
+                        }
+                      />
+                    </FieldBlock>
+                  </FieldGrid>
+                )}
+              </fieldset>
+            </SectionCard>
+
+            <SectionCard
+              title="أسماء التوقيع"
+              description="تظهر هذه الأسماء في نسخة العقد المطبوعة."
+            >
+              <FieldGrid compact={isCompact}>
+                <FieldBlock label="اسم البائع في التوقيع">
+                  <input
+                    style={input}
+                    value={freeSaleSellerSignatureName}
+                    disabled={saving}
+                    onChange={(event) =>
+                      setFreeSaleSellerSignatureName(
+                        event.target.value
+                      )
+                    }
+                  />
+                </FieldBlock>
+
+                <FieldBlock label="اسم المشتري في التوقيع">
+                  <input
+                    style={input}
+                    value={freeSaleBuyerSignatureName}
+                    disabled={saving}
+                    onChange={(event) =>
+                      setFreeSaleBuyerSignatureName(
+                        event.target.value
+                      )
+                    }
+                  />
+                </FieldBlock>
+              </FieldGrid>
+            </SectionCard>
+          </>
+        ) : (
+          <>
+            <SectionCard
+              title="المخزون والطرف الأول"
+              description="اختيار المستثمر والمنتج والطرف الذي يظهر في الطباعة."
+            >
+              <FieldGrid compact={isCompact}>
+                <FieldBlock label="المستثمر المرتبط بالمخزون">
+                  <select
+                    style={input}
+                    value={investorId}
+                    disabled={saving}
+                    onChange={(event) =>
+                      setInvestorId(event.target.value)
+                    }
+                  >
+                    <option value="">
+                      اختر المستثمر
+                    </option>
+
+                    {investors.map((investor) => (
+                      <option
+                        key={investor.id}
+                        value={investor.id}
+                      >
+                        {investor.investor_name}
+                      </option>
+                    ))}
+                  </select>
+                </FieldBlock>
+
+                <FieldBlock label="المنتج">
+                  <select
+                    style={input}
+                    value={productId}
+                    disabled={saving}
+                    onChange={(event) =>
+                      setProductId(event.target.value)
+                    }
+                  >
+                    <option value="">
+                      اختر المنتج
+                    </option>
+
+                    {products.map((product) => (
+                      <option
+                        key={product.id}
+                        value={product.id}
+                      >
+                        {product.product_name}
+                      </option>
+                    ))}
+                  </select>
+                </FieldBlock>
+
+                <FieldBlock label="كمية المنتجات">
+                  <input
+                    style={input}
+                    inputMode="numeric"
+                    placeholder="الكمية"
+                    value={productQuantity}
+                    disabled={saving}
+                    onChange={(event) =>
+                      setProductQuantity(
+                        normalizeNumber(
+                          event.target.value
+                        )
+                      )
+                    }
+                  />
+                </FieldBlock>
+
+                <FieldBlock label="الطرف الأول في الطباعة">
+                  <select
+                    style={input}
+                    value={printPartyType}
+                    disabled={saving}
+                    onChange={(event) =>
+                      setPrintPartyType(
+                        event.target.value
+                      )
+                    }
+                  >
+                    <option value="organization">
+                      {organizationOptionLabel}
+                    </option>
+
+                    <option value="investor">
+                      المستثمر
+                    </option>
+                  </select>
+                </FieldBlock>
+              </FieldGrid>
+            </SectionCard>
+
+            <SectionCard title="المبالغ والسداد">
+              <FieldGrid compact={isCompact}>
+                <FieldBlock label="مبلغ الدين">
+                  <input
+                    style={input}
+                    inputMode="numeric"
+                    placeholder="مبلغ الدين"
+                    value={debtAmount}
+                    disabled={saving}
+                    onChange={(event) =>
+                      setDebtAmount(
+                        normalizeNumber(
+                          event.target.value
+                        )
+                      )
+                    }
+                  />
+                </FieldBlock>
+
+                <FieldBlock label="مبلغ السداد">
+                  <input
+                    style={input}
+                    inputMode="numeric"
+                    placeholder="مبلغ السداد"
+                    value={paymentAmount}
+                    disabled={saving}
+                    onChange={(event) =>
+                      setPaymentAmount(
+                        normalizeNumber(
+                          event.target.value
+                        )
+                      )
+                    }
+                  />
+                </FieldBlock>
+
+                <FieldBlock label="قيمة القسط">
+                  <input
+                    style={input}
+                    inputMode="numeric"
+                    placeholder="القسط"
+                    value={installmentAmount}
+                    disabled={saving}
+                    onChange={(event) =>
+                      setInstallmentAmount(
+                        normalizeNumber(
+                          event.target.value
+                        )
+                      )
+                    }
+                  />
+                </FieldBlock>
+
+                <FieldBlock label="نوع السداد">
+                  <select
+                    style={input}
+                    value={paymentType}
+                    disabled={saving}
+                    onChange={(event) =>
+                      setPaymentType(
+                        event.target.value
+                      )
+                    }
+                  >
+                    <option value="">
+                      اختر نوع السداد
+                    </option>
+
+                    <option value="موعد محدد">
+                      موعد محدد
+                    </option>
+
+                    <option value="شهري مجدول">
+                      شهري مجدول
+                    </option>
+                  </select>
+                </FieldBlock>
+
+                <FieldBlock label="تاريخ الاستحقاق">
+                  <input
+                    style={input}
+                    type="date"
+                    value={paymentDueDate}
+                    disabled={saving}
+                    onChange={(event) =>
+                      setPaymentDueDate(
+                        event.target.value
+                      )
+                    }
+                  />
+                </FieldBlock>
+
+                <FieldBlock label="مدينة التقاضي">
+                  <input
+                    style={input}
+                    placeholder="مدينة التقاضي"
+                    value={legalCity}
+                    disabled={saving}
+                    onChange={(event) =>
+                      setLegalCity(event.target.value)
+                    }
+                  />
+                </FieldBlock>
+
+                <FieldBlock label="مبلغ التقاضي">
+                  <input
+                    style={input}
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={judicialAmount}
+                    disabled={saving}
+                    onChange={(event) =>
+                      setJudicialAmount(
+                        normalizeNumber(
+                          event.target.value
+                        )
+                      )
+                    }
+                  />
+                </FieldBlock>
+
+                <FieldBlock
+                  label="الملاحظات"
+                  full
+                >
+                  <textarea
+                    style={textarea}
+                    placeholder="ملاحظات"
+                    value={notes}
+                    disabled={saving}
+                    onChange={(event) =>
+                      setNotes(event.target.value)
+                    }
+                  />
+                </FieldBlock>
+              </FieldGrid>
+            </SectionCard>
+          </>
+        )}
+        </div>
+
+        <div
+          style={getActionBarStyle(isMobile)}
+        >
+          <button
+            type="button"
+            style={secondaryActionButton}
+            onClick={() => router.back()}
             disabled={saving}
-            onChange={(event) =>
-              setInvestorId(event.target.value)
-            }
           >
-            <option value="">
-              اختر المستثمر
-            </option>
-
-            {investors.map((investor) => (
-              <option
-                key={investor.id}
-                value={investor.id}
-              >
-                {investor.investor_name}
-              </option>
-            ))}
-          </select>
-
-          <label style={fieldLabel}>
-            المنتج
-          </label>
-
-          <select
-            style={input}
-            value={productId}
-            disabled={saving}
-            onChange={(event) =>
-              setProductId(event.target.value)
-            }
-          >
-            <option value="">
-              اختر المنتج
-            </option>
-
-            {products.map((product) => (
-              <option
-                key={product.id}
-                value={product.id}
-              >
-                {product.product_name}
-              </option>
-            ))}
-          </select>
-
-          <label style={fieldLabel}>
-            كمية المنتجات
-          </label>
-
-          <input
-            style={input}
-            inputMode="numeric"
-            placeholder="الكمية"
-            value={productQuantity}
-            disabled={saving}
-            onChange={(event) =>
-              setProductQuantity(
-                normalizeNumber(
-                  event.target.value
-                )
-              )
-            }
-          />
-
-          <label style={fieldLabel}>
-            الطرف الأول في الطباعة
-          </label>
-
-          <select
-            style={input}
-            value={printPartyType}
-            disabled={saving}
-            onChange={(event) =>
-              setPrintPartyType(
-                event.target.value
-              )
-            }
-          >
-            <option value="organization">
-              {organizationOptionLabel}
-            </option>
-
-            <option value="investor">
-              المستثمر
-            </option>
-          </select>
-        </section>
-
-        <section style={card}>
-          <h2 style={sectionTitle}>
-            بيانات العقد
-          </h2>
-
-          <label style={fieldLabel}>
-            مبلغ الدين
-          </label>
-
-          <input
-            style={input}
-            inputMode="numeric"
-            placeholder="مبلغ الدين"
-            value={debtAmount}
-            disabled={saving}
-            onChange={(event) =>
-              setDebtAmount(
-                normalizeNumber(
-                  event.target.value
-                )
-              )
-            }
-          />
-
-          <label style={fieldLabel}>
-            مبلغ السداد
-          </label>
-
-          <input
-            style={input}
-            inputMode="numeric"
-            placeholder="مبلغ السداد"
-            value={paymentAmount}
-            disabled={saving}
-            onChange={(event) =>
-              setPaymentAmount(
-                normalizeNumber(
-                  event.target.value
-                )
-              )
-            }
-          />
-
-          <label style={fieldLabel}>
-            قيمة القسط
-          </label>
-
-          <input
-            style={input}
-            inputMode="numeric"
-            placeholder="القسط"
-            value={installmentAmount}
-            disabled={saving}
-            onChange={(event) =>
-              setInstallmentAmount(
-                normalizeNumber(
-                  event.target.value
-                )
-              )
-            }
-          />
-
-          <label style={fieldLabel}>
-            نوع السداد
-          </label>
-
-          <select
-            style={input}
-            value={paymentType}
-            disabled={saving}
-            onChange={(event) =>
-              setPaymentType(
-                event.target.value
-              )
-            }
-          >
-            <option value="">
-              اختر نوع السداد
-            </option>
-
-            <option value="موعد محدد">
-              موعد محدد
-            </option>
-
-            <option value="شهري مجدول">
-              شهري مجدول
-            </option>
-          </select>
-
-          <label style={fieldLabel}>
-            تاريخ الاستحقاق
-          </label>
-
-          <input
-            style={input}
-            type="date"
-            value={paymentDueDate}
-            disabled={saving}
-            onChange={(event) =>
-              setPaymentDueDate(
-                event.target.value
-              )
-            }
-          />
-
-          <label style={fieldLabel}>
-            مدينة التقاضي
-          </label>
-
-          <input
-            style={input}
-            placeholder="مدينة التقاضي"
-            value={legalCity}
-            disabled={saving}
-            onChange={(event) =>
-              setLegalCity(event.target.value)
-            }
-          />
-
-          <label style={fieldLabel}>
-            الملاحظات
-          </label>
-
-          <textarea
-            style={textarea}
-            placeholder="ملاحظات"
-            value={notes}
-            disabled={saving}
-            onChange={(event) =>
-              setNotes(event.target.value)
-            }
-          />
+            العودة للعقد
+          </button>
 
           <button
             type="button"
-            style={{
-              ...saveButton,
-              opacity: saving ? 0.7 : 1,
-              cursor: saving
-                ? "not-allowed"
-                : "pointer",
-            }}
-            onClick={() =>
-              void saveContract()
-            }
+            style={getSaveButtonStyle(saving)}
+            onClick={() => void saveContract()}
             disabled={saving}
           >
             {saving
               ? "جاري الحفظ..."
               : "حفظ التعديلات"}
-          </button>
-        </section>
-
-        <div style={backWrapper}>
-          <button
-            type="button"
-            style={backButton}
-            onClick={() => router.back()}
-          >
-            ← رجوع
           </button>
         </div>
       </div>
@@ -1955,6 +2783,82 @@ export default function EditContractPage() {
         />
       )}
     </main>
+  );
+}
+
+type SectionCardProps = {
+  title: string;
+  description?: string;
+  children: ReactNode;
+  badge?: string;
+};
+
+function SectionCard({
+  title,
+  description,
+  children,
+  badge,
+}: SectionCardProps) {
+  return (
+    <section style={card}>
+      <div style={sectionHeader}>
+        <div>
+          <h2 style={sectionTitle}>
+            {title}
+          </h2>
+          {description && (
+            <p style={sectionDescription}>
+              {description}
+            </p>
+          )}
+        </div>
+
+        {badge && (
+          <span style={sectionBadge}>
+            {badge}
+          </span>
+        )}
+      </div>
+
+      {children}
+    </section>
+  );
+}
+
+type FieldGridProps = {
+  compact: boolean;
+  children: ReactNode;
+};
+
+function FieldGrid({
+  compact,
+  children,
+}: FieldGridProps) {
+  return (
+    <div style={getFieldGridStyle(compact)}>
+      {children}
+    </div>
+  );
+}
+
+type FieldBlockProps = {
+  label: string;
+  children: ReactNode;
+  full?: boolean;
+};
+
+function FieldBlock({
+  label,
+  children,
+  full = false,
+}: FieldBlockProps) {
+  return (
+    <label style={getFieldBlockStyle(full)}>
+      <span style={fieldLabel}>
+        {label}
+      </span>
+      {children}
+    </label>
   );
 }
 
@@ -2475,10 +3379,24 @@ function getTitleStyle(
           : 30,
     lineHeight: 1.35,
     fontWeight: 900,
-    letterSpacing: "-0.4px",
+    letterSpacing: 0,
     textShadow:
       "0 5px 14px rgba(15,23,42,0.14)",
     whiteSpace: "nowrap",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
+  };
+}
+
+function getHeroDescriptionStyle(
+  screen: ScreenType
+): CSSProperties {
+  return {
+    margin: "6px 0 0",
+    color: "rgba(255,255,255,0.88)",
+    fontSize: screen === "mobile" ? 13 : 14,
+    lineHeight: 1.7,
+    fontWeight: 800,
     fontFamily:
       "var(--font-almarai), sans-serif",
   };
@@ -2595,24 +3513,97 @@ const heroDots: CSSProperties = {
   zIndex: 2,
 };
 
+function getFormStackStyle(
+  isMobile: boolean
+): CSSProperties {
+  return {
+    display: "grid",
+    gap: 14,
+    paddingBottom: isMobile ? 14 : 8,
+  };
+}
+
 const card: CSSProperties = {
-  background: "white",
+  background:
+    "linear-gradient(180deg,#ffffff 0%,#fbfdff 100%)",
   border: "1px solid #d9e3f5",
   borderRadius: 18,
-  padding: 20,
-  marginBottom: 16,
+  padding: 18,
   boxShadow:
-    "0 8px 20px rgba(15,23,42,0.04)",
+    "0 10px 28px rgba(15,23,42,0.055)",
+};
+
+const sectionHeader: CSSProperties = {
+  display: "flex",
+  alignItems: "flex-start",
+  justifyContent: "space-between",
+  gap: 12,
+  marginBottom: 16,
 };
 
 const sectionTitle: CSSProperties = {
-  marginTop: 0,
-  color: "#0d47a1",
-  fontSize: 22,
+  margin: 0,
+  color: "#0f2f5f",
+  fontSize: 19,
+  lineHeight: 1.5,
   fontWeight: 900,
   fontFamily:
     "var(--font-almarai), sans-serif",
 };
+
+const sectionDescription: CSSProperties = {
+  margin: "4px 0 0",
+  color: "#64748b",
+  fontSize: 13,
+  lineHeight: 1.7,
+  fontWeight: 700,
+};
+
+const sectionBadge: CSSProperties = {
+  flex: "0 0 auto",
+  padding: "5px 10px",
+  borderRadius: 999,
+  background: "#eef6ff",
+  color: "#1d4ed8",
+  fontSize: 12,
+  fontWeight: 900,
+};
+
+const subsectionLabel: CSSProperties = {
+  margin: "0 0 10px",
+  color: "#1e3a8a",
+  fontSize: 14,
+  fontWeight: 900,
+};
+
+const subsectionDivider: CSSProperties = {
+  height: 1,
+  margin: "16px 0",
+  background:
+    "linear-gradient(90deg,transparent,#d9e3f5,transparent)",
+};
+
+function getFieldGridStyle(
+  compact: boolean
+): CSSProperties {
+  return {
+    display: "grid",
+    gridTemplateColumns: compact
+      ? "1fr"
+      : "repeat(2,minmax(0,1fr))",
+    gap: "13px 14px",
+  };
+}
+
+function getFieldBlockStyle(
+  full: boolean
+): CSSProperties {
+  return {
+    display: "block",
+    minWidth: 0,
+    gridColumn: full ? "1 / -1" : undefined,
+  };
+}
 
 const fieldLabel: CSSProperties = {
   display: "block",
@@ -2626,11 +3617,12 @@ const fieldLabel: CSSProperties = {
 
 const input: CSSProperties = {
   width: "100%",
-  padding: 14,
+  minHeight: 46,
+  padding: "11px 13px",
   borderRadius: 14,
   border: "1px solid #d9e3f5",
   fontSize: 16,
-  marginBottom: 12,
+  marginBottom: 0,
   boxSizing: "border-box",
   background: "white",
   fontFamily:
@@ -2639,12 +3631,12 @@ const input: CSSProperties = {
 
 const textarea: CSSProperties = {
   width: "100%",
-  minHeight: 100,
+  minHeight: 116,
   padding: 14,
   borderRadius: 14,
   border: "1px solid #d9e3f5",
   fontSize: 16,
-  marginBottom: 12,
+  marginBottom: 0,
   boxSizing: "border-box",
   background: "white",
   fontFamily:
@@ -2652,19 +3644,52 @@ const textarea: CSSProperties = {
   resize: "vertical",
 };
 
-const saveButton: CSSProperties = {
-  width: "100%",
-  padding: 16,
-  background: "#0d47a1",
-  color: "white",
-  border: "none",
+const freeSaleOptionSection: CSSProperties = {
+  margin: "16px 0 0",
+  padding: 14,
+  border: "1px solid #d9e3f5",
   borderRadius: 14,
-  fontSize: 17,
+  background: "rgba(248,251,255,0.86)",
+};
+
+const freeSaleOptionTitle: CSSProperties = {
+  padding: "0 4px",
+  marginBottom: 10,
+  fontSize: 15,
   fontWeight: 900,
-  cursor: "pointer",
+  color: "#1e3a8a",
   fontFamily:
     "var(--font-almarai), sans-serif",
 };
+
+const freeSaleOptionGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns:
+    "repeat(auto-fit,minmax(150px,1fr))",
+  gap: 10,
+  marginBottom: 12,
+};
+
+function getFreeSaleChoiceStyle(
+  active: boolean
+): CSSProperties {
+  return {
+    minHeight: 44,
+    border: active
+      ? "1.5px solid #2563eb"
+      : "1px solid #cbd5e1",
+    borderRadius: 12,
+    background: active
+      ? "linear-gradient(180deg,#eff6ff 0%,#dbeafe 100%)"
+      : "#ffffff",
+    color: active ? "#1d4ed8" : "#334155",
+    cursor: "pointer",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
+    fontSize: 14,
+    fontWeight: 900,
+  };
+}
 
 const dialogOverlay: CSSProperties = {
   position: "fixed",
@@ -2848,3 +3873,66 @@ const backButton: CSSProperties = {
   fontFamily:
     "var(--font-almarai), sans-serif",
 };
+
+function getActionBarStyle(
+  isMobile: boolean
+): CSSProperties {
+  return {
+    position: isMobile ? "static" : "sticky",
+    bottom: isMobile ? undefined : 14,
+    zIndex: 20,
+    display: "grid",
+    gridTemplateColumns: isMobile
+      ? "1fr"
+      : "minmax(160px,220px) minmax(220px,1fr)",
+    gap: 10,
+    marginTop: 16,
+    padding: 12,
+    border: "1px solid rgba(217,227,245,0.96)",
+    borderRadius: 18,
+    background:
+      "linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,251,255,0.95))",
+    boxShadow:
+      "0 16px 34px rgba(15,23,42,0.10)",
+    backdropFilter: "blur(10px)",
+    WebkitBackdropFilter: "blur(10px)",
+  };
+}
+
+const secondaryActionButton: CSSProperties = {
+  minHeight: 48,
+  padding: "11px 18px",
+  background: "#ffffff",
+  color: "#0f2f5f",
+  border: "1px solid #cbd5e1",
+  borderRadius: 14,
+  fontSize: 15,
+  fontWeight: 900,
+  cursor: "pointer",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+function getSaveButtonStyle(
+  saving: boolean
+): CSSProperties {
+  return {
+    minHeight: 48,
+    padding: "12px 18px",
+    background:
+      "linear-gradient(135deg,#0d47a1,#1d4ed8)",
+    color: "white",
+    border: "none",
+    borderRadius: 14,
+    fontSize: 16,
+    fontWeight: 900,
+    cursor: saving
+      ? "not-allowed"
+      : "pointer",
+    opacity: saving ? 0.7 : 1,
+    fontFamily:
+      "var(--font-almarai), sans-serif",
+    boxShadow:
+      "0 10px 22px rgba(29,78,216,0.20)",
+  };
+}

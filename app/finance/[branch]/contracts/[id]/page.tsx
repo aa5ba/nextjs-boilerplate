@@ -55,6 +55,7 @@ type Contract = {
   customer_work_name?: string | null;
 
   contract_number?: string | number | null;
+  contract_type?: string | null;
   contract_status?: string | null;
   finance_type?: string | null;
   investor_name?: string | null;
@@ -812,8 +813,8 @@ export default function FinanceContractDetailsPage() {
       return "العقد غير موجود أو لا يتبع هذا الفرع";
     }
 
-    if (message.includes("CONTRACT_ALREADY_PAID")) {
-      return "العقد مسدد بالكامل مسبقًا";
+    if (message.includes("CONTRACT_ALREADY_CLOSED")) {
+      return "العقد مغلق مسبقًا";
     }
 
     return message || "تعذر إغلاق العقد";
@@ -829,7 +830,7 @@ export default function FinanceContractDetailsPage() {
 
     if (!skipBrowserConfirmation) {
       const confirmed = window.confirm(
-        "هل أنت متأكد من إغلاق العقد كسداد كامل؟"
+        "هل أنت متأكد من إغلاق العقد مؤقتًا وإيقاف السداد حتى إعادة التنشيط؟"
       );
 
       if (!confirmed) return;
@@ -873,7 +874,11 @@ export default function FinanceContractDetailsPage() {
       }
 
       await loadData(branchId);
-      showMessage("تم إغلاق العقد", "تم إغلاق العقد كسداد كامل", "success");
+      showMessage(
+        "تم إغلاق العقد",
+        "تم إغلاق العقد مؤقتًا مع إيقاف السداد حتى إعادة التنشيط",
+        "success"
+      );
     } catch (error) {
       showMessage(
         "تعذر إغلاق العقد",
@@ -1208,7 +1213,7 @@ export default function FinanceContractDetailsPage() {
 
   function getGuarantorPhone() {
     return (
-      getGuarantorRelation(contract)?.phone || contract?.guarantor_phone || "-"
+      getGuarantorRelation(contract)?.phone || contract?.guarantor_phone || ""
     );
   }
 
@@ -1486,7 +1491,7 @@ export default function FinanceContractDetailsPage() {
 
               {Number(contract.judicial_amount || 0) > 0 && (
                 <Row
-                  label="المبلغ القضائي"
+                  label="مبلغ التقاضي"
                   value={`${formatMoney(contract.judicial_amount)} ر.س`}
                 />
               )}
@@ -1538,12 +1543,24 @@ export default function FinanceContractDetailsPage() {
                     label="رقم هوية الكفيل"
                     value={getGuarantorNationalId()}
                   />
-                  <Row label="رقم جوال الكفيل" value={getGuarantorPhone()} />
-                  <Row
-                    label="تاريخ ميلاد الكفيل بالهجري"
-                    value={getGuarantorBirthHijri()}
-                  />
-                  <Row label="عمل الكفيل" value={getGuarantorWorkName()} />
+                  {getGuarantorPhone() && (
+                    <Row
+                      label="رقم جوال الكفيل"
+                      value={getGuarantorPhone()}
+                    />
+                  )}
+                  {getGuarantorBirthHijri() !== "-" && (
+                    <Row
+                      label="تاريخ ميلاد الكفيل بالهجري"
+                      value={getGuarantorBirthHijri()}
+                    />
+                  )}
+                  {getGuarantorWorkName() !== "-" && (
+                    <Row
+                      label="عمل الكفيل"
+                      value={getGuarantorWorkName()}
+                    />
+                  )}
                 </>
               ) : (
                 <div style={emptyBox}>لا يوجد كفيل لهذا العقد</div>
@@ -1690,7 +1707,9 @@ export default function FinanceContractDetailsPage() {
                 />
               )}
 
-              {!note && canCreateLinkedPromissoryNote && (
+              {!note &&
+                contract?.contract_type !== "عقد بيع حر" &&
+                canCreateLinkedPromissoryNote && (
                 <ActionButton
                   icon="📝"
                   title="إنشاء سند مرتبط"
@@ -1753,7 +1772,7 @@ export default function FinanceContractDetailsPage() {
       {showCloseDialog && (
         <ConfirmDialog
           title="إغلاق العقد"
-          message="سيتم إغلاق العقد كسداد كامل. هل تريد متابعة العملية؟"
+          message="سيتم إغلاق العقد مؤقتًا مع إيقاف السداد حتى إعادة التنشيط. هل تريد متابعة العملية؟"
           confirmText={closingContract ? "جاري الإغلاق..." : "إغلاق العقد"}
           disabled={closingContract}
           onCancel={() => setShowCloseDialog(false)}

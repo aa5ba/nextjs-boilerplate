@@ -44,6 +44,25 @@ const MANAGER_ROLES = [
   "support_impersonation",
 ];
 
+function padNumber(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+function normalizeDateInput(value: string) {
+  return normalizeNumber(value)
+    .trim()
+    .replace(/[./]/g, "-")
+    .replace(/\s+/g, "");
+}
+
+function toIsoDateOnly(value: string) {
+  const normalized = normalizeDateInput(value);
+
+  return normalized.includes("T")
+    ? normalized.slice(0, 10)
+    : normalized;
+}
+
 const PAYMENT_METHODS = [
   "نقدًا",
   "تحويل بنكي",
@@ -571,7 +590,9 @@ export default function EditExpenseInvoicePage() {
         )
       );
       setInvoiceDate(
-        loadedInvoice.invoice_date
+        toIsoDateOnly(
+          loadedInvoice.invoice_date
+        )
       );
       setPaymentMethod(payment.method);
       setPaymentSource(payment.source);
@@ -763,13 +784,11 @@ export default function EditExpenseInvoicePage() {
       return value;
     }
 
-    return date.toLocaleString(
-      "ar-SA",
-      {
-        dateStyle: "medium",
-        timeStyle: "short",
-      }
-    );
+    return `${date.getFullYear()}/${padNumber(
+      date.getMonth() + 1
+    )}/${padNumber(date.getDate())} ${padNumber(
+      date.getHours()
+    )}:${padNumber(date.getMinutes())}`;
   }
 
   if (!authChecked) {
@@ -1025,10 +1044,14 @@ export default function EditExpenseInvoicePage() {
                 <input
                   style={input}
                   type="date"
+                  lang="en-CA"
+                  dir="ltr"
                   value={invoiceDate}
                   onChange={(event) =>
                     setInvoiceDate(
-                      event.target.value
+                      normalizeDateInput(
+                        event.target.value
+                      )
                     )
                   }
                 />

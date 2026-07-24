@@ -454,7 +454,7 @@ export default function FinanceCustomerProfilePage() {
           )
           .in(
             "contract_status",
-            ["نشط", "متأخر"]
+            ["نشط", "متأخر", "متعثر"]
           )
           .order("created_at", {
             ascending: false,
@@ -485,7 +485,7 @@ export default function FinanceCustomerProfilePage() {
           )
           .in(
             "contract_status",
-            ["تم السداد", "ملغي"]
+            ["تم السداد", "ملغي", "مغلق"]
           )
           .order("created_at", {
             ascending: false,
@@ -1956,6 +1956,10 @@ function ContractItem({
     contract.contract_status ===
     "متأخر";
 
+  const isClosed =
+    contract.contract_status ===
+    "مغلق";
+
   return (
     <button
       type="button"
@@ -1977,7 +1981,9 @@ function ContractItem({
             ...contractStatusBadge,
             ...(isLate
               ? contractStatusLate
-              : contractStatusNormal),
+              : isClosed
+                ? contractStatusClosed
+                : contractStatusNormal),
           }}
         >
           {contract.contract_status ||
@@ -2829,6 +2835,11 @@ const contractStatusNormal: CSSProperties = {
 const contractStatusLate: CSSProperties = {
   background: "#ffedd5",
   color: "#9a3412",
+};
+
+const contractStatusClosed: CSSProperties = {
+  background: "#f1f5f9",
+  color: "#334155",
 };
 
 const noteItem: CSSProperties = {

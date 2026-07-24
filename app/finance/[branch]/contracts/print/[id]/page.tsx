@@ -15,6 +15,9 @@ import {
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
 
+const FREE_SALE_GUARANTOR_ACKNOWLEDGEMENT_TEXT =
+  "أقر انا الموقع و بكامل قواي المعتبره شرعاً بأني أكفل الطرف الثاني ( المشتري ) كفالة غرم وأداء وكل مايترتب على هذا العقد في حال أي مطالبه .";
+
 type ScreenType = "mobile" | "tablet" | "desktop";
 
 type FinanceSession = {
@@ -83,6 +86,8 @@ type ContractRecord = {
   legal_city?: string | null;
   judicial_amount?: string | number | null;
   notes?: string | null;
+  contract_type?: string | null;
+  free_sale_data?: Record<string, unknown> | null;
   has_guarantor?: boolean | null;
   guarantor_name?: string | null;
   guarantor_national_id?: string | null;
@@ -1077,10 +1082,13 @@ export default function PrintContractPage() {
     "................";
   const phone =
     customer?.phone || contract?.customer_phone || "................";
-  const birthHijri = formatHijriDate(
+  const rawBirthHijri =
     customer?.birth_hijri ||
-      contract?.customer_birth_hijri
-  );
+    contract?.customer_birth_hijri ||
+    "";
+  const birthHijri = rawBirthHijri
+    ? formatHijriDate(rawBirthHijri)
+    : "";
 
   const contractFirstPartyName =
     organizationSettings.name || "................";
@@ -1125,11 +1133,14 @@ export default function PrintContractPage() {
   const guarantorPhone =
     guarantorCustomer?.phone ||
     contract?.guarantor_phone ||
-    "................";
-  const guarantorBirthHijri = formatHijriDate(
+    "";
+  const rawGuarantorBirthHijri =
     guarantorCustomer?.birth_hijri ||
-      contract?.guarantor_birth_hijri
-  );
+    contract?.guarantor_birth_hijri ||
+    "";
+  const guarantorBirthHijri = rawGuarantorBirthHijri
+    ? formatHijriDate(rawGuarantorBirthHijri)
+    : "";
   const guarantorWork =
     guarantorCustomer?.work_name ||
     guarantorCustomer?.work ||
@@ -1137,6 +1148,40 @@ export default function PrintContractPage() {
     "";
 
   const legalCity = String(contract?.legal_city || "").trim();
+  const litigationAmount =
+    Number(contract?.judicial_amount || 0) || 0;
+  const isFreeSaleContract =
+    contract?.contract_type === "عقد بيع حر";
+  const freeSaleGuarantorName = String(
+    contract?.guarantor_name || ""
+  ).trim();
+  const freeSaleGuarantorNationalId = String(
+    contract?.guarantor_national_id || ""
+  ).trim();
+  const freeSaleGuarantorPhone = String(
+    contract?.guarantor_phone || ""
+  ).trim();
+  const shouldShowFreeSaleGuarantor =
+    isFreeSaleContract &&
+    contract?.has_guarantor === true &&
+    Boolean(
+      freeSaleGuarantorName || freeSaleGuarantorNationalId
+    );
+  const freeSaleData =
+    contract?.free_sale_data &&
+    typeof contract.free_sale_data === "object" &&
+    !Array.isArray(contract.free_sale_data)
+      ? contract.free_sale_data
+      : {};
+  const freeSaleText = (key: string) => {
+    const value = freeSaleData[key];
+
+    return typeof value === "string" && value.trim()
+      ? value.trim()
+      : "";
+  };
+  const freeSaleAmount =
+    Number(freeSaleData.due_amount ?? contract?.payment_amount ?? 0) || 0;
   const documentsUnavailable = loading || Boolean(pageError) || !contract;
   const actionBusy = printingPdf || savingPdf || sharingWhatsapp;
 
@@ -1307,6 +1352,152 @@ export default function PrintContractPage() {
             data-pdf-page="contract"
             style={printArea}
           >
+            {isFreeSaleContract ? (
+              <>
+                <PrintHeader
+                  title="عقد بيع"
+                  organizationSettings={organizationSettings}
+                  contractNumber={contract.contract_number}
+                  contractIssueDate={formatDateOnly(
+                    freeSaleText("contract_date") ||
+                      contract?.contract_issue_date_gregorian ||
+                      contract?.contract_date_gregorian
+                  )}
+                />
+
+                <div style={contentBox}>
+                  <p style={paragraph}>
+                    الحمد لله، والصلاة والسلام على من لا نبي بعده، وبعد:
+                  </p>
+
+                  <p style={paragraph}>
+                    قد عقد الطرفان أدناه في يوم:{" "}
+                    <strong>{freeSaleText("sale_day") || "................"}</strong>
+                    {" "}بتاريخ:{" "}
+                    <strong style={numericDateText}>
+                      {formatDateOnly(freeSaleText("contract_date"))}
+                    </strong>
+                    {" "}في مدينة:{" "}
+                    <strong>{freeSaleText("city") || "................"}</strong>
+                  </p>
+
+                  <p style={paragraph}>
+                    الطرف الأول (البائع):{" "}
+                    <strong>{freeSaleText("seller_name") || "................"}</strong>
+                    {" "}رقم الهوية:{" "}
+                    <strong>{freeSaleText("seller_national_id") || "................"}</strong>
+                  </p>
+
+                  <p style={paragraph}>
+                    الطرف الثاني (المشتري):{" "}
+                    <strong>{freeSaleText("buyer_name") || customerName}</strong>
+                    {" "}رقم الهوية:{" "}
+                    <strong>{freeSaleText("buyer_national_id") || nationalId}</strong>
+                    {" "}رقم الجوال:{" "}
+                    <strong>{freeSaleText("buyer_phone") || "................"}</strong>
+                  </p>
+
+                  <p style={paragraph}>
+                    بأن الطرف الثاني قد اشترى من الطرف الأول:{" "}
+                    <strong>{freeSaleText("item_description") || "................"}</strong>
+                    {" "}بمبلغ استحقاق قدره:{" "}
+                    <strong>{formatMoney(freeSaleAmount)}</strong> ريال.
+                  </p>
+
+                  {litigationAmount > 0 && (
+                    <p style={paragraph}>
+                      مبلغ التقاضي /{" "}
+                      <strong>{formatMoney(litigationAmount)}</strong>{" "}
+                      ريال.
+                    </p>
+                  )}
+
+                  <p style={paragraph}>
+                    وتقرر أن يكون السداد:{" "}
+                    <strong>{freeSaleText("payment_method") || "................"}</strong>
+                    {" "}وأن يكون تاريخ استحقاق السداد:{" "}
+                    <strong style={numericDateText}>
+                      {formatDateOnly(freeSaleText("due_date"))}
+                    </strong>.
+                  </p>
+
+                  <p style={paragraph}>
+                    كما يقر الطرف الثاني بأنه اطلع على كامل تفاصيل هذا العقد وقبل
+                    الشراء، وأنه تسلم ما قام بشرائه وتحقق منه وقبل به، وأنه ملتزم
+                    بالموعد المحدد للسداد. وفي حال التأخر لأي سبب كان، يحق للطرف
+                    الأول اتخاذ الإجراءات النظامية اللازمة للمطالبة بكامل المبلغ
+                    المتبقي.
+                  </p>
+                </div>
+
+                <div className="contract-signatures" style={signatures}>
+                  <div style={signatureBox}>
+                    <strong>الطرف الأول (البائع)</strong>
+                    <div>
+                      الاسم /{" "}
+                      {freeSaleText("seller_signature_name") || "................"}
+                    </div>
+                    <div style={signatureLine}>التوقيع /</div>
+                  </div>
+
+                  <div style={signatureBox}>
+                    <strong>الطرف الثاني (المشتري)</strong>
+                    <div>
+                      الاسم /{" "}
+                      {freeSaleText("buyer_signature_name") || "................"}
+                    </div>
+                    <div style={signatureLine}>التوقيع /</div>
+                  </div>
+                </div>
+
+                {shouldShowFreeSaleGuarantor && (
+                  <section style={freeSaleGuarantorAcknowledgement}>
+                    <h3 style={freeSaleGuarantorTitle}>إقرار الكفيل</h3>
+
+                    <p style={freeSaleGuarantorText}>
+                      {FREE_SALE_GUARANTOR_ACKNOWLEDGEMENT_TEXT}
+                    </p>
+
+                    <div style={freeSaleGuarantorDetails}>
+                      <div>
+                        الكفيل /{" "}
+                        {freeSaleGuarantorName && (
+                          <strong>{freeSaleGuarantorName}</strong>
+                        )}
+                      </div>
+
+                      <div>
+                        رقم الهويه /{" "}
+                        {freeSaleGuarantorNationalId && (
+                          <strong>{freeSaleGuarantorNationalId}</strong>
+                        )}
+                      </div>
+
+                      <div>
+                        الجوال /{" "}
+                        {freeSaleGuarantorPhone ? (
+                          <strong>{freeSaleGuarantorPhone}</strong>
+                        ) : (
+                          <span
+                            aria-hidden="true"
+                            style={freeSaleGuarantorBlankValue}
+                          />
+                        )}
+                      </div>
+
+                      <div>
+                        التوقيع /{" "}
+                        <span
+                          aria-hidden="true"
+                          style={freeSaleGuarantorBlankValue}
+                        />
+                      </div>
+                    </div>
+                  </section>
+                )}
+              </>
+            ) : (
+              <>
             <PrintHeader
               title="عقد بيع * شراء"
               organizationSettings={organizationSettings}
@@ -1323,8 +1514,12 @@ export default function PrintContractPage() {
                 أقر أنا الموقع أدناه الطرف الثاني (المشتري) /{" "}
                 <strong>{customerName}</strong>
                 ، رقم الهوية / <strong>{nationalId}</strong>
-                {" - "}تاريخ الميلاد /{" "}
-                <strong style={numericDateText}>{birthHijri}</strong>
+                {birthHijri && (
+                  <>
+                    {" - "}تاريخ الميلاد /{" "}
+                    <strong style={numericDateText}>{birthHijri}</strong>
+                  </>
+                )}
                 ، رقم الجوال / <strong>{phone}</strong>
                 ، بأني اشتريت من الطرف الأول (البائع ) /{" "}
                 <strong>{contractFirstPartyName}</strong>
@@ -1354,6 +1549,14 @@ export default function PrintContractPage() {
                 <p style={paragraph}>
                   وأن تكون مدينة التقاضي في حال المطالبة /{" "}
                   <strong>{legalCity}</strong>.
+                </p>
+              )}
+
+              {litigationAmount > 0 && (
+                <p style={paragraph}>
+                  مبلغ التقاضي /{" "}
+                  <strong>{formatMoney(litigationAmount)}</strong>{" "}
+                  ريال.
                 </p>
               )}
 
@@ -1395,18 +1598,24 @@ export default function PrintContractPage() {
                 >
                   <div>الاسم / {guarantorName}</div>
                   <div>رقم الهوية / {guarantorNationalId}</div>
-                  <div>الجوال / {guarantorPhone}</div>
-                  <div>
-                    تاريخ الميلاد /{" "}
-                    <span style={numericDateText}>
-                      {guarantorBirthHijri}
-                    </span>
-                  </div>
+                  {guarantorPhone && (
+                    <div>الجوال / {guarantorPhone}</div>
+                  )}
+                  {guarantorBirthHijri && (
+                    <div>
+                      تاريخ الميلاد /{" "}
+                      <span style={numericDateText}>
+                        {guarantorBirthHijri}
+                      </span>
+                    </div>
+                  )}
                   {guarantorWork && <div>العمل / {guarantorWork}</div>}
                 </div>
 
                 <div>التوقيع / ................</div>
               </div>
+            )}
+              </>
             )}
           </section>
         )}
@@ -2368,14 +2577,14 @@ const documentHeader: CSSProperties = {
 };
 
 const documentHeaderRight: CSSProperties = {
-  fontSize: 11,
-  lineHeight: 1.65,
+  fontSize: 17,
+  lineHeight: 1.5,
   fontWeight: 900,
 };
 
 const documentHeaderLeft: CSSProperties = {
-  fontSize: 11,
-  lineHeight: 1.65,
+  fontSize: 17,
+  lineHeight: 1.5,
   textAlign: "left",
   fontWeight: 900,
 };
@@ -2383,7 +2592,7 @@ const documentHeaderLeft: CSSProperties = {
 const documentTitle: CSSProperties = {
   textAlign: "center",
   color: "#111827",
-  fontSize: 21,
+  fontSize: 26,
   fontWeight: 900,
   marginTop: 13,
   whiteSpace: "nowrap",
@@ -2395,8 +2604,9 @@ const contentBox: CSSProperties = {
 };
 
 const paragraph: CSSProperties = {
-  fontSize: 12.3,
-  margin: "6px 0",
+  fontSize: 16,
+  margin: "7px 0",
+  lineHeight: 1.58,
   textAlign: "justify",
 };
 
@@ -2418,17 +2628,59 @@ const signatures: CSSProperties = {
 const signatureBox: CSSProperties = {
   borderTop: "1.5px solid #111827",
   paddingTop: 8,
-  lineHeight: 1.65,
-  fontSize: 12.2,
+  lineHeight: 1.58,
+  fontSize: 16,
   minHeight: 84,
+};
+
+const signatureLine: CSSProperties = {
+  marginTop: 18,
+  paddingTop: 10,
+  borderTop: "1px dashed #cbd5e1",
+  minHeight: 54,
+};
+
+const freeSaleGuarantorAcknowledgement: CSSProperties = {
+  marginTop: 14,
+  paddingTop: 10,
+  borderTop: "1.5px solid #111827",
+  breakInside: "avoid",
+  pageBreakInside: "avoid",
+};
+
+const freeSaleGuarantorTitle: CSSProperties = {
+  margin: "0 0 6px",
+  fontSize: 17,
+  lineHeight: 1.5,
+  fontWeight: 900,
+};
+
+const freeSaleGuarantorText: CSSProperties = {
+  ...paragraph,
+  margin: "0 0 8px",
+};
+
+const freeSaleGuarantorDetails: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: "3px 16px",
+  fontSize: 16,
+  lineHeight: 1.58,
+};
+
+const freeSaleGuarantorBlankValue: CSSProperties = {
+  display: "inline-block",
+  minWidth: 120,
+  minHeight: 18,
+  verticalAlign: "baseline",
 };
 
 const guarantorBox: CSSProperties = {
   marginTop: 14,
   borderTop: "1.5px solid #111827",
   paddingTop: 8,
-  lineHeight: 1.65,
-  fontSize: 12.2,
+  lineHeight: 1.58,
+  fontSize: 16,
 };
 
 const guarantorGrid: CSSProperties = {

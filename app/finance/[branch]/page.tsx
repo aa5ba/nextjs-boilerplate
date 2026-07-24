@@ -2404,7 +2404,7 @@ export default function FinancePage() {
               icon="👥"
               color="#0284c7"
               onClick={() =>
-                go("customers")
+                go("customers/list")
               }
             />
           )}

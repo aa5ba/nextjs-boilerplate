@@ -15,6 +15,9 @@ import {
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
 
+const FREE_SALE_GUARANTOR_ACKNOWLEDGEMENT_TEXT =
+  "أقر انا الموقع و بكامل قواي المعتبره شرعاً بأني أكفل الطرف الثاني ( المشتري ) كفالة غرم وأداء وكل مايترتب على هذا العقد في حال أي مطالبه .";
+
 type BeneficiaryType =
   | "organization"
   | "investor"
@@ -61,6 +64,7 @@ type ContractRecord = {
   guarantor_customer_id?: string | null;
 
   contract_number?: string | number | null;
+  contract_type?: string | null;
   customer_name?: string | null;
   customer_national_id?: string | null;
   customer_phone?: string | null;
@@ -1078,8 +1082,8 @@ export default function PrintNewRequestPage() {
 
         .contract-print-area p {
           margin: 4px 0 !important;
-          font-size: 12.8px !important;
-          line-height: 1.42 !important;
+          font-size: 16px !important;
+          line-height: 1.52 !important;
           orphans: 1 !important;
           widows: 1 !important;
         }
@@ -1092,8 +1096,8 @@ export default function PrintNewRequestPage() {
         .print-signatures > div {
           min-height: 72px !important;
           padding-top: 6px !important;
-          font-size: 12.3px !important;
-          line-height: 1.48 !important;
+          font-size: 16px !important;
+          line-height: 1.52 !important;
         }
 
         .note-document-title {
@@ -1776,11 +1780,17 @@ export default function PrintNewRequestPage() {
     note?.debtor_phone ||
     "................";
 
+  const rawBirthHijri =
+    customer?.birth_hijri ||
+    contract?.customer_birth_hijri ||
+    "";
+
   const birthHijri =
-    formatHijriDate(
-      customer?.birth_hijri ||
-        contract?.customer_birth_hijri
-    );
+    rawBirthHijri
+      ? formatHijriDate(
+          rawBirthHijri
+        )
+      : "";
 
   const firstPartyType = String(
     contract?.print_party_type ||
@@ -1897,14 +1907,41 @@ export default function PrintNewRequestPage() {
     guarantorCustomer?.phone ||
     contract?.guarantor_phone ||
     note?.guarantor_phone ||
-    "................";
+    "";
+
+  const isFreeSaleContract =
+    contract?.contract_type === "عقد بيع حر";
+  const freeSaleGuarantorName = String(
+    contract?.guarantor_name || ""
+  ).trim();
+  const freeSaleGuarantorNationalId =
+    String(
+      contract?.guarantor_national_id ||
+        ""
+    ).trim();
+  const freeSaleGuarantorPhone = String(
+    contract?.guarantor_phone || ""
+  ).trim();
+  const shouldShowFreeSaleGuarantor =
+    isFreeSaleContract &&
+    contract?.has_guarantor === true &&
+    Boolean(
+      freeSaleGuarantorName ||
+        freeSaleGuarantorNationalId
+    );
+
+  const rawGuarantorBirthHijri =
+    guarantorCustomer?.birth_hijri ||
+    contract?.guarantor_birth_hijri ||
+    note?.guarantor_birth_hijri ||
+    "";
 
   const guarantorBirthHijri =
-    formatHijriDate(
-      guarantorCustomer?.birth_hijri ||
-        contract?.guarantor_birth_hijri ||
-        note?.guarantor_birth_hijri
-    );
+    rawGuarantorBirthHijri
+      ? formatHijriDate(
+          rawGuarantorBirthHijri
+        )
+      : "";
 
   const beneficiaryName =
     note?.beneficiary_name?.trim() ||
@@ -1944,6 +1981,8 @@ export default function PrintNewRequestPage() {
   const legalCity = String(
     contract?.legal_city || ""
   ).trim();
+  const litigationAmount =
+    Number(contract?.judicial_amount || 0) || 0;
 
   const documentsUnavailable =
     loading ||
@@ -2125,12 +2164,16 @@ export default function PrintNewRequestPage() {
                 <strong>
                   {nationalId}
                 </strong>
-                {" - "}تاريخ الميلاد /{" "}
-                <strong
-                  style={numericDateText}
-                >
-                  {birthHijri}
-                </strong>
+                {birthHijri && (
+                  <>
+                    {" - "}تاريخ الميلاد /{" "}
+                    <strong
+                      style={numericDateText}
+                    >
+                      {birthHijri}
+                    </strong>
+                  </>
+                )}
                 ، رقم الجوال /{" "}
                 <strong>{phone}</strong>
                 ، بأني اشتريت من الطرف
@@ -2209,6 +2252,18 @@ export default function PrintNewRequestPage() {
                 </p>
               )}
 
+              {litigationAmount > 0 && (
+                <p style={contractParagraph}>
+                  مبلغ التقاضي /{" "}
+                  <strong>
+                    {formatMoney(
+                      litigationAmount
+                    )}
+                  </strong>{" "}
+                  ريال.
+                </p>
+              )}
+
               <p style={contractParagraph}>
                 كما يقر الطرف الثاني
                 بأنه اطلع على كامل بنود
@@ -2280,7 +2335,89 @@ export default function PrintNewRequestPage() {
               </div>
             </div>
 
-            {hasGuarantor && (
+            {shouldShowFreeSaleGuarantor && (
+              <section
+                style={
+                  freeSaleGuarantorAcknowledgement
+                }
+              >
+                <h3
+                  style={
+                    freeSaleGuarantorTitle
+                  }
+                >
+                  إقرار الكفيل
+                </h3>
+
+                <p
+                  style={
+                    freeSaleGuarantorText
+                  }
+                >
+                  {
+                    FREE_SALE_GUARANTOR_ACKNOWLEDGEMENT_TEXT
+                  }
+                </p>
+
+                <div
+                  style={
+                    freeSaleGuarantorDetails
+                  }
+                >
+                  <div>
+                    الكفيل /{" "}
+                    {freeSaleGuarantorName && (
+                      <strong>
+                        {
+                          freeSaleGuarantorName
+                        }
+                      </strong>
+                    )}
+                  </div>
+
+                  <div>
+                    رقم الهويه /{" "}
+                    {freeSaleGuarantorNationalId && (
+                      <strong>
+                        {
+                          freeSaleGuarantorNationalId
+                        }
+                      </strong>
+                    )}
+                  </div>
+
+                  <div>
+                    الجوال /{" "}
+                    {freeSaleGuarantorPhone ? (
+                      <strong>
+                        {
+                          freeSaleGuarantorPhone
+                        }
+                      </strong>
+                    ) : (
+                      <span
+                        aria-hidden="true"
+                        style={
+                          freeSaleGuarantorBlankValue
+                        }
+                      />
+                    )}
+                  </div>
+
+                  <div>
+                    التوقيع /{" "}
+                    <span
+                      aria-hidden="true"
+                      style={
+                        freeSaleGuarantorBlankValue
+                      }
+                    />
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {hasGuarantor && !shouldShowFreeSaleGuarantor && (
               <div
                 className="print-guarantor-box"
                 style={
@@ -2307,23 +2444,27 @@ export default function PrintNewRequestPage() {
                     {guarantorNationalId}
                   </div>
 
-                  <div>
-                    الجوال /{" "}
-                    {guarantorPhone}
-                  </div>
+                  {guarantorPhone && (
+                    <div>
+                      الجوال /{" "}
+                      {guarantorPhone}
+                    </div>
+                  )}
 
-                  <div>
-                    تاريخ الميلاد /{" "}
-                    <span
-                      style={
-                        numericDateText
-                      }
-                    >
-                      {
-                        guarantorBirthHijri
-                      }
-                    </span>
-                  </div>
+                  {guarantorBirthHijri && (
+                    <div>
+                      تاريخ الميلاد /{" "}
+                      <span
+                        style={
+                          numericDateText
+                        }
+                      >
+                        {
+                          guarantorBirthHijri
+                        }
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -3517,15 +3658,15 @@ const contractHeader: CSSProperties = {
 
 const contractHeaderRight:
   CSSProperties = {
-    fontSize: 12.8,
-    lineHeight: 1.6,
+    fontSize: 17,
+    lineHeight: 1.5,
     fontWeight: 900,
   };
 
 const contractHeaderLeft:
   CSSProperties = {
-    fontSize: 12.8,
-    lineHeight: 1.6,
+    fontSize: 17,
+    lineHeight: 1.5,
     textAlign: "left",
     fontWeight: 900,
   };
@@ -3538,7 +3679,7 @@ const contractDocumentTitle:
 
     color: "#111827",
 
-    fontSize: 25,
+    fontSize: 26,
 
     fontWeight: 900,
 
@@ -3557,9 +3698,9 @@ const contractParagraph:
   CSSProperties = {
     margin: "5px 0",
 
-    fontSize: 14.4,
+    fontSize: 16,
 
-    lineHeight: 1.5,
+    lineHeight: 1.56,
 
     textAlign: "justify",
   };
@@ -3595,9 +3736,61 @@ const contractSignatureBox:
     borderTop:
       "1.5px solid #111827",
 
-    lineHeight: 1.58,
+    lineHeight: 1.54,
 
-    fontSize: 14,
+    fontSize: 16,
+  };
+
+const freeSaleGuarantorAcknowledgement:
+  CSSProperties = {
+    marginTop: 14,
+
+    paddingTop: 10,
+
+    borderTop:
+      "1.5px solid #111827",
+
+    breakInside: "avoid",
+    pageBreakInside: "avoid",
+  };
+
+const freeSaleGuarantorTitle:
+  CSSProperties = {
+    margin: "0 0 6px",
+
+    fontSize: 17,
+    lineHeight: 1.5,
+    fontWeight: 900,
+  };
+
+const freeSaleGuarantorText:
+  CSSProperties = {
+    ...contractParagraph,
+
+    margin: "0 0 8px",
+  };
+
+const freeSaleGuarantorDetails:
+  CSSProperties = {
+    display: "grid",
+
+    gridTemplateColumns:
+      "1fr 1fr",
+
+    gap: "3px 16px",
+
+    fontSize: 16,
+    lineHeight: 1.58,
+  };
+
+const freeSaleGuarantorBlankValue:
+  CSSProperties = {
+    display: "inline-block",
+
+    minWidth: 120,
+    minHeight: 18,
+
+    verticalAlign: "baseline",
   };
 
 const contractGuarantorBox:
@@ -3609,9 +3802,9 @@ const contractGuarantorBox:
     borderTop:
       "1.5px solid #111827",
 
-    lineHeight: 1.58,
+    lineHeight: 1.54,
 
-    fontSize: 14,
+    fontSize: 16,
   };
 
 const contractGuarantorGrid:

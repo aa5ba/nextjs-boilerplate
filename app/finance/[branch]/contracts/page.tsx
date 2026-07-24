@@ -815,6 +815,10 @@ export default function FinanceContractsPage() {
       return cancelledStatus;
     }
 
+    if (status === "مغلق") {
+      return closedStatus;
+    }
+
     return activeStatus;
   }
 
@@ -1104,6 +1108,10 @@ export default function FinanceContractsPage() {
 
                     <option value="ملغي">
                       ملغي
+                    </option>
+
+                    <option value="مغلق">
+                      مغلق
                     </option>
                   </select>
                 </Field>
@@ -2268,6 +2276,15 @@ const paidStatus: CSSProperties = {
 const cancelledStatus: CSSProperties = {
   background: "#fee2e2",
   color: "#991b1b",
+  borderRadius: 999,
+  padding: "7px 12px",
+  fontWeight: "bold",
+  whiteSpace: "nowrap",
+};
+
+const closedStatus: CSSProperties = {
+  background: "#f1f5f9",
+  color: "#334155",
   borderRadius: 999,
   padding: "7px 12px",
   fontWeight: "bold",

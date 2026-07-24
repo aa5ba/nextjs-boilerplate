@@ -56,6 +56,25 @@ const MANAGER_ROLES = [
   "support_impersonation",
 ];
 
+function padNumber(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+function getTodayIsoDate() {
+  const today = new Date();
+
+  return `${today.getFullYear()}-${padNumber(
+    today.getMonth() + 1
+  )}-${padNumber(today.getDate())}`;
+}
+
+function normalizeDateInput(value: string) {
+  return normalizeNumber(value)
+    .trim()
+    .replace(/[./]/g, "-")
+    .replace(/\s+/g, "");
+}
+
 type ScreenType =
   | "mobile"
   | "tablet"
@@ -96,8 +115,7 @@ export default function NewExpenseInvoicePage() {
     .trim()
     .toLowerCase();
 
-  const today = new Date()
-    .toLocaleDateString("en-CA");
+  const today = getTodayIsoDate();
 
   const [screen, setScreen] =
     useState<ScreenType>("desktop");
@@ -783,10 +801,14 @@ export default function NewExpenseInvoicePage() {
               <input
                 style={input}
                 type="date"
+                lang="en-CA"
+                dir="ltr"
                 value={invoiceDate}
                 onChange={(event) =>
                   setInvoiceDate(
-                    event.target.value
+                    normalizeDateInput(
+                      event.target.value
+                    )
                   )
                 }
               />

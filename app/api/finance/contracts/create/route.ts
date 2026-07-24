@@ -24,6 +24,7 @@ const HIJRI_DATE_PATTERN =
 const CONTRACT_TYPES = new Set([
   "عقد بيع",
   "عقد تقسيط",
+  "عقد بيع حر",
 ]);
 
 const PRINT_PARTY_TYPES = new Set([
@@ -354,6 +355,44 @@ function mappedRpcError(
     };
   }
 
+  if (upper.includes("GUARANTOR_SAME_AS_BUYER")) {
+    return {
+      message:
+        "لا يمكن أن تكون هوية الكفيل مطابقة لهوية المشتري",
+      status: 400,
+      code: "GUARANTOR_SAME_AS_BUYER",
+    };
+  }
+
+  if (upper.includes("GUARANTOR_NAME_REQUIRED")) {
+    return {
+      message: "أدخل اسم الكفيل",
+      status: 400,
+      code: "GUARANTOR_NAME_REQUIRED",
+    };
+  }
+
+  if (
+    upper.includes(
+      "INVALID_GUARANTOR_NATIONAL_ID"
+    )
+  ) {
+    return {
+      message:
+        "رقم هوية الكفيل يجب أن يتكون من 10 أرقام",
+      status: 400,
+      code: "INVALID_GUARANTOR_NATIONAL_ID",
+    };
+  }
+
+  if (upper.includes("INVALID_GUARANTOR_PHONE")) {
+    return {
+      message: "رقم جوال الكفيل غير صحيح",
+      status: 400,
+      code: "INVALID_GUARANTOR_PHONE",
+    };
+  }
+
   if (upper.includes("INVESTOR_NOT_FOUND")) {
     return {
       message: "المستثمر غير موجود أو غير نشط في هذا الفرع",
@@ -367,6 +406,14 @@ function mappedRpcError(
       message: "المنتج غير موجود أو غير نشط في هذا الفرع",
       status: 400,
       code: "INVALID_PRODUCT",
+    };
+  }
+
+  if (upper.includes("INVALID_JUDICIAL_AMOUNT")) {
+    return {
+      message: "مبلغ التقاضي غير صحيح",
+      status: 400,
+      code: "INVALID_JUDICIAL_AMOUNT",
     };
   }
 
@@ -656,8 +703,12 @@ export async function POST(
     const hasGuarantor = booleanValue(
       parsedBody.hasGuarantor
     );
+    const hasJudicialAmount = booleanValue(
+      parsedBody.hasJudicialAmount
+    );
     const guarantorFullName = text(
-      parsedBody.guarantorFullName,
+      parsedBody.guarantorFullName ??
+        parsedBody.guarantorName,
       200
     );
     const guarantorNationalId = identifier(
@@ -685,11 +736,199 @@ export async function POST(
       parsedBody.allowNegativeInventory
     );
 
+    if (contractType === "عقد بيع حر") {
+      const freeSale = isPlainObject(parsedBody.freeSale)
+        ? parsedBody.freeSale
+        : {};
+
+      const buyerName = text(freeSale.buyerName, 200);
+      const buyerNationalId = identifier(freeSale.buyerNationalId);
+      const buyerPhone = identifier(freeSale.buyerPhone);
+      const dueAmount = nonNegativeNumber(freeSale.dueAmount);
+      const contractDate = text(freeSale.contractDate, 20);
+      const dueDate = text(freeSale.dueDate, 20);
+      const paymentMethod = text(freeSale.paymentMethod, 40);
+      const freeSaleJudicialAmount = hasJudicialAmount
+        ? judicialAmount
+        : 0;
+
+      if (
+        buyerName.length < 2 ||
+        !NATIONAL_ID_PATTERN.test(buyerNationalId) ||
+        (buyerPhone && !PHONE_PATTERN.test(buyerPhone)) ||
+        dueAmount === null ||
+        freeSaleJudicialAmount === null ||
+        (contractDate && !validIsoDate(contractDate)) ||
+        (dueDate && !validIsoDate(dueDate)) ||
+        (contractDate && dueDate && dueDate < contractDate) ||
+        (
+          paymentMethod &&
+          ![
+            "على دفعة واحدة",
+            "على دفعات",
+          ].includes(paymentMethod)
+        )
+      ) {
+        return errorResponse(
+          "تحقق من بيانات عقد البيع الحر",
+          400,
+          "INVALID_FREE_SALE_INPUT"
+        );
+      }
+
+      if (
+        hasJudicialAmount &&
+        (
+          freeSaleJudicialAmount === null ||
+          freeSaleJudicialAmount <= 0
+        )
+      ) {
+        return errorResponse(
+          "أدخل المبلغ القضائي",
+          400,
+          "INVALID_JUDICIAL_AMOUNT"
+        );
+      }
+
+      if (hasGuarantor) {
+        if (guarantorFullName.length < 2) {
+          return errorResponse(
+            "أدخل اسم الكفيل",
+            400,
+            "GUARANTOR_NAME_REQUIRED"
+          );
+        }
+
+        if (
+          !NATIONAL_ID_PATTERN.test(guarantorNationalId)
+        ) {
+          return errorResponse(
+            "رقم هوية الكفيل يجب أن يتكون من 10 أرقام",
+            400,
+            "INVALID_GUARANTOR_NATIONAL_ID"
+          );
+        }
+
+        if (guarantorNationalId === buyerNationalId) {
+          return errorResponse(
+            "لا يمكن أن تكون هوية الكفيل مطابقة لهوية المشتري",
+            400,
+            "GUARANTOR_SAME_AS_BUYER"
+          );
+        }
+
+        if (
+          guarantorPhone &&
+          !PHONE_PATTERN.test(guarantorPhone)
+        ) {
+          return errorResponse(
+            "رقم جوال الكفيل غير صحيح",
+            400,
+            "INVALID_GUARANTOR_PHONE"
+          );
+        }
+      }
+
+      const { data: rpcData, error: rpcError } =
+        await supabaseAdmin.rpc(
+          "create_free_sale_contract_atomic",
+          {
+            p_branch_id: session.branchId,
+            p_employee_id: session.userId,
+            p_buyer_name: buyerName,
+            p_buyer_national_id: buyerNationalId,
+            p_buyer_phone: buyerPhone || null,
+            p_sale_day: text(freeSale.saleDay, 100) || null,
+            p_contract_date: contractDate || null,
+            p_city: text(freeSale.city, 100) || null,
+            p_seller_name: text(freeSale.sellerName, 200) || null,
+            p_seller_national_id:
+              identifier(freeSale.sellerNationalId) || null,
+            p_item_description:
+              text(freeSale.itemDescription, 5_000) || null,
+            p_due_amount: dueAmount,
+            p_payment_method: paymentMethod || null,
+            p_due_date: dueDate || null,
+            p_seller_signature_name:
+              text(freeSale.sellerSignatureName, 200) || null,
+            p_buyer_signature_name:
+              text(freeSale.buyerSignatureName, 200) || null,
+            p_judicial_amount: freeSaleJudicialAmount,
+            p_has_guarantor: hasGuarantor,
+            p_guarantor_name: hasGuarantor
+              ? guarantorFullName
+              : null,
+            p_guarantor_national_id: hasGuarantor
+              ? guarantorNationalId
+              : null,
+            p_guarantor_phone: hasGuarantor
+              ? guarantorPhone || null
+              : null,
+          }
+        );
+
+      if (rpcError) {
+        console.error("Create free sale contract RPC failed:", {
+          message: rpcError.message,
+          code: rpcError.code,
+          details: rpcError.details,
+          hint: rpcError.hint,
+          branchId: session.branchId,
+          employeeId: session.userId,
+        });
+
+        const mapped = mappedRpcError(
+          rpcError.message,
+          rpcError.code
+        );
+
+        if (mapped.code === "INVALID_SESSION") {
+          return sessionError(mapped.message);
+        }
+
+        return errorResponse(
+          mapped.message,
+          mapped.status,
+          mapped.code
+        );
+      }
+
+      const result = firstRpcRow(rpcData);
+
+      if (!result) {
+        console.error(
+          "Create free sale contract RPC returned invalid data:",
+          rpcData
+        );
+
+        return errorResponse(
+          "تم تنفيذ العملية لكن تعذر قراءة النتيجة بأمان",
+          500,
+          "INVALID_RPC_RESULT"
+        );
+      }
+
+      return jsonResponse(
+        {
+          ok: true,
+          contractId: result.contract_id,
+          noteId: result.note_id,
+          customerId: result.customer_id,
+          contractNumber: result.contract_number,
+          noteNumber: result.note_number,
+        },
+        201
+      );
+    }
+
     if (
       customerFullName.length < 2 ||
       !NATIONAL_ID_PATTERN.test(customerNationalId) ||
       !PHONE_PATTERN.test(customerPhone) ||
-      !HIJRI_DATE_PATTERN.test(customerBirthHijri) ||
+      (
+        customerBirthHijri &&
+        !HIJRI_DATE_PATTERN.test(customerBirthHijri)
+      ) ||
       !CONTRACT_TYPES.has(contractType) ||
       !UUID_PATTERN.test(investorId) ||
       !UUID_PATTERN.test(productId) ||
@@ -758,7 +997,10 @@ export async function POST(
         !NATIONAL_ID_PATTERN.test(guarantorNationalId) ||
         guarantorNationalId === customerNationalId ||
         !PHONE_PATTERN.test(guarantorPhone) ||
-        !HIJRI_DATE_PATTERN.test(guarantorBirthHijri)
+        (
+          guarantorBirthHijri &&
+          !HIJRI_DATE_PATTERN.test(guarantorBirthHijri)
+        )
       )
     ) {
       return errorResponse(
@@ -830,7 +1072,7 @@ export async function POST(
 
           p_customer_full_name: customerFullName,
           p_customer_national_id: customerNationalId,
-          p_customer_birth_hijri: customerBirthHijri,
+          p_customer_birth_hijri: customerBirthHijri || null,
           p_customer_phone: customerPhone,
           p_customer_work_name: customerWorkName || null,
           p_customer_address: customerAddress || null,
@@ -866,7 +1108,7 @@ export async function POST(
             ? guarantorNationalId
             : null,
           p_guarantor_birth_hijri: hasGuarantor
-            ? guarantorBirthHijri
+            ? guarantorBirthHijri || null
             : null,
           p_guarantor_phone: hasGuarantor
             ? guarantorPhone

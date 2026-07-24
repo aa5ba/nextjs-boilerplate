@@ -16,6 +16,8 @@ export const dynamic = "force-dynamic";
 type RequestBody = {
   branch?: unknown;
   contractId?: unknown;
+  contractType?: unknown;
+  freeSale?: unknown;
   investorId?: unknown;
   investorName?: unknown;
   productId?: unknown;
@@ -30,6 +32,13 @@ type RequestBody = {
   paymentType?: unknown;
   paymentDueDate?: unknown;
   legalCity?: unknown;
+  judicialAmount?: unknown;
+  hasJudicialAmount?: unknown;
+  hasGuarantor?: unknown;
+  guarantorName?: unknown;
+  guarantorFullName?: unknown;
+  guarantorNationalId?: unknown;
+  guarantorPhone?: unknown;
   notes?: unknown;
 };
 
@@ -38,6 +47,12 @@ type UpdateContractResult = {
   investor_id?: unknown;
   product_id?: unknown;
   product_quantity?: unknown;
+  new_remaining_amount?: unknown;
+};
+
+type FreeSaleUpdateResult = {
+  contract_id?: unknown;
+  customer_id?: unknown;
   new_remaining_amount?: unknown;
 };
 
@@ -72,6 +87,58 @@ function normalizeAmount(
   }
 
   return NaN;
+}
+
+function normalizeOptionalAmount(
+  value: unknown
+): number {
+  if (
+    value === undefined ||
+    value === null ||
+    (typeof value === "string" &&
+      cleanText(value) === "")
+  ) {
+    return 0;
+  }
+
+  return normalizeAmount(value);
+}
+
+function isPlainObject(
+  value: unknown
+): value is Record<string, unknown> {
+  return Boolean(value) &&
+    typeof value === "object" &&
+    !Array.isArray(value);
+}
+
+function normalizeIdentifier(
+  value: unknown
+): string {
+  return cleanText(value).replace(
+    /[٠-٩۰-۹]/g,
+    (digit) =>
+      String(
+        "٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹".indexOf(digit) %
+          10
+      )
+  ).replace(/\D/g, "");
+}
+
+function booleanValue(
+  value: unknown
+): boolean {
+  return value === true;
+}
+
+function normalizeIsoDate(
+  value: unknown
+): string | null {
+  const text = cleanText(value);
+
+  return /^\d{4}-\d{2}-\d{2}$/.test(text)
+    ? text
+    : null;
 }
 
 function createResponse(
@@ -207,6 +274,62 @@ function getUpdateError(
   }
 
   if (
+    message.includes("GUARANTOR_NAME_REQUIRED")
+  ) {
+    return {
+      code: "GUARANTOR_NAME_REQUIRED",
+      message: "أدخل اسم الكفيل",
+      status: 400,
+    };
+  }
+
+  if (
+    message.includes(
+      "INVALID_GUARANTOR_NATIONAL_ID"
+    )
+  ) {
+    return {
+      code: "INVALID_GUARANTOR_NATIONAL_ID",
+      message:
+        "رقم هوية الكفيل يجب أن يتكون من 10 أرقام",
+      status: 400,
+    };
+  }
+
+  if (
+    message.includes("GUARANTOR_SAME_AS_BUYER")
+  ) {
+    return {
+      code: "GUARANTOR_SAME_AS_BUYER",
+      message:
+        "لا يمكن أن تكون هوية الكفيل مطابقة لهوية المشتري",
+      status: 400,
+    };
+  }
+
+  if (
+    message.includes("INVALID_GUARANTOR_PHONE")
+  ) {
+    return {
+      code: "INVALID_GUARANTOR_PHONE",
+      message: "رقم جوال الكفيل غير صحيح",
+      status: 400,
+    };
+  }
+
+  if (
+    message.includes(
+      "INVALID_JUDICIAL_AMOUNT"
+    )
+  ) {
+    return {
+      code: "INVALID_JUDICIAL_AMOUNT",
+      message: "مبلغ التقاضي غير صحيح",
+      status: 400,
+    };
+  }
+
+  if (
     message.includes(
       "INVALID_QUANTITY"
     ) ||
@@ -290,6 +413,303 @@ export async function POST(
         400,
         "INVALID_CONTRACT_ID"
       );
+    }
+
+    const contractType =
+      cleanText(body.contractType);
+
+    if (contractType === "عقد بيع حر") {
+      const freeSale = isPlainObject(body.freeSale)
+        ? body.freeSale
+        : {};
+
+      const buyerName =
+        cleanText(freeSale.buyerName);
+      const buyerNationalId =
+        normalizeIdentifier(freeSale.buyerNationalId);
+      const buyerPhone =
+        normalizeIdentifier(freeSale.buyerPhone);
+      const dueAmount =
+        normalizeAmount(freeSale.dueAmount);
+      const contractDate =
+        normalizeIsoDate(freeSale.contractDate);
+      const dueDate =
+        normalizeIsoDate(freeSale.dueDate);
+      const paymentMethod =
+        cleanText(freeSale.paymentMethod);
+      const judicialAmount =
+        normalizeOptionalAmount(
+          body.judicialAmount
+        );
+      const hasJudicialAmount =
+        booleanValue(body.hasJudicialAmount);
+      const effectiveJudicialAmount =
+        hasJudicialAmount
+          ? judicialAmount
+          : 0;
+      const hasGuarantor =
+        booleanValue(body.hasGuarantor);
+      const guarantorName =
+        cleanText(
+          body.guarantorName ??
+            body.guarantorFullName
+        );
+      const guarantorNationalId =
+        normalizeIdentifier(
+          body.guarantorNationalId
+        );
+      const guarantorPhone =
+        normalizeIdentifier(
+          body.guarantorPhone
+        );
+
+      if (buyerName.length < 2) {
+        return createErrorResponse(
+          "أدخل اسم المشتري",
+          400,
+          "CUSTOMER_NAME_REQUIRED"
+        );
+      }
+
+      if (!/^\d{10}$/.test(buyerNationalId)) {
+        return createErrorResponse(
+          "رقم هوية المشتري يجب أن يكون 10 أرقام",
+          400,
+          "INVALID_CUSTOMER_NATIONAL_ID"
+        );
+      }
+
+      if (buyerPhone && !/^05\d{8}$/.test(buyerPhone)) {
+        return createErrorResponse(
+          "رقم جوال المشتري يجب أن يكون 10 أرقام ويبدأ بـ 05",
+          400,
+          "INVALID_CUSTOMER_PHONE"
+        );
+      }
+
+      if (!Number.isFinite(dueAmount) || dueAmount < 0) {
+        return createErrorResponse(
+          "مبلغ الاستحقاق غير صحيح",
+          400,
+          "INVALID_PAYMENT_AMOUNT"
+        );
+      }
+
+      if (
+        !Number.isFinite(effectiveJudicialAmount) ||
+        effectiveJudicialAmount < 0
+      ) {
+        return createErrorResponse(
+          "مبلغ التقاضي غير صحيح",
+          400,
+          "INVALID_JUDICIAL_AMOUNT"
+        );
+      }
+
+      if (
+        hasJudicialAmount &&
+        effectiveJudicialAmount <= 0
+      ) {
+        return createErrorResponse(
+          "أدخل المبلغ القضائي",
+          400,
+          "INVALID_JUDICIAL_AMOUNT"
+        );
+      }
+
+      if (hasGuarantor) {
+        if (guarantorName.length < 2) {
+          return createErrorResponse(
+            "أدخل اسم الكفيل",
+            400,
+            "GUARANTOR_NAME_REQUIRED"
+          );
+        }
+
+        if (!/^\d{10}$/.test(guarantorNationalId)) {
+          return createErrorResponse(
+            "رقم هوية الكفيل يجب أن يتكون من 10 أرقام",
+            400,
+            "INVALID_GUARANTOR_NATIONAL_ID"
+          );
+        }
+
+        if (guarantorNationalId === buyerNationalId) {
+          return createErrorResponse(
+            "لا يمكن أن تكون هوية الكفيل مطابقة لهوية المشتري",
+            400,
+            "GUARANTOR_SAME_AS_BUYER"
+          );
+        }
+
+        if (
+          guarantorPhone &&
+          !/^05\d{8}$/.test(guarantorPhone)
+        ) {
+          return createErrorResponse(
+            "رقم جوال الكفيل غير صحيح",
+            400,
+            "INVALID_GUARANTOR_PHONE"
+          );
+        }
+      }
+
+      if (
+        paymentMethod &&
+        !["على دفعة واحدة", "على دفعات"].includes(
+          paymentMethod
+        )
+      ) {
+        return createErrorResponse(
+          "طريقة السداد غير صحيحة",
+          400,
+          "INVALID_PAYMENT_TYPE"
+        );
+      }
+
+      if (
+        contractDate &&
+        dueDate &&
+        dueDate < contractDate
+      ) {
+        return createErrorResponse(
+          "تاريخ الاستحقاق لا يمكن أن يسبق تاريخ العقد",
+          400,
+          "DUE_DATE_BEFORE_CONTRACT_DATE"
+        );
+      }
+
+      const {
+        data: contract,
+        error: contractError,
+      } = await supabaseAdmin
+        .from("finance_contracts")
+        .select(
+          "id,branch_id,is_archived,archived_at,paid_amount,contract_type"
+        )
+        .eq("id", contractId)
+        .maybeSingle();
+
+      if (contractError) {
+        throw new Error(contractError.message);
+      }
+
+      if (!contract) {
+        return createErrorResponse(
+          "العقد غير موجود أو لا يتبع هذا الفرع",
+          404,
+          "CONTRACT_NOT_FOUND"
+        );
+      }
+
+      if (contract.branch_id !== session.branchId) {
+        return createErrorResponse(
+          "لا تملك صلاحية الوصول إلى هذا العقد",
+          403,
+          "CONTRACT_BRANCH_MISMATCH"
+        );
+      }
+
+      if (
+        contract.is_archived === true ||
+        Boolean(contract.archived_at)
+      ) {
+        return createErrorResponse(
+          "العقد غير موجود أو لا يتبع هذا الفرع",
+          404,
+          "CONTRACT_NOT_FOUND"
+        );
+      }
+
+      if (contract.contract_type !== "عقد بيع حر") {
+        return createErrorResponse(
+          "نوع العقد لا يطابق عقد بيع حر",
+          409,
+          "INVALID_CONTRACT_TYPE"
+        );
+      }
+
+      if (dueAmount < Number(contract.paid_amount ?? 0)) {
+        return createErrorResponse(
+          "مبلغ السداد الجديد لا يمكن أن يكون أقل من المبلغ المسدد فعليًا",
+          409,
+          "PAYMENT_LESS_THAN_PAID"
+        );
+      }
+
+      const { data, error } = await supabaseAdmin.rpc(
+        "update_free_sale_contract_atomic",
+        {
+          p_branch_id: session.branchId,
+          p_employee_id: session.userId,
+          p_contract_id: contractId,
+          p_buyer_name: buyerName,
+          p_buyer_national_id: buyerNationalId,
+          p_buyer_phone: buyerPhone || null,
+          p_sale_day:
+            cleanText(freeSale.saleDay) || null,
+          p_contract_date: contractDate,
+          p_city:
+            cleanText(freeSale.city) || null,
+          p_seller_name:
+            cleanText(freeSale.sellerName) || null,
+          p_seller_national_id:
+            normalizeIdentifier(
+              freeSale.sellerNationalId
+            ) || null,
+          p_item_description:
+            cleanText(freeSale.itemDescription) || null,
+          p_due_amount: dueAmount,
+          p_payment_method: paymentMethod || null,
+          p_due_date: dueDate,
+          p_seller_signature_name:
+            cleanText(freeSale.sellerSignatureName) ||
+            null,
+          p_buyer_signature_name:
+            cleanText(freeSale.buyerSignatureName) ||
+            null,
+          p_judicial_amount:
+            effectiveJudicialAmount,
+          p_has_guarantor: hasGuarantor,
+          p_guarantor_name: hasGuarantor
+            ? guarantorName
+            : null,
+          p_guarantor_national_id: hasGuarantor
+            ? guarantorNationalId
+            : null,
+          p_guarantor_phone: hasGuarantor
+            ? guarantorPhone || null
+            : null,
+        }
+      );
+
+      if (error) {
+        const mapped =
+          getUpdateError(error.message || "");
+
+        return createErrorResponse(
+          mapped.message,
+          mapped.status,
+          mapped.code
+        );
+      }
+
+      const result =
+        (Array.isArray(data)
+          ? data[0] ?? null
+          : data ?? null) as
+          | FreeSaleUpdateResult
+          | null;
+
+      return createResponse({
+        ok: true,
+        contract_id:
+          result?.contract_id ?? null,
+        customer_id:
+          result?.customer_id ?? null,
+        new_remaining_amount:
+          result?.new_remaining_amount ?? null,
+      });
     }
 
     const investorId =
@@ -398,6 +818,11 @@ export async function POST(
         body.legalCity
       );
 
+    const judicialAmount =
+      normalizeOptionalAmount(
+        body.judicialAmount
+      );
+
     const notes =
       normalizeOptionalText(
         body.notes
@@ -442,7 +867,11 @@ export async function POST(
       !Number.isFinite(
         installmentAmount
       ) ||
-      installmentAmount < 0
+      installmentAmount < 0 ||
+      !Number.isFinite(
+        judicialAmount
+      ) ||
+      judicialAmount < 0
     ) {
       return createErrorResponse(
         "تأكد من صحة مبالغ العقد",
@@ -598,6 +1027,8 @@ export async function POST(
             paymentDueDate,
           p_legal_city:
             legalCity,
+          p_judicial_amount:
+            judicialAmount,
           p_notes: notes,
         }
       );

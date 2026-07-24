@@ -112,6 +112,19 @@ function getReopenError(
     };
   }
 
+  if (
+    message.includes(
+      "CONTRACT_ARCHIVED"
+    )
+  ) {
+    return {
+      code: "CONTRACT_NOT_FOUND",
+      message:
+        "العقد غير موجود أو لا يتبع هذا الفرع",
+      status: 404,
+    };
+  }
+
   return {
     code: "REOPEN_CONTRACT_FAILED",
     message:
@@ -225,7 +238,7 @@ export async function POST(
     if (
       cleanText(
         contract.contract_status
-      ) !== "تم السداد"
+      ) !== "مغلق"
     ) {
       return createErrorResponse(
         "العقد غير مغلق ولا يحتاج إلى إعادة تنشيط",

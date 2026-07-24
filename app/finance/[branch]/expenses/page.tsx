@@ -98,6 +98,17 @@ function padNumber(value: number) {
   return String(value).padStart(2, "0");
 }
 
+function formatGregorianMonthLabel(date: Date) {
+  return new Intl.DateTimeFormat(
+    "ar-SA-u-ca-gregory",
+    {
+      calendar: "gregory",
+      month: "long",
+      year: "numeric",
+    }
+  ).format(date);
+}
+
 function getCurrentMonthValue() {
   const now = new Date();
 
@@ -133,10 +144,7 @@ function getMonthLabel(monthValue: string) {
 
   const date = new Date(year, month - 1, 1);
 
-  return date.toLocaleDateString("ar-SA", {
-    month: "long",
-    year: "numeric",
-  });
+  return formatGregorianMonthLabel(date);
 }
 
 function getMonthOptions() {
@@ -160,10 +168,7 @@ function getMonthOptions() {
 
     options.push({
       value,
-      label: date.toLocaleDateString("ar-SA", {
-        month: "long",
-        year: "numeric",
-      }),
+      label: formatGregorianMonthLabel(date),
     });
   }
 
@@ -993,7 +998,9 @@ export default function ExpensesPage() {
       return value;
     }
 
-    return date.toLocaleDateString("ar-SA");
+    return `${date.getFullYear()}/${padNumber(
+      date.getMonth() + 1
+    )}/${padNumber(date.getDate())}`;
   }
 
   function formatDateTime(
@@ -1007,10 +1014,11 @@ export default function ExpensesPage() {
       return value;
     }
 
-    return date.toLocaleString("ar-SA", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    });
+    return `${date.getFullYear()}/${padNumber(
+      date.getMonth() + 1
+    )}/${padNumber(date.getDate())} ${padNumber(
+      date.getHours()
+    )}:${padNumber(date.getMinutes())}`;
   }
 
   if (!authChecked) {

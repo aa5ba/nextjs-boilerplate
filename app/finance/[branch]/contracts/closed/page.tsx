@@ -374,6 +374,7 @@ export default function ClosedContractsPage() {
           [
             "تم السداد",
             "ملغي",
+            "مغلق",
           ]
         )
         .order("updated_at", {
@@ -813,7 +814,10 @@ export default function ClosedContractsPage() {
                             ...(contract.contract_status ===
                             "ملغي"
                               ? canceledBadge
-                              : paidBadge),
+                              : contract.contract_status ===
+                                  "مغلق"
+                                ? closedBadge
+                                : paidBadge),
                           }}
                         >
                           {contract.contract_status ||
@@ -1548,6 +1552,13 @@ const canceledBadge: CSSProperties = {
   background: "#fee2e2",
   border:
     "1px solid #fecaca",
+};
+
+const closedBadge: CSSProperties = {
+  color: "#334155",
+  background: "#f1f5f9",
+  border:
+    "1px solid #cbd5e1",
 };
 
 const emptyBox: CSSProperties = {

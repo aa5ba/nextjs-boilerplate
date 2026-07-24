@@ -135,14 +135,6 @@ function getErrorMessage(
     }
 
     if (
-      message.includes(
-        "لا يمكن للمدير الرئيسي حذف حسابه"
-      )
-    ) {
-      return "لا يمكن للمدير الرئيسي حذف حسابه";
-    }
-
-    if (
       message.includes("INVALID_SESSION")
     ) {
       return "انتهت الجلسة أو أصبحت غير صالحة";
@@ -247,6 +239,11 @@ export default function FinanceSettingsPage() {
   ] = useState(false);
 
   const [
+    passwordFormOpen,
+    setPasswordFormOpen,
+  ] = useState(false);
+
+  const [
     currentPassword,
     setCurrentPassword,
   ] = useState("");
@@ -261,11 +258,6 @@ export default function FinanceSettingsPage() {
     setConfirmPassword,
   ] = useState("");
 
-  const [
-    deletePassword,
-    setDeletePassword,
-  ] = useState("");
-
   const [loading, setLoading] =
     useState(true);
 
@@ -278,11 +270,6 @@ export default function FinanceSettingsPage() {
   ] = useState(false);
 
   const [
-    deletingAccount,
-    setDeletingAccount,
-  ] = useState(false);
-
-  const [
     settingsMessage,
     setSettingsMessage,
   ] = useState<MessageState>(null);
@@ -290,11 +277,6 @@ export default function FinanceSettingsPage() {
   const [
     passwordMessage,
     setPasswordMessage,
-  ] = useState<MessageState>(null);
-
-  const [
-    deleteMessage,
-    setDeleteMessage,
   ] = useState<MessageState>(null);
 
   const isMobile =
@@ -305,21 +287,6 @@ export default function FinanceSettingsPage() {
 
   const isCompact =
     isMobile || isTablet;
-
-  const isMainManager =
-    settings?.role ===
-    "مدير رئيسي";
-
-  const canSelfDelete =
-    Boolean(
-      settings &&
-        !isMainManager &&
-        [
-          "مدير فرع",
-          "موظف",
-          "مستثمر",
-        ].includes(settings.role)
-    );
 
   const selectedTheme =
     THEME_OPTIONS.find(
@@ -816,8 +783,14 @@ export default function FinanceSettingsPage() {
         throw error;
       }
 
-      clearFinanceSession();
-      router.replace("/login");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setPasswordFormOpen(false);
+      setPasswordMessage({
+        type: "success",
+        text: "تم تغيير كلمة المرور بنجاح",
+      });
     } catch (error) {
       setPasswordMessage({
         type: "error",
@@ -831,68 +804,12 @@ export default function FinanceSettingsPage() {
     }
   }
 
-  async function deleteAccount() {
-    if (
-      !sessionUser?.id ||
-      !sessionUser.branch_id ||
-      !canSelfDelete
-    ) {
-      return;
-    }
-
-    setDeleteMessage(null);
-
-    if (!deletePassword) {
-      setDeleteMessage({
-        type: "error",
-        text: "يرجى إدخال كلمة المرور الحالية",
-      });
-
-      return;
-    }
-
-    const confirmed =
-      window.confirm(
-        "هل أنت متأكد من حذف حسابك؟ سيتم تعطيل الحساب وتسجيل خروجك مع الاحتفاظ بالسجلات السابقة."
-      );
-
-    if (!confirmed) {
-      return;
-    }
-
-    setDeletingAccount(true);
-
-    try {
-      const { error } =
-        await supabase.rpc(
-          "self_disable_finance_account_atomic",
-          {
-            p_branch_id:
-              sessionUser.branch_id,
-            p_user_id:
-              sessionUser.id,
-            p_current_password:
-              deletePassword,
-          }
-        );
-
-      if (error) {
-        throw error;
-      }
-
-      clearFinanceSession();
-      router.replace("/login");
-    } catch (error) {
-      setDeleteMessage({
-        type: "error",
-        text: getErrorMessage(
-          error,
-          "حدث خطأ أثناء حذف الحساب"
-        ),
-      });
-    } finally {
-      setDeletingAccount(false);
-    }
+  function cancelPasswordChange() {
+    setPasswordFormOpen(false);
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setPasswordMessage(null);
   }
 
   function selectTheme(
@@ -1346,57 +1263,6 @@ export default function FinanceSettingsPage() {
             تغيير كلمة المرور
           </h2>
 
-          <Field label="كلمة المرور الحالية">
-            <input
-              className="settings-input"
-              style={input}
-              type="password"
-              autoComplete="current-password"
-              value={
-                currentPassword
-              }
-              onChange={(event) =>
-                setCurrentPassword(
-                  event.target.value
-                )
-              }
-            />
-          </Field>
-
-          <Field label="كلمة المرور الجديدة">
-            <input
-              className="settings-input"
-              style={input}
-              type="password"
-              autoComplete="new-password"
-              maxLength={8}
-              value={newPassword}
-              onChange={(event) =>
-                setNewPassword(
-                  event.target.value
-                )
-              }
-            />
-          </Field>
-
-          <Field label="تأكيد كلمة المرور الجديدة">
-            <input
-              className="settings-input"
-              style={input}
-              type="password"
-              autoComplete="new-password"
-              maxLength={8}
-              value={
-                confirmPassword
-              }
-              onChange={(event) =>
-                setConfirmPassword(
-                  event.target.value
-                )
-              }
-            />
-          </Field>
-
           {passwordMessage && (
             <StatusMessage
               message={
@@ -1405,98 +1271,125 @@ export default function FinanceSettingsPage() {
             />
           )}
 
-          <button
-            type="button"
-            style={{
-              ...passwordButton,
-              opacity:
-                changingPassword
-                  ? 0.65
-                  : 1,
-              cursor:
-                changingPassword
-                  ? "not-allowed"
-                  : "pointer",
-            }}
-            onClick={
-              changePassword
-            }
-            disabled={
-              changingPassword
-            }
-          >
-            {changingPassword
-              ? "جاري التغيير..."
-              : "تغيير كلمة المرور"}
-          </button>
-        </section>
-
-        {canSelfDelete && (
-          <section
-            style={dangerCard}
-          >
-            <h2
-              style={
-                dangerSectionTitle
-              }
-            >
-              حذف الحساب
-            </h2>
-
-            <Field label="كلمة المرور الحالية">
-              <input
-                className="settings-input"
-                style={input}
-                type="password"
-                autoComplete="current-password"
-                value={
-                  deletePassword
-                }
-                onChange={(
-                  event
-                ) =>
-                  setDeletePassword(
-                    event.target
-                      .value
-                  )
-                }
-              />
-            </Field>
-
-            {deleteMessage && (
-              <StatusMessage
-                message={
-                  deleteMessage
-                }
-              />
-            )}
-
+          {!passwordFormOpen ? (
             <button
               type="button"
-              style={{
-                ...deleteButton,
-                opacity:
-                  deletingAccount
-                    ? 0.55
-                    : 1,
-                cursor:
-                  deletingAccount
-                    ? "not-allowed"
-                    : "pointer",
-              }}
+              style={passwordButton}
               onClick={
-                deleteAccount
-              }
-              disabled={
-                deletingAccount
+                () => {
+                  setPasswordFormOpen(true);
+                  setPasswordMessage(null);
+                }
               }
             >
-              {deletingAccount
-                ? "جاري حذف الحساب..."
-                : "حذف الحساب"}
+              تغيير كلمة المرور
             </button>
-          </section>
-        )}
+          ) : (
+            <div
+              style={
+                passwordPanel
+              }
+            >
+              <Field label="كلمة المرور الحالية">
+                <input
+                  className="settings-input"
+                  style={input}
+                  type="password"
+                  autoComplete="current-password"
+                  value={
+                    currentPassword
+                  }
+                  onChange={(event) =>
+                    setCurrentPassword(
+                      event.target
+                        .value
+                    )
+                  }
+                />
+              </Field>
+
+              <Field label="كلمة المرور الجديدة">
+                <input
+                  className="settings-input"
+                  style={input}
+                  type="password"
+                  autoComplete="new-password"
+                  maxLength={8}
+                  value={newPassword}
+                  onChange={(event) =>
+                    setNewPassword(
+                      event.target
+                        .value
+                    )
+                  }
+                />
+              </Field>
+
+              <Field label="تأكيد كلمة المرور الجديدة">
+                <input
+                  className="settings-input"
+                  style={input}
+                  type="password"
+                  autoComplete="new-password"
+                  maxLength={8}
+                  value={
+                    confirmPassword
+                  }
+                  onChange={(event) =>
+                    setConfirmPassword(
+                      event.target
+                        .value
+                    )
+                  }
+                />
+              </Field>
+
+              <div
+                style={
+                  passwordActionGrid
+                }
+              >
+                <button
+                  type="button"
+                  style={{
+                    ...passwordButton,
+                    opacity:
+                      changingPassword
+                        ? 0.65
+                        : 1,
+                    cursor:
+                      changingPassword
+                        ? "not-allowed"
+                        : "pointer",
+                  }}
+                  onClick={
+                    changePassword
+                  }
+                  disabled={
+                    changingPassword
+                  }
+                >
+                  {changingPassword
+                    ? "جاري التغيير..."
+                    : "تنفيذ التغيير"}
+                </button>
+
+                <button
+                  type="button"
+                  style={cancelButton}
+                  onClick={
+                    cancelPasswordChange
+                  }
+                  disabled={
+                    changingPassword
+                  }
+                >
+                  إلغاء
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
 
         <div
           style={backWrapper}
@@ -2238,14 +2131,6 @@ const card: CSSProperties = {
   overflow: "visible",
 };
 
-const dangerCard: CSSProperties = {
-  ...card,
-  border:
-    "1px solid #e5e7eb",
-  background:
-    "rgba(255,255,255,0.86)",
-};
-
 const sectionTitle: CSSProperties = {
   marginTop: 0,
   marginBottom: 18,
@@ -2255,13 +2140,6 @@ const sectionTitle: CSSProperties = {
   fontFamily:
     "var(--font-almarai), sans-serif",
 };
-
-const dangerSectionTitle: CSSProperties =
-  {
-    ...sectionTitle,
-    color: "#475569",
-    fontSize: 17,
-  };
 
 const fieldBox: CSSProperties = {
   marginBottom: 14,
@@ -2530,15 +2408,33 @@ const passwordButton: CSSProperties = {
     "0 8px 18px rgba(13,148,136,0.17)",
 };
 
-const deleteButton: CSSProperties = {
-  padding: "9px 14px",
+const passwordPanel: CSSProperties = {
+  border:
+    "1px solid #ccfbf1",
+  borderRadius: 16,
+  padding: 14,
+  background:
+    "linear-gradient(180deg,rgba(240,253,250,0.78),rgba(255,255,255,0.94))",
+};
+
+const passwordActionGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns:
+    "repeat(auto-fit, minmax(140px, 1fr))",
+  gap: 10,
+  alignItems: "center",
+};
+
+const cancelButton: CSSProperties = {
+  minHeight: 48,
+  padding: "10px 16px",
   background: "#f8fafc",
   color: "#64748b",
   border:
     "1px solid #cbd5e1",
-  borderRadius: 10,
-  fontSize: 13,
-  fontWeight: 800,
+  borderRadius: 14,
+  fontSize: 14,
+  fontWeight: 900,
   fontFamily:
     "var(--font-almarai), sans-serif",
 };

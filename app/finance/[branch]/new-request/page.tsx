@@ -127,7 +127,8 @@ type SelectOption = {
 type ContractType =
   | ""
   | "عقد بيع"
-  | "عقد تقسيط";
+  | "عقد تقسيط"
+  | "عقد بيع حر";
 
 const SESSION_DURATION_MS =
   60 * 60 * 1000;
@@ -258,6 +259,46 @@ export default function NewRequestPage() {
 
   const [contractType, setContractType] =
     useState<ContractType>("");
+  const [freeSaleDay, setFreeSaleDay] =
+    useState("");
+  const [freeSaleContractDate, setFreeSaleContractDate] =
+    useState("");
+  const [freeSaleCity, setFreeSaleCity] =
+    useState("");
+  const [freeSaleSellerName, setFreeSaleSellerName] =
+    useState("");
+  const [
+    freeSaleSellerNationalId,
+    setFreeSaleSellerNationalId,
+  ] = useState("");
+  const [freeSaleBuyerName, setFreeSaleBuyerName] =
+    useState("");
+  const [
+    freeSaleBuyerNationalId,
+    setFreeSaleBuyerNationalId,
+  ] = useState("");
+  const [freeSaleBuyerPhone, setFreeSaleBuyerPhone] =
+    useState("");
+  const [
+    freeSaleItemDescription,
+    setFreeSaleItemDescription,
+  ] = useState("");
+  const [freeSaleDueAmount, setFreeSaleDueAmount] =
+    useState("");
+  const [
+    freeSalePaymentMethod,
+    setFreeSalePaymentMethod,
+  ] = useState("");
+  const [freeSaleDueDate, setFreeSaleDueDate] =
+    useState("");
+  const [
+    freeSaleSellerSignatureName,
+    setFreeSaleSellerSignatureName,
+  ] = useState("");
+  const [
+    freeSaleBuyerSignatureName,
+    setFreeSaleBuyerSignatureName,
+  ] = useState("");
 
   const [investorId, setInvestorId] =
     useState("");
@@ -353,6 +394,29 @@ export default function NewRequestPage() {
   const [legalCity, setLegalCity] =
     useState("");
 
+  const [judicialAmount, setJudicialAmount] =
+    useState("");
+  const [
+    freeSaleHasJudicialAmount,
+    setFreeSaleHasJudicialAmount,
+  ] = useState(false);
+  const [
+    freeSaleHasGuarantor,
+    setFreeSaleHasGuarantor,
+  ] = useState(false);
+  const [
+    freeSaleGuarantorName,
+    setFreeSaleGuarantorName,
+  ] = useState("");
+  const [
+    freeSaleGuarantorNationalId,
+    setFreeSaleGuarantorNationalId,
+  ] = useState("");
+  const [
+    freeSaleGuarantorPhone,
+    setFreeSaleGuarantorPhone,
+  ] = useState("");
+
   const [notes, setNotes] =
     useState("");
 
@@ -370,6 +434,8 @@ export default function NewRequestPage() {
 
   const isInstallmentContract =
     contractType === "عقد تقسيط";
+  const isFreeSaleContract =
+    contractType === "عقد بيع حر";
 
   const investorOptions:
     SelectOption[] =
@@ -1764,8 +1830,73 @@ export default function NewRequestPage() {
       return "تعذر تحديد الفرع";
     }
 
-    if (listsLoading) {
+    if (listsLoading && !isFreeSaleContract) {
       return "انتظر حتى يكتمل تحميل المستثمرين والمنتجات";
+    }
+
+    if (isFreeSaleContract) {
+      if (freeSaleBuyerNationalId.length !== 10) {
+        return "رقم هوية المشتري يجب أن يكون 10 أرقام";
+      }
+
+      if (!freeSaleBuyerName.trim()) {
+        return "أدخل اسم المشتري";
+      }
+
+      if (
+        freeSaleBuyerPhone &&
+        !/^05\d{8}$/.test(freeSaleBuyerPhone)
+      ) {
+        return "رقم جوال المشتري يجب أن يكون 10 أرقام ويبدأ بـ 05";
+      }
+
+      if (
+        freeSaleDueAmount &&
+        toNumber(freeSaleDueAmount) < 0
+      ) {
+        return "مبلغ الاستحقاق غير صحيح";
+      }
+
+      if (
+        freeSaleHasJudicialAmount &&
+        toNumber(judicialAmount) <= 0
+      ) {
+        return "أدخل المبلغ القضائي";
+      }
+
+      if (freeSaleHasGuarantor) {
+        if (freeSaleGuarantorName.trim().length < 2) {
+          return "أدخل اسم الكفيل";
+        }
+
+        if (freeSaleGuarantorNationalId.length !== 10) {
+          return "رقم هوية الكفيل يجب أن يتكون من 10 أرقام";
+        }
+
+        if (
+          freeSaleGuarantorNationalId ===
+          freeSaleBuyerNationalId
+        ) {
+          return "لا يمكن أن تكون هوية الكفيل مطابقة لهوية المشتري";
+        }
+
+        if (
+          freeSaleGuarantorPhone &&
+          !/^05\d{8}$/.test(freeSaleGuarantorPhone)
+        ) {
+          return "رقم جوال الكفيل غير صحيح";
+        }
+      }
+
+      if (
+        freeSaleContractDate &&
+        freeSaleDueDate &&
+        freeSaleDueDate < freeSaleContractDate
+      ) {
+        return "تاريخ الاستحقاق لا يمكن أن يسبق تاريخ العقد";
+      }
+
+      return "";
     }
 
     if (!fullName.trim()) {
@@ -1779,24 +1910,28 @@ export default function NewRequestPage() {
       return "رقم الهوية يجب أن يكون 10 أرقام";
     }
 
-    if (!birthDay) {
-      return "يرجى إدخال يوم الميلاد";
-    }
-
-    if (!birthMonth) {
-      return "يرجى إدخال شهر الميلاد";
-    }
-
-    if (!birthYear) {
-      return "يرجى إدخال سنة الميلاد";
-    }
-
     if (
       !/^05\d{8}$/.test(
         cleanPhone
       )
     ) {
       return "رقم الجوال يجب أن يكون 10 أرقام ويبدأ بـ 05";
+    }
+
+    const hasAnyCustomerBirth =
+      birthDay ||
+      birthMonth ||
+      birthYear;
+
+    if (
+      hasAnyCustomerBirth &&
+      (
+        !birthDay ||
+        !birthMonth ||
+        !birthYear
+      )
+    ) {
+      return "أكمل تاريخ ميلاد العميل أو اتركه فارغًا";
     }
 
     if (
@@ -1824,6 +1959,13 @@ export default function NewRequestPage() {
 
     if (payment <= 0) {
       return "يرجى إدخال مبلغ سداد صحيح";
+    }
+
+    if (
+      judicialAmount &&
+      toNumber(judicialAmount) < 0
+    ) {
+      return "مبلغ التقاضي غير صحيح";
     }
 
     if (isInstallmentContract) {
@@ -1902,22 +2044,20 @@ export default function NewRequestPage() {
         return "رقم جوال الكفيل يجب أن يكون 10 أرقام ويبدأ بـ 05";
       }
 
-      if (
-        !guarantorBirthDay
-      ) {
-        return "يرجى إدخال يوم ميلاد الكفيل";
-      }
+      const hasAnyGuarantorBirth =
+        guarantorBirthDay ||
+        guarantorBirthMonth ||
+        guarantorBirthYear;
 
       if (
-        !guarantorBirthMonth
+        hasAnyGuarantorBirth &&
+        (
+          !guarantorBirthDay ||
+          !guarantorBirthMonth ||
+          !guarantorBirthYear
+        )
       ) {
-        return "يرجى إدخال شهر ميلاد الكفيل";
-      }
-
-      if (
-        !guarantorBirthYear
-      ) {
-        return "يرجى إدخال سنة ميلاد الكفيل";
+        return "أكمل تاريخ ميلاد الكفيل أو اتركه فارغًا";
       }
     }
 
@@ -2046,6 +2186,93 @@ export default function NewRequestPage() {
       return;
     }
 
+    if (isFreeSaleContract) {
+      try {
+        setSaving(true);
+        renewFinanceSession();
+
+        const apiResult =
+          await sendNewRequestToApi({
+            contractType: "عقد بيع حر",
+            freeSale: {
+              saleDay: freeSaleDay.trim(),
+              contractDate: freeSaleContractDate,
+              city: freeSaleCity.trim(),
+              sellerName: freeSaleSellerName.trim(),
+              sellerNationalId:
+                freeSaleSellerNationalId,
+              buyerName: freeSaleBuyerName.trim(),
+              buyerNationalId:
+                freeSaleBuyerNationalId,
+              buyerPhone: freeSaleBuyerPhone,
+              itemDescription:
+                freeSaleItemDescription.trim(),
+              dueAmount: freeSaleDueAmount
+                ? toNumber(freeSaleDueAmount)
+                : 0,
+              paymentMethod: freeSalePaymentMethod,
+              dueDate: freeSaleDueDate,
+              sellerSignatureName:
+                freeSaleSellerSignatureName.trim(),
+            buyerSignatureName:
+              freeSaleBuyerSignatureName.trim(),
+          },
+          hasJudicialAmount:
+            freeSaleHasJudicialAmount,
+          judicialAmount: judicialAmount
+            ? toNumber(judicialAmount)
+            : 0,
+          hasGuarantor:
+            freeSaleHasGuarantor,
+          guarantorName:
+            freeSaleHasGuarantor
+              ? freeSaleGuarantorName.trim()
+              : null,
+          guarantorNationalId:
+            freeSaleHasGuarantor
+              ? freeSaleGuarantorNationalId
+              : null,
+          guarantorPhone:
+            freeSaleHasGuarantor
+              ? freeSaleGuarantorPhone
+              : null,
+        });
+
+        if (!apiResult.response.ok) {
+          throw new Error(
+            apiResult.data.message ||
+              "تعذر إنشاء عقد البيع الحر"
+          );
+        }
+
+        if (!apiResult.data.contractId) {
+          throw new Error(
+            "تم إنشاء العقد لكن لم يتم إرجاع بيانات الطباعة"
+          );
+        }
+
+        if (directedOfferId) {
+          await markDirectedOfferContractCreated(
+            apiResult.data.contractId
+          );
+        }
+
+        router.push(
+          `/finance/${branch}/contracts/print/${apiResult.data.contractId}`
+        );
+      } catch (error) {
+        alert(
+          error instanceof Error
+            ? error.message
+            : "تعذر إنشاء عقد البيع الحر"
+        );
+      } finally {
+        setSaving(false);
+      }
+
+      return;
+    }
+
     const selectedInvestor =
       investors.find(
         (item) =>
@@ -2120,16 +2347,23 @@ export default function NewRequestPage() {
       renewFinanceSession();
 
       const birthHijri =
-        `${birthYear}/${birthMonth.padStart(
-          2,
-          "0"
-        )}/${birthDay.padStart(
-          2,
-          "0"
-        )}`;
+        birthYear &&
+        birthMonth &&
+        birthDay
+          ? `${birthYear}/${birthMonth.padStart(
+              2,
+              "0"
+            )}/${birthDay.padStart(
+              2,
+              "0"
+            )}`
+          : "";
 
       const guarantorBirthHijri =
-        hasGuarantor
+        hasGuarantor &&
+        guarantorBirthYear &&
+        guarantorBirthMonth &&
+        guarantorBirthDay
           ? `${guarantorBirthYear}/${guarantorBirthMonth.padStart(
               2,
               "0"
@@ -2196,6 +2430,10 @@ export default function NewRequestPage() {
 
         legalCity:
           legalCity.trim(),
+
+        judicialAmount: judicialAmount
+          ? toNumber(judicialAmount)
+          : 0,
 
         notes:
           notes.trim(),
@@ -2520,6 +2758,10 @@ export default function NewRequestPage() {
                   value: "عقد تقسيط",
                   label: "عقد تقسيط",
                 },
+                {
+                  value: "عقد بيع حر",
+                  label: "عقد بيع حر",
+                },
               ]}
               onChange={(value) => {
                 const nextContractType =
@@ -2535,11 +2777,341 @@ export default function NewRequestPage() {
                 ) {
                   resetDeferredPaymentsFields();
                 }
+
+                if (
+                  nextContractType ===
+                  "عقد بيع حر"
+                ) {
+                  setHasGuarantor(false);
+                  resetGuarantorFields();
+                } else {
+                  setFreeSaleHasGuarantor(false);
+                  setFreeSaleGuarantorName("");
+                  setFreeSaleGuarantorNationalId("");
+                  setFreeSaleGuarantorPhone("");
+                  setFreeSaleHasJudicialAmount(false);
+                  setJudicialAmount("");
+                }
               }}
             />
           </Field>
         </section>
 
+        {isFreeSaleContract && (
+          <section style={card}>
+            <h2 style={sectionTitle}>
+              عقد بيع
+            </h2>
+
+            <div style={freeSaleDocument}>
+              <p style={freeSaleParagraph}>
+                الحمد لله، والصلاة والسلام على من لا نبي بعده، وبعد:
+              </p>
+
+              <p style={freeSaleParagraph}>
+                قد عقد الطرفان أدناه في يوم:{" "}
+                <InlineContractInput
+                  value={freeSaleDay}
+                  onChange={setFreeSaleDay}
+                  placeholder="اليوم"
+                />
+                بتاريخ:{" "}
+                <InlineDateInput
+                  value={freeSaleContractDate}
+                  onChange={setFreeSaleContractDate}
+                  placeholder="تاريخ العقد"
+                />
+                في مدينة:{" "}
+                <InlineContractInput
+                  value={freeSaleCity}
+                  onChange={setFreeSaleCity}
+                  placeholder="المدينة"
+                />
+              </p>
+
+              <p style={freeSaleParagraph}>
+                الطرف الأول (البائع):{" "}
+                <InlineContractInput
+                  value={freeSaleSellerName}
+                  onChange={setFreeSaleSellerName}
+                  placeholder="اسم البائع"
+                />
+                رقم الهوية:{" "}
+                <InlineContractInput
+                  value={freeSaleSellerNationalId}
+                  onChange={(nextValue) =>
+                    setFreeSaleSellerNationalId(
+                      normalizeNumber(nextValue)
+                        .replace(/\D/g, "")
+                        .slice(0, 10)
+                    )
+                  }
+                  placeholder="هوية البائع"
+                  inputMode="numeric"
+                />
+              </p>
+
+              <p style={freeSaleParagraph}>
+                الطرف الثاني (المشتري):{" "}
+                <InlineContractInput
+                  value={freeSaleBuyerName}
+                  onChange={setFreeSaleBuyerName}
+                  placeholder="اسم المشتري"
+                  required
+                />
+                رقم الهوية:{" "}
+                <InlineContractInput
+                  value={freeSaleBuyerNationalId}
+                  onChange={(nextValue) =>
+                    setFreeSaleBuyerNationalId(
+                      normalizeNumber(nextValue)
+                        .replace(/\D/g, "")
+                        .slice(0, 10)
+                    )
+                  }
+                  placeholder="هوية المشتري"
+                  inputMode="numeric"
+                  required
+                />
+                رقم الجوال:{" "}
+                <InlineContractInput
+                  value={freeSaleBuyerPhone}
+                  onChange={(nextValue) =>
+                    setFreeSaleBuyerPhone(
+                      normalizeNumber(nextValue)
+                        .replace(/\D/g, "")
+                        .slice(0, 10)
+                    )
+                  }
+                  placeholder="جوال المشتري"
+                  inputMode="tel"
+                />
+              </p>
+
+              <div style={freeSaleOptionSection}>
+                <div style={freeSaleOptionTitle}>
+                  الكفيل
+                </div>
+                <div style={freeSaleOptionGrid}>
+                  <button
+                    type="button"
+                    aria-pressed={!freeSaleHasGuarantor}
+                    disabled={saving}
+                    style={getFreeSaleChoiceStyle(
+                      !freeSaleHasGuarantor
+                    )}
+                    onClick={() => {
+                      setFreeSaleHasGuarantor(false);
+                      setFreeSaleGuarantorName("");
+                      setFreeSaleGuarantorNationalId("");
+                      setFreeSaleGuarantorPhone("");
+                    }}
+                  >
+                    بدون كفيل
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={freeSaleHasGuarantor}
+                    disabled={saving}
+                    style={getFreeSaleChoiceStyle(
+                      freeSaleHasGuarantor
+                    )}
+                    onClick={() =>
+                      setFreeSaleHasGuarantor(true)
+                    }
+                  >
+                    يوجد كفيل
+                  </button>
+                </div>
+
+                {freeSaleHasGuarantor && (
+                  <div style={freeSaleConditionalFields}>
+                    <InlineContractInput
+                      value={freeSaleGuarantorName}
+                      onChange={setFreeSaleGuarantorName}
+                      placeholder="اسم الكفيل"
+                      required
+                    />
+                    <InlineContractInput
+                      value={freeSaleGuarantorNationalId}
+                      onChange={(nextValue) =>
+                        setFreeSaleGuarantorNationalId(
+                          normalizeNumber(nextValue)
+                            .replace(/\D/g, "")
+                            .slice(0, 10)
+                        )
+                      }
+                      placeholder="هوية الكفيل"
+                      inputMode="numeric"
+                      required
+                    />
+                    <InlineContractInput
+                      value={freeSaleGuarantorPhone}
+                      onChange={(nextValue) =>
+                        setFreeSaleGuarantorPhone(
+                          normalizeNumber(nextValue)
+                            .replace(/\D/g, "")
+                            .slice(0, 10)
+                        )
+                      }
+                      placeholder="جوال الكفيل اختياري"
+                      inputMode="tel"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <p style={freeSaleParagraph}>
+                بأن الطرف الثاني قد اشترى من الطرف الأول:{" "}
+                <InlineContractTextarea
+                  value={freeSaleItemDescription}
+                  onChange={setFreeSaleItemDescription}
+                  placeholder="وصف المبيع"
+                />
+                بمبلغ استحقاق قدره:{" "}
+                <InlineContractInput
+                  value={freeSaleDueAmount}
+                  onChange={(nextValue) =>
+                    setFreeSaleDueAmount(
+                      normalizeNumber(nextValue)
+                    )
+                  }
+                  placeholder="مبلغ الاستحقاق"
+                  inputMode="decimal"
+                />{" "}
+                ريال.
+              </p>
+
+              <div style={freeSaleOptionSection}>
+                <div style={freeSaleOptionTitle}>
+                  المبلغ القضائي
+                </div>
+                <div style={freeSaleOptionGrid}>
+                  <button
+                    type="button"
+                    aria-pressed={!freeSaleHasJudicialAmount}
+                    disabled={saving}
+                    style={getFreeSaleChoiceStyle(
+                      !freeSaleHasJudicialAmount
+                    )}
+                    onClick={() => {
+                      setFreeSaleHasJudicialAmount(false);
+                      setJudicialAmount("");
+                    }}
+                  >
+                    لا يوجد مبلغ قضائي
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={freeSaleHasJudicialAmount}
+                    disabled={saving}
+                    style={getFreeSaleChoiceStyle(
+                      freeSaleHasJudicialAmount
+                    )}
+                    onClick={() =>
+                      setFreeSaleHasJudicialAmount(true)
+                    }
+                  >
+                    يوجد مبلغ قضائي
+                  </button>
+                </div>
+                {freeSaleHasJudicialAmount && (
+                  <div style={freeSaleConditionalFields}>
+                    <InlineContractInput
+                      value={judicialAmount}
+                      onChange={(nextValue) =>
+                        setJudicialAmount(
+                          normalizeNumber(nextValue)
+                        )
+                      }
+                      placeholder="المبلغ القضائي"
+                      inputMode="decimal"
+                      required
+                    />
+                    <span>ريال</span>
+                  </div>
+                )}
+              </div>
+
+              <p style={freeSaleParagraph}>
+                وتقرر أن يكون السداد:{" "}
+                <span style={inlineSelectWrapper}>
+                  <CustomSelect
+                    value={freeSalePaymentMethod}
+                    placeholder="طريقة السداد"
+                    options={[
+                      {
+                        value: "على دفعة واحدة",
+                        label: "على دفعة واحدة",
+                      },
+                      {
+                        value: "على دفعات",
+                        label: "على دفعات",
+                      },
+                    ]}
+                    onChange={setFreeSalePaymentMethod}
+                  />
+                </span>
+                وأن يكون تاريخ استحقاق السداد:{" "}
+                <InlineDateInput
+                  value={freeSaleDueDate}
+                  onChange={setFreeSaleDueDate}
+                  placeholder="تاريخ الاستحقاق"
+                />
+              </p>
+
+              <p style={freeSaleParagraph}>
+                كما يقر الطرف الثاني بأنه اطلع على كامل تفاصيل هذا العقد وقبل
+                الشراء، وأنه تسلم ما قام بشرائه وتحقق منه وقبل به، وأنه ملتزم
+                بالموعد المحدد للسداد. وفي حال التأخر لأي سبب كان، يحق للطرف
+                الأول اتخاذ الإجراءات النظامية اللازمة للمطالبة بكامل المبلغ
+                المتبقي.
+              </p>
+
+              <div style={freeSaleSignatures}>
+                <div style={freeSaleSignatureBox}>
+                  <strong>الطرف الأول (البائع):</strong>
+                  <InlineContractInput
+                    value={freeSaleSellerSignatureName}
+                    onChange={setFreeSaleSellerSignatureName}
+                    placeholder="اسم مستقل للتوقيع"
+                  />
+                  <span>التوقيع:</span>
+                </div>
+
+                <div style={freeSaleSignatureBox}>
+                  <strong>الطرف الثاني (المشتري):</strong>
+                  <InlineContractInput
+                    value={freeSaleBuyerSignatureName}
+                    onChange={setFreeSaleBuyerSignatureName}
+                    placeholder="اسم مستقل للتوقيع"
+                  />
+                  <span>التوقيع:</span>
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              style={{
+                ...primaryButton,
+                opacity: saving ? 0.7 : 1,
+                cursor: saving
+                  ? "not-allowed"
+                  : "pointer",
+              }}
+              onClick={createRequest}
+              disabled={saving}
+            >
+              {saving
+                ? "جاري إنشاء الطلب..."
+                : "إنشاء عقد البيع الحر وطباعته"}
+            </button>
+          </section>
+        )}
+
+        {!isFreeSaleContract && (
+          <>
         <section style={card}>
           <h2 style={sectionTitle}>
             بيانات العميل
@@ -2956,6 +3528,22 @@ export default function NewRequestPage() {
             />
           </Field>
 
+          <Field label="مبلغ التقاضي - اختياري">
+            <input
+              style={input}
+              inputMode="decimal"
+              value={judicialAmount}
+              placeholder="0.00"
+              onChange={(event) =>
+                setJudicialAmount(
+                  normalizeNumber(
+                    event.target.value
+                  )
+                )
+              }
+            />
+          </Field>
+
           <Field label="هل يوجد كفيل؟">
             <CustomSelect
               value={
@@ -3163,6 +3751,8 @@ export default function NewRequestPage() {
                 : "إنشاء الطلب وطباعة العقد"}
           </button>
         </section>
+          </>
+        )}
 
         <div style={backWrapper}>
           <button
@@ -3195,6 +3785,82 @@ function Field({
 
       {children}
     </div>
+  );
+}
+
+function InlineContractInput({
+  value,
+  onChange,
+  placeholder,
+  inputMode = "text",
+  required = false,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  inputMode?: "text" | "numeric" | "decimal" | "tel";
+  required?: boolean;
+}) {
+  return (
+    <input
+      style={{
+        ...inlineContractInput,
+        ...(required ? inlineContractInputRequired : {}),
+      }}
+      value={value}
+      inputMode={inputMode}
+      placeholder={placeholder}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  );
+}
+
+function InlineContractTextarea({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <textarea
+      style={inlineContractTextarea}
+      value={value}
+      placeholder={placeholder}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  );
+}
+
+function InlineDateInput({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <span style={inlineDateWrapper}>
+      <ProfessionalDatePicker
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+      />
+
+      {value && (
+        <button
+          type="button"
+          style={inlineDateClearButton}
+          onClick={() => onChange("")}
+        >
+          مسح
+        </button>
+      )}
+    </span>
   );
 }
 
@@ -3483,6 +4149,7 @@ function ProfessionalDatePicker({
       parseDateValue(value);
 
     if (selectedDate) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- keep the popup month synced with externally selected dates.
       setVisibleYear(
         selectedDate.getFullYear()
       );
@@ -4681,6 +5348,154 @@ const textarea:
   minHeight: 110,
   padding: 14,
   resize: "vertical",
+};
+
+const freeSaleDocument: CSSProperties = {
+  border: "1px solid #d9e3f5",
+  borderRadius: 18,
+  background:
+    "linear-gradient(180deg,#ffffff 0%,#f8fbff 100%)",
+  padding: 22,
+  color: "#172554",
+  fontSize: 17,
+  lineHeight: 2.15,
+  fontWeight: 800,
+};
+
+const freeSaleParagraph: CSSProperties = {
+  margin: "0 0 16px",
+};
+
+const freeSaleOptionSection: CSSProperties = {
+  margin: "12px 0 18px",
+  padding: 14,
+  border: "1px solid #d9e3f5",
+  borderRadius: 14,
+  background: "rgba(255,255,255,0.72)",
+};
+
+const freeSaleOptionTitle: CSSProperties = {
+  marginBottom: 10,
+  fontSize: 15,
+  fontWeight: 900,
+  color: "#1e3a8a",
+};
+
+const freeSaleOptionGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns:
+    "repeat(auto-fit,minmax(150px,1fr))",
+  gap: 10,
+};
+
+const freeSaleConditionalFields: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "center",
+  gap: 8,
+  marginTop: 12,
+};
+
+function getFreeSaleChoiceStyle(
+  active: boolean
+): CSSProperties {
+  return {
+    minHeight: 44,
+    border: active
+      ? "1.5px solid #2563eb"
+      : "1px solid #cbd5e1",
+    borderRadius: 12,
+    background: active
+      ? "linear-gradient(180deg,#eff6ff 0%,#dbeafe 100%)"
+      : "#ffffff",
+    color: active ? "#1d4ed8" : "#334155",
+    cursor: "pointer",
+    fontFamily:
+      "var(--font-almarai), sans-serif",
+    fontSize: 14,
+    fontWeight: 900,
+  };
+}
+
+const inlineContractInput: CSSProperties = {
+  width: "min(100%, 220px)",
+  minWidth: 130,
+  minHeight: 40,
+  margin: "0 6px 8px",
+  padding: "7px 10px",
+  border: "none",
+  borderBottom: "2px solid #93c5fd",
+  background: "rgba(239,246,255,0.82)",
+  color: "#0f172a",
+  borderRadius: 8,
+  fontSize: 15,
+  fontWeight: 800,
+  outline: "none",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+  verticalAlign: "middle",
+};
+
+const inlineContractInputRequired: CSSProperties = {
+  borderBottomColor: "#2563eb",
+  background: "rgba(219,234,254,0.90)",
+};
+
+const inlineContractTextarea: CSSProperties = {
+  ...inlineContractInput,
+  width: "min(100%, 420px)",
+  minHeight: 72,
+  resize: "vertical",
+  lineHeight: 1.7,
+};
+
+const inlineDateWrapper: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  width: "min(100%, 270px)",
+  margin: "0 6px 8px",
+  verticalAlign: "middle",
+};
+
+const inlineDateClearButton: CSSProperties = {
+  minHeight: 34,
+  border: "1px solid #d9e3f5",
+  borderRadius: 10,
+  background: "#ffffff",
+  color: "#64748b",
+  padding: "0 10px",
+  cursor: "pointer",
+  fontSize: 12,
+  fontWeight: 900,
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const inlineSelectWrapper: CSSProperties = {
+  display: "inline-block",
+  width: "min(100%, 240px)",
+  margin: "0 6px 8px",
+  verticalAlign: "middle",
+};
+
+const freeSaleSignatures: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns:
+    "repeat(auto-fit,minmax(240px,1fr))",
+  gap: 16,
+  marginTop: 22,
+};
+
+const freeSaleSignatureBox: CSSProperties = {
+  minHeight: 150,
+  border: "1px dashed #93c5fd",
+  borderRadius: 16,
+  padding: 16,
+  display: "grid",
+  alignContent: "start",
+  gap: 12,
+  background: "#ffffff",
 };
 
 const dateFieldTitle:

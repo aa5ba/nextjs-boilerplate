@@ -101,14 +101,27 @@ function getCloseError(
 
   if (
     message.includes(
-      "CONTRACT_ALREADY_PAID"
+      "CONTRACT_ALREADY_CLOSED"
     )
   ) {
     return {
-      code: "CONTRACT_ALREADY_PAID",
+      code: "CONTRACT_ALREADY_CLOSED",
       message:
-        "العقد مسدد بالكامل مسبقًا",
+        "العقد مغلق مسبقًا",
       status: 409,
+    };
+  }
+
+  if (
+    message.includes(
+      "CONTRACT_ARCHIVED"
+    )
+  ) {
+    return {
+      code: "CONTRACT_NOT_FOUND",
+      message:
+        "العقد غير موجود أو لا يتبع هذا الفرع",
+      status: 404,
     };
   }
 
@@ -180,7 +193,7 @@ export async function POST(
     } = await supabaseAdmin
       .from("finance_contracts")
       .select(
-        "id,branch_id,is_archived,archived_at,contract_status,remaining_amount"
+        "id,branch_id,is_archived,archived_at,contract_status"
       )
       .eq("id", contractId)
       .maybeSingle();
@@ -222,18 +235,14 @@ export async function POST(
     }
 
     if (
-      Number(
-        contract.remaining_amount ||
-          0
-      ) <= 0 ||
       cleanText(
         contract.contract_status
-      ) === "تم السداد"
+      ) === "مغلق"
     ) {
       return createErrorResponse(
-        "العقد مسدد بالكامل مسبقًا",
+        "العقد مغلق مسبقًا",
         409,
-        "CONTRACT_ALREADY_PAID"
+        "CONTRACT_ALREADY_CLOSED"
       );
     }
 
