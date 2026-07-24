@@ -2683,7 +2683,7 @@ export default function NewFinanceContractPage() {
           >
             <Field
               label="قيمة البضاعة المباعة" 
-              hint="تُحسب تلقائيًا ويمكن تعديلها، ولن تظهر في طباعة العقد"
+              hint="لن تظهر في صفحه الطباعه"
               required
             >
               <input
