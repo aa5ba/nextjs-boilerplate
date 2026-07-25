@@ -426,6 +426,13 @@ type PasswordDialogState = {
   value: string;
 } | null;
 
+type ManagerProfileDialogState = {
+  manager: BranchManager;
+  fullName: string;
+  username: string;
+  error: string;
+} | null;
+
 type ArchiveDialogState = {
   branch: Branch;
   value: string;
@@ -448,6 +455,7 @@ type BusyAction =
   | `branch_restore:${string}`
   | `manager_status:${string}`
   | `manager_password:${string}`
+  | `manager_profile:${string}`
   | `support_status:${string}`
   | `support_permissions:${string}`
   | `ehtisab_provider_status:${string}`
@@ -626,6 +634,19 @@ function isValidUsername(
   return USERNAME_PATTERN.test(
     value
   );
+}
+
+function normalizeManagerUsernameValue(
+  value: string
+): string {
+  return normalizeDigits(value)
+    .trim()
+    .toLowerCase()
+    .replace(
+      /[^a-z0-9_]/g,
+      ""
+    )
+    .slice(0, 30);
 }
 
 function isValidPin(
@@ -2362,6 +2383,14 @@ export default function AdminSupportPage() {
     setPasswordDialog,
   ] =
     useState<PasswordDialogState>(
+      null
+    );
+
+  const [
+    managerProfileDialog,
+    setManagerProfileDialog,
+  ] =
+    useState<ManagerProfileDialogState>(
       null
     );
 
@@ -4703,6 +4732,35 @@ export default function AdminSupportPage() {
     );
   }
 
+  function openManagerProfileDialog(
+    manager: BranchManager
+  ): void {
+    if (
+      !access.manage_branches
+    ) {
+      showNotice(
+        "لا تملك صلاحية إدارة الفروع",
+        "error"
+      );
+      return;
+    }
+
+    setManagerProfileDialog({
+      manager,
+      fullName:
+        manager.full_name,
+      username:
+        manager.username,
+      error: "",
+    });
+  }
+
+  function closeManagerProfileDialog(): void {
+    setManagerProfileDialog(
+      null
+    );
+  }
+
   function openVerificationEditor(
     contract: VerificationContract
   ): void {
@@ -5535,6 +5593,171 @@ export default function AdminSupportPage() {
           paginationRef.current
             .managersPage,
       });
+    } finally {
+      endAction(action);
+    }
+  }
+
+  async function submitBranchManagerProfile(): Promise<void> {
+    if (!managerProfileDialog) {
+      return;
+    }
+
+    const manager =
+      managerProfileDialog.manager;
+
+    const action:
+      BusyAction =
+      `manager_profile:${manager.id}`;
+
+    if (!beginAction(action)) {
+      return;
+    }
+
+    try {
+      const fullName =
+        managerProfileDialog.fullName.trim();
+
+      const username =
+        normalizeManagerUsernameValue(
+          managerProfileDialog.username
+        );
+
+      if (
+        fullName.length < 2 ||
+        fullName.length > 100
+      ) {
+        setManagerProfileDialog(
+          (
+            previous
+          ) =>
+            previous
+              ? {
+                  ...previous,
+                  error:
+                    "الاسم الكامل يجب أن يكون من حرفين إلى 100 حرف",
+                }
+              : previous
+        );
+        return;
+      }
+
+      if (
+        !isValidUsername(
+          username
+        )
+      ) {
+        setManagerProfileDialog(
+          (
+            previous
+          ) =>
+            previous
+              ? {
+                  ...previous,
+                  username,
+                  error:
+                    "اسم المستخدم يجب أن يكون من 3 إلى 30 خانة، ويقبل الحروف الإنجليزية والأرقام و _ فقط",
+                }
+              : previous
+        );
+        return;
+      }
+
+      setManagerProfileDialog(
+        (
+          previous
+        ) =>
+          previous
+            ? {
+                ...previous,
+                fullName,
+                username,
+                error: "",
+              }
+            : previous
+      );
+
+      const result =
+        await executeRequest<{
+          manager_id?: unknown;
+          full_name?: unknown;
+          username?: unknown;
+          is_active?: unknown;
+        }>(
+          `/api/admin-support/branch-managers/${manager.id}`,
+          {
+            method: "PATCH",
+
+            body: JSON.stringify({
+              action:
+                "update_profile",
+              full_name:
+                fullName,
+              username,
+            }),
+          }
+        );
+
+      if (!result.ok) {
+        if (!result.aborted) {
+          setManagerProfileDialog(
+            (
+              previous
+            ) =>
+              previous
+                ? {
+                    ...previous,
+                    error:
+                      result.message,
+                  }
+                : previous
+          );
+        }
+
+        return;
+      }
+
+      const updated =
+        result.payload.data;
+
+      const updatedFullName =
+        cleanTextValue(
+          updated?.full_name
+        ) || fullName;
+
+      const updatedUsername =
+        cleanTextValue(
+          updated?.username
+        ) || username;
+
+      setBranchManagers(
+        (
+          previous
+        ) =>
+          previous.map(
+            (
+              currentManager
+            ) =>
+              currentManager.id ===
+              manager.id
+                ? {
+                    ...currentManager,
+                    full_name:
+                      updatedFullName,
+                    username:
+                      updatedUsername,
+                  }
+                : currentManager
+          )
+      );
+
+      closeManagerProfileDialog();
+
+      showNotice(
+        result.payload.message ||
+          "تم تعديل بيانات مدير الفرع بنجاح",
+        "success"
+      );
     } finally {
       endAction(action);
     }
@@ -8193,12 +8416,19 @@ export default function AdminSupportPage() {
                           BusyAction =
                           `manager_password:${manager.id}`;
 
+                        const profileAction:
+                          BusyAction =
+                          `manager_profile:${manager.id}`;
+
                         const managerBusy =
                           isBusy(
                             statusAction
                           ) ||
                           isBusy(
                             passwordAction
+                          ) ||
+                          isBusy(
+                            profileAction
                           );
 
                         return (
@@ -8269,6 +8499,24 @@ export default function AdminSupportPage() {
                             <div
                               style={rowActions}
                             >
+                              <button
+                                type="button"
+                                style={getDisabledStyle(
+                                  smallButton,
+                                  managerBusy
+                                )}
+                                onClick={() =>
+                                  openManagerProfileDialog(
+                                    manager
+                                  )
+                                }
+                                disabled={
+                                  managerBusy
+                                }
+                              >
+                                تعديل البيانات
+                              </button>
+
                               <button
                                 type="button"
                                 style={getDisabledStyle(
@@ -10839,6 +11087,200 @@ export default function AdminSupportPage() {
         </ModalOverlay>
       )}
 
+      {managerProfileDialog && (
+        <ModalOverlay>
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="manager-profile-dialog-title"
+            style={modalCard}
+          >
+            <h2
+              id="manager-profile-dialog-title"
+              style={modalTitle}
+            >
+              تعديل البيانات
+            </h2>
+
+            <p
+              style={modalText}
+            >
+              المدير:{" "}
+              {
+                managerProfileDialog.manager
+                  .full_name
+              }
+            </p>
+
+            {managerProfileDialog.error && (
+              <div
+                style={modalError}
+                role="alert"
+              >
+                {
+                  managerProfileDialog.error
+                }
+              </div>
+            )}
+
+            <Field
+              id="manager-profile-full-name"
+              label="الاسم الكامل"
+            >
+              <input
+                id="manager-profile-full-name"
+                style={input}
+                value={
+                  managerProfileDialog.fullName
+                }
+                autoFocus
+                maxLength={100}
+                onChange={(
+                  event
+                ) =>
+                  setManagerProfileDialog(
+                    (
+                      previous
+                    ) =>
+                      previous
+                        ? {
+                            ...previous,
+                            fullName:
+                              event.target
+                                .value,
+                            error: "",
+                          }
+                        : previous
+                  )
+                }
+                onKeyDown={(
+                  event
+                ) => {
+                  if (
+                    event.key ===
+                    "Enter"
+                  ) {
+                    event.preventDefault();
+
+                    void submitBranchManagerProfile();
+                  }
+
+                  if (
+                    event.key ===
+                    "Escape"
+                  ) {
+                    event.preventDefault();
+
+                    closeManagerProfileDialog();
+                  }
+                }}
+                disabled={isBusy(
+                  `manager_profile:${managerProfileDialog.manager.id}`
+                )}
+              />
+            </Field>
+
+            <Field
+              id="manager-profile-username"
+              label="اسم المستخدم"
+            >
+              <input
+                id="manager-profile-username"
+                style={input}
+                dir="ltr"
+                value={
+                  managerProfileDialog.username
+                }
+                maxLength={30}
+                onChange={(
+                  event
+                ) =>
+                  setManagerProfileDialog(
+                    (
+                      previous
+                    ) =>
+                      previous
+                        ? {
+                            ...previous,
+                            username:
+                              normalizeManagerUsernameValue(
+                                event.target
+                                  .value
+                              ),
+                            error: "",
+                          }
+                        : previous
+                  )
+                }
+                onKeyDown={(
+                  event
+                ) => {
+                  if (
+                    event.key ===
+                    "Enter"
+                  ) {
+                    event.preventDefault();
+
+                    void submitBranchManagerProfile();
+                  }
+
+                  if (
+                    event.key ===
+                    "Escape"
+                  ) {
+                    event.preventDefault();
+
+                    closeManagerProfileDialog();
+                  }
+                }}
+                disabled={isBusy(
+                  `manager_profile:${managerProfileDialog.manager.id}`
+                )}
+              />
+            </Field>
+
+            <div
+              style={modalButtonsRow}
+            >
+              <button
+                type="button"
+                style={getDisabledStyle(
+                  smallGreenButton,
+                  isBusy(
+                    `manager_profile:${managerProfileDialog.manager.id}`
+                  )
+                )}
+                onClick={() =>
+                  void submitBranchManagerProfile()
+                }
+                disabled={isBusy(
+                  `manager_profile:${managerProfileDialog.manager.id}`
+                )}
+              >
+                {isBusy(
+                  `manager_profile:${managerProfileDialog.manager.id}`
+                )
+                  ? "جاري الحفظ..."
+                  : "حفظ التعديل"}
+              </button>
+
+              <button
+                type="button"
+                style={smallButton}
+                onClick={
+                  closeManagerProfileDialog
+                }
+                disabled={isBusy(
+                  `manager_profile:${managerProfileDialog.manager.id}`
+                )}
+              >
+                إلغاء
+              </button>
+            </div>
+          </section>
+        </ModalOverlay>
+      )}
+
       {archiveDialog && (
         <ModalOverlay>
           <section
@@ -13337,6 +13779,19 @@ const modalText:
   margin: "0 0 16px",
   color: "#475569",
   lineHeight: 1.9,
+};
+
+const modalError:
+  CSSProperties = {
+  margin: "0 0 14px",
+  padding: "10px 12px",
+  border:
+    "1px solid #fecaca",
+  borderRadius: 12,
+  background: "#fff7f7",
+  color: "#b91c1c",
+  fontWeight: 900,
+  lineHeight: 1.8,
 };
 
 const modalButtonsRow:
