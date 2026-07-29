@@ -651,6 +651,9 @@ export default function InvestorDetailsPage() {
     try {
       const encodedBranch = encodeURIComponent(branch);
       const encodedInvestorId = encodeURIComponent(investorId);
+      const canViewContractsWallet = hasPermission(
+        "view_investor_contracts_wallet"
+      );
 
       const [
         summaryResponse,
@@ -669,12 +672,14 @@ export default function InvestorDetailsPage() {
             credentials: "include",
           }
         ),
-        fetch(
-          `/finance/api/investors/${encodedInvestorId}/wallets/contracts?branch=${encodedBranch}&page=1`,
-          {
-            credentials: "include",
-          }
-        ),
+        canViewContractsWallet
+          ? fetch(
+              `/finance/api/investors/${encodedInvestorId}/wallets/contracts?branch=${encodedBranch}&page=1`,
+              {
+                credentials: "include",
+              }
+            ).catch(() => null)
+          : Promise.resolve(null),
       ]);
 
       if (isCancelled()) {
@@ -688,16 +693,16 @@ export default function InvestorDetailsPage() {
       ] = await Promise.all([
         summaryResponse.json().catch(() => null),
         recentResponse.json().catch(() => null),
-        contractsResponse.json().catch(() => null),
+        contractsResponse
+          ? contractsResponse.json().catch(() => null)
+          : Promise.resolve(null),
       ]);
 
       if (
         !summaryResponse.ok ||
         !recentResponse.ok ||
-        !contractsResponse.ok ||
         !summaryPayload?.ok ||
-        !recentPayload?.ok ||
-        !contractsPayload?.ok
+        !recentPayload?.ok
       ) {
         setWalletSummary(null);
         setRecentOperations([]);
@@ -716,14 +721,22 @@ export default function InvestorDetailsPage() {
           ? (recentPayload.operations as RecentOperation[])
           : []
       );
-      setLatestContracts(
+
+      if (
+        canViewContractsWallet &&
+        contractsResponse?.ok &&
+        contractsPayload?.ok &&
         Array.isArray(contractsPayload.contracts)
-          ? (contractsPayload.contracts as ContractWalletItem[]).slice(
-              0,
-              5
-            )
-          : []
-      );
+      ) {
+        setLatestContracts(
+          (contractsPayload.contracts as ContractWalletItem[]).slice(
+            0,
+            5
+          )
+        );
+      } else {
+        setLatestContracts([]);
+      }
     } catch (error) {
       console.error(
         "Load investor wallet overview error:",
@@ -1043,36 +1056,40 @@ export default function InvestorDetailsPage() {
                         }
                       />
 
-                      <WalletCard
-                        title="محفظة العقود"
-                        value={
-                          walletSummary
-                            ? formatCurrency(
-                                walletSummary.contracts
-                                  .totalRemaining
-                              )
-                            : formatCurrency(0)
-                        }
-                        subtitle={`${formatNumber(
-                          walletSummary
-                            ? walletSummary.contracts.count
-                            : contractsCount
-                        )} عقد`}
-                        meta={`إجمالي العقود: ${
-                          walletSummary
-                            ? formatCurrency(
-                                walletSummary.contracts
-                                  .totalDebt
-                              )
-                            : "-"
-                        }`}
-                        actionLabel="عرض محفظة العقود"
-                        onClick={() =>
-                          router.push(
-                            `/finance/${branch}/inventory/investors/${investorId}/wallets/contracts`
-                          )
-                        }
-                      />
+                      {hasPermission(
+                        "view_investor_contracts_wallet"
+                      ) && (
+                        <WalletCard
+                          title="محفظة العقود"
+                          value={
+                            walletSummary
+                              ? formatCurrency(
+                                  walletSummary.contracts
+                                    .totalRemaining
+                                )
+                              : formatCurrency(0)
+                          }
+                          subtitle={`${formatNumber(
+                            walletSummary
+                              ? walletSummary.contracts.count
+                              : contractsCount
+                          )} عقد`}
+                          meta={`إجمالي العقود: ${
+                            walletSummary
+                              ? formatCurrency(
+                                  walletSummary.contracts
+                                    .totalDebt
+                                )
+                              : "-"
+                          }`}
+                          actionLabel="عرض محفظة العقود"
+                          onClick={() =>
+                            router.push(
+                              `/finance/${branch}/inventory/investors/${investorId}/wallets/contracts`
+                            )
+                          }
+                        />
+                      )}
                     </div>
                   )}
                 </section>
@@ -1101,33 +1118,37 @@ export default function InvestorDetailsPage() {
                     )}
                   </div>
 
-                  <div style={card}>
-                    <h2 style={sectionTitle}>
-                      أحدث العقود
-                    </h2>
+                  {hasPermission(
+                    "view_investor_contracts_wallet"
+                  ) && (
+                    <div style={card}>
+                      <h2 style={sectionTitle}>
+                        أحدث العقود
+                      </h2>
 
-                    {latestContracts.length === 0 ? (
-                      <div style={compactEmptyBox}>
-                        لا توجد عقود حديثة
-                      </div>
-                    ) : (
-                      <div style={listStack}>
-                        {latestContracts.map(
-                          (contract) => (
-                            <ContractPreviewItem
-                              key={contract.id}
-                              contract={contract}
-                              onClick={() =>
-                                router.push(
-                                  `/finance/${branch}/contracts/${contract.id}`
-                                )
-                              }
-                            />
-                          )
-                        )}
-                      </div>
-                    )}
-                  </div>
+                      {latestContracts.length === 0 ? (
+                        <div style={compactEmptyBox}>
+                          لا توجد عقود حديثة
+                        </div>
+                      ) : (
+                        <div style={listStack}>
+                          {latestContracts.map(
+                            (contract) => (
+                              <ContractPreviewItem
+                                key={contract.id}
+                                contract={contract}
+                                onClick={() =>
+                                  router.push(
+                                    `/finance/${branch}/contracts/${contract.id}`
+                                  )
+                                }
+                              />
+                            )
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </section>
               </>
             ) : (
