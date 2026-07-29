@@ -40,6 +40,53 @@ type InventoryItem = {
     | null;
 };
 
+type WalletSummary = {
+  cash: {
+    balance: number;
+    totalDeposits: number;
+    totalWithdrawals: number;
+    transactionsCount: number;
+    lastTransactionAt: string | null;
+  };
+  goods: {
+    productsCount: number;
+    totalQuantity: number;
+    lastMovementAt: string | null;
+  };
+  contracts: {
+    count: number;
+    totalDebt: number;
+    totalPaid: number;
+    totalRemaining: number;
+    lastCreatedAt: string | null;
+  };
+};
+
+type RecentOperation = {
+  sourceType: "cash" | "goods" | "contract";
+  operationType: string;
+  title: string;
+  description: string;
+  amount: number | null;
+  quantity: number | null;
+  actorName: string | null;
+  createdAt: string | null;
+  referenceId: string;
+};
+
+type ContractWalletItem = {
+  id: string;
+  contractNumber: number | string | null;
+  customerName: string | null;
+  contractType: string | null;
+  debtAmount: number;
+  paidAmount: number;
+  remainingAmount: number;
+  contractStatus: string | null;
+  contractDateGregorian: string | null;
+  createdAt: string | null;
+};
+
 export default function InvestorDetailsPage() {
   const params = useParams();
   const router = useRouter();
@@ -60,12 +107,20 @@ export default function InvestorDetailsPage() {
   const [productsCount, setProductsCount] = useState(0);
   const [totalQuantity, setTotalQuantity] = useState(0);
   const [contractsCount, setContractsCount] = useState(0);
+  const [walletSummary, setWalletSummary] =
+    useState<WalletSummary | null>(null);
+  const [recentOperations, setRecentOperations] =
+    useState<RecentOperation[]>([]);
+  const [latestContracts, setLatestContracts] =
+    useState<ContractWalletItem[]>([]);
 
   const [currentPage, setCurrentPage] = useState(1);
   const [totalInventoryRows, setTotalInventoryRows] = useState(0);
 
   const [loading, setLoading] = useState(true);
   const [inventoryLoading, setInventoryLoading] = useState(false);
+  const [walletLoading, setWalletLoading] = useState(false);
+  const [walletError, setWalletError] = useState("");
   const [statusLoading, setStatusLoading] = useState(false);
 
   const [permissions, setPermissions] = useState<string[]>([]);
@@ -143,6 +198,39 @@ export default function InvestorDetailsPage() {
   }, [authChecked, branchId, investor?.id, currentPage]);
 
   useEffect(() => {
+    if (!authChecked || !investor?.id) {
+      return;
+    }
+
+    if (!hasPermission("view_investor_wallets")) {
+      setWalletSummary(null);
+      setRecentOperations([]);
+      setLatestContracts([]);
+      setWalletError("");
+      setWalletLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function run() {
+      await loadWalletOverview(() => cancelled);
+    }
+
+    void run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    authChecked,
+    branch,
+    investor?.id,
+    permissions,
+    roles,
+  ]);
+
+  useEffect(() => {
     if (currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
@@ -157,6 +245,10 @@ export default function InvestorDetailsPage() {
     setProductsCount(0);
     setTotalQuantity(0);
     setContractsCount(0);
+    setWalletSummary(null);
+    setRecentOperations([]);
+    setLatestContracts([]);
+    setWalletError("");
     setTotalInventoryRows(0);
     setCurrentPage(1);
 
@@ -347,6 +439,7 @@ export default function InvestorDetailsPage() {
       roles.includes("main_admin") ||
       roles.includes("branch_manager") ||
       roles.includes("مدير رئيسي") ||
+      roles.includes("مدير فرع") ||
       roles.includes("مدير") ||
       permissions.includes(permissionKey)
     );
@@ -549,6 +642,109 @@ export default function InvestorDetailsPage() {
     }
   }
 
+  async function loadWalletOverview(
+    isCancelled: () => boolean = () => false
+  ) {
+    setWalletLoading(true);
+    setWalletError("");
+
+    try {
+      const encodedBranch = encodeURIComponent(branch);
+      const encodedInvestorId = encodeURIComponent(investorId);
+
+      const [
+        summaryResponse,
+        recentResponse,
+        contractsResponse,
+      ] = await Promise.all([
+        fetch(
+          `/finance/api/investors/${encodedInvestorId}/wallets/summary?branch=${encodedBranch}`,
+          {
+            credentials: "include",
+          }
+        ),
+        fetch(
+          `/finance/api/investors/${encodedInvestorId}/wallets/recent-operations?branch=${encodedBranch}`,
+          {
+            credentials: "include",
+          }
+        ),
+        fetch(
+          `/finance/api/investors/${encodedInvestorId}/wallets/contracts?branch=${encodedBranch}&page=1`,
+          {
+            credentials: "include",
+          }
+        ),
+      ]);
+
+      if (isCancelled()) {
+        return;
+      }
+
+      const [
+        summaryPayload,
+        recentPayload,
+        contractsPayload,
+      ] = await Promise.all([
+        summaryResponse.json().catch(() => null),
+        recentResponse.json().catch(() => null),
+        contractsResponse.json().catch(() => null),
+      ]);
+
+      if (
+        !summaryResponse.ok ||
+        !recentResponse.ok ||
+        !contractsResponse.ok ||
+        !summaryPayload?.ok ||
+        !recentPayload?.ok ||
+        !contractsPayload?.ok
+      ) {
+        setWalletSummary(null);
+        setRecentOperations([]);
+        setLatestContracts([]);
+        setWalletError(
+          "تعذر تحميل محافظ المستثمر"
+        );
+        return;
+      }
+
+      setWalletSummary(
+        summaryPayload.summary as WalletSummary
+      );
+      setRecentOperations(
+        Array.isArray(recentPayload.operations)
+          ? (recentPayload.operations as RecentOperation[])
+          : []
+      );
+      setLatestContracts(
+        Array.isArray(contractsPayload.contracts)
+          ? (contractsPayload.contracts as ContractWalletItem[]).slice(
+              0,
+              5
+            )
+          : []
+      );
+    } catch (error) {
+      console.error(
+        "Load investor wallet overview error:",
+        error
+      );
+
+      if (!isCancelled()) {
+        setWalletSummary(null);
+        setRecentOperations([]);
+        setLatestContracts([]);
+        setWalletError(
+          "تعذر تحميل محافظ المستثمر"
+        );
+      }
+    } finally {
+      if (!isCancelled()) {
+        setWalletLoading(false);
+      }
+    }
+  }
+
   async function toggleInvestorStatus() {
     if (statusLoadingRef.current || statusLoading) {
       return;
@@ -736,23 +932,6 @@ export default function InvestorDetailsPage() {
               </span>
             </section>
 
-            <section style={summaryGrid}>
-              <SummaryBox
-                title="عدد المنتجات"
-                value={productsCount}
-              />
-
-              <SummaryBox
-                title="إجمالي المخزون"
-                value={totalQuantity}
-              />
-
-              <SummaryBox
-                title="عدد العقود"
-                value={contractsCount}
-              />
-            </section>
-
             <section style={card}>
               <h2 style={sectionTitle}>بيانات المستثمر</h2>
 
@@ -781,6 +960,187 @@ export default function InvestorDetailsPage() {
                 value={formatDate(investor.created_at)}
               />
             </section>
+
+            {hasPermission("view_investor_wallets") ? (
+              <>
+                <section style={card}>
+                  <div style={walletHeader}>
+                    <h2 style={sectionTitle}>
+                      محافظ المستثمر
+                    </h2>
+
+                    {walletLoading && (
+                      <span style={pageInfo}>
+                        جاري تحديث المحافظ...
+                      </span>
+                    )}
+                  </div>
+
+                  {walletError ? (
+                    <div style={inlineErrorBox}>
+                      {walletError}
+                    </div>
+                  ) : (
+                    <div style={walletGrid}>
+                      <WalletCard
+                        title="محفظة السلع"
+                        value={
+                          walletSummary
+                            ? formatNumber(
+                                walletSummary.goods
+                                  .totalQuantity
+                              )
+                            : formatNumber(totalQuantity)
+                        }
+                        subtitle={`${formatNumber(
+                          walletSummary
+                            ? walletSummary.goods.productsCount
+                            : productsCount
+                        )} منتج`}
+                        meta={`آخر حركة: ${
+                          walletSummary
+                            ? formatDate(
+                                walletSummary.goods
+                                  .lastMovementAt
+                              )
+                            : "-"
+                        }`}
+                        actionLabel="عرض محفظة السلع"
+                        onClick={() =>
+                          router.push(
+                            `/finance/${branch}/inventory/investors/${investorId}/wallets/goods`
+                          )
+                        }
+                      />
+
+                      <WalletCard
+                        title="المحفظة النقدية"
+                        value={
+                          walletSummary
+                            ? formatCurrency(
+                                walletSummary.cash.balance
+                              )
+                            : formatCurrency(0)
+                        }
+                        subtitle={`${formatNumber(
+                          walletSummary
+                            ? walletSummary.cash.transactionsCount
+                            : 0
+                        )} حركة`}
+                        meta={`آخر حركة: ${
+                          walletSummary
+                            ? formatDate(
+                                walletSummary.cash
+                                  .lastTransactionAt
+                              )
+                            : "-"
+                        }`}
+                        actionLabel="عرض المحفظة النقدية"
+                        onClick={() =>
+                          router.push(
+                            `/finance/${branch}/inventory/investors/${investorId}/wallets/cash`
+                          )
+                        }
+                      />
+
+                      <WalletCard
+                        title="محفظة العقود"
+                        value={
+                          walletSummary
+                            ? formatCurrency(
+                                walletSummary.contracts
+                                  .totalRemaining
+                              )
+                            : formatCurrency(0)
+                        }
+                        subtitle={`${formatNumber(
+                          walletSummary
+                            ? walletSummary.contracts.count
+                            : contractsCount
+                        )} عقد`}
+                        meta={`إجمالي العقود: ${
+                          walletSummary
+                            ? formatCurrency(
+                                walletSummary.contracts
+                                  .totalDebt
+                              )
+                            : "-"
+                        }`}
+                        actionLabel="عرض محفظة العقود"
+                        onClick={() =>
+                          router.push(
+                            `/finance/${branch}/inventory/investors/${investorId}/wallets/contracts`
+                          )
+                        }
+                      />
+                    </div>
+                  )}
+                </section>
+
+                <section style={dualGrid}>
+                  <div style={card}>
+                    <h2 style={sectionTitle}>
+                      آخر العمليات
+                    </h2>
+
+                    {recentOperations.length === 0 ? (
+                      <div style={compactEmptyBox}>
+                        لا توجد عمليات حديثة
+                      </div>
+                    ) : (
+                      <div style={listStack}>
+                        {recentOperations.map(
+                          (operation) => (
+                            <OperationItem
+                              key={`${operation.sourceType}-${operation.referenceId}`}
+                              operation={operation}
+                            />
+                          )
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={card}>
+                    <h2 style={sectionTitle}>
+                      أحدث العقود
+                    </h2>
+
+                    {latestContracts.length === 0 ? (
+                      <div style={compactEmptyBox}>
+                        لا توجد عقود حديثة
+                      </div>
+                    ) : (
+                      <div style={listStack}>
+                        {latestContracts.map(
+                          (contract) => (
+                            <ContractPreviewItem
+                              key={contract.id}
+                              contract={contract}
+                              onClick={() =>
+                                router.push(
+                                  `/finance/${branch}/contracts/${contract.id}`
+                                )
+                              }
+                            />
+                          )
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </section>
+              </>
+            ) : (
+              <section style={card}>
+                <h2 style={sectionTitle}>
+                  محافظ المستثمر
+                </h2>
+
+                <div style={inlineErrorBox}>
+                  لا تملك صلاحية عرض محافظ المستثمر
+                </div>
+              </section>
+            )}
 
             <section style={actionsSection}>
               <ActionButton
@@ -986,6 +1346,28 @@ function formatDate(date?: string | null) {
   );
 }
 
+function formatCurrency(value: number | string | null | undefined) {
+  const numericValue = Number(value || 0);
+
+  if (!Number.isFinite(numericValue)) {
+    return "0 ريال";
+  }
+
+  return `${numericValue.toLocaleString("ar-SA", {
+    maximumFractionDigits: 2,
+  })} ريال`;
+}
+
+function formatNumber(value: number | string | null | undefined) {
+  const numericValue = Number(value || 0);
+
+  if (!Number.isFinite(numericValue)) {
+    return "0";
+  }
+
+  return numericValue.toLocaleString("ar-SA");
+}
+
 function Row({
   label,
   value,
@@ -1001,17 +1383,38 @@ function Row({
   );
 }
 
-function SummaryBox({
+function WalletCard({
   title,
   value,
+  subtitle,
+  meta,
+  actionLabel,
+  onClick,
 }: {
   title: string;
   value: string | number;
+  subtitle: string;
+  meta: string;
+  actionLabel: string;
+  onClick: () => void;
 }) {
   return (
-    <div style={summaryBox}>
-      <span>{title}</span>
-      <strong>{value}</strong>
+    <div style={walletCard}>
+      <div style={walletCardTop}>
+        <span style={walletCardTitle}>{title}</span>
+        <strong style={walletCardValue}>{value}</strong>
+      </div>
+
+      <span style={walletCardSubtitle}>{subtitle}</span>
+      <span style={walletCardMeta}>{meta}</span>
+
+      <button
+        type="button"
+        style={walletCardButton}
+        onClick={onClick}
+      >
+        {actionLabel}
+      </button>
     </div>
   );
 }
@@ -1030,6 +1433,67 @@ function ActionButton({
       onClick={onClick}
     >
       {title}
+    </button>
+  );
+}
+
+function OperationItem({
+  operation,
+}: {
+  operation: RecentOperation;
+}) {
+  return (
+    <div style={listItem}>
+      <div>
+        <strong style={listItemTitle}>
+          {operation.title}
+        </strong>
+        <span style={listItemMeta}>
+          {operation.description}
+        </span>
+      </div>
+
+      <div style={listItemSide}>
+        <span>
+          {operation.amount !== null
+            ? formatCurrency(operation.amount)
+            : operation.quantity !== null
+              ? `${formatNumber(operation.quantity)} وحدة`
+              : "-"}
+        </span>
+        <small>{formatDate(operation.createdAt)}</small>
+      </div>
+    </div>
+  );
+}
+
+function ContractPreviewItem({
+  contract,
+  onClick,
+}: {
+  contract: ContractWalletItem;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      style={contractPreviewButton}
+      onClick={onClick}
+    >
+      <div>
+        <strong style={listItemTitle}>
+          عقد رقم {contract.contractNumber || "-"}
+        </strong>
+        <span style={listItemMeta}>
+          {contract.customerName || "-"} -{" "}
+          {contract.contractType || "-"}
+        </span>
+      </div>
+
+      <div style={listItemSide}>
+        <span>{formatCurrency(contract.remainingAmount)}</span>
+        <small>{contract.contractStatus || "-"}</small>
+      </div>
     </button>
   );
 }
@@ -1515,25 +1979,161 @@ const investorHeroTitle: CSSProperties = {
   fontWeight: 900,
 };
 
-const summaryGrid: CSSProperties = {
+const walletHeader: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+  marginBottom: 16,
+};
+
+const walletGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns:
     "repeat(auto-fit,minmax(220px,1fr))",
   gap: 14,
-  marginBottom: 16,
 };
 
-const summaryBox: CSSProperties = {
-  background: "white",
+const walletCard: CSSProperties = {
+  background:
+    "linear-gradient(180deg,#ffffff,#f8fbff)",
   border: "1px solid #d9e3f5",
   borderRadius: 18,
   padding: 18,
-  display: "flex",
-  justifyContent: "space-between",
-  color: "#0d47a1",
-  fontWeight: "bold",
+  display: "grid",
+  gap: 10,
+  color: "#0f172a",
   boxShadow:
     "0 8px 20px rgba(15,23,42,0.04)",
+};
+
+const walletCardTop: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "start",
+  gap: 12,
+};
+
+const walletCardTitle: CSSProperties = {
+  color: "#0d47a1",
+  fontSize: 16,
+  fontWeight: 900,
+};
+
+const walletCardValue: CSSProperties = {
+  color: "#0f172a",
+  fontSize: 20,
+  fontWeight: 900,
+  textAlign: "left",
+};
+
+const walletCardSubtitle: CSSProperties = {
+  color: "#334155",
+  fontSize: 14,
+  fontWeight: 800,
+};
+
+const walletCardMeta: CSSProperties = {
+  color: "#64748b",
+  fontSize: 13,
+  fontWeight: 700,
+};
+
+const walletCardButton: CSSProperties = {
+  marginTop: 4,
+  width: "100%",
+  border: "none",
+  borderRadius: 12,
+  background:
+    "linear-gradient(135deg,#0d47a1,#0d65d9)",
+  color: "#ffffff",
+  padding: "11px 14px",
+  fontSize: 14,
+  fontWeight: 900,
+  cursor: "pointer",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const dualGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns:
+    "repeat(auto-fit,minmax(300px,1fr))",
+  gap: 14,
+  alignItems: "start",
+};
+
+const listStack: CSSProperties = {
+  display: "grid",
+  gap: 10,
+  marginTop: 14,
+};
+
+const listItem: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+  padding: 12,
+  border: "1px solid #e2e8f0",
+  borderRadius: 14,
+  background: "#f8fbff",
+};
+
+const contractPreviewButton: CSSProperties = {
+  ...listItem,
+  width: "100%",
+  textAlign: "right",
+  cursor: "pointer",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
+};
+
+const listItemTitle: CSSProperties = {
+  display: "block",
+  color: "#0f172a",
+  fontSize: 14,
+  fontWeight: 900,
+  marginBottom: 5,
+};
+
+const listItemMeta: CSSProperties = {
+  display: "block",
+  color: "#64748b",
+  fontSize: 13,
+  fontWeight: 700,
+};
+
+const listItemSide: CSSProperties = {
+  display: "grid",
+  gap: 5,
+  justifyItems: "end",
+  color: "#0d47a1",
+  fontSize: 13,
+  fontWeight: 900,
+  whiteSpace: "nowrap",
+};
+
+const inlineErrorBox: CSSProperties = {
+  marginTop: 14,
+  background: "#fff7ed",
+  border: "1px solid #fed7aa",
+  borderRadius: 14,
+  padding: 14,
+  color: "#9a3412",
+  fontSize: 14,
+  fontWeight: 800,
+};
+
+const compactEmptyBox: CSSProperties = {
+  marginTop: 14,
+  background: "#f8fbff",
+  border: "1px dashed #cbd5e1",
+  borderRadius: 14,
+  padding: 18,
+  textAlign: "center",
+  color: "#6b7280",
+  fontWeight: 800,
 };
 
 const card: CSSProperties = {

@@ -33,6 +33,7 @@ export default function AddStockPage() {
   const [investorId, setInvestorId] = useState("");
   const [productId, setProductId] = useState("");
   const [quantity, setQuantity] = useState("");
+  const [unitCost, setUnitCost] = useState("");
   const [notes, setNotes] = useState("");
   const [openSelect, setOpenSelect] = useState<"investor" | "product" | null>(null);
 
@@ -216,116 +217,49 @@ export default function AddStockPage() {
 
     if (!checkLogin()) return;
 
-    if (!investorId || !productId || !quantity) {
+    if (!investorId || !productId || !quantity || !unitCost) {
       alert("أكمل البيانات");
       return;
     }
 
     const qty = toNumber(quantity);
+    const cost = toNumber(unitCost);
 
     if (qty <= 0) {
       alert("أدخل كمية صحيحة");
       return;
     }
 
-    const branchId = await getBranchId(branch);
-
-    if (!branchId) {
-      alert("تعذر تحديد الفرع");
+    if (cost <= 0) {
+      alert("أدخل تكلفة وحدة صحيحة");
       return;
     }
 
     try {
       setSaving(true);
 
-      const { data: existingStock, error: stockFetchError } = await supabase
-        .from("finance_inventory")
-        .select("*")
-        .eq("branch_id", branchId)
-        .eq("investor_id", investorId)
-        .eq("product_id", productId)
-        .maybeSingle();
+      const response = await fetch(
+        `/finance/api/investors/${encodeURIComponent(investorId)}/wallets/goods/purchase`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            branch,
+            productId,
+            quantity: qty,
+            investorUnitCost: cost,
+            note: notes.trim() || null,
+          }),
+        }
+      );
+      const payload = await response.json().catch(() => null);
 
-      if (stockFetchError) {
-        alert(stockFetchError.message);
+      if (!response.ok || !payload?.ok) {
+        alert(payload?.message || "تعذر إضافة الكمية");
         return;
-      }
-
-      if (existingStock) {
-        const beforeQty = Number(existingStock.quantity || 0);
-        const afterQty = beforeQty + qty;
-
-        const { error: updateError } = await supabase
-          .from("finance_inventory")
-          .update({
-            quantity: afterQty,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", existingStock.id)
-          .eq("branch_id", branchId);
-
-        if (updateError) {
-          alert(updateError.message);
-          return;
-        }
-
-        const { error: movementError } = await supabase
-          .from("finance_inventory_movements")
-          .insert([
-            {
-              branch_id: branchId,
-              investor_id: investorId,
-              product_id: productId,
-              movement_type: "إضافة",
-              quantity: qty,
-              before_quantity: beforeQty,
-              after_quantity: afterQty,
-              notes: notes.trim() || null,
-              created_by: employeeName || "الموظف",
-            },
-          ]);
-
-        if (movementError) {
-          alert(movementError.message);
-          return;
-        }
-      } else {
-        const { error: insertError } = await supabase
-          .from("finance_inventory")
-          .insert([
-            {
-              branch_id: branchId,
-              investor_id: investorId,
-              product_id: productId,
-              quantity: qty,
-            },
-          ]);
-
-        if (insertError) {
-          alert(insertError.message);
-          return;
-        }
-
-        const { error: movementError } = await supabase
-          .from("finance_inventory_movements")
-          .insert([
-            {
-              branch_id: branchId,
-              investor_id: investorId,
-              product_id: productId,
-              movement_type: "إضافة",
-              quantity: qty,
-              before_quantity: 0,
-              after_quantity: qty,
-              notes: notes.trim() || null,
-              created_by: employeeName || "الموظف",
-            },
-          ]);
-
-        if (movementError) {
-          alert(movementError.message);
-          return;
-        }
       }
 
       alert("تمت إضافة الكمية بنجاح");
@@ -453,6 +387,15 @@ export default function AddStockPage() {
             placeholder="الكمية"
             value={quantity}
             onChange={(e) => setQuantity(normalizeNumber(e.target.value))}
+            disabled={saving}
+          />
+
+          <input
+            style={input}
+            inputMode="decimal"
+            placeholder="تكلفة الوحدة على المستثمر"
+            value={unitCost}
+            onChange={(e) => setUnitCost(normalizeNumber(e.target.value))}
             disabled={saving}
           />
 
