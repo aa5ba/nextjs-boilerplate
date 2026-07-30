@@ -6,6 +6,7 @@ import {
   useState,
 } from "react";
 import type { CSSProperties } from "react";
+import Image from "next/image";
 import {
   useRouter,
   useSearchParams,
@@ -807,9 +808,14 @@ function LoginPageContent() {
     >
       <div style={card}>
         <div style={logoBox}>
-          <div style={logoCircle}>
-            ا
-          </div>
+          <Image
+            src="/images/ehtisab-logo.png"
+            alt="احتساب"
+            width={210}
+            height={131}
+            style={logoImage}
+            priority
+          />
 
           <h1 style={title}>
             تسجيل الدخول لمحطة العمل
@@ -980,20 +986,13 @@ const logoBox: CSSProperties = {
   marginBottom: 22,
 };
 
-const logoCircle: CSSProperties = {
-  width: 58,
-  height: 58,
-  borderRadius: "50%",
+const logoImage: CSSProperties = {
+  width: 210,
+  maxWidth: "72%",
+  height: "auto",
+  display: "block",
   margin: "0 auto 12px",
-  background: "#0f172a",
-  color: "#ffffff",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  fontSize: 28,
-  fontWeight: 900,
-  fontFamily:
-    "var(--font-almarai), sans-serif",
+  objectFit: "contain",
 };
 
 const title: CSSProperties = {
