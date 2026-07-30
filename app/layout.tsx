@@ -16,8 +16,8 @@ const notoNaskhArabic = Noto_Naskh_Arabic({
 
 export const metadata: Metadata = {
   title: {
-    default: "محطة إدارة العمل",
-    template: "%s | محطة إدارة العمل",
+    default: "احتساب - محطة العمل",
+    template: "%s | احتساب - محطة العمل",
   },
   description: "نظام إدارة العملاء والعقود والسداد وسير العمل",
 };
