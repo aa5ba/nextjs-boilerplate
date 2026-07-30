@@ -23,16 +23,25 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       {
-        url: "/icon.png?v=20260731",
+        url: "/images/ehtisab-tab-icon-v2.png",
         type: "image/png",
         sizes: "512x512",
       },
+    ],
+    shortcut: [
       {
-        url: "/favicon.ico?v=20260731",
-        sizes: "any",
+        url: "/images/ehtisab-tab-icon-v2.png",
+        type: "image/png",
+        sizes: "512x512",
       },
     ],
-    shortcut: "/favicon.ico?v=20260731",
+    apple: [
+      {
+        url: "/images/ehtisab-tab-icon-v2.png",
+        type: "image/png",
+        sizes: "512x512",
+      },
+    ],
   },
 };
 
