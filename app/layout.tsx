@@ -20,6 +20,20 @@ export const metadata: Metadata = {
     template: "%s | احتساب - محطة العمل",
   },
   description: "نظام إدارة العملاء والعقود والسداد وسير العمل",
+  icons: {
+    icon: [
+      {
+        url: "/icon.png?v=20260731",
+        type: "image/png",
+        sizes: "512x512",
+      },
+      {
+        url: "/favicon.ico?v=20260731",
+        sizes: "any",
+      },
+    ],
+    shortcut: "/favicon.ico?v=20260731",
+  },
 };
 
 export default function RootLayout({
