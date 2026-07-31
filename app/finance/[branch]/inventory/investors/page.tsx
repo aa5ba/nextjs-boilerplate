@@ -629,7 +629,7 @@ export default function InvestorsPage() {
 
             <div style={getHeroTitleBoxStyle(screen)}>
               <h1 style={getTitleStyle(screen)}>
-                المستثمرون
+                إدارة المستثمرين
               </h1>
             </div>
 
