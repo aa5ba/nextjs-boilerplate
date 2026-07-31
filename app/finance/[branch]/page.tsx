@@ -328,8 +328,8 @@ const sections: MainSection[] = [
     permission: "customers",
   },
   {
-    title: "طلب جديد",
-    path: "new-request",
+    title: "المستثمرين",
+    path: "inventory/investors",
     icon: "➕",
     color: "#16a34a",
     bg: "linear-gradient(135deg,#f0fdf4,#dcfce7)",
