@@ -330,7 +330,7 @@ const sections: MainSection[] = [
   {
     title: "المستثمرين",
     path: "inventory/investors",
-    icon: "➕",
+    icon: "📈",
     color: "#16a34a",
     bg: "linear-gradient(135deg,#f0fdf4,#dcfce7)",
     permission: "contracts_create",
