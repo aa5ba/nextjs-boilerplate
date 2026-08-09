@@ -16,6 +16,14 @@ import {
 
 type ScreenType = "mobile" | "tablet" | "desktop";
 
+const MANAGER_ROLES = new Set([
+  "main_admin",
+  "branch_manager",
+  "مدير رئيسي",
+  "مدير فرع",
+  "مدير",
+]);
+
 type Customer = {
   id: string;
   full_name?: string | null;
@@ -118,6 +126,9 @@ export default function FinanceCustomerProfilePage() {
   const [editing, setEditing] =
     useState(false);
 
+  const [actionsOpen, setActionsOpen] =
+    useState(false);
+
   const [saving, setSaving] =
     useState(false);
 
@@ -145,6 +156,28 @@ export default function FinanceCustomerProfilePage() {
   const isMobile = screen === "mobile";
   const isTablet = screen === "tablet";
   const isCompact = isMobile || isTablet;
+  const isManager = Boolean(
+    sessionUser &&
+      MANAGER_ROLES.has(
+        sessionUser.role
+      )
+  );
+  const canCreateRequest = Boolean(
+    sessionUser &&
+      (isManager ||
+        sessionUser.permissions.includes(
+          "new_request_create"
+        ))
+  );
+  const canEditCustomer = Boolean(
+    sessionUser &&
+      (isManager ||
+        sessionUser.permissions.includes(
+          "customers_edit"
+        ))
+  );
+  const hasCustomerActions =
+    canCreateRequest || canEditCustomer;
 
   useEffect(() => {
     function updateScreen() {
@@ -366,6 +399,7 @@ export default function FinanceCustomerProfilePage() {
     setNotes([]);
     setActivities([]);
     setEditing(false);
+    setActionsOpen(false);
   }
 
   async function loadData(
@@ -1239,7 +1273,8 @@ export default function FinanceCustomerProfilePage() {
               بيانات العميل
             </h2>
 
-            {!editing && (
+            {!editing &&
+              hasCustomerActions && (
               <div
                 style={
                   customerActions
@@ -1251,38 +1286,90 @@ export default function FinanceCustomerProfilePage() {
                     editMiniButton
                   }
                   onClick={() =>
-                    setEditing(true)
-                  }
-                  disabled={deleting}
-                >
-                  تعديل البيانات
-                </button>
-
-                <button
-                  type="button"
-                  style={{
-                    ...deleteMiniButton,
-                    opacity:
-                      deleting
-                        ? 0.65
-                        : 1,
-                    cursor:
-                      deleting
-                        ? "not-allowed"
-                        : "pointer",
-                  }}
-                  onClick={
-                    deleteCustomer
+                    setActionsOpen(
+                      (current) =>
+                        !current
+                    )
                   }
                   disabled={
-                    deleting ||
-                    saving
+                    deleting || saving
+                  }
+                  aria-haspopup="menu"
+                  aria-expanded={
+                    actionsOpen
                   }
                 >
-                  {deleting
-                    ? "جاري الحذف..."
-                    : "حذف العميل"}
+                  الإجراءات
                 </button>
+
+                {actionsOpen && (
+                  <div
+                    role="menu"
+                    style={actionsMenu}
+                  >
+                    {canCreateRequest && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        style={actionsMenuItem}
+                        onClick={() => {
+                          setActionsOpen(false);
+                          router.push(
+                            `/finance/${branch}/new-request`
+                          );
+                        }}
+                      >
+                        طلب جديد
+                      </button>
+                    )}
+
+                    {canEditCustomer && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        style={actionsMenuItem}
+                        onClick={() => {
+                          setActionsOpen(false);
+                          setEditing(true);
+                        }}
+                        disabled={deleting}
+                      >
+                        تعديل بيانات العميل
+                      </button>
+                    )}
+
+                    {canEditCustomer && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        style={{
+                          ...actionsMenuItem,
+                          ...deleteMiniButton,
+                          opacity:
+                            deleting
+                              ? 0.65
+                              : 1,
+                          cursor:
+                            deleting
+                              ? "not-allowed"
+                              : "pointer",
+                        }}
+                        onClick={() => {
+                          setActionsOpen(false);
+                          void deleteCustomer();
+                        }}
+                        disabled={
+                          deleting ||
+                          saving
+                        }
+                      >
+                        {deleting
+                          ? "جاري الحذف..."
+                          : "حذف العميل"}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -2622,10 +2709,42 @@ const cardHeader: CSSProperties = {
 };
 
 const customerActions: CSSProperties = {
-  display: "flex",
+  position: "relative",
+  display: "inline-flex",
   alignItems: "center",
   gap: 8,
-  flexWrap: "wrap",
+};
+
+const actionsMenu: CSSProperties = {
+  position: "absolute",
+  top: "calc(100% + 8px)",
+  left: 0,
+  zIndex: 20,
+  width: 220,
+  display: "grid",
+  gap: 6,
+  padding: 8,
+  border: "1px solid #dbeafe",
+  borderRadius: 14,
+  background: "#ffffff",
+  boxShadow:
+    "0 16px 32px rgba(15,23,42,0.16)",
+};
+
+const actionsMenuItem: CSSProperties = {
+  width: "100%",
+  minHeight: 40,
+  border: "none",
+  borderRadius: 10,
+  padding: "9px 12px",
+  background: "#f8fafc",
+  color: "#0f172a",
+  textAlign: "right",
+  fontSize: 13,
+  fontWeight: 900,
+  cursor: "pointer",
+  fontFamily:
+    "var(--font-almarai), sans-serif",
 };
 
 const sectionTitle: CSSProperties = {
@@ -2729,19 +2848,8 @@ const editMiniButton: CSSProperties = {
 };
 
 const deleteMiniButton: CSSProperties = {
-  border: "none",
-  background:
-    "linear-gradient(135deg,#ef4444,#b91c1c)",
-  color: "#ffffff",
-  borderRadius: 11,
-  padding: "9px 13px",
-  fontSize: 13,
-  fontWeight: 900,
-  cursor: "pointer",
-  boxShadow:
-    "0 5px 12px rgba(185,28,28,0.18)",
-  fontFamily:
-    "var(--font-almarai), sans-serif",
+  background: "#fef2f2",
+  color: "#b91c1c",
 };
 
 const saveButton: CSSProperties = {
