@@ -1307,7 +1307,7 @@ export default function InvestorDetailsPage() {
                 >
                   {statusLoading
                     ? "جاري التنفيذ..."
-                    : "أرشفة المستثمر"}
+                    : "حذف المستثمر"}
                 </button>
               )}
             </section>
