@@ -311,6 +311,7 @@ export default function InvestorsPage() {
       roles.includes("main_admin") ||
       roles.includes("branch_manager") ||
       roles.includes("مدير رئيسي") ||
+      roles.includes("مدير فرع") ||
       roles.includes("مدير") ||
       permissions.includes(permissionKey)
     );
@@ -353,6 +354,7 @@ export default function InvestorsPage() {
           }
         )
         .eq("branch_id", currentBranchId)
+        .eq("is_archived", false)
         .order("created_at", {
           ascending: false,
         })
@@ -544,17 +546,31 @@ export default function InvestorsPage() {
     try {
       setStatusLoadingId(investor.id);
 
-      const { error } = await supabase
-        .from("finance_investors")
-        .update({
-          is_active: !investor.is_active,
-        })
-        .eq("id", investor.id)
-        .eq("branch_id", safeBranchId);
+      const response = await fetch(
+        `/finance/api/investors/${encodeURIComponent(investor.id)}`,
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            branch,
+            action: "toggle",
+            isActive:
+              !investor.is_active,
+          }),
+        }
+      );
 
-      if (error) {
+      const payload = await response
+        .json()
+        .catch(() => null);
+
+      if (!response.ok || !payload?.ok) {
         alert(
-          error.message || "تعذر تعديل حالة المستثمر"
+          payload?.message ||
+            "تعذر تعديل حالة المستثمر"
         );
         return;
       }
@@ -569,6 +585,81 @@ export default function InvestorsPage() {
 
       alert(
         "حدث خطأ غير متوقع أثناء تعديل حالة المستثمر"
+      );
+    } finally {
+      setStatusLoadingId(null);
+    }
+  }
+
+  async function archiveInvestor(
+    investor: InvestorRow
+  ) {
+    if (statusLoadingId) {
+      return;
+    }
+
+    if (!checkLogin()) {
+      return;
+    }
+
+    if (!hasPermission("edit_investor")) {
+      alert("لا تملك صلاحية أرشفة المستثمرين");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `هل تريد أرشفة المستثمر ${investor.investor_name || ""}؟ سيختفي من قائمة المستثمرين النشطة.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const resolvedBranchId =
+      branchId ||
+      (await getBranchId(branch));
+
+    if (!resolvedBranchId) {
+      alert("تعذر تحديد الفرع");
+      return;
+    }
+
+    try {
+      setStatusLoadingId(investor.id);
+
+      const response = await fetch(
+        `/finance/api/investors/${encodeURIComponent(investor.id)}?branch=${encodeURIComponent(branch)}`,
+        {
+          method: "DELETE",
+          credentials: "include",
+        }
+      );
+
+      const payload = await response
+        .json()
+        .catch(() => null);
+
+      if (!response.ok || !payload?.ok) {
+        alert(
+          payload?.message ||
+            "تعذر أرشفة المستثمر"
+        );
+        return;
+      }
+
+      await loadInvestors(
+        resolvedBranchId,
+        currentPage,
+        search
+      );
+    } catch (error) {
+      console.error(
+        "Archive investor error:",
+        error
+      );
+
+      alert(
+        "حدث خطأ غير متوقع أثناء أرشفة المستثمر"
       );
     } finally {
       setStatusLoadingId(null);
@@ -801,6 +892,35 @@ export default function InvestorsPage() {
                         : investor.is_active
                           ? "تعطيل"
                           : "تفعيل"}
+                    </button>
+                  )}
+
+                  {hasPermission(
+                    "edit_investor"
+                  ) && (
+                    <button
+                      type="button"
+                      style={{
+                        ...smallDangerButton,
+                        opacity: statusLoadingId
+                          ? 0.6
+                          : 1,
+                        cursor: statusLoadingId
+                          ? "not-allowed"
+                          : "pointer",
+                      }}
+                      onClick={() =>
+                        void archiveInvestor(
+                          investor
+                        )
+                      }
+                      disabled={Boolean(
+                        statusLoadingId
+                      )}
+                    >
+                      {statusLoadingId === investor.id
+                        ? "جاري..."
+                        : "أرشفة"}
                     </button>
                   )}
                 </div>

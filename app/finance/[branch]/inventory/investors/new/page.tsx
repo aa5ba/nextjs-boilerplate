@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
 import { normalizeNumber } from "@/lib/numberUtils";
 
@@ -252,6 +251,7 @@ export default function NewInvestorPage() {
       currentRoles.includes("main_admin") ||
       currentRoles.includes("branch_manager") ||
       currentRoles.includes("مدير رئيسي") ||
+      currentRoles.includes("مدير فرع") ||
       currentRoles.includes("مدير") ||
       currentPermissions.includes(permissionKey)
     );
@@ -309,75 +309,35 @@ export default function NewInvestorPage() {
     setSaving(true);
 
     try {
-      if (cleanNationalId || cleanPhone) {
-        let duplicateQuery = supabase
-          .from("finance_investors")
-          .select("id, investor_name, national_id, phone")
-          .eq("branch_id", currentBranchId);
-
-        if (cleanNationalId && cleanPhone) {
-          duplicateQuery = duplicateQuery.or(
-            `national_id.eq.${cleanNationalId},phone.eq.${cleanPhone}`
-          );
-        } else if (cleanNationalId) {
-          duplicateQuery = duplicateQuery.eq(
-            "national_id",
-            cleanNationalId
-          );
-        } else {
-          duplicateQuery = duplicateQuery.eq("phone", cleanPhone);
-        }
-
-        const { data: duplicateData, error: duplicateError } =
-          await duplicateQuery.limit(1);
-
-        if (duplicateError) {
-          alert(
-            duplicateError.message ||
-              "تعذر التحقق من تكرار بيانات المستثمر"
-          );
-          return;
-        }
-
-        const duplicateInvestor = duplicateData?.[0];
-
-        if (duplicateInvestor) {
-          if (
-            cleanNationalId &&
-            duplicateInvestor.national_id === cleanNationalId
-          ) {
-            alert("يوجد مستثمر بنفس رقم الهوية داخل هذا الفرع");
-            return;
-          }
-
-          if (
-            cleanPhone &&
-            duplicateInvestor.phone === cleanPhone
-          ) {
-            alert("يوجد مستثمر بنفس رقم الجوال داخل هذا الفرع");
-            return;
-          }
-
-          alert("يوجد مستثمر بنفس البيانات داخل هذا الفرع");
-          return;
-        }
-      }
-
-      const { error: insertError } = await supabase
-        .from("finance_investors")
-        .insert([
-          {
-            branch_id: currentBranchId,
-            investor_name: cleanInvestorName,
-            national_id: cleanNationalId || null,
-            phone: cleanPhone || null,
-            notes: cleanNotes || null,
-            is_active: true,
+      const response = await fetch(
+        "/finance/api/investors",
+        {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
           },
-        ]);
+          body: JSON.stringify({
+            branch,
+            investorName:
+              cleanInvestorName,
+            nationalId:
+              cleanNationalId,
+            phone: cleanPhone,
+            notes: cleanNotes,
+          }),
+        }
+      );
 
-      if (insertError) {
-        alert(insertError.message || "تعذر حفظ المستثمر");
+      const payload = await response
+        .json()
+        .catch(() => null);
+
+      if (!response.ok || !payload?.ok) {
+        alert(
+          payload?.message ||
+            "تعذر حفظ المستثمر"
+        );
         return;
       }
 

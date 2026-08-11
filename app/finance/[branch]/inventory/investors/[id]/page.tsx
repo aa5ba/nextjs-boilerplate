@@ -467,6 +467,7 @@ export default function InvestorDetailsPage() {
           )
           .eq("id", investorId)
           .eq("branch_id", currentBranchId)
+          .eq("is_archived", false)
           .maybeSingle();
 
       if (isCancelled()) {
@@ -783,8 +784,6 @@ export default function InvestorDetailsPage() {
       return;
     }
 
-    const safeBranchId: string = branchId;
-
     const confirmed = window.confirm(
       investor.is_active
         ? "هل تريد تعطيل هذا المستثمر؟"
@@ -801,17 +800,29 @@ export default function InvestorDetailsPage() {
     try {
       const newStatus = !investor.is_active;
 
-      const { error } = await supabase
-        .from("finance_investors")
-        .update({
-          is_active: newStatus,
-        })
-        .eq("id", investorId)
-        .eq("branch_id", safeBranchId);
+      const response = await fetch(
+        `/finance/api/investors/${encodeURIComponent(investorId)}`,
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            branch,
+            action: "toggle",
+            isActive: newStatus,
+          }),
+        }
+      );
 
-      if (error) {
+      const payload = await response
+        .json()
+        .catch(() => null);
+
+      if (!response.ok || !payload?.ok) {
         alert(
-          error.message ||
+          payload?.message ||
             "تعذر تعديل حالة المستثمر"
         );
         return;
@@ -830,6 +841,74 @@ export default function InvestorDetailsPage() {
 
       alert(
         "حدث خطأ غير متوقع أثناء تعديل حالة المستثمر"
+      );
+    } finally {
+      statusLoadingRef.current = false;
+      setStatusLoading(false);
+    }
+  }
+
+  async function archiveInvestor() {
+    if (
+      statusLoadingRef.current ||
+      statusLoading ||
+      !investor
+    ) {
+      return;
+    }
+
+    if (!checkLogin()) {
+      return;
+    }
+
+    if (!hasPermission("edit_investor")) {
+      alert("لا تملك صلاحية أرشفة المستثمرين");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `هل تريد أرشفة المستثمر ${investor.investor_name || ""}؟ سيختفي من قائمة المستثمرين النشطة.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    statusLoadingRef.current = true;
+    setStatusLoading(true);
+
+    try {
+      const response = await fetch(
+        `/finance/api/investors/${encodeURIComponent(investorId)}?branch=${encodeURIComponent(branch)}`,
+        {
+          method: "DELETE",
+          credentials: "include",
+        }
+      );
+
+      const payload = await response
+        .json()
+        .catch(() => null);
+
+      if (!response.ok || !payload?.ok) {
+        alert(
+          payload?.message ||
+            "تعذر أرشفة المستثمر"
+        );
+        return;
+      }
+
+      router.replace(
+        `/finance/${branch}/inventory/investors`
+      );
+      router.refresh();
+    } catch (error) {
+      console.error(
+        "Archive investor error:",
+        error
+      );
+      alert(
+        "حدث خطأ غير متوقع أثناء أرشفة المستثمر"
       );
     } finally {
       statusLoadingRef.current = false;
@@ -1206,6 +1285,29 @@ export default function InvestorDetailsPage() {
                     : investor.is_active
                       ? "تعطيل المستثمر"
                       : "تفعيل المستثمر"}
+                </button>
+              )}
+
+              {hasPermission("edit_investor") && (
+                <button
+                  type="button"
+                  style={{
+                    ...dangerButton,
+                    opacity: statusLoading
+                      ? 0.65
+                      : 1,
+                    cursor: statusLoading
+                      ? "not-allowed"
+                      : "pointer",
+                  }}
+                  onClick={() =>
+                    void archiveInvestor()
+                  }
+                  disabled={statusLoading}
+                >
+                  {statusLoading
+                    ? "جاري التنفيذ..."
+                    : "أرشفة المستثمر"}
                 </button>
               )}
             </section>

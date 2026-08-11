@@ -145,7 +145,19 @@ export default function EditInvestorPage() {
 
     try {
       const user = JSON.parse(savedUser);
-      const currentRoles = user.roles || [];
+      const roleCandidates = [
+        ...(Array.isArray(user.roles) ? user.roles : [user.roles]),
+        user.role,
+        user.finance_role,
+      ];
+      const currentRoles = Array.from(
+        new Set(
+          roleCandidates
+            .filter((role): role is string => typeof role === "string")
+            .map((role) => role.trim())
+            .filter(Boolean)
+        )
+      );
       const currentPermissions = user.permissions || [];
 
       setRoles(currentRoles);
@@ -172,7 +184,10 @@ export default function EditInvestorPage() {
     permissionKey: string
   ) {
     return (
+      currentRoles.includes("main_admin") ||
+      currentRoles.includes("branch_manager") ||
       currentRoles.includes("مدير رئيسي") ||
+      currentRoles.includes("مدير فرع") ||
       currentRoles.includes("مدير") ||
       currentPermissions.includes(permissionKey)
     );
@@ -180,7 +195,10 @@ export default function EditInvestorPage() {
 
   function hasPermission(permissionKey: string) {
     return (
+      roles.includes("main_admin") ||
+      roles.includes("branch_manager") ||
       roles.includes("مدير رئيسي") ||
+      roles.includes("مدير فرع") ||
       roles.includes("مدير") ||
       permissions.includes(permissionKey)
     );
@@ -202,6 +220,7 @@ export default function EditInvestorPage() {
       .select("*")
       .eq("id", investorId)
       .eq("branch_id", branchId)
+      .eq("is_archived", false)
       .maybeSingle();
 
     if (error || !data) {
@@ -253,69 +272,36 @@ export default function EditInvestorPage() {
 
     try {
       setSaving(true);
-
-      if (cleanNationalId || cleanPhone) {
-        let duplicateQuery = supabase
-          .from("finance_investors")
-          .select("id, investor_name, national_id, phone")
-          .eq("branch_id", branchId)
-          .neq("id", investorId);
-
-        if (cleanNationalId && cleanPhone) {
-          duplicateQuery = duplicateQuery.or(
-            `national_id.eq.${cleanNationalId},phone.eq.${cleanPhone}`
-          );
-        } else if (cleanNationalId) {
-          duplicateQuery = duplicateQuery.eq("national_id", cleanNationalId);
-        } else {
-          duplicateQuery = duplicateQuery.eq("phone", cleanPhone);
+      const response = await fetch(
+        `/finance/api/investors/${encodeURIComponent(investorId)}`,
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            branch,
+            action: "update",
+            investorName:
+              investorName.trim(),
+            nationalId:
+              cleanNationalId,
+            phone: cleanPhone,
+            notes: notes.trim(),
+          }),
         }
+      );
 
-        const { data: duplicateData, error: duplicateError } =
-          await duplicateQuery.limit(1);
+      const payload = await response
+        .json()
+        .catch(() => null);
 
-        if (duplicateError) {
-          alert(duplicateError.message || "تعذر التحقق من تكرار بيانات المستثمر");
-          return;
-        }
-
-        if ((duplicateData || []).length > 0) {
-          const duplicateInvestor = duplicateData?.[0];
-
-          if (duplicateInvestor?.national_id === cleanNationalId) {
-            alert("يوجد مستثمر آخر بنفس رقم الهوية داخل هذا الفرع");
-            return;
-          }
-
-          if (duplicateInvestor?.phone === cleanPhone) {
-            alert("يوجد مستثمر آخر بنفس رقم الجوال داخل هذا الفرع");
-            return;
-          }
-
-          alert("يوجد مستثمر آخر بنفس البيانات داخل هذا الفرع");
-          return;
-        }
-      }
-
-      const { data, error } = await supabase
-        .from("finance_investors")
-        .update({
-          investor_name: investorName.trim(),
-          national_id: cleanNationalId || null,
-          phone: cleanPhone || null,
-          notes: notes.trim() || null,
-        })
-        .eq("id", investorId)
-        .eq("branch_id", branchId)
-        .select();
-
-      if (error) {
-        alert(error.message);
-        return;
-      }
-
-      if (!data || data.length === 0) {
-        alert("لم يتم تعديل أي سجل. تحقق من رقم المستثمر أو الصلاحيات.");
+      if (!response.ok || !payload?.ok) {
+        alert(
+          payload?.message ||
+            "تعذر تعديل المستثمر"
+        );
         return;
       }
 
