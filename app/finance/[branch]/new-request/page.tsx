@@ -139,6 +139,22 @@ const ACTIVITY_REFRESH_INTERVAL_MS =
 const CUSTOMER_LOOKUP_DEBOUNCE_MS =
   300;
 
+const NEW_REQUEST_CREATE_PERMISSIONS = new Set([
+  "new_request_create",
+  "contracts_create",
+]);
+
+const NEW_REQUEST_MANAGER_ROLES = new Set([
+  "main_admin",
+  "branch_manager",
+  "admin",
+  "manager",
+  "مدير فرع",
+  "مدير رئيسي",
+  "مدير",
+  "support_impersonation",
+]);
+
 const SESSION_KEYS = [
   "finance_user",
   "finance_branch_user",
@@ -182,6 +198,9 @@ export default function NewRequestPage() {
     useState<ScreenType>("desktop");
 
   const [pageReady, setPageReady] =
+    useState(false);
+
+  const [canCreateRequest, setCanCreateRequest] =
     useState(false);
 
   const [employeeName, setEmployeeName] =
@@ -948,8 +967,48 @@ export default function NewRequestPage() {
         currentEmployeeName
       );
 
+      const sessionPermissions = [
+        ...normalizeSessionStringArray(
+          localUser?.permissions
+        ),
+        ...normalizeSessionStringArray(
+          localStorage.getItem(
+            "finance_permissions"
+          )
+        ),
+      ];
+
+      const sessionRoles = [
+        ...normalizeSessionStringArray(
+          localUser?.roles
+        ),
+        ...normalizeSessionStringArray(
+          localUser?.role
+        ),
+        ...normalizeSessionStringArray(
+          localStorage.getItem(
+            "finance_role"
+          )
+        ),
+      ];
+
+      const hasCreateAccess =
+        sessionRoles.some((role) =>
+          NEW_REQUEST_MANAGER_ROLES.has(role)
+        ) ||
+        sessionPermissions.some((permission) =>
+          NEW_REQUEST_CREATE_PERMISSIONS.has(permission)
+        );
+
+      setCanCreateRequest(hasCreateAccess);
+
       renewFinanceSession();
       setPageReady(true);
+
+      if (!hasCreateAccess) {
+        setListsLoading(false);
+        return;
+      }
 
       const storedBranchId =
         String(
@@ -2170,6 +2229,11 @@ export default function NewRequestPage() {
       return;
     }
 
+    if (!canCreateRequest) {
+      alert("لا تملك صلاحية إنشاء العقود");
+      return;
+    }
+
     const validationMessage =
       validateRequest();
 
@@ -2740,6 +2804,15 @@ export default function NewRequestPage() {
           </section>
         )}
 
+        {!canCreateRequest && (
+          <section
+            role="alert"
+            style={inlineErrorCard}
+          >
+            لا تملك صلاحية إنشاء العقود
+          </section>
+        )}
+
         <section style={card}>
           <h2 style={sectionTitle}>
             نوع العقد
@@ -3101,7 +3174,10 @@ export default function NewRequestPage() {
                   : "pointer",
               }}
               onClick={createRequest}
-              disabled={saving}
+              disabled={
+                saving ||
+                !canCreateRequest
+              }
             >
               {saving
                 ? "جاري إنشاء الطلب..."
@@ -3727,12 +3803,14 @@ export default function NewRequestPage() {
               ...primaryButton,
               opacity:
                 saving ||
-                listsLoading
+                listsLoading ||
+                !canCreateRequest
                   ? 0.7
                   : 1,
               cursor:
                 saving ||
-                listsLoading
+                listsLoading ||
+                !canCreateRequest
                   ? "not-allowed"
                   : "pointer",
             }}
@@ -3741,7 +3819,8 @@ export default function NewRequestPage() {
             }
             disabled={
               saving ||
-              listsLoading
+              listsLoading ||
+              !canCreateRequest
             }
           >
             {saving
@@ -4659,6 +4738,42 @@ function getErrorMessage(
   }
 
   return fallback;
+}
+
+function normalizeSessionStringArray(
+  value: unknown
+): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .filter(
+        (item): item is string =>
+          typeof item === "string"
+      )
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  if (typeof value !== "string") {
+    return [];
+  }
+
+  const normalized = value.trim();
+
+  if (!normalized) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(normalized) as unknown;
+
+    if (parsed !== value) {
+      return normalizeSessionStringArray(parsed);
+    }
+  } catch {
+    // القيمة المفردة مثل اسم الدور ليست JSON.
+  }
+
+  return [normalized];
 }
 
 function UserIcon() {

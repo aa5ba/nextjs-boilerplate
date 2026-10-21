@@ -559,22 +559,39 @@ export async function POST(
       );
     }
 
-    const {
-      data: hasPermission,
-      error: permissionError,
-    } = await supabaseAdmin.rpc(
-      "finance_user_has_permission",
-      {
-        p_branch_id: session.branchId,
-        p_user_id: session.userId,
-        p_permission_key: "new_request_create",
-      }
+    const permissionChecks = await Promise.all(
+      ["new_request_create", "contracts_create"].map(
+        async (permissionKey) => {
+          const { data, error } = await supabaseAdmin.rpc(
+            "finance_user_has_permission",
+            {
+              p_branch_id: session.branchId,
+              p_user_id: session.userId,
+              p_permission_key: permissionKey,
+            }
+          );
+
+          return {
+            permissionKey,
+            allowed: data === true,
+            error,
+          };
+        }
+      )
     );
 
-    if (permissionError) {
+    const failedPermissionCheck = permissionChecks.find(
+      (check) => check.error
+    );
+
+    if (failedPermissionCheck) {
       console.error(
         "New request permission check failed:",
-        permissionError
+        {
+          permissionKey:
+            failedPermissionCheck.permissionKey,
+          error: failedPermissionCheck.error,
+        }
       );
 
       return errorResponse(
@@ -584,7 +601,7 @@ export async function POST(
       );
     }
 
-    if (hasPermission !== true) {
+    if (!permissionChecks.some((check) => check.allowed)) {
       return errorResponse(
         "لا تملك صلاحية إنشاء طلب جديد",
         403,
