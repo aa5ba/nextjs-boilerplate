@@ -120,14 +120,14 @@ type MainSection = {
   icon: string;
   color: string;
   bg: string;
-  permission?: string;
+  permission?: string | string[];
 };
 
 type DrawerLink = {
   title: string;
   path: string;
   icon: string;
-  permission: string;
+  permission: string | string[];
 };
 
 type DrawerGroup = {
@@ -312,6 +312,18 @@ const sections: MainSection[] = [
     permission: "inventory",
   },
   {
+    title: "شراء وبيع",
+    path: "sales-invoices",
+    icon: "🧾",
+    color: "#0f766e",
+    bg: "linear-gradient(135deg,#ecfdf5,#ccfbf1)",
+    permission: [
+      "sales_invoice_view",
+      "sales_invoice_create",
+      "purchase_invoice_create",
+    ],
+  },
+  {
     title: "العقود",
     path: "contracts",
     icon: "📄",
@@ -398,6 +410,26 @@ const drawerGroups: DrawerGroup[] = [
         path: "notes",
         icon: "✏️",
         permission: "notes",
+      },
+    ],
+  },
+  {
+    title: "شراء وبيع",
+    links: [
+      {
+        title: "قائمة الشراء والبيع",
+        path: "sales-invoices",
+        icon: "🧾",
+        permission: "sales_invoice_view",
+      },
+      {
+        title: "فاتورة شراء أو بيع جديدة",
+        path: "sales-invoices/new",
+        icon: "➕",
+        permission: [
+          "sales_invoice_create",
+          "purchase_invoice_create",
+        ],
       },
     ],
   },
@@ -1396,11 +1428,19 @@ export default function FinancePage() {
       return [];
     }
 
-    return sections.filter(
-      (item) =>
-        !item.permission ||
-        hasPermission(item.permission)
-    );
+    return sections.filter((item) => {
+      if (!item.permission) return true;
+
+      const requiredPermissions = Array.isArray(item.permission)
+        ? item.permission
+        : [item.permission];
+
+      return requiredPermissions.some((permission) =>
+        roles.includes("support_impersonation") ||
+        roles.some((role) => MANAGER_ROLES.includes(role)) ||
+        permissions.includes(permission)
+      );
+    });
   }, [
     authorized,
     permissions,
@@ -1417,12 +1457,17 @@ export default function FinancePage() {
         .map((group) => ({
           ...group,
 
-          links: group.links.filter(
-            (link) =>
-              hasPermission(
-                link.permission
-              )
-          ),
+          links: group.links.filter((link) => {
+            const requiredPermissions = Array.isArray(link.permission)
+              ? link.permission
+              : [link.permission];
+
+            return requiredPermissions.some((permission) =>
+              roles.includes("support_impersonation") ||
+              roles.some((role) => MANAGER_ROLES.includes(role)) ||
+              permissions.includes(permission)
+            );
+          }),
         }))
         .filter(
           (group) =>

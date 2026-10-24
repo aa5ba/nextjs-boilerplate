@@ -87,6 +87,14 @@ const INVESTOR_PERMISSIONS = [
   "investor_contracts",
 ];
 
+const SALES_INVOICE_PERMISSIONS = [
+  "sales_invoice_create",
+  "purchase_invoice_create",
+  "sales_invoice_view",
+  "sales_invoice_print",
+  "sales_invoice_cancel",
+];
+
 const PERMISSION_GROUPS: PermissionGroup[] = [
   {
     title: "سير العمل",
@@ -117,6 +125,16 @@ const PERMISSION_GROUPS: PermissionGroup[] = [
       { key: "payments", label: "عرض عمليات السداد" },
       { key: "payments_create", label: "إجراء سداد" },
       { key: "payments_cancel", label: "إلغاء دفعة" },
+    ],
+  },
+  {
+    title: "شراء وبيع",
+    permissions: [
+      { key: "sales_invoice_create", label: "إنشاء فاتورة بيع" },
+      { key: "purchase_invoice_create", label: "إنشاء فاتورة شراء" },
+      { key: "sales_invoice_view", label: "عرض فواتير الشراء والبيع" },
+      { key: "sales_invoice_print", label: "طباعة فواتير الشراء والبيع" },
+      { key: "sales_invoice_cancel", label: "إلغاء فواتير الشراء والبيع" },
     ],
   },
   {
@@ -196,6 +214,7 @@ const DEFAULT_EXCLUDED_PERMISSIONS = new Set([
   "edit_investor",
   "toggle_investor",
   "permissions",
+  ...SALES_INVOICE_PERMISSIONS,
 ]);
 
 const DEFAULT_STANDARD_PERMISSIONS = ALL_MANAGER_PERMISSIONS.filter(
@@ -203,7 +222,10 @@ const DEFAULT_STANDARD_PERMISSIONS = ALL_MANAGER_PERMISSIONS.filter(
 );
 
 const DEFAULT_PERMISSIONS: Record<UserRole, string[]> = {
-  مدير: [...DEFAULT_STANDARD_PERMISSIONS],
+  مدير: [
+    ...DEFAULT_STANDARD_PERMISSIONS,
+    ...SALES_INVOICE_PERMISSIONS,
+  ],
   موظف: [...DEFAULT_STANDARD_PERMISSIONS],
   مستثمر: [...INVESTOR_PERMISSIONS],
 };
