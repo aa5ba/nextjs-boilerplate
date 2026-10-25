@@ -72,6 +72,12 @@ export default function SalesInvoicePrintPage() {
             padding: 10mm !important;
           }
         }
+        @media (max-width: 640px) {
+          .sales-invoice-paper { padding: 20px !important; }
+          .sales-invoice-header { grid-template-columns: 1fr !important; }
+          .sales-invoice-meta { text-align: right !important; }
+          .sales-invoice-grid { grid-template-columns: 1fr !important; }
+        }
       `}</style>
 
       <div className="sales-invoice-actions" style={actionsStyle}>
@@ -88,16 +94,17 @@ export default function SalesInvoicePrintPage() {
 
       {invoice ? (
         <article className="sales-invoice-paper" style={paperStyle}>
-          <header style={documentHeader}>
+          <header className="sales-invoice-header" style={documentHeader}>
             <div>
+              <div style={organizationLabel}>المؤسسة</div>
               <h1 style={documentTitle}>{invoice.organization_name}</h1>
-              <div style={subtitle}>
-                فاتورة {invoice.operation_type === "purchase" ? "شراء" : "بيع"}
-              </div>
             </div>
-            <div style={invoiceMeta}>
-              <strong>رقم الفاتورة: {invoice.invoice_number}</strong>
-              <span>التاريخ: {formatDate(invoice.invoice_date)}</span>
+            <div className="sales-invoice-meta" style={invoiceMeta}>
+              <span style={operationBadge}>
+                فاتورة {invoice.operation_type === "purchase" ? "شراء" : "بيع"}
+              </span>
+              <strong style={invoiceNumber}>رقم الفاتورة: {invoice.invoice_number}</strong>
+              <span style={invoiceDate}>التاريخ: {formatDate(invoice.invoice_date)}</span>
             </div>
           </header>
 
@@ -105,7 +112,7 @@ export default function SalesInvoicePrintPage() {
 
           <section style={sectionStyle}>
             <h2 style={sectionTitle}>بيانات العميل</h2>
-            <div style={gridStyle}>
+            <div className="sales-invoice-grid" style={gridStyle}>
               <PrintField label="اسم العميل" value={invoice.customer_name} />
               <PrintField label="رقم الهوية" value={invoice.customer_national_id} />
               <PrintField label="رقم الجوال" value={invoice.customer_phone} />
@@ -116,12 +123,14 @@ export default function SalesInvoicePrintPage() {
             <h2 style={sectionTitle}>
               بيانات {invoice.operation_type === "purchase" ? "الشراء" : "البيع"}
             </h2>
-            <div style={gridStyle}>
-              <PrintField label="المستثمر" value={invoice.investor_name} />
+            <div className="sales-invoice-grid" style={gridStyle}>
               <PrintField label="السلعة" value={invoice.product_name} />
               <PrintField label="الكمية" value={formatQuantity(invoice.quantity)} />
-              <PrintField label="القيمة الإجمالية" value={`${formatCurrency(invoice.total_amount)} ر.س`} />
               <PrintField label="وسيلة الدفع" value={invoice.payment_method} />
+            </div>
+            <div style={totalBox}>
+              <span>القيمة الإجمالية</span>
+              <strong>{formatCurrency(invoice.total_amount)} ر.س</strong>
             </div>
           </section>
 
@@ -132,9 +141,14 @@ export default function SalesInvoicePrintPage() {
           ) : null}
 
           <div style={signatureArea}>
-            <span>اسم العميل: {invoice.customer_name}</span>
-            <span>توقيع العميل:</span>
-            <div style={signatureLine} />
+            <div style={signatureIdentity}>
+              <span>اسم العميل</span>
+              <strong>{invoice.customer_name}</strong>
+            </div>
+            <div style={signatureBox}>
+              <span>توقيع العميل</span>
+              <div style={signatureLine} />
+            </div>
           </div>
 
           <footer style={footerStyle}>
@@ -153,19 +167,25 @@ function PrintField({ label, value }: { label: string; value: string }) {
 
 const pageStyle: CSSProperties = { minHeight: "100vh", padding: 20, background: "#e8f0f7", fontFamily: "var(--font-almarai), sans-serif", color: "#111827" };
 const actionsStyle: CSSProperties = { width: "min(190mm,100%)", margin: "0 auto 16px", display: "flex", gap: 10 };
-const paperStyle: CSSProperties = { boxSizing: "border-box", width: "min(190mm,100%)", minHeight: "277mm", margin: "0 auto", padding: "12mm", background: "#fff", border: "1px solid #cbd5e1", boxShadow: "0 18px 45px rgba(15,23,42,0.14)", position: "relative" };
-const documentHeader: CSSProperties = { display: "flex", justifyContent: "space-between", gap: 20, borderBottom: "3px solid #0f4c81", paddingBottom: 18, marginBottom: 28 };
-const documentTitle: CSSProperties = { margin: 0, color: "#0f2f5f", fontSize: 25 };
-const subtitle: CSSProperties = { marginTop: 7, color: "#475569", fontWeight: 800 };
-const invoiceMeta: CSSProperties = { display: "grid", gap: 8, textAlign: "left" };
+const paperStyle: CSSProperties = { boxSizing: "border-box", width: "min(190mm,100%)", minHeight: "277mm", margin: "0 auto", padding: "12mm", background: "#fff", border: "1px solid #cbd5e1", borderTop: "7px solid #0f4c81", boxShadow: "0 18px 45px rgba(15,23,42,0.14)", position: "relative", overflow: "hidden" };
+const documentHeader: CSSProperties = { display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", alignItems: "start", gap: 24, borderBottom: "2px solid #0f4c81", paddingBottom: 22, marginBottom: 30 };
+const organizationLabel: CSSProperties = { color: "#64748b", fontSize: 12, fontWeight: 800, marginBottom: 7 };
+const documentTitle: CSSProperties = { margin: 0, color: "#0f2f5f", fontSize: 27, lineHeight: 1.5 };
+const invoiceMeta: CSSProperties = { display: "grid", justifyItems: "end", gap: 8, textAlign: "left" };
+const operationBadge: CSSProperties = { display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 125, borderRadius: 999, padding: "8px 16px", color: "#ffffff", background: "linear-gradient(135deg,#0f4c81,#1677b8)", fontWeight: 900, fontSize: 15 };
+const invoiceNumber: CSSProperties = { color: "#0f172a", fontSize: 15 };
+const invoiceDate: CSSProperties = { color: "#475569", fontSize: 13, fontWeight: 700 };
 const sectionStyle: CSSProperties = { marginTop: 22 };
-const sectionTitle: CSSProperties = { fontSize: 17, color: "#0f4c81", margin: "0 0 12px" };
-const gridStyle: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", border: "1px solid #cbd5e1" };
-const fieldStyle: CSSProperties = { display: "grid", gap: 7, minHeight: 62, padding: 12, border: "1px solid #e2e8f0" };
-const fieldLabel: CSSProperties = { color: "#64748b", fontSize: 12 };
-const acknowledgement: CSSProperties = { marginTop: 34, border: "1px solid #94a3b8", borderRadius: 10, padding: 18, lineHeight: 2, fontWeight: 700 };
-const signatureArea: CSSProperties = { marginTop: 42, display: "grid", gap: 18, width: "55%" };
-const signatureLine: CSSProperties = { height: 55, borderBottom: "1px solid #334155" };
+const sectionTitle: CSSProperties = { fontSize: 17, color: "#0f4c81", margin: "0 0 12px", paddingRight: 10, borderRight: "4px solid #38bdf8" };
+const gridStyle: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", border: "1px solid #cbd5e1", borderRadius: 10, overflow: "hidden" };
+const fieldStyle: CSSProperties = { display: "grid", gap: 7, minHeight: 66, padding: 13, border: "1px solid #e2e8f0", background: "#fbfdff" };
+const fieldLabel: CSSProperties = { color: "#64748b", fontSize: 12, fontWeight: 700 };
+const totalBox: CSSProperties = { marginTop: 14, marginRight: "auto", width: "min(310px,100%)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, borderRadius: 10, padding: "14px 16px", color: "#ffffff", background: "linear-gradient(135deg,#0f2f5f,#0f4c81)", fontSize: 14 };
+const acknowledgement: CSSProperties = { marginTop: 34, border: "1px solid #93c5fd", borderRadius: 12, padding: 18, lineHeight: 2, fontWeight: 700, background: "#f8fbff", color: "#1e3a5f" };
+const signatureArea: CSSProperties = { marginTop: 40, display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 24 };
+const signatureIdentity: CSSProperties = { display: "grid", gap: 9, padding: 14, border: "1px solid #e2e8f0", borderRadius: 10, color: "#475569" };
+const signatureBox: CSSProperties = { display: "grid", gap: 10, padding: 14, border: "1px solid #e2e8f0", borderRadius: 10, color: "#475569" };
+const signatureLine: CSSProperties = { height: 48, borderBottom: "1px solid #334155" };
 const footerStyle: CSSProperties = { position: "absolute", right: "12mm", left: "12mm", bottom: "12mm", paddingTop: 10, borderTop: "1px solid #cbd5e1", color: "#64748b", fontSize: 11, textAlign: "center" };
 const cancelledStamp: CSSProperties = { position: "absolute", left: 36, top: 120, transform: "rotate(-12deg)", color: "#b91c1c", border: "4px solid #b91c1c", padding: "8px 24px", fontWeight: 900, fontSize: 28, opacity: 0.7 };
 const errorStyle: CSSProperties = { ...noticeStyle, color: "#b91c1c", background: "#fff1f2" };

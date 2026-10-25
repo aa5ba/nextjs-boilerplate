@@ -35,6 +35,7 @@ export type InvoiceOperationType = "sale" | "purchase";
 export type SalesInvoiceRecord = {
   id: string;
   branch_id: string;
+  customer_id?: string | null;
   invoice_number: number | string;
   invoice_date: string;
   organization_name: string;

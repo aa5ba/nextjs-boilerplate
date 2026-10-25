@@ -69,6 +69,26 @@ type ActivityLog = {
   created_at?: string | null;
 };
 
+type CustomerSalesInvoice = {
+  id: string;
+  invoice_number: number | string;
+  invoice_date: string;
+  total_amount: number | string;
+  operation_type: "sale" | "purchase";
+  status: "active" | "cancelled";
+};
+
+type CustomerSalesInvoicesResponse = {
+  ok?: boolean;
+  message?: string;
+  invoices?: CustomerSalesInvoice[];
+  pagination?: {
+    page?: number;
+    total?: number;
+    totalPages?: number;
+  };
+};
+
 type SupabaseRpcError = {
   code?: string;
   message?: string;
@@ -116,6 +136,24 @@ export default function FinanceCustomerProfilePage() {
 
   const [activities, setActivities] =
     useState<ActivityLog[]>([]);
+
+  const [salesInvoices, setSalesInvoices] =
+    useState<CustomerSalesInvoice[]>([]);
+
+  const [salesInvoicePage, setSalesInvoicePage] =
+    useState(1);
+
+  const [salesInvoiceTotal, setSalesInvoiceTotal] =
+    useState(0);
+
+  const [salesInvoiceTotalPages, setSalesInvoiceTotalPages] =
+    useState(1);
+
+  const [salesInvoicesLoading, setSalesInvoicesLoading] =
+    useState(false);
+
+  const [salesInvoicesError, setSalesInvoicesError] =
+    useState("");
 
   const [branchId, setBranchId] =
     useState<string | null>(null);
@@ -178,6 +216,11 @@ export default function FinanceCustomerProfilePage() {
   );
   const hasCustomerActions =
     canCreateRequest || canEditCustomer;
+  const canViewSalesInvoices = Boolean(
+    sessionUser &&
+      (isManager ||
+        sessionUser.permissions.includes("sales_invoice_view"))
+  );
 
   useEffect(() => {
     function updateScreen() {
@@ -342,6 +385,59 @@ export default function FinanceCustomerProfilePage() {
     sessionUser?.id,
   ]);
 
+  useEffect(() => {
+    if (!authChecked || !customer || !canViewSalesInvoices || !branch || !customerId) {
+      setSalesInvoices([]);
+      setSalesInvoiceTotal(0);
+      setSalesInvoiceTotalPages(1);
+      setSalesInvoicesError("");
+      setSalesInvoicesLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+
+    async function loadSalesInvoices() {
+      try {
+        setSalesInvoicesLoading(true);
+        setSalesInvoicesError("");
+
+        const response = await fetch(
+          `/finance/api/sales-invoices?branch=${encodeURIComponent(branch)}&customerId=${encodeURIComponent(customerId)}&page=${salesInvoicePage}`,
+          {
+            credentials: "include",
+            cache: "no-store",
+            signal: controller.signal,
+          }
+        );
+        const payload = (await response.json()) as CustomerSalesInvoicesResponse;
+
+        if (!response.ok || payload.ok === false) {
+          throw new Error(payload.message || "تعذر تحميل فواتير الشراء والبيع");
+        }
+
+        setSalesInvoices(payload.invoices ?? []);
+        setSalesInvoiceTotal(payload.pagination?.total ?? 0);
+        setSalesInvoiceTotalPages(Math.max(1, payload.pagination?.totalPages ?? 1));
+      } catch (error) {
+        if (controller.signal.aborted) return;
+
+        setSalesInvoices([]);
+        setSalesInvoiceTotal(0);
+        setSalesInvoiceTotalPages(1);
+        setSalesInvoicesError(
+          error instanceof Error ? error.message : "تعذر تحميل فواتير الشراء والبيع"
+        );
+      } finally {
+        if (!controller.signal.aborted) setSalesInvoicesLoading(false);
+      }
+    }
+
+    void loadSalesInvoices();
+
+    return () => controller.abort();
+  }, [authChecked, branch, canViewSalesInvoices, customer, customerId, salesInvoicePage]);
+
   const allContracts = useMemo(
     () => [
       ...activeContracts,
@@ -398,6 +494,12 @@ export default function FinanceCustomerProfilePage() {
     setClosedContracts([]);
     setNotes([]);
     setActivities([]);
+    setSalesInvoices([]);
+    setSalesInvoicePage(1);
+    setSalesInvoiceTotal(0);
+    setSalesInvoiceTotalPages(1);
+    setSalesInvoicesLoading(false);
+    setSalesInvoicesError("");
     setEditing(false);
     setActionsOpen(false);
   }
@@ -1139,6 +1241,18 @@ export default function FinanceCustomerProfilePage() {
     );
   }
 
+  function formatInvoiceDate(date: string) {
+    const parsedDate = new Date(date);
+
+    if (Number.isNaN(parsedDate.getTime())) {
+      return "-";
+    }
+
+    return parsedDate.toLocaleDateString("ar-SA", {
+      dateStyle: "medium",
+    });
+  }
+
   function openContract(
     contractId: string
   ) {
@@ -1153,6 +1267,10 @@ export default function FinanceCustomerProfilePage() {
     router.push(
       `/finance/${branch}/contracts/promissory-note/print/${noteId}`
     );
+  }
+
+  function openSalesInvoice(invoiceId: string) {
+    router.push(`/finance/${branch}/sales-invoices/${invoiceId}`);
   }
 
   function renderPage(
@@ -1636,6 +1754,95 @@ export default function FinanceCustomerProfilePage() {
             </div>
           )}
         </section>
+      </section>
+
+      <section style={{ ...card, marginBottom: 16 }}>
+        <div style={cardHeader}>
+          <h2 style={sectionTitle}>
+            فواتير الشراء والبيع
+          </h2>
+
+          <span style={countBadge}>
+            {canViewSalesInvoices ? salesInvoiceTotal : 0}
+          </span>
+        </div>
+
+        {!canViewSalesInvoices ? (
+          <div style={emptyBox}>
+            لا تملك صلاحية عرض فواتير الشراء والبيع
+          </div>
+        ) : salesInvoicesLoading ? (
+          <div style={emptyBox}>
+            جاري تحميل الفواتير...
+          </div>
+        ) : salesInvoicesError ? (
+          <div style={salesInvoicesErrorBox}>
+            {salesInvoicesError}
+          </div>
+        ) : salesInvoices.length === 0 ? (
+          <div style={emptyBox}>
+            لا توجد فواتير مرتبطة بهذا العميل
+          </div>
+        ) : (
+          <>
+            <div style={listBox}>
+              {salesInvoices.map((invoice) => (
+                <button
+                  key={invoice.id}
+                  type="button"
+                  style={salesInvoiceItem}
+                  onClick={() => openSalesInvoice(invoice.id)}
+                >
+                  <div style={salesInvoiceItemTop}>
+                    <strong>
+                      فاتورة {invoice.operation_type === "purchase" ? "شراء" : "بيع"} رقم {invoice.invoice_number}
+                    </strong>
+                    <span
+                      style={{
+                        ...salesInvoiceStatusBadge,
+                        ...(invoice.status === "cancelled"
+                          ? salesInvoiceCancelledBadge
+                          : salesInvoiceActiveBadge),
+                      }}
+                    >
+                      {invoice.status === "cancelled" ? "ملغاة" : "نشطة"}
+                    </span>
+                  </div>
+
+                  <div style={salesInvoiceItemGrid}>
+                    <span>التاريخ: {formatInvoiceDate(invoice.invoice_date)}</span>
+                    <span>القيمة: {formatMoney(invoice.total_amount)} ر.س</span>
+                    <span style={openHint}>فتح التفاصيل</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <div style={salesInvoicePagination}>
+              <button
+                type="button"
+                style={salesInvoicePageButton}
+                disabled={salesInvoicePage <= 1 || salesInvoicesLoading}
+                onClick={() => setSalesInvoicePage((page) => Math.max(1, page - 1))}
+              >
+                السابق
+              </button>
+              <span>
+                الصفحة {salesInvoicePage} من {salesInvoiceTotalPages}
+              </span>
+              <button
+                type="button"
+                style={salesInvoicePageButton}
+                disabled={salesInvoicePage >= salesInvoiceTotalPages || salesInvoicesLoading}
+                onClick={() =>
+                  setSalesInvoicePage((page) => Math.min(salesInvoiceTotalPages, page + 1))
+                }
+              >
+                التالي
+              </button>
+            </div>
+          </>
+        )}
       </section>
 
       <section
@@ -2948,6 +3155,86 @@ const contractStatusLate: CSSProperties = {
 const contractStatusClosed: CSSProperties = {
   background: "#f1f5f9",
   color: "#334155",
+};
+
+const salesInvoiceItem: CSSProperties = {
+  width: "100%",
+  border: "1px solid #dbeafe",
+  background: "linear-gradient(135deg,#f8fbff,#ffffff)",
+  borderRadius: 16,
+  padding: 14,
+  cursor: "pointer",
+  textAlign: "right",
+  display: "grid",
+  gap: 10,
+  fontFamily: "inherit",
+};
+
+const salesInvoiceItemTop: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 10,
+  flexWrap: "wrap",
+};
+
+const salesInvoiceItemGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))",
+  gap: 8,
+  color: "#475569",
+  fontSize: 13,
+  fontWeight: 800,
+};
+
+const salesInvoiceStatusBadge: CSSProperties = {
+  borderRadius: 999,
+  padding: "6px 10px",
+  fontSize: 12,
+  fontWeight: 900,
+  whiteSpace: "nowrap",
+};
+
+const salesInvoiceActiveBadge: CSSProperties = {
+  background: "#dcfce7",
+  color: "#166534",
+};
+
+const salesInvoiceCancelledBadge: CSSProperties = {
+  background: "#fee2e2",
+  color: "#991b1b",
+};
+
+const salesInvoicePagination: CSSProperties = {
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "center",
+  gap: 12,
+  marginTop: 16,
+  flexWrap: "wrap",
+  color: "#475569",
+  fontWeight: 800,
+};
+
+const salesInvoicePageButton: CSSProperties = {
+  border: "1px solid #cbd5e1",
+  background: "#ffffff",
+  color: "#0f4c81",
+  borderRadius: 10,
+  padding: "8px 14px",
+  cursor: "pointer",
+  fontFamily: "inherit",
+  fontWeight: 900,
+};
+
+const salesInvoicesErrorBox: CSSProperties = {
+  background: "#fff1f2",
+  border: "1px solid #fecdd3",
+  borderRadius: 16,
+  padding: 20,
+  textAlign: "center",
+  color: "#b91c1c",
+  fontWeight: 800,
 };
 
 const noteItem: CSSProperties = {

@@ -146,6 +146,18 @@ export function mapSalesInvoiceRpcError(message: string) {
       status: 404,
     },
     {
+      token: "SALES_INVOICE_CUSTOMER_ARCHIVED",
+      code: "SALES_INVOICE_CUSTOMER_ARCHIVED",
+      message: "العميل موجود في الأرشيف؛ أعد تنشيط ملفه قبل إنشاء الفاتورة",
+      status: 409,
+    },
+    {
+      token: "SALES_INVOICE_CUSTOMER_DATA_MISMATCH",
+      code: "SALES_INVOICE_CUSTOMER_DATA_MISMATCH",
+      message: "رقم الهوية مرتبط بعميل تختلف بياناته؛ راجع ملف العميل قبل إنشاء الفاتورة",
+      status: 409,
+    },
+    {
       token: "INSUFFICIENT_GOODS_QUANTITY",
       code: "INSUFFICIENT_GOODS_QUANTITY",
       message: "الكمية المطلوبة غير متوفرة في المخزون",

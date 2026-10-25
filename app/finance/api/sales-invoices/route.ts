@@ -39,6 +39,7 @@ export async function GET(request: Request) {
     const pageValue = Number(cleanDigits(url.searchParams.get("page")) || "1");
     const page = Number.isSafeInteger(pageValue) && pageValue > 0 ? pageValue : 1;
     const status = cleanText(url.searchParams.get("status"));
+    const customerId = cleanText(url.searchParams.get("customerId"));
     const rawSearch = cleanText(url.searchParams.get("search")).slice(0, 80);
     const search = rawSearch
       .replace(/[^\p{L}\p{N}\s_-]/gu, " ")
@@ -46,16 +47,24 @@ export async function GET(request: Request) {
       .trim();
     const offset = (page - 1) * PAGE_SIZE;
 
+    if (customerId && !UUID_PATTERN.test(customerId)) {
+      return createErrorResponse("معرف العميل غير صحيح", 400, "INVALID_CUSTOMER_ID");
+    }
+
     let query = supabaseAdmin
       .from("finance_sales_invoices")
       .select(
-        "id,branch_id,invoice_number,invoice_date,organization_name,customer_name,customer_national_id,customer_phone,product_name,investor_name,quantity,total_amount,payment_method,operation_type,sale_unit_cost,sale_total_cost,status,created_by_name,created_at,cancelled_at,cancelled_by_name,cancellation_reason",
+        "id,branch_id,customer_id,invoice_number,invoice_date,organization_name,customer_name,customer_national_id,customer_phone,product_name,investor_name,quantity,total_amount,payment_method,operation_type,sale_unit_cost,sale_total_cost,status,created_by_name,created_at,cancelled_at,cancelled_by_name,cancellation_reason",
         { count: "exact" }
       )
       .eq("branch_id", session.branchId)
       .order("invoice_date", { ascending: false })
       .order("invoice_number", { ascending: false })
       .range(offset, offset + PAGE_SIZE - 1);
+
+    if (customerId) {
+      query = query.eq("customer_id", customerId);
+    }
 
     if (status === "active" || status === "cancelled") {
       query = query.eq("status", status);
