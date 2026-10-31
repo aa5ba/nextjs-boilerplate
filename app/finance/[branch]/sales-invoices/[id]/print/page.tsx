@@ -57,19 +57,32 @@ export default function SalesInvoicePrintPage() {
   if (!session.checked) return <div style={noticeStyle}>جاري التحقق من الجلسة...</div>;
 
   return (
-    <main dir="rtl" style={pageStyle}>
+    <main className="sales-invoice-print-page" dir="rtl" style={pageStyle}>
       <style>{`
         @page { size: A4 portrait; margin: 10mm; }
         @media print {
-          body { background: #fff !important; }
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #fff !important;
+          }
+          .sales-invoice-print-page {
+            min-height: 0 !important;
+            height: auto !important;
+            padding: 0 !important;
+            background: #fff !important;
+          }
           .sales-invoice-actions { display: none !important; }
           .sales-invoice-paper {
             width: 190mm !important;
-            min-height: 277mm !important;
+            height: 276mm !important;
+            min-height: 0 !important;
             margin: 0 auto !important;
             border: 0 !important;
             box-shadow: none !important;
             padding: 10mm !important;
+            break-inside: avoid-page !important;
+            page-break-inside: avoid !important;
           }
         }
         @media (max-width: 640px) {
