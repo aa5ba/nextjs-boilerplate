@@ -471,10 +471,6 @@ export default function NewSalesInvoicePage() {
           </div>
         ) : null}
 
-        <p style={customerNotice}>
-          تُربط الفاتورة بملف العميل المسجل، أو يُنشأ ملف جديد ذريًا عند عدم وجود الهوية داخل الفرع.
-        </p>
-
         {error ? <div style={errorStyle}>{error}</div> : null}
 
         <button
@@ -508,5 +504,4 @@ const metaBox: CSSProperties = { display: "flex", flexWrap: "wrap", justifyConte
 const stockInfo: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 10, margin: "18px 0", padding: 14, borderRadius: 14, background: "#f0fdfa", color: "#115e59", fontWeight: 700 };
 const customerLookupNoticeStyle: CSSProperties = { color: "#166534", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 12, padding: 12, marginTop: 14 };
 const customerLookupErrorStyle: CSSProperties = { color: "#b91c1c", background: "#fff1f2", border: "1px solid #fecdd3", borderRadius: 12, padding: 12, marginTop: 14 };
-const customerNotice: CSSProperties = { color: "#475569", fontSize: 13, margin: "14px 0" };
 const errorStyle: CSSProperties = { color: "#b91c1c", background: "#fff1f2", border: "1px solid #fecdd3", borderRadius: 12, padding: 12, marginBottom: 14 };
