@@ -28,6 +28,7 @@ type UpdateSupportUserBody = {
   action?: unknown;
   is_active?: unknown;
   permissions?: unknown;
+  new_password?: unknown;
 };
 
 type UpdateSupportUserStatusResult = {
@@ -38,6 +39,11 @@ type UpdateSupportUserStatusResult = {
 type UpdateSupportUserPermissionsResult = {
   user_id: string;
   permissions: string[];
+  new_session_version: number;
+};
+
+type ResetSupportUserPasswordResult = {
+  user_id: string;
   new_session_version: number;
 };
 
@@ -264,6 +270,66 @@ function mapPermissionsError(
   };
 }
 
+function mapPasswordResetError(
+  rawMessage: string
+) {
+  if (
+    rawMessage.includes(
+      "TARGET_USER_ID_REQUIRED"
+    )
+  ) {
+    return {
+      message:
+        "معرّف مستخدم الدعم غير موجود",
+      status: 400,
+    };
+  }
+
+  if (
+    rawMessage.includes(
+      "ACTOR_USER_ID_REQUIRED"
+    ) ||
+    rawMessage.includes(
+      "ACTOR_USER_NAME_REQUIRED"
+    )
+  ) {
+    return {
+      message:
+        "تعذر تحديد منفذ العملية",
+      status: 400,
+    };
+  }
+
+  if (
+    rawMessage.includes(
+      "INVALID_PASSWORD_LENGTH"
+    )
+  ) {
+    return {
+      message:
+        "كلمة المرور يجب أن تكون من 4 إلى 100 حرف",
+      status: 400,
+    };
+  }
+
+  if (
+    rawMessage.includes(
+      "SUPPORT_USER_NOT_FOUND"
+    )
+  ) {
+    return {
+      message: "مستخدم الدعم غير موجود",
+      status: 404,
+    };
+  }
+
+  return {
+    message:
+      "تعذر إعادة تعيين كلمة مرور مستخدم الدعم",
+    status: 500,
+  };
+}
+
 async function getTargetSupportUser(
   targetUserId: string
 ): Promise<
@@ -388,7 +454,9 @@ export async function PATCH(
     if (
       resolvedAction !== "set_active" &&
       resolvedAction !==
-        "update_permissions"
+        "update_permissions" &&
+      resolvedAction !==
+        "reset_password"
     ) {
       return createErrorResponse(
         "نوع العملية غير صحيح",
@@ -544,6 +612,104 @@ export async function PATCH(
               result.user_id,
             is_active:
               result.is_active,
+          },
+        },
+        {
+          status: 200,
+          headers:
+            noStoreHeaders(),
+        }
+      );
+    }
+
+    if (
+      resolvedAction ===
+      "reset_password"
+    ) {
+      if (
+        typeof body.new_password !==
+          "string" ||
+        body.new_password.length < 4 ||
+        body.new_password.length > 100
+      ) {
+        return createErrorResponse(
+          "كلمة المرور يجب أن تكون من 4 إلى 100 حرف",
+          400
+        );
+      }
+
+      const { data, error } =
+        await supabaseAdmin.rpc(
+          "reset_admin_support_user_password_atomic",
+          {
+            p_target_user_id:
+              targetUserId,
+            p_new_password:
+              body.new_password,
+            p_actor_user_id:
+              auth.user.id,
+            p_actor_user_name:
+              auth.user.fullName,
+          }
+        );
+
+      if (error) {
+        console.error(
+          "reset_admin_support_user_password_atomic failed:",
+          error
+        );
+
+        const mappedError =
+          mapPasswordResetError(
+            `${error.code || ""} ${
+              error.message || ""
+            }`
+          );
+
+        return createErrorResponse(
+          mappedError.message,
+          mappedError.status
+        );
+      }
+
+      const rawResult =
+        Array.isArray(data)
+          ? data[0]
+          : data;
+
+      const result =
+        rawResult &&
+        typeof rawResult === "object"
+          ? (rawResult as ResetSupportUserPasswordResult)
+          : null;
+
+      if (
+        !result?.user_id ||
+        typeof
+          result.new_session_version !==
+          "number"
+      ) {
+        console.error(
+          "reset_admin_support_user_password_atomic returned invalid data:",
+          data
+        );
+
+        return createErrorResponse(
+          "تم تنفيذ العملية لكن تعذر قراءة نتيجتها",
+          500
+        );
+      }
+
+      return NextResponse.json(
+        {
+          ok: true,
+          message:
+            "تمت إعادة تعيين كلمة مرور مستخدم الدعم بنجاح",
+          data: {
+            user_id:
+              result.user_id,
+            session_version:
+              result.new_session_version,
           },
         },
         {

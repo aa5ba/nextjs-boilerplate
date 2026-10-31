@@ -426,6 +426,12 @@ type PasswordDialogState = {
   value: string;
 } | null;
 
+type SupportPasswordDialogState = {
+  user: SupportUser;
+  value: string;
+  confirmation: string;
+} | null;
+
 type ManagerProfileDialogState = {
   manager: BranchManager;
   fullName: string;
@@ -458,6 +464,7 @@ type BusyAction =
   | `manager_profile:${string}`
   | `support_status:${string}`
   | `support_permissions:${string}`
+  | `support_password:${string}`
   | `ehtisab_provider_status:${string}`
   | `ehtisab_provider_delete:${string}`
   | `ehtisab_rule_delete:${string}`
@@ -2383,6 +2390,14 @@ export default function AdminSupportPage() {
     setPasswordDialog,
   ] =
     useState<PasswordDialogState>(
+      null
+    );
+
+  const [
+    supportPasswordDialog,
+    setSupportPasswordDialog,
+  ] =
+    useState<SupportPasswordDialogState>(
       null
     );
 
@@ -4732,6 +4747,45 @@ export default function AdminSupportPage() {
     );
   }
 
+  function openSupportPasswordDialog(
+    user: SupportUser
+  ): void {
+    if (
+      !access.manage_support_users
+    ) {
+      showNotice(
+        "لا تملك صلاحية إدارة مستخدمي الدعم",
+        "error"
+      );
+      return;
+    }
+
+    if (
+      user.role ===
+        "super_admin" &&
+      currentUser?.role !==
+        "super_admin"
+    ) {
+      showNotice(
+        "لا يمكن تعديل مدير النظام إلا بواسطة مدير نظام آخر",
+        "error"
+      );
+      return;
+    }
+
+    setSupportPasswordDialog({
+      user,
+      value: "",
+      confirmation: "",
+    });
+  }
+
+  function closeSupportPasswordDialog(): void {
+    setSupportPasswordDialog(
+      null
+    );
+  }
+
   function openManagerProfileDialog(
     manager: BranchManager
   ): void {
@@ -6199,6 +6253,120 @@ export default function AdminSupportPage() {
       showNotice(
         result.payload.message ||
           "تم تحديث الصلاحيات",
+        "success"
+      );
+
+      await loadDashboard({
+        section:
+          "support_users",
+
+        usersPage:
+          paginationRef.current
+            .usersPage,
+      });
+    } finally {
+      endAction(action);
+    }
+  }
+
+  async function submitSupportUserPassword(): Promise<void> {
+    if (!supportPasswordDialog) {
+      return;
+    }
+
+    if (
+      !access.manage_support_users
+    ) {
+      showNotice(
+        "لا تملك صلاحية إدارة مستخدمي الدعم",
+        "error"
+      );
+      return;
+    }
+
+    const {
+      user,
+      value,
+      confirmation,
+    } = supportPasswordDialog;
+
+    if (
+      !isValidSupportPassword(
+        value
+      )
+    ) {
+      showNotice(
+        "كلمة المرور يجب أن تكون من 4 إلى 100 حرف",
+        "error"
+      );
+      return;
+    }
+
+    if (value !== confirmation) {
+      showNotice(
+        "تأكيد كلمة المرور غير مطابق",
+        "error"
+      );
+      return;
+    }
+
+    const action:
+      BusyAction =
+      `support_password:${user.id}`;
+
+    if (!beginAction(action)) {
+      return;
+    }
+
+    try {
+      const result =
+        await executeRequest(
+          `/api/admin-support/support-users/${user.id}`,
+          {
+            method: "PATCH",
+
+            body: JSON.stringify({
+              action:
+                "reset_password",
+
+              new_password:
+                value,
+            }),
+          }
+        );
+
+      if (!result.ok) {
+        if (!result.aborted) {
+          showNotice(
+            result.message,
+            "error"
+          );
+        }
+
+        return;
+      }
+
+      closeSupportPasswordDialog();
+
+      if (
+        user.id ===
+        currentUser?.id
+      ) {
+        await executeRequest(
+          "/api/admin-support/logout",
+          {
+            method: "POST",
+          }
+        );
+
+        clearVerificationWorkspace();
+        redirectToLogin();
+        return;
+      }
+
+      showNotice(
+        result.payload.message ||
+          "تمت إعادة تعيين كلمة المرور",
         "success"
       );
 
@@ -8891,12 +9059,19 @@ export default function AdminSupportPage() {
                           BusyAction =
                           `support_permissions:${user.id}`;
 
+                        const passwordAction:
+                          BusyAction =
+                          `support_password:${user.id}`;
+
                         const userBusy =
                           isBusy(
                             statusAction
                           ) ||
                           isBusy(
                             permissionsAction
+                          ) ||
+                          isBusy(
+                            passwordAction
                           );
 
                         const editorOpen =
@@ -9101,6 +9276,28 @@ export default function AdminSupportPage() {
                             <div
                               style={rowActions}
                             >
+                              {(
+                                user.role !==
+                                  "super_admin" ||
+                                currentUser?.role ===
+                                  "super_admin"
+                              ) && (
+                                <button
+                                  type="button"
+                                  style={smallBlueButton}
+                                  onClick={() =>
+                                    openSupportPasswordDialog(
+                                      user
+                                    )
+                                  }
+                                  disabled={
+                                    userBusy
+                                  }
+                                >
+                                  إعادة تعيين كلمة المرور
+                                </button>
+                              )}
+
                               {user.role !==
                                 "super_admin" &&
                                 user.id !==
@@ -11078,6 +11275,181 @@ export default function AdminSupportPage() {
                 }
                 disabled={isBusy(
                   `manager_password:${passwordDialog.manager.id}`
+                )}
+              >
+                إلغاء
+              </button>
+            </div>
+          </section>
+        </ModalOverlay>
+      )}
+
+      {supportPasswordDialog && (
+        <ModalOverlay>
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="support-password-dialog-title"
+            style={modalCard}
+          >
+            <h2
+              id="support-password-dialog-title"
+              style={modalTitle}
+            >
+              إعادة تعيين كلمة مرور مستخدم الدعم
+            </h2>
+
+            <p
+              style={modalText}
+            >
+              المستخدم:{" "}
+              {
+                supportPasswordDialog.user
+                  .full_name
+              }
+            </p>
+
+            <Field
+              id="support-user-new-password"
+              label="كلمة المرور الجديدة من 4 إلى 100 حرف"
+            >
+              <input
+                id="support-user-new-password"
+                style={input}
+                type="password"
+                autoComplete="new-password"
+                minLength={4}
+                maxLength={100}
+                value={
+                  supportPasswordDialog.value
+                }
+                autoFocus
+                onChange={(
+                  event
+                ) =>
+                  setSupportPasswordDialog(
+                    (
+                      previous
+                    ) =>
+                      previous
+                        ? {
+                            ...previous,
+                            value:
+                              event.target
+                                .value,
+                          }
+                        : previous
+                  )
+                }
+                onKeyDown={(
+                  event
+                ) => {
+                  if (
+                    event.key ===
+                    "Escape"
+                  ) {
+                    event.preventDefault();
+
+                    closeSupportPasswordDialog();
+                  }
+                }}
+                disabled={isBusy(
+                  `support_password:${supportPasswordDialog.user.id}`
+                )}
+              />
+            </Field>
+
+            <Field
+              id="support-user-confirm-password"
+              label="تأكيد كلمة المرور الجديدة"
+            >
+              <input
+                id="support-user-confirm-password"
+                style={input}
+                type="password"
+                autoComplete="new-password"
+                minLength={4}
+                maxLength={100}
+                value={
+                  supportPasswordDialog.confirmation
+                }
+                onChange={(
+                  event
+                ) =>
+                  setSupportPasswordDialog(
+                    (
+                      previous
+                    ) =>
+                      previous
+                        ? {
+                            ...previous,
+                            confirmation:
+                              event.target
+                                .value,
+                          }
+                        : previous
+                  )
+                }
+                onKeyDown={(
+                  event
+                ) => {
+                  if (
+                    event.key ===
+                    "Enter"
+                  ) {
+                    event.preventDefault();
+
+                    void submitSupportUserPassword();
+                  }
+
+                  if (
+                    event.key ===
+                    "Escape"
+                  ) {
+                    event.preventDefault();
+
+                    closeSupportPasswordDialog();
+                  }
+                }}
+                disabled={isBusy(
+                  `support_password:${supportPasswordDialog.user.id}`
+                )}
+              />
+            </Field>
+
+            <div
+              style={modalButtonsRow}
+            >
+              <button
+                type="button"
+                style={getDisabledStyle(
+                  smallGreenButton,
+                  isBusy(
+                    `support_password:${supportPasswordDialog.user.id}`
+                  )
+                )}
+                onClick={() =>
+                  void submitSupportUserPassword()
+                }
+                disabled={isBusy(
+                  `support_password:${supportPasswordDialog.user.id}`
+                )}
+              >
+                {isBusy(
+                  `support_password:${supportPasswordDialog.user.id}`
+                )
+                  ? "جاري التحديث..."
+                  : "حفظ كلمة المرور"}
+              </button>
+
+              <button
+                type="button"
+                style={smallButton}
+                onClick={
+                  closeSupportPasswordDialog
+                }
+                disabled={isBusy(
+                  `support_password:${supportPasswordDialog.user.id}`
                 )}
               >
                 إلغاء
