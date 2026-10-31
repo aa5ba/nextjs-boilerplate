@@ -39,6 +39,7 @@ export type SalesInvoiceRecord = {
   invoice_number: number | string;
   invoice_date: string;
   organization_name: string;
+  commercial_record?: string | null;
   customer_name: string;
   customer_national_id: string;
   customer_phone: string;

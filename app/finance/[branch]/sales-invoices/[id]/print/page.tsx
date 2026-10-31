@@ -109,8 +109,12 @@ export default function SalesInvoicePrintPage() {
         <article className="sales-invoice-paper" style={paperStyle}>
           <header className="sales-invoice-header" style={documentHeader}>
             <div>
-              <div style={organizationLabel}>المؤسسة</div>
               <h1 style={documentTitle}>{invoice.organization_name}</h1>
+              {invoice.commercial_record ? (
+                <div style={commercialRecord}>
+                  رقم السجل التجاري: {invoice.commercial_record}
+                </div>
+              ) : null}
             </div>
             <div className="sales-invoice-meta" style={invoiceMeta}>
               <span style={operationBadge}>
@@ -182,8 +186,8 @@ const pageStyle: CSSProperties = { minHeight: "100vh", padding: 20, background: 
 const actionsStyle: CSSProperties = { width: "min(190mm,100%)", margin: "0 auto 16px", display: "flex", gap: 10 };
 const paperStyle: CSSProperties = { boxSizing: "border-box", width: "min(190mm,100%)", minHeight: "277mm", margin: "0 auto", padding: "12mm", background: "#fff", border: "1px solid #cbd5e1", borderTop: "7px solid #0f4c81", boxShadow: "0 18px 45px rgba(15,23,42,0.14)", position: "relative", overflow: "hidden" };
 const documentHeader: CSSProperties = { display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", alignItems: "start", gap: 24, borderBottom: "2px solid #0f4c81", paddingBottom: 22, marginBottom: 30 };
-const organizationLabel: CSSProperties = { color: "#64748b", fontSize: 12, fontWeight: 800, marginBottom: 7 };
 const documentTitle: CSSProperties = { margin: 0, color: "#0f2f5f", fontSize: 27, lineHeight: 1.5 };
+const commercialRecord: CSSProperties = { marginTop: 7, color: "#64748b", fontSize: 13, fontWeight: 700 };
 const invoiceMeta: CSSProperties = { display: "grid", justifyItems: "end", gap: 8, textAlign: "left" };
 const operationBadge: CSSProperties = { display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 125, borderRadius: 999, padding: "8px 16px", color: "#ffffff", background: "linear-gradient(135deg,#0f4c81,#1677b8)", fontWeight: 900, fontSize: 15 };
 const invoiceNumber: CSSProperties = { color: "#0f172a", fontSize: 15 };

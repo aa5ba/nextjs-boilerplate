@@ -60,7 +60,25 @@ export async function GET(
       );
     }
 
-    return createResponse({ ok: true, invoice: data });
+    if (mode !== "print") {
+      return createResponse({ ok: true, invoice: data });
+    }
+
+    const { data: branchData, error: branchError } = await supabaseAdmin
+      .from("finance_branches")
+      .select("commercial_record")
+      .eq("id", session.branchId)
+      .maybeSingle();
+
+    if (branchError) throw new Error(branchError.message);
+
+    return createResponse({
+      ok: true,
+      invoice: {
+        ...data,
+        commercial_record: branchData?.commercial_record ?? null,
+      },
+    });
   } catch (error) {
     if (isFinanceBranchSessionError(error)) {
       return createErrorResponse(error.message, error.status, error.code);
