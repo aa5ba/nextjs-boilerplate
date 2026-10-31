@@ -175,10 +175,6 @@ export async function POST(request: Request) {
       return createErrorResponse("تاريخ الفاتورة غير صحيح", 400, "INVALID_INVOICE_DATE");
     }
 
-    if (!customerName || customerName.length > 150) {
-      return createErrorResponse("اسم العميل غير صحيح", 400, "INVALID_CUSTOMER_NAME");
-    }
-
     if (!/^\d{10}$/.test(customerNationalId)) {
       return createErrorResponse(
         "رقم الهوية يجب أن يتكون من 10 أرقام",
@@ -187,7 +183,38 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!/^05\d{8}$/.test(customerPhone)) {
+    const { data: existingCustomer, error: existingCustomerError } =
+      await supabaseAdmin
+        .from("finance_customers")
+        .select("id,full_name,phone,is_archived")
+        .eq("branch_id", session.branchId)
+        .eq("national_id", customerNationalId)
+        .maybeSingle();
+
+    if (existingCustomerError) {
+      throw new Error(existingCustomerError.message);
+    }
+
+    if (existingCustomer?.is_archived) {
+      return createErrorResponse(
+        "العميل موجود في الأرشيف؛ أعد تنشيط ملفه قبل إنشاء الفاتورة",
+        409,
+        "SALES_INVOICE_CUSTOMER_ARCHIVED"
+      );
+    }
+
+    const resolvedCustomerName = existingCustomer
+      ? cleanText(existingCustomer.full_name)
+      : customerName;
+    const resolvedCustomerPhone = existingCustomer
+      ? cleanDigits(existingCustomer.phone)
+      : customerPhone;
+
+    if (!resolvedCustomerName || resolvedCustomerName.length > 150) {
+      return createErrorResponse("اسم العميل غير صحيح", 400, "INVALID_CUSTOMER_NAME");
+    }
+
+    if (!/^05\d{8}$/.test(resolvedCustomerPhone)) {
       return createErrorResponse(
         "رقم الجوال يجب أن يبدأ بـ 05 ويتكون من 10 أرقام",
         400,
@@ -217,9 +244,9 @@ export async function POST(request: Request) {
       p_request_id: requestId,
       p_operation_type: operationType,
       p_invoice_date: invoiceDate,
-      p_customer_name: customerName,
+      p_customer_name: resolvedCustomerName,
       p_customer_national_id: customerNationalId,
-      p_customer_phone: customerPhone,
+      p_customer_phone: resolvedCustomerPhone,
       p_inventory_id: inventoryId,
       p_quantity: quantity,
       p_total_amount: totalAmount,

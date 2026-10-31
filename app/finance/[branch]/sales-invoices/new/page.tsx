@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { useParams, useRouter } from "next/navigation";
 
@@ -52,6 +52,20 @@ type CreateResponse = {
   } | null;
 };
 
+type CustomerLookupResponse = {
+  ok?: boolean;
+  found?: boolean;
+  code?: string;
+  message?: string;
+  customer?: {
+    id: string;
+    fullName: string;
+    phone: string;
+  };
+};
+
+type CustomerLookupStatus = "idle" | "loading" | "existing" | "new" | "archived";
+
 function todayIso() {
   const date = new Date();
   const year = date.getFullYear();
@@ -72,6 +86,9 @@ export default function NewSalesInvoicePage() {
   const [customerName, setCustomerName] = useState("");
   const [customerNationalId, setCustomerNationalId] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
+  const [customerLookupStatus, setCustomerLookupStatus] =
+    useState<CustomerLookupStatus>("idle");
+  const [customerLookupMessage, setCustomerLookupMessage] = useState("");
   const [operationType, setOperationType] = useState<InvoiceOperationType>("sale");
   const [investorId, setInvestorId] = useState("");
   const [inventoryId, setInventoryId] = useState("");
@@ -81,6 +98,7 @@ export default function NewSalesInvoicePage() {
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const customerLookupSequence = useRef(0);
 
   const selected = useMemo(
     () => options.find((option) => option.inventoryId === inventoryId) ?? null,
@@ -161,6 +179,65 @@ export default function NewSalesInvoicePage() {
     void loadOptions();
     return () => { cancelled = true; };
   }, [branch, session.checked]);
+
+  async function lookupCustomer() {
+    const nationalId = customerNationalId;
+    const sequence = ++customerLookupSequence.current;
+
+    setCustomerLookupMessage("");
+
+    if (!/^\d{10}$/.test(nationalId)) {
+      setCustomerLookupStatus("idle");
+      return;
+    }
+
+    setCustomerLookupStatus("loading");
+
+    try {
+      const response = await fetch(
+        `/finance/api/sales-invoices/customer?branch=${encodeURIComponent(branch)}&nationalId=${encodeURIComponent(nationalId)}`,
+        { credentials: "include", cache: "no-store" }
+      );
+      const payload = (await response.json()) as CustomerLookupResponse;
+
+      if (sequence !== customerLookupSequence.current) return;
+
+      if (!response.ok || payload.ok === false) {
+        if (payload.code === "SALES_INVOICE_CUSTOMER_ARCHIVED") {
+          setCustomerName("");
+          setCustomerPhone("");
+          setCustomerLookupStatus("archived");
+          setCustomerLookupMessage(
+            payload.message || "العميل موجود في الأرشيف؛ أعد تنشيط ملفه قبل إنشاء الفاتورة"
+          );
+          return;
+        }
+
+        throw new Error(payload.message || "تعذر التحقق من بيانات العميل");
+      }
+
+      if (payload.found && payload.customer) {
+        setCustomerName(payload.customer.fullName);
+        setCustomerPhone(payload.customer.phone);
+        setCustomerLookupStatus("existing");
+        setCustomerLookupMessage("تم العثور على العميل وربط الفاتورة بملفه المسجل");
+        return;
+      }
+
+      setCustomerLookupStatus("new");
+      setCustomerLookupMessage("عميل جديد؛ أدخل الاسم ورقم الجوال لإنشاء ملفه مع الفاتورة");
+    } catch (lookupError) {
+      if (sequence !== customerLookupSequence.current) return;
+
+      setCustomerLookupStatus("idle");
+      setCustomerLookupMessage("");
+      setError(
+        lookupError instanceof Error
+          ? lookupError.message
+          : "تعذر التحقق من بيانات العميل"
+      );
+    }
+  }
 
   async function submitInvoice(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -243,25 +320,47 @@ export default function NewSalesInvoicePage() {
             />
           </Field>
 
-          <Field label="اسم العميل">
-            <input
-              style={inputStyle}
-              value={customerName}
-              maxLength={150}
-              onChange={(event) => setCustomerName(event.target.value)}
-              required
-            />
-          </Field>
-
           <Field label="رقم الهوية">
             <input
               inputMode="numeric"
               style={inputStyle}
               value={customerNationalId}
               maxLength={10}
-              onChange={(event) =>
-                setCustomerNationalId(normalizeNumber(event.target.value).replace(/\D/g, "").slice(0, 10))
-              }
+              onChange={(event) => {
+                const nextNationalId = normalizeNumber(event.target.value)
+                  .replace(/\D/g, "")
+                  .slice(0, 10);
+
+                customerLookupSequence.current += 1;
+
+                if (
+                  customerLookupStatus === "existing" ||
+                  customerLookupStatus === "archived"
+                ) {
+                  setCustomerName("");
+                  setCustomerPhone("");
+                }
+
+                setCustomerNationalId(nextNationalId);
+                setCustomerLookupStatus("idle");
+                setCustomerLookupMessage("");
+                setError("");
+              }}
+              onBlur={() => void lookupCustomer()}
+              required
+            />
+          </Field>
+
+          <Field label="اسم العميل">
+            <input
+              style={{
+                ...inputStyle,
+                background: customerLookupStatus === "existing" ? "#f1f5f9" : inputStyle.background,
+              }}
+              value={customerName}
+              maxLength={150}
+              readOnly={customerLookupStatus === "existing"}
+              onChange={(event) => setCustomerName(event.target.value)}
               required
             />
           </Field>
@@ -272,6 +371,7 @@ export default function NewSalesInvoicePage() {
               style={inputStyle}
               value={customerPhone}
               maxLength={10}
+              readOnly={customerLookupStatus === "existing"}
               onChange={(event) =>
                 setCustomerPhone(normalizeNumber(event.target.value).replace(/\D/g, "").slice(0, 10))
               }
@@ -345,6 +445,18 @@ export default function NewSalesInvoicePage() {
           </Field>
         </div>
 
+        {customerLookupMessage ? (
+          <div
+            style={
+              customerLookupStatus === "archived"
+                ? customerLookupErrorStyle
+                : customerLookupNoticeStyle
+            }
+          >
+            {customerLookupMessage}
+          </div>
+        ) : null}
+
         {selected ? (
           <div style={stockInfo}>
             <span>المتاح: {formatQuantity(selected.availableQuantity)}</span>
@@ -360,12 +472,22 @@ export default function NewSalesInvoicePage() {
         ) : null}
 
         <p style={customerNotice}>
-          بيانات العميل تخص هذه الفاتورة فقط، ولا يُنشأ أو يُعدّل سجل في العملاء.
+          تُربط الفاتورة بملف العميل المسجل، أو يُنشأ ملف جديد ذريًا عند عدم وجود الهوية داخل الفرع.
         </p>
 
         {error ? <div style={errorStyle}>{error}</div> : null}
 
-        <button type="submit" style={primaryButton} disabled={saving || loadingOptions || !requestId}>
+        <button
+          type="submit"
+          style={primaryButton}
+          disabled={
+            saving ||
+            loadingOptions ||
+            !requestId ||
+            customerLookupStatus === "loading" ||
+            customerLookupStatus === "archived"
+          }
+        >
           {saving ? "جاري حفظ الفاتورة..." : `حفظ فاتورة ${operationType === "purchase" ? "الشراء" : "البيع"}`}
         </button>
       </form>
@@ -384,5 +506,7 @@ const formGrid: CSSProperties = {
 };
 const metaBox: CSSProperties = { display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: 12, background: "#eff6ff", borderRadius: 14, padding: 14, marginBottom: 18, color: "#1e3a5f" };
 const stockInfo: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 10, margin: "18px 0", padding: 14, borderRadius: 14, background: "#f0fdfa", color: "#115e59", fontWeight: 700 };
+const customerLookupNoticeStyle: CSSProperties = { color: "#166534", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 12, padding: 12, marginTop: 14 };
+const customerLookupErrorStyle: CSSProperties = { color: "#b91c1c", background: "#fff1f2", border: "1px solid #fecdd3", borderRadius: 12, padding: 12, marginTop: 14 };
 const customerNotice: CSSProperties = { color: "#475569", fontSize: 13, margin: "14px 0" };
 const errorStyle: CSSProperties = { color: "#b91c1c", background: "#fff1f2", border: "1px solid #fecdd3", borderRadius: 12, padding: 12, marginBottom: 14 };
