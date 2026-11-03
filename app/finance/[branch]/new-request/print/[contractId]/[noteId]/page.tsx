@@ -14,6 +14,7 @@ import {
 } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
+import { toEnglishDigits } from "@/lib/numberUtils";
 
 const FREE_SALE_GUARANTOR_ACKNOWLEDGEMENT_TEXT =
   "أقر انا الموقع و بكامل قواي المعتبره شرعاً بأني أكفل الطرف الثاني ( المشتري ) كفالة غرم وأداء وكل مايترتب على هذا العقد في حال أي مطالبه .";
@@ -231,7 +232,7 @@ const SESSION_KEYS = [
 ] as const;
 
 const LEGAL_FOOTER_TEXT =
-  "هذا السند واجب الدفع بموجب قرار مجلس الوزراء رقم ٦٩٢ و تاريخ ٢٦ / ٩ / ١٣٨٣ هـ\nوالمتوج بالمرسوم الملكي رقم ٣٧ و تاريخ ١١ / ١٠ / ١٣٨٣ هـ / نظام الأوراق التجاريه - ويسري على هذا السند جميع القرارات والأنظمه والتنظيمات في المملكة العربية السعودية";
+  "هذا السند واجب الدفع بموجب قرار مجلس الوزراء رقم 692 و تاريخ 26 / 9 / 1383 هـ\nوالمتوج بالمرسوم الملكي رقم 37 و تاريخ 11 / 10 / 1383 هـ / نظام الأوراق التجاريه - ويسري على هذا السند جميع القرارات والأنظمه والتنظيمات في المملكة العربية السعودية";
 
 export default function PrintNewRequestPage() {
   const params = useParams();
@@ -2162,7 +2163,7 @@ export default function PrintNewRequestPage() {
                 </strong>
                 ، رقم الهوية /{" "}
                 <strong>
-                  {nationalId}
+                  {toEnglishDigits(nationalId)}
                 </strong>
                 {birthHijri && (
                   <>
@@ -2170,12 +2171,12 @@ export default function PrintNewRequestPage() {
                     <strong
                       style={numericDateText}
                     >
-                      {birthHijri}
+                      {toEnglishDigits(birthHijri)}
                     </strong>
                   </>
                 )}
                 ، رقم الجوال /{" "}
-                <strong>{phone}</strong>
+                <strong>{toEnglishDigits(phone)}</strong>
                 ، بأني اشتريت من الطرف
                 الأول /{" "}
                 <strong>
@@ -2184,7 +2185,7 @@ export default function PrintNewRequestPage() {
                 ، سجل تجاري رقم /{" "}
                 <strong>
                   {
-                    contractFirstPartyIdentifier
+                    toEnglishDigits(contractFirstPartyIdentifier)
                   }
                 </strong>
                 . بمبلغ وقدره /{" "}
@@ -2210,7 +2211,7 @@ export default function PrintNewRequestPage() {
                 </strong>
                 ، وعددها /{" "}
                 <strong>
-                  {contract.product_quantity ||
+                  {toEnglishDigits(contract.product_quantity) ||
                     "-"}
                 </strong>
                 .
@@ -2321,11 +2322,11 @@ export default function PrintNewRequestPage() {
 
                 <div>
                   رقم الهوية /{" "}
-                  {nationalId}
+                  {toEnglishDigits(nationalId)}
                 </div>
 
                 <div>
-                  الجوال / {phone}
+                  الجوال / {toEnglishDigits(phone)}
                 </div>
 
                 <div>
@@ -2380,7 +2381,7 @@ export default function PrintNewRequestPage() {
                     {freeSaleGuarantorNationalId && (
                       <strong>
                         {
-                          freeSaleGuarantorNationalId
+                          toEnglishDigits(freeSaleGuarantorNationalId)
                         }
                       </strong>
                     )}
@@ -2391,7 +2392,7 @@ export default function PrintNewRequestPage() {
                     {freeSaleGuarantorPhone ? (
                       <strong>
                         {
-                          freeSaleGuarantorPhone
+                          toEnglishDigits(freeSaleGuarantorPhone)
                         }
                       </strong>
                     ) : (
@@ -2441,13 +2442,13 @@ export default function PrintNewRequestPage() {
 
                   <div>
                     رقم الهوية /{" "}
-                    {guarantorNationalId}
+                    {toEnglishDigits(guarantorNationalId)}
                   </div>
 
                   {guarantorPhone && (
                     <div>
                       الجوال /{" "}
-                      {guarantorPhone}
+                      {toEnglishDigits(guarantorPhone)}
                     </div>
                   )}
 
@@ -2460,7 +2461,7 @@ export default function PrintNewRequestPage() {
                         }
                       >
                         {
-                          guarantorBirthHijri
+                          toEnglishDigits(guarantorBirthHijri)
                         }
                       </span>
                     </div>
@@ -2653,7 +2654,7 @@ export default function PrintNewRequestPage() {
                       beneficiaryIdentifierLabel
                     }
                     value={
-                      beneficiaryIdentifier
+                      toEnglishDigits(beneficiaryIdentifier)
                     }
                   />
                 )}
@@ -2662,7 +2663,7 @@ export default function PrintNewRequestPage() {
                   <NoteDataRow
                     label="رقم الجوال"
                     value={
-                      note.beneficiary_phone
+                      toEnglishDigits(note.beneficiary_phone)
                     }
                   />
                 )}
@@ -2686,16 +2687,14 @@ export default function PrintNewRequestPage() {
                 <NoteDataRow
                   label="رقم الهوية"
                   value={
-                    note.debtor_national_id ||
-                    nationalId
+                    toEnglishDigits(note.debtor_national_id || nationalId)
                   }
                 />
 
                 <NoteDataRow
                   label="رقم الجوال"
                   value={
-                    note.debtor_phone ||
-                    phone
+                    toEnglishDigits(note.debtor_phone || phone)
                   }
                 />
 
@@ -2829,7 +2828,7 @@ function ContractPrintHeader({
           <div>
             سجل تجاري رقم /{" "}
             {
-              rightInfo.commercialRecord
+              toEnglishDigits(rightInfo.commercialRecord)
             }
           </div>
         )}
@@ -2848,7 +2847,7 @@ function ContractPrintHeader({
       >
         <div>
           رقم العقد:{" "}
-          {contractNumber || "-"}
+          {toEnglishDigits(contractNumber) || "-"}
         </div>
 
         <div>
@@ -3057,7 +3056,7 @@ function formatMoney(
   }
 
   return new Intl.NumberFormat(
-    "ar-SA",
+    "en-US-u-nu-latn",
     {
       minimumFractionDigits: 0,
       maximumFractionDigits: 2,
@@ -3219,7 +3218,7 @@ function formatNoteNumber(
     ).padStart(6, "0");
   }
 
-  return String(value);
+  return toEnglishDigits(value);
 }
 
 function isWithoutGuarantor(

@@ -5,6 +5,7 @@ import type { CSSProperties } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
+import { toEnglishDigits } from "@/lib/numberUtils";
 
 const ITEMS_PER_PAGE = 25;
 
@@ -1034,12 +1035,12 @@ export default function InvestorDetailsPage() {
 
               <Row
                 label="رقم الهوية"
-                value={investor.national_id || "-"}
+                value={toEnglishDigits(investor.national_id) || "-"}
               />
 
               <Row
                 label="رقم الجوال"
-                value={investor.phone || "-"}
+                value={toEnglishDigits(investor.phone) || "-"}
               />
 
               <Row
@@ -1321,9 +1322,9 @@ export default function InvestorDetailsPage() {
                 {!inventoryLoading &&
                   totalInventoryRows > 0 && (
                     <span style={pageInfo}>
-                      صفحة {currentPage} من {totalPages} -
-                      عرض {inventory.length} من{" "}
-                      {totalInventoryRows}
+                      صفحة {toEnglishDigits(currentPage)} من {toEnglishDigits(totalPages)} -
+                      عرض {toEnglishDigits(inventory.length)} من{" "}
+                      {toEnglishDigits(totalInventoryRows)}
                     </span>
                   )}
               </div>
@@ -1358,7 +1359,7 @@ export default function InvestorDetailsPage() {
                       </span>
 
                       <strong>
-                        {Number(item.quantity || 0)}
+                        {formatNumber(item.quantity)}
                       </strong>
 
                       <span>
@@ -1397,7 +1398,7 @@ export default function InvestorDetailsPage() {
                     </button>
 
                     <span style={paginationText}>
-                      صفحة {currentPage} من {totalPages}
+                      صفحة {toEnglishDigits(currentPage)} من {toEnglishDigits(totalPages)}
                     </span>
 
                     <button
@@ -1460,7 +1461,7 @@ function formatDate(date?: string | null) {
   }
 
   return parsedDate.toLocaleDateString(
-    "ar-SA-u-ca-gregory",
+    "ar-SA-u-ca-gregory-nu-latn",
     {
       year: "numeric",
       month: "short",
@@ -1476,7 +1477,7 @@ function formatCurrency(value: number | string | null | undefined) {
     return "0 ريال";
   }
 
-  return `${numericValue.toLocaleString("ar-SA", {
+  return `${numericValue.toLocaleString("en-US-u-nu-latn", {
     maximumFractionDigits: 2,
   })} ريال`;
 }
@@ -1488,7 +1489,7 @@ function formatNumber(value: number | string | null | undefined) {
     return "0";
   }
 
-  return numericValue.toLocaleString("ar-SA");
+  return numericValue.toLocaleString("en-US-u-nu-latn");
 }
 
 function Row({
@@ -1569,10 +1570,10 @@ function OperationItem({
     <div style={listItem}>
       <div>
         <strong style={listItemTitle}>
-          {operation.title}
+          {toEnglishDigits(operation.title)}
         </strong>
         <span style={listItemMeta}>
-          {operation.description}
+          {toEnglishDigits(operation.description)}
         </span>
       </div>
 
@@ -1605,7 +1606,7 @@ function ContractPreviewItem({
     >
       <div>
         <strong style={listItemTitle}>
-          عقد رقم {contract.contractNumber || "-"}
+          عقد رقم {toEnglishDigits(contract.contractNumber) || "-"}
         </strong>
         <span style={listItemMeta}>
           {contract.customerName || "-"} -{" "}

@@ -13,6 +13,7 @@ import {
 } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getOrganizationSettings } from "@/lib/getOrganizationSettings";
+import { toEnglishDigits } from "@/lib/numberUtils";
 import {
   clearFinanceSession,
   getFinanceEmployeeName,
@@ -1354,7 +1355,7 @@ export default function PaymentReceiptPage() {
                 <span>
                   سجل تجاري: {" "}
                   {
-                    organizationSettings.commercialRecord
+                    toEnglishDigits(organizationSettings.commercialRecord)
                   }
                 </span>
               )}
@@ -1362,7 +1363,7 @@ export default function PaymentReceiptPage() {
               {organizationSettings.phone && (
                 <span>
                   جوال: {" "}
-                  {organizationSettings.phone}
+                  {toEnglishDigits(organizationSettings.phone)}
                 </span>
               )}
             </div>
@@ -1378,7 +1379,7 @@ export default function PaymentReceiptPage() {
 
             <span>
               رقم الإيصال: {" "}
-              <b>{receiptNumber}</b>
+              <b>{toEnglishDigits(receiptNumber)}</b>
             </span>
 
             <span>{paymentDate}</span>
@@ -1425,7 +1426,7 @@ export default function PaymentReceiptPage() {
             <Row
               label="رقم العقد"
               value={
-                contract?.contract_number ||
+                toEnglishDigits(contract?.contract_number) ||
                 "-"
               }
             />
@@ -1437,12 +1438,12 @@ export default function PaymentReceiptPage() {
 
             <Row
               label="رقم الهوية"
-              value={customerNationalId}
+              value={toEnglishDigits(customerNationalId)}
             />
 
             <Row
               label="رقم الجوال"
-              value={customerPhone}
+              value={toEnglishDigits(customerPhone)}
             />
           </div>
 
@@ -1504,7 +1505,7 @@ export default function PaymentReceiptPage() {
             <strong>{customerName}</strong>
             ، وذلك كسداد على العقد رقم {" "}
             <strong>
-              {contract?.contract_number ||
+              {toEnglishDigits(contract?.contract_number) ||
                 "................"}
             </strong>
             .
@@ -1675,7 +1676,7 @@ function formatTime(
   }
 
   return parsedDate.toLocaleTimeString(
-    "ar-SA",
+    "ar-SA-u-nu-latn",
     {
       hour: "2-digit",
       minute: "2-digit",
@@ -1697,7 +1698,7 @@ function formatMoney(
   }
 
   return number.toLocaleString(
-    "en-US",
+    "en-US-u-nu-latn",
     {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,

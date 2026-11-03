@@ -11,6 +11,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
+import { toEnglishDigits } from "@/lib/numberUtils";
 
 type ScreenType = "mobile" | "tablet" | "desktop";
 
@@ -1207,7 +1208,7 @@ export default function FinanceContractDetailsPage() {
 
       const sharePayload = {
         files: [pdfFile],
-        title: `العقد رقم ${contract.contract_number || "-"}`,
+        title: `العقد رقم ${toEnglishDigits(contract.contract_number) || "-"}`,
         text: "مرفق ملف العقد والسند لأمر",
       };
 
@@ -1413,7 +1414,7 @@ export default function FinanceContractDetailsPage() {
           employeeName={employeeName}
           title={
             contract
-              ? `عقد رقم ${contract.contract_number || "-"}`
+              ? `عقد رقم ${toEnglishDigits(contract.contract_number) || "-"}`
               : "تفاصيل العقد"
           }
           status={
@@ -1512,12 +1513,12 @@ export default function FinanceContractDetailsPage() {
                   </button>
                 }
               />
-              <Row label="رقم الهوية" value={getCustomerNationalId()} />
+              <Row label="رقم الهوية" value={toEnglishDigits(getCustomerNationalId())} />
               <Row
                 label="تاريخ الميلاد بالهجري"
-                value={getCustomerBirthHijri()}
+                value={toEnglishDigits(getCustomerBirthHijri())}
               />
-              <Row label="رقم الجوال" value={getCustomerPhone()} />
+              <Row label="رقم الجوال" value={toEnglishDigits(getCustomerPhone())} />
               <Row label="العمل" value={getCustomerWorkName()} />
               <Row label="العنوان" value={getCustomerAddress()} />
             </InfoCard>
@@ -1541,7 +1542,7 @@ export default function FinanceContractDetailsPage() {
               />
 
               {isAutomaticallyLate && contractDaysAfterDue !== null && (
-                <Row label="أيام التأخير" value={`${contractDaysAfterDue} يوم`} />
+                <Row label="أيام التأخير" value={`${toEnglishDigits(contractDaysAfterDue)} يوم`} />
               )}
 
               {hasActiveDefault && (
@@ -1565,7 +1566,7 @@ export default function FinanceContractDetailsPage() {
               <Row label="المنتج" value={contract.product_name || "-"} />
               <Row
                 label="كمية المنتجات"
-                value={contract.product_quantity || "-"}
+                value={toEnglishDigits(contract.product_quantity) || "-"}
               />
               <Row
                 label="الطرف الأول في الطباعة"
@@ -1577,7 +1578,7 @@ export default function FinanceContractDetailsPage() {
                     ? "رقم هوية الطرف الأول"
                     : "السجل التجاري للطرف الأول"
                 }
-                value={contract.print_party_identifier || "-"}
+                value={toEnglishDigits(contract.print_party_identifier) || "-"}
               />
               <Row
                 label="مبلغ الدين"
@@ -1631,7 +1632,7 @@ export default function FinanceContractDetailsPage() {
                   />
                   <Row
                     label="عدد الدفعات الآجلة"
-                    value={`${contract.deferred_payments_count || 0} دفعات`}
+                    value={`${toEnglishDigits(contract.deferred_payments_count || 0)} دفعات`}
                   />
                 </>
               ) : (
@@ -1645,18 +1646,18 @@ export default function FinanceContractDetailsPage() {
                   <Row label="اسم الكفيل" value={getGuarantorName()} />
                   <Row
                     label="رقم هوية الكفيل"
-                    value={getGuarantorNationalId()}
+                    value={toEnglishDigits(getGuarantorNationalId())}
                   />
                   {getGuarantorPhone() && (
                     <Row
                       label="رقم جوال الكفيل"
-                      value={getGuarantorPhone()}
+                      value={toEnglishDigits(getGuarantorPhone())}
                     />
                   )}
                   {getGuarantorBirthHijri() !== "-" && (
                     <Row
                       label="تاريخ ميلاد الكفيل بالهجري"
-                      value={getGuarantorBirthHijri()}
+                      value={toEnglishDigits(getGuarantorBirthHijri())}
                     />
                   )}
                   {getGuarantorWorkName() !== "-" && (
@@ -1674,7 +1675,7 @@ export default function FinanceContractDetailsPage() {
             <InfoCard title="السند المرتبط">
               {note ? (
                 <>
-                  <Row label="رقم السند" value={note.note_number || "-"} />
+                  <Row label="رقم السند" value={toEnglishDigits(note.note_number) || "-"} />
                   <Row
                     label="مبلغ السند"
                     value={`${formatMoney(note.amount)} ر.س`}
@@ -2417,7 +2418,7 @@ function getTodayDateOnly() {
 function formatGregorianDate(value?: string | null) {
   if (!value) return "-";
 
-  const cleanValue = String(value).trim();
+  const cleanValue = toEnglishDigits(value).trim();
   const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(cleanValue);
 
   if (dateOnlyMatch) {
@@ -2428,7 +2429,7 @@ function formatGregorianDate(value?: string | null) {
 
   if (Number.isNaN(parsedDate.getTime())) return cleanValue;
 
-  return new Intl.DateTimeFormat("en-GB-u-ca-gregory", {
+  return new Intl.DateTimeFormat("en-GB-u-ca-gregory-nu-latn", {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -2436,7 +2437,7 @@ function formatGregorianDate(value?: string | null) {
 }
 
 function formatMoney(value: unknown) {
-  return Number(value || 0).toLocaleString("en-US", {
+  return Number(value || 0).toLocaleString("en-US-u-nu-latn", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });

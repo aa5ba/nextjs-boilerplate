@@ -5,7 +5,7 @@ import type { CSSProperties } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
-import { normalizeNumber } from "@/lib/numberUtils";
+import { normalizeNumber, toEnglishDigits } from "@/lib/numberUtils";
 
 const ITEMS_PER_PAGE = 25;
 
@@ -241,8 +241,8 @@ export default function SearchContractsPage() {
 
             {contracts.length > 0 && (
               <span style={pageInfo}>
-                صفحة {currentPage} من {totalPages} - عرض{" "}
-                {paginatedContracts.length} من {contracts.length}
+                صفحة {toEnglishDigits(currentPage)} من {toEnglishDigits(totalPages)} - عرض{" "}
+                {toEnglishDigits(paginatedContracts.length)} من {toEnglishDigits(contracts.length)}
               </span>
             )}
           </div>
@@ -265,7 +265,7 @@ export default function SearchContractsPage() {
                   router.push(`/finance/${branch}/contracts/${contract.id}`)
                 }
               >
-                <span>📄 {contract.contract_number}</span>
+                <span>📄 {toEnglishDigits(contract.contract_number)}</span>
 
                 <span
                   style={customerLink}
@@ -280,7 +280,7 @@ export default function SearchContractsPage() {
                   👤 {contract.finance_customers?.full_name || "-"}
                 </span>
 
-                <span>📱 {contract.finance_customers?.phone || "-"}</span>
+                <span>📱 {toEnglishDigits(contract.finance_customers?.phone) || "-"}</span>
                 <span>📌 {contract.contract_status || "-"}</span>
               </div>
             ))
@@ -300,7 +300,7 @@ export default function SearchContractsPage() {
               </button>
 
               <span style={paginationText}>
-                صفحة {currentPage} من {totalPages}
+                صفحة {toEnglishDigits(currentPage)} من {toEnglishDigits(totalPages)}
               </span>
 
               <button

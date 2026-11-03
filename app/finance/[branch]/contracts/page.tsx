@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { toEnglishDigits } from "@/lib/numberUtils";
 import {
   clearFinanceSession,
   getFinanceEmployeeName,
@@ -841,7 +842,7 @@ export default function FinanceContractsPage() {
     }
 
     return new Intl.DateTimeFormat(
-      "en-GB-u-ca-gregory",
+      "en-GB-u-ca-gregory-nu-latn",
       {
         day: "2-digit",
         month: "2-digit",
@@ -1253,15 +1254,10 @@ export default function FinanceContractsPage() {
                 {filteredContracts.length >
                   0 && (
                   <span style={pageInfo}>
-                    صفحة {currentPage} من{" "}
-                    {totalPages} - عرض{" "}
-                    {
-                      paginatedContracts.length
-                    }{" "}
-                    من{" "}
-                    {
-                      filteredContracts.length
-                    }
+                    صفحة {toEnglishDigits(currentPage)} من{" "}
+                    {toEnglishDigits(totalPages)} - عرض{" "}
+                    {toEnglishDigits(paginatedContracts.length)}{" "}
+                    من {toEnglishDigits(filteredContracts.length)}
                   </span>
                 )}
               </div>
@@ -1295,8 +1291,9 @@ export default function FinanceContractsPage() {
                         >
                           <strong>
                             عقد رقم{" "}
-                            {contract.contract_number ??
-                              "-"}
+                            {toEnglishDigits(
+                              contract.contract_number
+                            ) || "-"}
                           </strong>
 
                           <span
@@ -1323,15 +1320,15 @@ export default function FinanceContractsPage() {
 
                           <span>
                             🪪{" "}
-                            {getCustomerNationalId(
-                              contract
+                            {toEnglishDigits(
+                              getCustomerNationalId(contract)
                             )}
                           </span>
 
                           <span>
                             📱{" "}
-                            {getCustomerPhone(
-                              contract
+                            {toEnglishDigits(
+                              getCustomerPhone(contract)
                             )}
                           </span>
 
@@ -1353,7 +1350,7 @@ export default function FinanceContractsPage() {
                               contract.payment_amount ||
                                 0
                             ).toLocaleString(
-                              "ar-SA"
+                              "en-US-u-nu-latn"
                             )}{" "}
                             ر.س
                           </span>
@@ -1364,7 +1361,7 @@ export default function FinanceContractsPage() {
                               contract.paid_amount ||
                                 0
                             ).toLocaleString(
-                              "ar-SA"
+                              "en-US-u-nu-latn"
                             )}{" "}
                             ر.س
                           </span>
@@ -1375,7 +1372,7 @@ export default function FinanceContractsPage() {
                               contract.remaining_amount ||
                                 0
                             ).toLocaleString(
-                              "ar-SA"
+                              "en-US-u-nu-latn"
                             )}{" "}
                             ر.س
                           </span>
@@ -1438,8 +1435,8 @@ export default function FinanceContractsPage() {
                           paginationText
                         }
                       >
-                        صفحة {currentPage} من{" "}
-                        {totalPages}
+                        صفحة {toEnglishDigits(currentPage)} من{" "}
+                        {toEnglishDigits(totalPages)}
                       </span>
 
                       <button

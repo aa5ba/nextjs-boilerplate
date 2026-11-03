@@ -15,6 +15,7 @@ import {
 } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
+import { toEnglishDigits } from "@/lib/numberUtils";
 
 type ScreenType = "mobile" | "tablet" | "desktop";
 type BeneficiaryType = "organization" | "investor" | "other";
@@ -152,7 +153,7 @@ const FINANCE_SESSION_KEYS = [
 ] as const;
 
 const LEGAL_FOOTER_TEXT =
-  "هذا السند واجب الدفع بموجب قرار مجلس الوزراء رقم ٦٩٢ و تاريخ ٢٦ / ٩ / ١٣٨٣ هـ\nوالمتوج بالمرسوم الملكي رقم ٣٧ و تاريخ ١١ / ١٠ / ١٣٨٣ هـ / نظام الأوراق التجاريه - ويسري على هذا السند جميع القرارات والأنظمه والتنظيمات في المملكة العربية السعودية";
+  "هذا السند واجب الدفع بموجب قرار مجلس الوزراء رقم 692 و تاريخ 26 / 9 / 1383 هـ\nوالمتوج بالمرسوم الملكي رقم 37 و تاريخ 11 / 10 / 1383 هـ / نظام الأوراق التجاريه - ويسري على هذا السند جميع القرارات والأنظمه والتنظيمات في المملكة العربية السعودية";
 
 export default function PrintPromissoryNotePage() {
   const params = useParams();
@@ -1349,14 +1350,14 @@ export default function PrintPromissoryNotePage() {
                   {beneficiaryIdentifier && (
                     <DataRow
                       label={beneficiaryIdentifierLabel}
-                      value={beneficiaryIdentifier}
+                      value={toEnglishDigits(beneficiaryIdentifier)}
                     />
                   )}
 
                   {note.beneficiary_phone && (
                     <DataRow
                       label="رقم الجوال"
-                      value={note.beneficiary_phone}
+                      value={toEnglishDigits(note.beneficiary_phone)}
                     />
                   )}
                 </div>
@@ -1366,11 +1367,11 @@ export default function PrintPromissoryNotePage() {
                   <DataRow label="الاسم" value={note.debtor_name} />
                   <DataRow
                     label="رقم الهوية"
-                    value={note.debtor_national_id || "................"}
+                    value={toEnglishDigits(note.debtor_national_id) || "................"}
                   />
                   <DataRow
                     label="رقم الجوال"
-                    value={note.debtor_phone || "................"}
+                    value={toEnglishDigits(note.debtor_phone) || "................"}
                   />
 
                   {note.debtor_address && (
@@ -1427,11 +1428,11 @@ export default function PrintPromissoryNotePage() {
                     />
                     <DataRow
                       label="رقم الهوية"
-                      value={note.guarantor_national_id || "................"}
+                      value={toEnglishDigits(note.guarantor_national_id) || "................"}
                     />
                     <DataRow
                       label="رقم الجوال"
-                      value={note.guarantor_phone || "................"}
+                      value={toEnglishDigits(note.guarantor_phone) || "................"}
                     />
 
                     {note.guarantor_work_name && (
@@ -1709,13 +1710,13 @@ function formatNoteNumber(value: string | number | null) {
     return String(Math.trunc(numericValue)).padStart(6, "0");
   }
 
-  return String(value);
+  return toEnglishDigits(value);
 }
 
 function formatGregorianDate(value?: string | null) {
   if (!value) return "—";
 
-  const cleanValue = String(value).trim();
+  const cleanValue = toEnglishDigits(value).trim();
   const directMatch = /^(\d{4})-(\d{2})-(\d{2})(?:[T\s].*)?$/.exec(
     cleanValue
   );
@@ -1728,7 +1729,7 @@ function formatGregorianDate(value?: string | null) {
 
   if (Number.isNaN(parsedDate.getTime())) return cleanValue;
 
-  return new Intl.DateTimeFormat("en-GB-u-ca-gregory", {
+  return new Intl.DateTimeFormat("en-GB-u-ca-gregory-nu-latn", {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -1736,7 +1737,7 @@ function formatGregorianDate(value?: string | null) {
 }
 
 function formatMoney(value: number) {
-  return new Intl.NumberFormat("ar-SA", {
+  return new Intl.NumberFormat("en-US-u-nu-latn", {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   }).format(value);

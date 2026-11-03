@@ -11,6 +11,7 @@ import {
   useRouter,
 } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { toEnglishDigits } from "@/lib/numberUtils";
 import {
   clearFinanceSession,
   getFinanceEmployeeName,
@@ -500,7 +501,7 @@ export default function ActiveContractsPage() {
     }
 
     return number.toLocaleString(
-      "ar-SA"
+      "en-US-u-nu-latn"
     );
   }
 
@@ -653,11 +654,11 @@ export default function ActiveContractsPage() {
                   style={pageInfo}
                 >
                   صفحة{" "}
-                  {currentPage} من{" "}
-                  {totalPages} - عرض{" "}
-                  {pageStart} إلى{" "}
-                  {pageEnd} من{" "}
-                  {totalCount}
+                  {toEnglishDigits(currentPage)} من{" "}
+                  {toEnglishDigits(totalPages)} - عرض{" "}
+                  {toEnglishDigits(pageStart)} إلى{" "}
+                  {toEnglishDigits(pageEnd)} من{" "}
+                  {toEnglishDigits(totalCount)}
                 </span>
               )}
           </div>
@@ -762,8 +763,9 @@ export default function ActiveContractsPage() {
                       }}
                     >
                       <span>
-                        {contract.contract_number ||
-                          "-"}
+                        {toEnglishDigits(
+                          contract.contract_number
+                        ) || "-"}
                       </span>
 
                       <button
@@ -873,8 +875,8 @@ export default function ActiveContractsPage() {
                     }
                   >
                     صفحة{" "}
-                    {currentPage} من{" "}
-                    {totalPages}
+                    {toEnglishDigits(currentPage)} من{" "}
+                    {toEnglishDigits(totalPages)}
                   </span>
 
                   <button

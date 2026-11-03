@@ -6,6 +6,22 @@ export function normalizeNumber(value: string) {
     .replace(/٫/g, ".");
 }
 
+export function toEnglishDigits(
+  value: string | number | null | undefined
+) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  return String(value)
+    .replace(/[٠-٩]/g, (digit) =>
+      String("٠١٢٣٤٥٦٧٨٩".indexOf(digit))
+    )
+    .replace(/[۰-۹]/g, (digit) =>
+      String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit))
+    );
+}
+
 export function toNumber(value: string) {
   return Number(normalizeNumber(value) || 0);
 }

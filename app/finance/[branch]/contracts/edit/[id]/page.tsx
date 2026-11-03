@@ -3028,7 +3028,7 @@ function formatQuantity(
   value: number
 ) {
   return Number(value || 0).toLocaleString(
-    "en-US",
+    "en-US-u-nu-latn",
     {
       maximumFractionDigits: 3,
     }

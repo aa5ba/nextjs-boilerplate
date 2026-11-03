@@ -19,6 +19,7 @@ import {
 
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
+import { toEnglishDigits } from "@/lib/numberUtils";
 
 type ScreenType =
   | "mobile"
@@ -635,7 +636,7 @@ export default function DeclareDefaultPage() {
     value?: string | null
   ) {
     const cleanValue =
-      String(
+      toEnglishDigits(
         value || ""
       ).trim();
 
@@ -694,7 +695,7 @@ export default function DeclareDefaultPage() {
     value?: string | null
   ) {
     const cleanValue =
-      String(
+      toEnglishDigits(
         value || ""
       ).trim();
 
@@ -729,7 +730,7 @@ export default function DeclareDefaultPage() {
     }
 
     return new Intl.DateTimeFormat(
-      "en-GB-u-ca-gregory",
+      "en-GB-u-ca-gregory-nu-latn",
       {
         day: "2-digit",
         month: "2-digit",
@@ -747,7 +748,7 @@ export default function DeclareDefaultPage() {
       Number(value || 0);
 
     return number.toLocaleString(
-      "en-US",
+      "en-US-u-nu-latn",
       {
         minimumFractionDigits:
           2,
@@ -1380,10 +1381,9 @@ export default function DeclareDefaultPage() {
             >
               <SummaryBox
                 title="رقم العقد"
-                value={String(
-                  contract.contract_number ||
-                    "-"
-                )}
+                value={toEnglishDigits(
+                  contract.contract_number
+                ) || "-"}
               />
 
               <SummaryBox
@@ -1399,7 +1399,7 @@ export default function DeclareDefaultPage() {
                   daysAfterDue !==
                     null &&
                   daysAfterDue > 0
-                    ? `${daysAfterDue} يوم`
+                    ? `${toEnglishDigits(daysAfterDue)} يوم`
                     : "غير متأخر"
                 }
               />
@@ -1418,8 +1418,10 @@ export default function DeclareDefaultPage() {
               <Row
                 label="رقم الهوية"
                 value={
-                  customer?.national_id ||
-                  contract.customer_national_id ||
+                  toEnglishDigits(
+                    customer?.national_id ||
+                    contract.customer_national_id
+                  ) ||
                   "-"
                 }
               />

@@ -14,6 +14,7 @@ import {
 } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
+import { toEnglishDigits } from "@/lib/numberUtils";
 
 const FREE_SALE_GUARANTOR_ACKNOWLEDGEMENT_TEXT =
   "أقر انا الموقع و بكامل قواي المعتبره شرعاً بأني أكفل الطرف الثاني ( المشتري ) كفالة غرم وأداء وكل مايترتب على هذا العقد في حال أي مطالبه .";
@@ -1018,7 +1019,7 @@ export default function PrintContractPage() {
 
       const shareData: ShareData = {
         files: [pdfFile],
-        title: `العقد رقم ${String(contract.contract_number || "-")}`,
+        title: `العقد رقم ${toEnglishDigits(contract.contract_number) || "-"}`,
       };
 
       const canSharePdf =
@@ -1385,16 +1386,16 @@ export default function PrintContractPage() {
                     الطرف الأول (البائع):{" "}
                     <strong>{freeSaleText("seller_name") || "................"}</strong>
                     {" "}رقم الهوية:{" "}
-                    <strong>{freeSaleText("seller_national_id") || "................"}</strong>
+                    <strong>{toEnglishDigits(freeSaleText("seller_national_id")) || "................"}</strong>
                   </p>
 
                   <p style={paragraph}>
                     الطرف الثاني (المشتري):{" "}
                     <strong>{freeSaleText("buyer_name") || customerName}</strong>
                     {" "}رقم الهوية:{" "}
-                    <strong>{freeSaleText("buyer_national_id") || nationalId}</strong>
+                    <strong>{toEnglishDigits(freeSaleText("buyer_national_id") || nationalId)}</strong>
                     {" "}رقم الجوال:{" "}
-                    <strong>{freeSaleText("buyer_phone") || "................"}</strong>
+                    <strong>{toEnglishDigits(freeSaleText("buyer_phone")) || "................"}</strong>
                   </p>
 
                   <p style={paragraph}>
@@ -1469,14 +1470,14 @@ export default function PrintContractPage() {
                       <div>
                         رقم الهويه /{" "}
                         {freeSaleGuarantorNationalId && (
-                          <strong>{freeSaleGuarantorNationalId}</strong>
+                          <strong>{toEnglishDigits(freeSaleGuarantorNationalId)}</strong>
                         )}
                       </div>
 
                       <div>
                         الجوال /{" "}
                         {freeSaleGuarantorPhone ? (
-                          <strong>{freeSaleGuarantorPhone}</strong>
+                          <strong>{toEnglishDigits(freeSaleGuarantorPhone)}</strong>
                         ) : (
                           <span
                             aria-hidden="true"
@@ -1513,18 +1514,18 @@ export default function PrintContractPage() {
               <p style={paragraph}>
                 أقر أنا الموقع أدناه الطرف الثاني (المشتري) /{" "}
                 <strong>{customerName}</strong>
-                ، رقم الهوية / <strong>{nationalId}</strong>
+                ، رقم الهوية / <strong>{toEnglishDigits(nationalId)}</strong>
                 {birthHijri && (
                   <>
                     {" - "}تاريخ الميلاد /{" "}
-                    <strong style={numericDateText}>{birthHijri}</strong>
+                    <strong style={numericDateText}>{toEnglishDigits(birthHijri)}</strong>
                   </>
                 )}
-                ، رقم الجوال / <strong>{phone}</strong>
+                ، رقم الجوال / <strong>{toEnglishDigits(phone)}</strong>
                 ، بأني اشتريت من الطرف الأول (البائع ) /{" "}
                 <strong>{contractFirstPartyName}</strong>
                 ، سجل تجاري رقم /{" "}
-                <strong>{contractFirstPartyIdentifier}</strong>
+                <strong>{toEnglishDigits(contractFirstPartyIdentifier)}</strong>
                 . بمبلغ وقدره /{" "}
                 <strong>{formatMoney(contractPaymentAmount)}</strong>{" "}
                 ريال سعودي (<strong>{contractPaymentAmountWords}</strong>).
@@ -1534,7 +1535,7 @@ export default function PrintContractPage() {
                 وذلك مقابل /{" "}
                 <strong>{contract.product_name || "................"}</strong>
                 ، وعددها /{" "}
-                <strong>{contract.product_quantity || "-"}</strong>.
+                <strong>{toEnglishDigits(contract.product_quantity) || "-"}</strong>.
               </p>
 
               <p style={paragraph}>
@@ -1574,7 +1575,7 @@ export default function PrintContractPage() {
                 <div>الاسم / {contractFirstPartyName}</div>
                 <div>
                   سجل تجاري رقم /{" "}
-                  {contractFirstPartyIdentifier}
+                  {toEnglishDigits(contractFirstPartyIdentifier)}
                 </div>
                 <div>التوقيع / ................</div>
               </div>
@@ -1582,8 +1583,8 @@ export default function PrintContractPage() {
               <div style={signatureBox}>
                 <strong>الطرف الثاني المشتري</strong>
                 <div>الاسم / {customerName}</div>
-                <div>رقم الهوية / {nationalId}</div>
-                <div>الجوال / {phone}</div>
+                <div>رقم الهوية / {toEnglishDigits(nationalId)}</div>
+                <div>الجوال / {toEnglishDigits(phone)}</div>
                 <div>التوقيع / ................</div>
               </div>
             </div>
@@ -1597,15 +1598,15 @@ export default function PrintContractPage() {
                   style={guarantorGrid}
                 >
                   <div>الاسم / {guarantorName}</div>
-                  <div>رقم الهوية / {guarantorNationalId}</div>
+                  <div>رقم الهوية / {toEnglishDigits(guarantorNationalId)}</div>
                   {guarantorPhone && (
-                    <div>الجوال / {guarantorPhone}</div>
+                    <div>الجوال / {toEnglishDigits(guarantorPhone)}</div>
                   )}
                   {guarantorBirthHijri && (
                     <div>
                       تاريخ الميلاد /{" "}
                       <span style={numericDateText}>
-                        {guarantorBirthHijri}
+                        {toEnglishDigits(guarantorBirthHijri)}
                       </span>
                     </div>
                   )}
@@ -1642,14 +1643,14 @@ function PrintHeader({
         <div>{organizationSettings.name || "................"}</div>
         <div>
           سجل تجاري رقم /{" "}
-          {organizationSettings.commercialRecord || "................"}
+          {toEnglishDigits(organizationSettings.commercialRecord) || "................"}
         </div>
       </div>
 
       <div style={documentTitle}>{title}</div>
 
       <div className="contract-header-left" style={documentHeaderLeft}>
-        <div>رقم العقد: {contractNumber || "-"}</div>
+        <div>رقم العقد: {toEnglishDigits(contractNumber) || "-"}</div>
         <div>
           تاريخ تحرير العقد:{" "}
           <span style={numericDateText}>{contractIssueDate}</span>
@@ -1728,7 +1729,7 @@ function downloadBlob(blob: Blob, fileName: string) {
 function formatMoney(value: unknown) {
   const amount = Number(value || 0);
 
-  return amount.toLocaleString("en-US", {
+  return amount.toLocaleString("en-US-u-nu-latn", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });

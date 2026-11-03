@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { toEnglishDigits } from "@/lib/numberUtils";
 import {
   clearFinanceSession,
   getFinanceEmployeeName,
@@ -500,7 +501,7 @@ export default function ClosedContractsPage() {
     }
 
     return number.toLocaleString(
-      "ar-SA"
+      "en-US-u-nu-latn"
     );
   }
 
@@ -655,11 +656,11 @@ export default function ClosedContractsPage() {
                   style={pageInfo}
                 >
                   صفحة{" "}
-                  {currentPage} من{" "}
-                  {totalPages} - عرض{" "}
-                  {pageStart} إلى{" "}
-                  {pageEnd} من{" "}
-                  {totalCount}
+                  {toEnglishDigits(currentPage)} من{" "}
+                  {toEnglishDigits(totalPages)} - عرض{" "}
+                  {toEnglishDigits(pageStart)} إلى{" "}
+                  {toEnglishDigits(pageEnd)} من{" "}
+                  {toEnglishDigits(totalCount)}
                 </span>
               )}
           </div>
@@ -764,8 +765,9 @@ export default function ClosedContractsPage() {
                       }}
                     >
                       <span>
-                        {contract.contract_number ||
-                          "-"}
+                        {toEnglishDigits(
+                          contract.contract_number
+                        ) || "-"}
                       </span>
 
                       <button
@@ -877,8 +879,8 @@ export default function ClosedContractsPage() {
                     }
                   >
                     صفحة{" "}
-                    {currentPage} من{" "}
-                    {totalPages}
+                    {toEnglishDigits(currentPage)} من{" "}
+                    {toEnglishDigits(totalPages)}
                   </span>
 
                   <button

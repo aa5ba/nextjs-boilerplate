@@ -13,6 +13,7 @@ import {
 import { supabase } from "@/lib/supabaseClient";
 import {
   normalizeNumber,
+  toEnglishDigits,
   toNumber,
 } from "@/lib/numberUtils";
 import {
@@ -1049,7 +1050,7 @@ export default function NewPaymentPage() {
                         }
                       >
                         عقد{" "}
-                        {contract.contract_number ||
+                        {toEnglishDigits(contract.contract_number) ||
                           "-"}
                       </span>
                     </div>
@@ -1061,13 +1062,13 @@ export default function NewPaymentPage() {
                     >
                       <span>
                         هوية:{" "}
-                        {contract.customer_national_id ||
+                        {toEnglishDigits(contract.customer_national_id) ||
                           "-"}
                       </span>
 
                       <span>
                         جوال:{" "}
-                        {contract.customer_phone ||
+                        {toEnglishDigits(contract.customer_phone) ||
                           "-"}
                       </span>
 
@@ -1095,7 +1096,7 @@ export default function NewPaymentPage() {
                 style={sectionTitle}
               >
                 عقد رقم{" "}
-                {selectedContract.contract_number ||
+                {toEnglishDigits(selectedContract.contract_number) ||
                   "-"}
               </h2>
 
@@ -1123,14 +1124,14 @@ export default function NewPaymentPage() {
               <Row
                 label="رقم الهوية"
                 value={
-                  selectedContract.customer_national_id
+                  toEnglishDigits(selectedContract.customer_national_id)
                 }
               />
 
               <Row
                 label="رقم الجوال"
                 value={
-                  selectedContract.customer_phone
+                  toEnglishDigits(selectedContract.customer_phone)
                 }
               />
 
@@ -1563,7 +1564,7 @@ function formatMoney(
   }
 
   return number.toLocaleString(
-    "en-US",
+    "en-US-u-nu-latn",
     {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,

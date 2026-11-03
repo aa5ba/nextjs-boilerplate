@@ -5,7 +5,7 @@ import type { CSSProperties } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
-import { normalizeNumber } from "@/lib/numberUtils";
+import { normalizeNumber, toEnglishDigits } from "@/lib/numberUtils";
 
 const ITEMS_PER_PAGE = 25;
 
@@ -770,9 +770,9 @@ export default function InvestorsPage() {
 
             {!loading && totalInvestors > 0 && (
               <span style={pageInfo}>
-                صفحة {currentPage} من {totalPages} -
-                عرض {investors.length} من{" "}
-                {totalInvestors}
+                صفحة {toEnglishDigits(currentPage)} من {toEnglishDigits(totalPages)} -
+                عرض {toEnglishDigits(investors.length)} من{" "}
+                {toEnglishDigits(totalInvestors)}
               </span>
             )}
           </div>
@@ -814,15 +814,15 @@ export default function InvestorsPage() {
                 </button>
 
                 <span>
-                  {investor.national_id || "-"}
+                  {toEnglishDigits(investor.national_id) || "-"}
                 </span>
 
-                <span>{investor.phone || "-"}</span>
+                <span>{toEnglishDigits(investor.phone) || "-"}</span>
 
-                <span>{investor.productsCount}</span>
+                <span>{toEnglishDigits(investor.productsCount)}</span>
 
                 <strong>
-                  {investor.totalQuantity}
+                  {toEnglishDigits(investor.totalQuantity)}
                 </strong>
 
                 <span
@@ -955,8 +955,8 @@ export default function InvestorsPage() {
                 </button>
 
                 <span style={paginationText}>
-                  صفحة {currentPage} من{" "}
-                  {totalPages}
+                  صفحة {toEnglishDigits(currentPage)} من{" "}
+                  {toEnglishDigits(totalPages)}
                 </span>
 
                 <button

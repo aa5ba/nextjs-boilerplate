@@ -9,7 +9,11 @@ import {
 } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
-import { normalizeNumber, toNumber } from "@/lib/numberUtils";
+import {
+  normalizeNumber,
+  toEnglishDigits,
+  toNumber,
+} from "@/lib/numberUtils";
 
 type ScreenType = "mobile" | "tablet" | "desktop";
 type NoteMode = "independent" | "contract";
@@ -903,7 +907,7 @@ export default function NewPromissoryNotePage() {
     skipNextContractSearch.current = true;
     setSelectedContract(contract);
     setContractSearch(
-      `عقد رقم ${contract.contract_number} - ${
+      `عقد رقم ${toEnglishDigits(contract.contract_number)} - ${
         contract.customer_name || contract.customer?.full_name || "بدون اسم"
       }`
     );
@@ -1598,7 +1602,7 @@ export default function NewPromissoryNotePage() {
                           onClick={() => applySelectedContract(contract)}
                         >
                           <span style={contractResultNumber}>
-                            عقد رقم {contract.contract_number}
+                            عقد رقم {toEnglishDigits(contract.contract_number)}
                           </span>
                           <span style={contractResultName}>
                             {contract.customer_name ||
@@ -1606,8 +1610,8 @@ export default function NewPromissoryNotePage() {
                               "بدون اسم"}
                           </span>
                           <span style={contractResultDetails}>
-                            الهوية: {contract.customer_national_id || "—"} ·
-                            الجوال: {contract.customer_phone || "—"} · مبلغ
+                            الهوية: {toEnglishDigits(contract.customer_national_id) || "—"} ·
+                            الجوال: {toEnglishDigits(contract.customer_phone) || "—"} · مبلغ
                             العقد: {formatMoney(Number(contract.payment_amount || 0))}{" "}
                             ر.س
                           </span>
@@ -1632,7 +1636,7 @@ export default function NewPromissoryNotePage() {
               <div style={beneficiaryPreview}>
                 <PreviewItem
                   title="رقم العقد"
-                  value={String(selectedContract.contract_number)}
+                  value={toEnglishDigits(selectedContract.contract_number)}
                 />
                 <PreviewItem
                   title="المدين"
@@ -1640,7 +1644,7 @@ export default function NewPromissoryNotePage() {
                 />
                 <PreviewItem
                   title="رقم هوية المدين"
-                  value={debtor.nationalId || "—"}
+                  value={toEnglishDigits(debtor.nationalId) || "—"}
                 />
                 <PreviewItem
                   title="المستفيد"
@@ -1764,11 +1768,11 @@ export default function NewPromissoryNotePage() {
                         />
                         <PreviewItem
                           title="رقم الهوية"
-                          value={selectedInvestor.national_id || "غير مسجل"}
+                          value={toEnglishDigits(selectedInvestor.national_id) || "غير مسجل"}
                         />
                         <PreviewItem
                           title="الجوال"
-                          value={selectedInvestor.phone || "غير مسجل"}
+                          value={toEnglishDigits(selectedInvestor.phone) || "غير مسجل"}
                         />
                       </div>
                     )}
@@ -2978,7 +2982,7 @@ function getErrorMessage(
 }
 
 function formatMoney(value: number) {
-  return new Intl.NumberFormat("ar-SA", {
+  return new Intl.NumberFormat("en-US-u-nu-latn", {
     maximumFractionDigits: 2,
   }).format(value);
 }

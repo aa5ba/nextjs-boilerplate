@@ -5,7 +5,7 @@ import type { CSSProperties } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
-import { normalizeNumber } from "@/lib/numberUtils";
+import { normalizeNumber, toEnglishDigits } from "@/lib/numberUtils";
 
 type ScreenType = "mobile" | "tablet" | "desktop";
 
@@ -213,10 +213,10 @@ export default function SearchPromissoryNotesPage() {
                   )
                 }
               >
-                <span>🧾 {note.note_number}</span>
+                <span>🧾 {toEnglishDigits(note.note_number)}</span>
                 <span>👤 {note.debtor_name || "-"}</span>
-                <span>💰 {note.amount || 0} ر.س</span>
-                <span>📅 {note.due_date || "-"}</span>
+                <span>💰 {toEnglishDigits(note.amount || 0)} ر.س</span>
+                <span>📅 {toEnglishDigits(note.due_date) || "-"}</span>
                 <span>📌 {note.status || "-"}</span>
               </div>
             ))

@@ -7,6 +7,7 @@ import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
+import { toEnglishDigits } from "@/lib/numberUtils";
 
 type ScreenType = "mobile" | "tablet" | "desktop";
 
@@ -1107,7 +1108,7 @@ export default function ContractClearancePage() {
                 {" "}
                 سجل تجاري رقم{" "}
                 <strong>
-                  {commercialRecord}
+                  {toEnglishDigits(commercialRecord)}
                 </strong>
               </>
             )}{" "}
@@ -1132,13 +1133,13 @@ export default function ContractClearancePage() {
 
           <Info
             label="رقم الهوية"
-            value={getCustomerNationalId()}
+            value={toEnglishDigits(getCustomerNationalId())}
           />
 
           <Info
             label="رقم العقد"
             value={
-              contract.contract_number || "-"
+              toEnglishDigits(contract.contract_number) || "-"
             }
           />
 
@@ -1354,7 +1355,7 @@ function formatMoney(
     return "0.00";
   }
 
-  return number.toLocaleString("en-US", {
+  return number.toLocaleString("en-US-u-nu-latn", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });

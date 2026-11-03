@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { toEnglishDigits } from "@/lib/numberUtils";
 
 const ITEMS_PER_PAGE = 25;
 
@@ -510,7 +511,7 @@ export default function InvestorCashWalletPage() {
             <button type="button" style={lightButton} disabled={page === 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
               السابق
             </button>
-            <span style={paginationText}>صفحة {page} من {totalPages}</span>
+            <span style={paginationText}>صفحة {toEnglishDigits(page)} من {toEnglishDigits(totalPages)}</span>
             <button type="button" style={lightButton} disabled={page === totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>
               التالي
             </button>
@@ -537,7 +538,7 @@ function formatDate(value?: string | null) {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleDateString("ar-SA-u-ca-gregory", {
+  return date.toLocaleDateString("ar-SA-u-ca-gregory-nu-latn", {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -547,7 +548,7 @@ function formatDate(value?: string | null) {
 function formatCurrency(value?: number | string | null) {
   const numericValue = Number(value || 0);
   if (!Number.isFinite(numericValue)) return "0 ريال";
-  return `${numericValue.toLocaleString("ar-SA", {
+  return `${numericValue.toLocaleString("en-US-u-nu-latn", {
     maximumFractionDigits: 2,
   })} ريال`;
 }
@@ -555,7 +556,7 @@ function formatCurrency(value?: number | string | null) {
 function formatNumber(value?: number | string | null) {
   const numericValue = Number(value || 0);
   if (!Number.isFinite(numericValue)) return "0";
-  return numericValue.toLocaleString("ar-SA");
+  return numericValue.toLocaleString("en-US-u-nu-latn");
 }
 
 function SummaryBox({ title, value }: { title: string; value: string }) {

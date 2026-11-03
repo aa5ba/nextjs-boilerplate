@@ -15,6 +15,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
 import {
   normalizeNumber,
+  toEnglishDigits,
   toNumber,
 } from "@/lib/numberUtils";
 
@@ -918,7 +919,7 @@ export default function EditPromissoryNotePage() {
               "تعديل سند",
 
             description:
-              `تم تعديل سند رقم ${note.note_number || ""}`,
+              `تم تعديل سند رقم ${toEnglishDigits(note.note_number)}`,
 
             customer_id:
               note.customer_id ||

@@ -10,6 +10,7 @@ import type { CSSProperties } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getBranchId } from "@/lib/getBranchId";
+import { toEnglishDigits } from "@/lib/numberUtils";
 import {
   getFinanceEmployeeName,
   installFinanceActivityTracker,
@@ -875,13 +876,11 @@ export default function FinancePaymentsPage() {
               0 && (
               <span style={pageInfo}>
                 صفحة{" "}
-                {currentPage} من{" "}
-                {totalPages} - عرض{" "}
-                {
-                  paginatedPayments.length
-                }{" "}
+                {toEnglishDigits(currentPage)} من{" "}
+                {toEnglishDigits(totalPages)} - عرض{" "}
+                {toEnglishDigits(paginatedPayments.length)}{" "}
                 من{" "}
-                {payments.length}
+                {toEnglishDigits(payments.length)}
               </span>
             )}
           </div>
@@ -1024,7 +1023,7 @@ export default function FinancePaymentsPage() {
                       </span>
 
                       <span>
-                        {contract?.contract_number ||
+                        {toEnglishDigits(contract?.contract_number) ||
                           "-"}
                       </span>
 
@@ -1176,7 +1175,7 @@ export default function FinancePaymentsPage() {
 
                       <span>
                         رقم العقد:{" "}
-                        {contract?.contract_number ||
+                        {toEnglishDigits(contract?.contract_number) ||
                           "-"}
                       </span>
 
@@ -1288,8 +1287,8 @@ export default function FinancePaymentsPage() {
                 }
               >
                 صفحة{" "}
-                {currentPage} من{" "}
-                {totalPages}
+                {toEnglishDigits(currentPage)} من{" "}
+                {toEnglishDigits(totalPages)}
               </span>
 
               <button
@@ -1561,7 +1560,7 @@ function formatMoney(
     Number(value || 0);
 
   return number.toLocaleString(
-    "en-US",
+    "en-US-u-nu-latn",
     {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
