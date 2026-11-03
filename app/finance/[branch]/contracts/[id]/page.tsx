@@ -149,6 +149,17 @@ type ReopenContractResult = {
   new_contract_status: string;
 };
 
+type CancelContractResult = {
+  contract_id: string;
+  new_contract_status: string;
+  cancelled_payments_count: number | string;
+  returned_inventory_quantity: number | string;
+  returned_inventory_cost: number | string;
+  reversed_cash_amount: number | string;
+  removed_contracts_wallet_amount: number | string;
+  cancelled_at: string;
+};
+
 type DialogTone = "info" | "success" | "warning" | "error";
 
 type MessageDialogState = {
@@ -214,8 +225,11 @@ export default function FinanceContractDetailsPage() {
     useState<string | null>(null);
   const [closingContract, setClosingContract] = useState(false);
   const [reopeningContract, setReopeningContract] = useState(false);
+  const [cancellingContract, setCancellingContract] = useState(false);
   const [sharingContract, setSharingContract] = useState(false);
   const [showCloseDialog, setShowCloseDialog] = useState(false);
+  const [showCancelContractDialog, setShowCancelContractDialog] =
+    useState(false);
   const [messageDialog, setMessageDialog] =
     useState<MessageDialogState>(null);
 
@@ -980,6 +994,90 @@ export default function FinanceContractDetailsPage() {
     }
   }
 
+  function getCancelContractErrorMessage(message: string) {
+    if (message.includes("CONTRACT_NOT_FOUND")) {
+      return "العقد غير موجود أو لا يتبع هذا الفرع";
+    }
+
+    if (message.includes("CONTRACT_ALREADY_CANCELLED")) {
+      return "تم إلغاء هذا العقد مسبقًا";
+    }
+
+    if (message.includes("INSUFFICIENT_CASH_BALANCE")) {
+      return "لا يكفي رصيد المحفظة النقدية لعكس دفعات العقد؛ لم يتم إلغاء أي جزء من العملية";
+    }
+
+    if (message.includes("CONTRACT_INVENTORY_HISTORY_INVALID")) {
+      return "تعذر إثبات كمية المخزون أو تكلفته التاريخية لهذا العقد؛ لم يتم إلغاء أي جزء من العملية";
+    }
+
+    return message || "تعذر إلغاء العقد";
+  }
+
+  async function cancelContract() {
+    if (!branchId || !contract?.id || cancellingContract) {
+      if (!branchId || !contract?.id) {
+        showMessage("تعذر تنفيذ العملية", "تعذر تحديد العقد أو الفرع", "error");
+      }
+      return;
+    }
+
+    try {
+      setCancellingContract(true);
+      renewFinanceSession();
+
+      const response = await fetch("/finance/api/contracts/cancel", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          branch,
+          contractId: contract.id,
+        }),
+      });
+
+      const result = (await response.json().catch(() => null)) as
+        | (Partial<CancelContractResult> & {
+            ok?: boolean;
+            message?: string;
+            code?: string;
+          })
+        | null;
+
+      if (!response.ok || !result?.ok) {
+        throw new Error(
+          getCancelContractErrorMessage(
+            result?.message || result?.code || "تعذر إلغاء العقد"
+          )
+        );
+      }
+
+      if (!result.contract_id) {
+        throw new Error("لم يتم استلام نتيجة إلغاء العقد");
+      }
+
+      setShowCancelContractDialog(false);
+      await loadData(branchId);
+      showMessage(
+        "تم إلغاء العقد",
+        "تم إلغاء العقد ودفعاته وإعادة البطاقات للمستثمر بنجاح",
+        "success"
+      );
+    } catch (error) {
+      showMessage(
+        "تعذر إلغاء العقد",
+        getCancelContractErrorMessage(
+          getErrorMessage(error, "تعذر إلغاء العقد")
+        ),
+        "error"
+      );
+    } finally {
+      setCancellingContract(false);
+    }
+  }
+
   function openCustomerProfile() {
     if (!contract?.customer_id) {
       showMessage(
@@ -1300,9 +1398,12 @@ export default function FinanceContractDetailsPage() {
     Boolean(contract?.guarantor_customer_id) ||
     Boolean(contract?.guarantor_name);
 
-  const canPrintClearanceOrReopen = isFullyPaid || isStoredClosedContract;
+  const canPrintClearanceOrReopen =
+    !isCancelledContract && (isFullyPaid || isStoredClosedContract);
   const canCloseActiveContract =
     displayedContractState === "ساري" && !closingContract;
+  const canCancelContract =
+    canCloseFromMenu && !isCancelledContract && !cancellingContract;
 
   return (
     <main dir="rtl" style={getPageStyle(isMobile)}>
@@ -1337,11 +1438,13 @@ export default function FinanceContractDetailsPage() {
           actions={
             contract ? (
               <ContractActionsMenu
-                canEdit={canEditFromMenu}
+                canEdit={canEditFromMenu && !isCancelledContract}
                 canPrint={canPrintFromMenu}
                 canClose={canCloseFromMenu && canCloseActiveContract}
+                canCancel={canCancelContract}
                 sharing={sharingContract}
                 closing={closingContract}
+                cancelling={cancellingContract}
                 onEdit={() =>
                   router.push(
                     `/finance/${branch}/contracts/edit/${contractId}`
@@ -1350,6 +1453,7 @@ export default function FinanceContractDetailsPage() {
                 onShare={() => void shareContractPdf()}
                 onPrint={openCombinedPrintPage}
                 onClose={() => setShowCloseDialog(true)}
+                onCancel={() => setShowCancelContractDialog(true)}
               />
             ) : undefined
           }
@@ -1631,7 +1735,11 @@ export default function FinanceContractDetailsPage() {
                           type="button"
                           style={cancelButton}
                           onClick={() => void cancelPayment(payment)}
-                          disabled={Boolean(payment.is_cancelled) || isCancelling}
+                          disabled={
+                            isCancelledContract ||
+                            Boolean(payment.is_cancelled) ||
+                            isCancelling
+                          }
                         >
                           {isCancelling ? "جاري الإلغاء..." : "⛔ إلغاء"}
                         </button>
@@ -1667,15 +1775,17 @@ export default function FinanceContractDetailsPage() {
                 />
               )}
 
-              <ActionButton
-                icon="✏️"
-                title="تعديل العقد"
-                onClick={() =>
-                  router.push(
-                    `/finance/${branch}/contracts/edit/${contractId}`
-                  )
-                }
-              />
+              {!isCancelledContract && canEditFromMenu && (
+                <ActionButton
+                  icon="✏️"
+                  title="تعديل العقد"
+                  onClick={() =>
+                    router.push(
+                      `/finance/${branch}/contracts/edit/${contractId}`
+                    )
+                  }
+                />
+              )}
 
               <ActionButton
                 icon="🖨️"
@@ -1708,6 +1818,7 @@ export default function FinanceContractDetailsPage() {
               )}
 
               {!note &&
+                !isCancelledContract &&
                 contract?.contract_type !== "عقد بيع حر" &&
                 canCreateLinkedPromissoryNote && (
                 <ActionButton
@@ -1777,6 +1888,19 @@ export default function FinanceContractDetailsPage() {
           disabled={closingContract}
           onCancel={() => setShowCloseDialog(false)}
           onConfirm={() => void closeContract(true)}
+        />
+      )}
+
+      {showCancelContractDialog && (
+        <ConfirmDialog
+          title="إلغاء العقد"
+          message="سيتم إلغاء العقد وإلغاء دفعاته وإعادة البطاقات للمستثمر، ولا يمكن استعادته"
+          confirmText={
+            cancellingContract ? "جاري إلغاء العقد..." : "إلغاء العقد"
+          }
+          disabled={cancellingContract}
+          onCancel={() => setShowCancelContractDialog(false)}
+          onConfirm={() => void cancelContract()}
         />
       )}
 
@@ -1867,22 +1991,28 @@ function ContractActionsMenu({
   canEdit,
   canPrint,
   canClose,
+  canCancel,
   sharing,
   closing,
+  cancelling,
   onEdit,
   onShare,
   onPrint,
   onClose,
+  onCancel,
 }: {
   canEdit: boolean;
   canPrint: boolean;
   canClose: boolean;
+  canCancel: boolean;
   sharing: boolean;
   closing: boolean;
+  cancelling: boolean;
   onEdit: () => void;
   onShare: () => void;
   onPrint: () => void;
   onClose: () => void;
+  onCancel: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -1919,7 +2049,8 @@ function ContractActionsMenu({
     };
   }, [open]);
 
-  const hasAvailableAction = canEdit || canPrint || canClose;
+  const hasAvailableAction =
+    canEdit || canPrint || canClose || canCancel;
 
   function runAction(action: () => void) {
     setOpen(false);
@@ -1967,14 +2098,27 @@ function ContractActionsMenu({
             />
           )}
 
+          {(canClose || canCancel) && <div style={dropdownDivider} />}
+
           {canClose && (
+            <DropdownAction
+              icon={<LockIcon />}
+              label={closing ? "جاري إغلاق العقد..." : "إغلاق العقد"}
+              onClick={() => runAction(onClose)}
+              disabled={closing}
+              danger
+            />
+          )}
+
+          {canCancel && (
             <>
-              <div style={dropdownDivider} />
               <DropdownAction
                 icon={<LockIcon />}
-                label={closing ? "جاري إغلاق العقد..." : "إغلاق العقد"}
-                onClick={() => runAction(onClose)}
-                disabled={closing}
+                label={
+                  cancelling ? "جاري إلغاء العقد..." : "إلغاء العقد"
+                }
+                onClick={() => runAction(onCancel)}
+                disabled={cancelling}
                 danger
               />
             </>
