@@ -18,9 +18,17 @@ import {
   type SupportType,
   type EhtisabResult,
 } from "@/lib/ehtisabEngine"
+import {
+  BNPL_FEE_CONFIG,
+  calculateBnplFees,
+  formatBasisPoints,
+  formatHalalas,
+  normalizeBnplAmountInput,
+  type BnplProvider,
+} from "@/lib/buyNowPayLaterCalculator"
 
 type ScreenType = "mobile" | "tablet" | "desktop"
-type CalculationType = "" | "personal" | "real"
+type CalculationType = "" | "personal" | "bnpl" | "real"
 type WorkCategory =
   | "civil"
   | "military"
@@ -61,6 +69,10 @@ const CALCULATION_TYPE_OPTIONS: SelectOption[] = [
     label: "تمويل شخصي",
   },
   {
+    value: "bnpl",
+    label: "اشتر الآن وادفع لاحقاً",
+  },
+  {
     value: "real",
     label: "تمويل عقاري (قريبًا)",
     disabled: true,
@@ -71,6 +83,15 @@ const CALCULATION_TYPE_OPTIONS: SelectOption[] = [
     disabled: true,
   },
 ]
+
+const BNPL_PROVIDER_OPTIONS: SelectOption[] = (
+  Object.entries(BNPL_FEE_CONFIG) as Array<
+    [BnplProvider, (typeof BNPL_FEE_CONFIG)[BnplProvider]]
+  >
+).map(([value, config]) => ({
+  value,
+  label: config.label,
+}))
 
 const SECTOR_OPTIONS: SelectOption[] = [
   { value: "civil", label: "حكومي مدني" },
@@ -213,6 +234,8 @@ export default function EhtisabPage() {
 
   const [calculationType, setCalculationType] =
     useState<CalculationType>("")
+  const [bnplInvoiceAmount, setBnplInvoiceAmount] = useState("")
+  const [bnplProvider, setBnplProvider] = useState<BnplProvider | "">("")
   const [sector, setSector] = useState<Sector>("civil")
   const [rank, setRank] = useState<Rank>("agent")
 
@@ -256,6 +279,13 @@ export default function EhtisabPage() {
       selectedProviderId !== "" &&
       providers.some(provider => provider.id === selectedProviderId),
     [providers, selectedProviderId]
+  )
+  const bnplCalculation = useMemo(
+    () =>
+      bnplProvider
+        ? calculateBnplFees(bnplInvoiceAmount, bnplProvider)
+        : null,
+    [bnplInvoiceAmount, bnplProvider]
   )
 
   const resetPersonalMarginMatch = useCallback(() => {
@@ -923,7 +953,104 @@ export default function EhtisabPage() {
           )}
         </section>
 
-        {calculationType && (
+        {calculationType === "bnpl" && (
+          <section style={getCardStyle(screen)}>
+            <SectionHeading
+              icon="🧾"
+              title="حاسبة اشتر الآن وادفع لاحقاً"
+              badge="احتساب فوري"
+            />
+
+            <div style={getFieldsGridStyle(screen)}>
+              <Field label="مبلغ الفاتورة">
+                <NumberInput
+                  value={bnplInvoiceAmount}
+                  placeholder="أدخل مبلغ الفاتورة"
+                  decimal
+                  suffix="ر.س"
+                  onChange={value =>
+                    setBnplInvoiceAmount(normalizeBnplAmountInput(value))
+                  }
+                />
+              </Field>
+
+              <Field label="شركة الدفع">
+                <CustomSelect
+                  value={bnplProvider}
+                  placeholder="اختر شركة الدفع"
+                  options={BNPL_PROVIDER_OPTIONS}
+                  onChange={value => setBnplProvider(value as BnplProvider)}
+                />
+              </Field>
+            </div>
+
+            {!bnplCalculation && (
+              <div style={bnplPromptStyle}>
+                أدخل مبلغ الفاتورة واختر شركة الدفع لعرض تفاصيل الرسوم.
+              </div>
+            )}
+
+            {bnplCalculation && (
+              <div style={bnplResultsStyle} aria-live="polite">
+                <ResultGroup title="تفاصيل العمولة" icon="٪">
+                  <Row
+                    title="مبلغ الفاتورة"
+                    value={`${formatHalalas(
+                      bnplCalculation.invoiceAmountHalalas
+                    )} ر.س`}
+                  />
+
+                  {bnplCalculation.commissionParts.map(part => (
+                    <Row
+                      key={part.key}
+                      title={`${part.label} (${formatBasisPoints(
+                        part.rateBasisPoints
+                      )})`}
+                      value={`${formatHalalas(part.amountHalalas)} ر.س`}
+                    />
+                  ))}
+                </ResultGroup>
+
+                <ResultGroup title="ملخص الرسوم" icon="📊">
+                  <Row
+                    title="الرسم الثابت"
+                    value={`${formatHalalas(
+                      bnplCalculation.fixedFeeHalalas
+                    )} ر.س`}
+                  />
+                  <Row
+                    title="إجمالي الرسوم قبل الضريبة"
+                    value={`${formatHalalas(
+                      bnplCalculation.feesBeforeTaxHalalas
+                    )} ر.س`}
+                  />
+                  <Row
+                    title={`ضريبة الرسوم (${formatBasisPoints(
+                      BNPL_FEE_CONFIG[bnplCalculation.provider]
+                        .vatRateBasisPoints
+                    )})`}
+                    value={`${formatHalalas(bnplCalculation.vatHalalas)} ر.س`}
+                  />
+                  <Row
+                    title="إجمالي الخصم"
+                    value={`${formatHalalas(
+                      bnplCalculation.totalDeductionHalalas
+                    )} ر.س`}
+                  />
+                  <Row
+                    title="صافي المبلغ بعد الرسوم"
+                    value={`${formatHalalas(
+                      bnplCalculation.netAmountHalalas
+                    )} ر.س`}
+                    emphasized
+                  />
+                </ResultGroup>
+              </div>
+            )}
+          </section>
+        )}
+
+        {(calculationType === "personal" || calculationType === "real") && (
           <section style={getCardStyle(screen)}>
             <SectionHeading
               icon={calculationType === "personal" ? "💳" : "🏠"}
@@ -2207,6 +2334,26 @@ const helperMessageDangerStyle: CSSProperties = {
   color: "#991b1b",
 }
 
+const bnplPromptStyle: CSSProperties = {
+  marginTop: 16,
+  padding: "13px 14px",
+  borderRadius: 13,
+  border: "1px solid #bfdbfe",
+  background: "#eff6ff",
+  color: "#1e40af",
+  fontSize: 12,
+  fontWeight: 800,
+  lineHeight: 1.8,
+  textAlign: "center",
+}
+
+const bnplResultsStyle: CSSProperties = {
+  marginTop: 18,
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 310px), 1fr))",
+  gap: 12,
+}
+
 const selectWrapperStyle: CSSProperties = {
   position: "relative",
   width: "100%",
@@ -2232,7 +2379,7 @@ const selectButtonStyle: CSSProperties = {
 }
 
 const selectButtonOpenStyle: CSSProperties = {
-  borderColor: "#3b82f6",
+  border: "1.5px solid #3b82f6",
   boxShadow: "0 0 0 4px rgba(59,130,246,0.10)",
 }
 
