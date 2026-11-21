@@ -127,7 +127,7 @@ type DrawerLink = {
   title: string;
   path: string;
   icon: string;
-  permission: string | string[];
+  permission?: string | string[];
 };
 
 type DrawerGroup = {
@@ -266,6 +266,13 @@ const MANAGER_ROLES = [
 
 const sections: MainSection[] = [
   {
+    title: "مهام العمل",
+    path: "work-tasks",
+    icon: "📋",
+    color: "#0f766e",
+    bg: "linear-gradient(135deg,#ecfdf5,#ccfbf1)",
+  },
+  {
     title: "سير العمل",
     path: "workflow",
     icon: "💼",
@@ -393,6 +400,11 @@ const drawerGroups: DrawerGroup[] = [
   {
     title: "العمل والمتابعة",
     links: [
+      {
+        title: "مهام العمل",
+        path: "work-tasks",
+        icon: "📋",
+      },
       {
         title: "سير العمل",
         path: "workflow",
@@ -1458,6 +1470,8 @@ export default function FinancePage() {
           ...group,
 
           links: group.links.filter((link) => {
+            if (!link.permission) return true;
+
             const requiredPermissions = Array.isArray(link.permission)
               ? link.permission
               : [link.permission];
